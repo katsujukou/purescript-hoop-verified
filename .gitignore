@@ -1,0 +1,18 @@
+# Dependencies
+.psci_modules
+.spago
+bower_components
+node_modules
+
+# Generated files
+build
+.fstar-cache
+.psci
+.purs-repl
+.psc-ide-port
+.spec-results
+output
+output-*
+# Misc
+**/.DS_Store
+.claude-sessions

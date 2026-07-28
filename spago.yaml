@@ -1,0 +1,22 @@
+package:
+  name: hoop
+  dependencies:
+    - aff
+    - effect
+    - functions
+    - nullable
+    - prelude
+    - record
+    - unsafe-coerce
+  test:
+    main: Test.Hoop
+    dependencies:
+      - arrays
+      - either
+      - maybe
+      - spec
+      - spec-node
+workspace:
+  packageSet:
+    registry: 77.13.1
+  extraPackages: {}
