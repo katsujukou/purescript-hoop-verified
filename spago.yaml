@@ -3,6 +3,7 @@ package:
   dependencies:
     - aff
     - effect
+    - fmt
     - functions
     - nullable
     - prelude
