@@ -1,3 +1,3 @@
 # Purescript Hoop
 
-A next generation effect abstraction in PureScript
+Hoop is a library of algebraic effects & handlers based on the CEK-like effect runtime with verified soundness
