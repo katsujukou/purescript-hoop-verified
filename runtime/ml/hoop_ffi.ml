@@ -177,7 +177,7 @@ let apply_payload_fn =
 (* A fully controllable clause from a curried PS handler
    `a1 -> ... -> an -> Cont b r o -> Hoop r o`. `Cont` is the machine's own
    resume function, so it is passed on unwrapped. *)
-let mk_ctl_clause_impl =
+let mk_full_clause_impl =
   call1
     (pure_js_expr
        "(function (ap) { \
@@ -255,7 +255,7 @@ let () =
   export "withImpl" (wrap_callback with_impl);
   export "runImpl" (wrap_callback run_impl);
   (* Already JS closures -- do not wrap_callback these. *)
-  export "mkFullClauseImpl" mk_ctl_clause_impl;
+  export "mkFullClauseImpl" mk_full_clause_impl;
   export "mkFastClauseImpl" mk_fast_clause_impl;
   export "mkReturnImpl" mk_return_impl;
   export "undefinedReturnImpl" undefined_return_impl;
