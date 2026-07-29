@@ -1,6 +1,7 @@
 module Hoop.Runtime.Test
 
 open Hoop.Runtime
+open Hoop.Runtime.Properties
 
 
 
