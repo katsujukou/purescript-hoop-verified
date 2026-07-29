@@ -1,6 +1,6 @@
 {
   "fstar_exe": "fstar",
   "include_dirs": [
-    "./runtime"
+    "./runtime/"
   ]
 }

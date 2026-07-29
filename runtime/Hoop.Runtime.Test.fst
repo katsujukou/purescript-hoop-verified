@@ -6,9 +6,9 @@ open Hoop.Runtime.Properties
 
 
 (*
-  Hoop.Runtime は値型 v と clause 型 cl にパラメトリックなので、
-  テストでは計算可能な具体型を入れて振る舞いを確かめる。
-  本番では v := FStar.Dyn.dyn、cl := PS のクロージャになる。
+  Hoop.Runtime is parametric in the value type v and the clause type cl, so the
+  tests plug in concrete, computable types to observe the actual behaviour.
+  In production, v := FStar.Dyn.dyn and cl := a PureScript closure.
 *)
 
 type tv =
@@ -23,16 +23,18 @@ let vadd (a b: tv) : tv =
 
 
 
-(* テスト用の clause 言語。実際の clause は PS のクロージャで中身は見えないが、
-   マシンはどんな clause に対しても同じ規律で動くはずなので、代表例を並べる *)
+(* The clause language used by the tests. Real clauses are PureScript closures whose
+   bodies are opaque, but the machine is supposed to follow the very same discipline for
+   any clause whatsoever, so we line up a few representative ones *)
 
 noeq
 type tcl =
-  | CConst : tv -> tcl (* 定数で再開する          … Reader.ask *)
-  | CEcho : tcl (* payload[0] で再開する    … Reader.local 的 *)
-  | CAbort : tv -> tcl (* 継続を捨てる            … Exception.throw *)
-  | CTwice : tcl (* 継続を2回呼ぶ            … multi-shot *)
-  (* a で再開し、その結果に b を足す。継続の戻り値を観測する clause *)
+  | CConst : tv -> tcl (* resume with a constant        -- Reader.ask *)
+  | CEcho : tcl (* resume with payload[0]        -- Reader.local-ish *)
+  | CAbort : tv -> tcl (* drop the continuation         -- Exception.throw *)
+  | CTwice : tcl (* invoke the continuation twice -- multi-shot *)
+  (* Resume with a, then add b to what comes back. A clause that observes the return
+     value of the continuation *)
   | CResumeAdd : tv -> tv -> tcl
 
 let tapply (c: tcl) (payload: list tv) (k: (tv -> comp_tree tv tcl)) : comp_tree tv tcl =
@@ -47,11 +49,11 @@ let tapply (c: tcl) (payload: list tv) (k: (tv -> comp_tree tv tcl)) : comp_tree
   | CResumeAdd a b -> Op (k a) (fun r -> Var (vadd r b))
 
 (*
-  steps は GTot なので exec も GTot になる。F* は nullary なトップレベル let に
-  GTot を許さないため、各テストは実行結果をトップレベルに束縛せず、
-  assert_norm の中に直接埋め込む形で書く（assert_norm の中身は命題、つまり
-  ゴースト位置なので GTot の呼び出しがそのまま正規化される）。
-  プログラム本体を組み立てる reader などのヘルパは Tot のままでよい。
+  `steps` is GTot, hence so is `exec`. F* does not admit GTot for a nullary top-level
+  let, so no test binds its execution result at top level; each one instead embeds the
+  run directly inside an assert_norm (the body of an assert_norm is a proposition, that
+  is, a ghost position, so the GTot call is normalized right there).
+  Helpers that merely build up the program under test, such as `reader`, may stay in Tot.
 *)
 
 let exec (c: comp_tree tv tcl) : GTot (state tv tcl) = steps tapply 1000 (load c)
@@ -63,7 +65,7 @@ let result (s: state tv tcl) : option tv =
 
 
 
-(* ---- 1. 純粋な Op 連鎖 ---- *)
+(* ---- 1. A pure chain of Ops ---- *)
 
 let _ =
   assert_norm
@@ -72,7 +74,7 @@ let _ =
 
 
 
-(* ---- 2. 基本的なハンドラ: perform が届く ---- *)
+(* ---- 2. Basic handler: the perform reaches it ---- *)
 
 let reader (n: int) (body: comp_tree tv tcl) : comp_tree tv tcl =
   Handle [("Reader", "ask", CConst (VI n))] None body
@@ -83,7 +85,7 @@ let _ =
 
 
 
-(* ---- 3. deep handler: 再開後もハンドラが再設置され、2回目の perform も届く ---- *)
+(* ---- 3. Deep handler: the handler is re-installed after resumption, so a second perform reaches it too ---- *)
 
 let _ =
   assert_norm
@@ -94,7 +96,7 @@ let _ =
 
 
 
-(* ---- 4. 戻り節 (Handle の Var?) が最後に適用される ---- *)
+(* ---- 4. The return clause (the Var? of Handle) is applied last ---- *)
 
 let _ =
   assert_norm
@@ -105,7 +107,7 @@ let _ =
 
 
 
-(* ---- 5. 継続を捨てる clause: 後続も、そのハンドラの戻り節も走らない ---- *)
+(* ---- 5. A clause that drops the continuation: neither the rest of the body nor that handler's return clause runs ---- *)
 
 let _ =
   assert_norm
@@ -116,7 +118,7 @@ let _ =
 
 
 
-(* ---- 6. 入れ子: 内側のハンドラが外側を隠す ---- *)
+(* ---- 6. Nesting: the inner handler shadows the outer one ---- *)
 
 let _ =
   assert_norm
@@ -125,7 +127,7 @@ let _ =
 
 
 
-(* ---- 7. 内側が扱わない作用は外側へ抜ける ---- *)
+(* ---- 7. An effect the inner handler does not cover escapes to the outer one ---- *)
 
 let _ =
   assert_norm
@@ -137,7 +139,7 @@ let _ =
 
 
 
-(* ---- 8. multi-shot: 捕捉した継続を2回再開できる ---- *)
+(* ---- 8. multi-shot: the captured continuation can be resumed twice ---- *)
 
 let _ =
   assert_norm
@@ -148,7 +150,7 @@ let _ =
 
 
 
-(* ---- 9. payload が clause に渡る ---- *)
+(* ---- 9. The payload is passed to the clause ---- *)
 
 let _ =
   assert_norm
@@ -159,16 +161,17 @@ let _ =
 
 
 
-(* ---- 10. 未処理の作用は Stuck になる (TS 版が throw する箇所) ---- *)
+(* ---- 10. An unhandled effect ends up Stuck (where the TS version throws) ---- *)
 
 let _ = assert_norm (exec (Perform "Nope" "missing" []) == Stuck "Nope" "missing")
 
 
 
 (*
-  ---- 11-12. TS 側 machine.test.ts の以下2件を移植したもの。
-  再開した継続がプロンプトを再設置する結果、`k` の戻り値は
-  「戻り節を通り終えた値」になる、という deep handler の要点。
+  ---- 11-12. Ported from the following two cases of machine.test.ts on the TS side.
+  Since a resumed continuation re-installs the prompt, the value returned by `k`
+  is "the value that has already gone through the return clause" -- the essence of
+  deep handlers.
 
     "deep semantics through the return clause (Var)"
     "continuation after resume: k's result is the value already
@@ -179,7 +182,7 @@ let ret1000:option (tv -> comp_tree tv tcl) = Some (fun v -> Var (vadd v (VI 100
 
 
 
-(* 戻り節が最後に一度だけ適用される: 1 + 1000 *)
+(* The return clause is applied exactly once, at the very end: 1 + 1000 *)
 
 let _ =
   assert_norm
@@ -188,7 +191,7 @@ let _ =
 
 
 
-(* k(1) は戻り節を通った 1001 を返し、clause がそれに 100 を足す *)
+(* k(1) returns 1001, the value already processed by the return clause, and the clause adds 100 to it *)
 
 let _ =
   assert_norm

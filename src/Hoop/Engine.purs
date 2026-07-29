@@ -1,9 +1,10 @@
--- | src/Hoop/Engine.js は生成物（runtime-fst/Hoop.Runtime.fst → OCaml → jsoo）。
--- | 再生成は `hoop-build-runtime`。境界の手書きコードは runtime-ml/hoop_ffi.ml。
+-- | src/Hoop/Engine.js is generated (runtime/Hoop.Runtime.fst -> OCaml -> jsoo).
+-- | Regenerate it with `hoop-build-runtime`. The handwritten boundary code lives
+-- | in runtime/ml/hoop_ffi.ml.
 -- |
--- | Phase 1 のため、公開しているのは Pure / Bind / Perform / Handle / run だけ。
--- | evidence-passing、tail-resumptive fast path、prompt-local cell、scoped effect
--- | はまだランタイムに無い。
+-- | This is Phase 1, so only Pure / Bind / Perform / Handle / run are exposed.
+-- | Evidence passing, the tail-resumptive fast path, prompt-local cells and
+-- | scoped effects are not in the runtime yet.
 module Hoop.Engine
   ( Hoop
   , Payload
@@ -26,27 +27,31 @@ import Data.Function.Uncurried (Fn2, Fn3, mkFn2, runFn2, runFn3)
 import Data.Nullable (Nullable, notNull, null)
 import Unsafe.Coerce (unsafeCoerce)
 
--- | エフェクト付き計算。runtime-fst/Hoop.Runtime.fst の `comp` に対応する。
+-- | An effectful computation, corresponding to `comp_tree` in
+-- | runtime/Hoop.Runtime.fst.
 -- |
--- | 型引数 `a` はファントムであることに注意。ランタイムは値の型を一度も見ない
--- | （F* 側で `comp` が値型にパラメトリックなのがその主張）。`a` が意味を持つのは
--- | PureScript の型検査の中だけ。
+-- | Note that the type argument `a` is phantom: the runtime never inspects the
+-- | type of a value, which is exactly what the F* side asserts by keeping
+-- | `comp_tree` parametric in its value type. `a` carries meaning only inside
+-- | PureScript's type checker.
 foreign import data Hoop :: Type -> Type
 
--- | ランタイムが運ぶ、型の分からない値。PS 側からは不透明。
+-- | A value carried by the runtime, of a type the runtime does not know.
+-- | Opaque from the PureScript side.
 foreign import data Payload :: Type
 
--- | 限定継続。clause がこれを呼ぶと、捕捉されたスタック片が再設置される
--- | （deep handler なのでハンドラごと戻る）。
+-- | A delimited continuation. Invoking it from a clause reinstates the captured
+-- | stack segment -- the handler included, since the semantics are deep.
 type Resume b = Payload -> Hoop b
 
--- | ハンドラの節。ランタイムは `(payload, k) => comp` として呼ぶ。
+-- | A handler clause. The runtime invokes it as `(payload, k) => comp`.
 type Clause b = Fn2 (Array Payload) (Resume b) (Hoop b)
 
--- | ハンドラ表の1エントリ。実行時表現は `[eff, op, clause]` の3要素 JS 配列。
+-- | One entry of a handler table. Represented at runtime as the three-element
+-- | JavaScript array `[eff, op, clause]`.
 foreign import data HandlerEntry :: Type -> Type
 
--- 生成された Engine.js の関数。すべて非カリー化。
+-- Functions from the generated Engine.js. All of them are uncurried.
 foreign import pureImpl :: forall a. a -> Hoop a
 foreign import bindImpl :: forall a b. Fn2 (Hoop a) (a -> Hoop b) (Hoop b)
 foreign import performImpl :: forall a. Fn3 String String (Array Payload) (Hoop a)
@@ -69,38 +74,40 @@ instance Bind Hoop where
 
 instance Monad Hoop
 
--- | 値を payload に入れる。ランタイムは中身を見ないので、取り出すときに
--- | 同じ型を指定する責任は呼び出し側にある。
+-- | Wrap a value as a payload. The runtime never looks inside, so it is the
+-- | caller's responsibility to read it back at the same type.
 toPayload :: forall a. a -> Payload
 toPayload = unsafeCoerce
 
 fromPayload :: forall a. Payload -> a
 fromPayload = unsafeCoerce
 
--- | 作用を発火する。
+-- | Fire an operation.
 perform :: forall a. String -> String -> Array Payload -> Hoop a
 perform eff op payload = runFn3 performImpl eff op payload
 
--- | ハンドラの節を作る。
+-- | Build a handler clause.
 clause :: forall b. (Array Payload -> Resume b -> Hoop b) -> Clause b
 clause = mkFn2
 
--- | ハンドラ表の1エントリを作る。`[eff, op, clause]` の JS 配列になる。
+-- | Build one entry of a handler table. Becomes the JavaScript array
+-- | `[eff, op, clause]`.
 entry :: forall b. String -> String -> Clause b -> HandlerEntry b
 entry eff op c = unsafeCoerce [ unsafeCoerce eff, unsafeCoerce op, unsafeCoerce c ]
 
--- | 戻り節なしでハンドラを設置する（戻り節は恒等）。
+-- | Install a handler with no return clause, so the return clause is the identity.
 handle :: forall a. Array (HandlerEntry a) -> Hoop a -> Hoop a
 handle hs m = runFn3 handleImpl null hs m
 
--- | 戻り節つきでハンドラを設置する。`ret` は被ハンドル計算が最後まで到達した
--- | 値に適用される。継続を捨てる節を通った場合は走らない。
+-- | Install a handler with a return clause. `ret` is applied to the value the
+-- | handled computation reaches on its own. It does not run when a clause
+-- | discards the continuation instead.
 handleWith
   :: forall a b. (a -> Hoop b) -> Array (HandlerEntry b) -> Hoop a -> Hoop b
 handleWith ret hs m =
   runFn3 handleImpl (notNull (\p -> ret (fromPayload p))) hs m
 
--- | マシンを最後まで回す。Phase 1 のランタイムは同期的で、副作用を持たない。
--- | 未処理の作用があると JS の Error が投げられる。
+-- | Drive the machine to completion. The Phase 1 runtime is synchronous and
+-- | free of side effects. An unhandled operation raises a JavaScript Error.
 run :: forall a. Hoop a -> a
 run = runImpl

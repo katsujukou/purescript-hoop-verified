@@ -11,10 +11,10 @@
  * repeatedly transitioning between configurations of the form <C, E, K>.
  *
  * In a conventional CEK machine, E maps variables to values. In Hoop, lexical
- * environments are already captured by PureScript/JavaScript closures. We 
- * therefore repurpose E as an evidence environment that maps each handled 
- * operation to evidence identifying its prompt —- thestack frame thatmarks the 
- * boundary for continuation capture -— and the environment outsidethat prompt.
+ * environments are already captured by PureScript/JavaScript closures. We therefore
+ * repurpose E as an evidence environment that maps each handled operation to evidence
+ * identifying its prompt —- the stack frame which marks the boundary for continuation
+ * capture -— and the environment outside that prompt.
  *)
 module Hoop.Runtime
 
@@ -152,6 +152,12 @@ let find_prompt
   = find_prompt_aux eff op [] k
 
 let apply_t (v cl : Type) = cl -> list v -> (v -> comp_tree v cl) -> comp_tree v cl
+
+let well_scoped
+    (#v #cl : Type)
+    (apply: apply_t v cl)
+  : prop 
+  = True
 
 (**
  * The small-step semantics of the machine.

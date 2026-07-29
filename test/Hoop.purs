@@ -32,7 +32,7 @@ throw msg = perform "Exc" "throw" [ toPayload msg ]
 catchAll :: forall a. (String -> a) -> Hoop a -> Hoop a
 catchAll f = handle [ entry "Exc" "throw" (clause \p _ -> pure (f (arg 0 "?" p))) ]
 
--- 非決定計算（継続を2回呼ぶ） -------------------------------------------------
+-- Nondeterminism (the clause resumes twice) ------------------------------
 
 choice :: Hoop Boolean
 choice = perform "Amb" "choice" []
@@ -51,7 +51,7 @@ main :: Effect Unit
 main = runSpecAndExitProcess [ consoleReporter ] do
   describe "Hoop.Engine" do
 
-    it "pure と bind" do
+    it "pure and bind" do
       let
         prog = do
           x <- pure 1
@@ -59,10 +59,10 @@ main = runSpecAndExitProcess [ consoleReporter ] do
           pure (x + y)
       run prog `shouldEqual` 3
 
-    it "perform がハンドラに届く" do
+    it "perform reaches its handler" do
       run (reader 42 (map (_ + 1) ask)) `shouldEqual` 43
 
-    it "deep handler: 再開後も2回目の perform が届く" do
+    it "deep handler: a second perform still reaches the handler after resuming" do
       let
         prog = do
           a <- ask
@@ -70,35 +70,35 @@ main = runSpecAndExitProcess [ consoleReporter ] do
           pure (a + b)
       run (reader 7 prog) `shouldEqual` 14
 
-    it "戻り節が最後に適用される" do
+    it "the return clause is applied at the end" do
       run (handleWith (\v -> pure (v * 10))
              [ entry "Reader" "ask" (clause \_ k -> k (toPayload 1)) ]
              ask) `shouldEqual` 10
 
-    it "k の戻り値は戻り節を通った後の値" do
+    it "the value k returns has already passed through the return clause" do
       run (handleWith (\v -> pure (v * 10))
              [ entry "Reader" "ask"
                  (clause \_ k -> map (_ + 100) (k (toPayload 1)))
              ]
              ask) `shouldEqual` 110
 
-    it "継続を捨てる節: 後続は走らない" do
+    it "a clause that discards the continuation skips the rest" do
       let
         prog = do
           _ <- throw "boom"
           pure "unreachable"
       run (catchAll ("caught: " <> _) prog) `shouldEqual` "caught: boom"
 
-    it "multi-shot: 継続を2回再開できる" do
+    it "multi-shot: the continuation can be resumed twice" do
       run (allChoices (map (if _ then 1 else 2) choice)) `shouldEqual` [ 1, 2 ]
 
-    it "内側のハンドラが外側を隠す" do
+    it "an inner handler shadows an outer one" do
       run (reader 1 (reader 2 ask)) `shouldEqual` 2
 
-    it "内側が扱わない作用は外側へ抜ける" do
+    it "an operation the inner handler does not cover escapes outward" do
       run (reader 1 (catchAll (\_ -> 0) ask)) `shouldEqual` 1
 
-    it "payload は型を保って往復する" do
+    it "a payload survives the round trip at its original type" do
       run (handle
              [ entry "Echo" "say" (clause \p k -> k (toPayload (arg 0 "" p))) ]
              (perform "Echo" "say" [ toPayload "hello" ]))
