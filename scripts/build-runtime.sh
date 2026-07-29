@@ -31,7 +31,9 @@ EXTRACT_MODULES=(Hoop.Runtime)
 # Names the generated JS exposes. Must match the `export` calls in hoop_ffi.ml.
 # All of them are uncurried multi-argument functions -- the PureScript side
 # imports them through Fn2 / Fn3.
-EXPORTS=(pureImpl bindImpl performImpl handleImpl runImpl)
+EXPORTS=(pureImpl bindImpl performImpl withImpl runImpl
+         mkFullClauseImpl mkFastClauseImpl mkReturnImpl undefinedReturnImpl
+         emptyClausesImpl emptyHandlersImpl insertClauseImpl insertClausesImpl)
 
 # Name of the function js_of_ocaml wraps the generated code in. Engine.js calls it.
 INIT_FN=hoopInit
