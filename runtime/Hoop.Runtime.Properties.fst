@@ -665,3 +665,14 @@ let load_never_stuck (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
           (ensures never_stuck apply (load c))
   = load_wf cok c;
     wf_never_stuck cok apply (load c)
+
+let steps_done_unique 
+    (#v #cl : Type)
+    (apply: apply_t v cl)
+    (n m : nat)
+    (s : state v cl)
+  : Lemma
+      (requires Done? (steps apply n s) /\ Done? (steps apply m s))
+      (ensures steps apply n s == steps apply m s)
+  = if n <= m then steps_stable apply n (m - n) s 
+    else steps_stable apply m (n - m) s
