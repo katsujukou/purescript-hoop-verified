@@ -5,14 +5,14 @@ open FStar.List.Tot
 open Hoop.Runtime
 
 // `Hoop.Runtime.find_prompt` is implemented tail-recursively, which 
-// is stack-safe and more performant, but hard to use to prove theorems.
+// is stack-safe and more performant, but hard to use in writing proofs.
 // Here, find_prompt' is non-tail recursive variant and intend to be used 
 // inside the theorem proofs.
 let rec find_prompt'
     (#v #cl: Type)
     (eff op: string)
     (k: stack v cl)
-  : GTot (option (stack v cl & cl & stack v cl)) 
+  : GTot (o:option (stack v cl & cl & stack v cl) { handled_in eff op k <==> Some? o }) 
   = match k with
     | [] -> None
     | PromptF hs ret :: rest ->
@@ -34,7 +34,8 @@ let rec find_prompt_aux_correct (#v #cl: Type) (eff op: string) (soFar k: stack 
         (find_prompt_aux eff op soFar k ==
           (match find_prompt' eff op k with
             | None -> None
-            | Some (cap, c, below) -> Some (rev_acc soFar cap, c, below)))) (decreases k) =
+            | Some (cap, c, below) -> Some (rev_acc soFar cap, c, below))))
+      (decreases k) =
   match k with
   | [] -> ()
   | hd :: tl ->
@@ -45,12 +46,12 @@ let rec find_prompt_aux_correct (#v #cl: Type) (eff op: string) (soFar k: stack 
           | None -> find_prompt_aux_correct eff op (hd :: soFar) tl)
       | BindF _ -> find_prompt_aux_correct eff op (hd :: soFar) tl)
 
+// The correctness of find_prompt
 let find_prompt_correct
     (#v #cl: Type)
     (eff op: string) 
     (k: stack v cl)
-  : Lemma 
-      (ensures find_prompt eff op k == find_prompt' eff op k)
+  : Lemma (find_prompt eff op k == find_prompt' eff op k)
   = find_prompt_aux_correct eff op [] k
 
 let rec find_prompt_partitions_spec
@@ -58,7 +59,6 @@ let rec find_prompt_partitions_spec
     (eff op: string)
     (k: stack v cl)
   : Lemma 
-      (requires Some? (find_prompt' eff op k))
       (ensures find_prompt_partitions_correctness (find_prompt' #v #cl) eff op k)
       (decreases k)
   = match k with
@@ -74,9 +74,7 @@ let find_prompt_partitions
     (#v #cl: Type)
     (eff op: string)
     (k: stack v cl)
-  : Lemma 
-      (requires Some? (find_prompt eff op k))
-      (ensures find_prompt_partitions_correctness (find_prompt #v #cl) eff op k)
+  : Lemma (find_prompt_partitions_correctness (find_prompt #v #cl) eff op k)
   = find_prompt_correct eff op k; 
     find_prompt_partitions_spec eff op k
 
@@ -85,7 +83,6 @@ let rec find_prompt_last_spec
     (eff op: string)
     (k: stack v cl)
   : Lemma
-      (requires Some? (find_prompt' eff op k))
       (ensures (find_prompt_last_correctness (find_prompt' #v #cl) eff op k))
       (decreases k)
   = match k with
@@ -102,8 +99,7 @@ let find_prompt_last
     (eff op: string)
     (k: stack v cl)
   : Lemma
-      (requires Some? (find_prompt eff op k))
-      (ensures (find_prompt_last_correctness (find_prompt #v #cl) eff op k))
+      (find_prompt_last_correctness (find_prompt #v #cl) eff op k)
   = find_prompt_correct eff op k;
     find_prompt_last_spec eff op k
 
@@ -112,7 +108,6 @@ let rec find_prompt_innermost_spec
     (eff op: string) 
     (k: stack v cl)
   : Lemma
-      (requires Some? (find_prompt' eff op k))
       (ensures (find_prompt_innermost_correctness (find_prompt' #v #cl) eff op k))
       (decreases k) 
   = match k with
@@ -133,35 +128,10 @@ let find_prompt_innermost
     (eff op: string) 
     (k: stack v cl)
   : Lemma
-      (requires Some? (find_prompt eff op k))
       (ensures (find_prompt_innermost_correctness (find_prompt #v #cl) eff op k))
       (decreases k) 
   = find_prompt_correct eff op k;
     find_prompt_innermost_spec eff op k
-
-let rec find_prompt_none_spec
-    (#v #cl: Type)
-    (eff op: string)
-    (k: stack v cl)
-  : Lemma
-      (ensures find_prompt_none_correctness (find_prompt' #v #cl) eff op k)
-      (decreases k)
-  = match k with
-    | [] -> ()
-    | PromptF hs _ :: rest ->
-      (match lookup_clause hs eff op with
-        | Some _ -> ()
-        | None -> find_prompt_none_spec eff op rest)
-    | _ :: rest -> find_prompt_none_spec eff op rest
-
-// Corollary
-let find_prompt_none
-    (#v #cl: Type)
-    (eff op: string)
-    (k: stack v cl)
-  : Lemma
-      (ensures find_prompt_none_correctness (find_prompt #v #cl) eff op k)
-  = find_prompt_correct eff op k; find_prompt_none_spec eff op k
 
 (* ------------------------------------------------------------------ *)
 
@@ -214,108 +184,6 @@ let step_perform_stuck
       (~(handled_in eff op k) <==>
           step apply (Step (Perform eff op payload) k) == Stuck eff op)
   = find_prompt_none eff op k
-
-let step_resumed
-    (#v #cl : Type)
-    (apply: apply_t v cl)
-    (comp : comp_tree v cl { Resumed? comp })
-    (cc : stack v cl)
-  : Lemma 
-      (step apply (Step comp cc) == 
-        Step (Var (Resumed?.value comp)) ((Resumed?.frames comp) @ cc))
-  = ()
-
-let capture_resume_roundtrip
-    (#v #cl: Type)
-    (eff op: string)
-    (k: stack v cl)
-    (x: v)
-    (apply: apply_t v cl)
-  : Lemma
-      (requires (handled_in eff op k))
-      (ensures
-          (let Some (captured, _, below) = find_prompt eff op k in
-            step apply (Step (Resumed captured x) below) == Step (Var x) k))
-  = find_prompt_partitions eff op k
-
-let step_op
-    (#v #cl: Type)
-    (apply: apply_t v cl)
-    (c: comp_tree v cl)
-    (fn: v -> comp_tree v cl)
-    (k: stack v cl)
-  : Lemma (step apply (Step (Op c fn) k) == Step c (BindF fn :: k))
-  = ()
-
-let step_handle
-    (#v #cl: Type)
-    (apply: apply_t v cl)
-    (hs: handlers cl)
-    (ret: option (v -> comp_tree v cl))
-    (body: comp_tree v cl)
-    (k: stack v cl)
-  : Lemma (step apply (Step (Handle hs ret body) k) == Step body (PromptF hs ret :: k))
-  = ()
-
-let step_var_done
-    (#v #cl: Type)
-    (apply: apply_t v cl)
-    (value: v)
-  : Lemma (step apply (Step (Var value) []) == Done value)
-  = ()
-
-let step_var_bind
-    (#v #cl: Type)
-    (apply: apply_t v cl)
-    (value: v)
-    (fn: v -> comp_tree v cl)
-    (rest: stack v cl)
-  : Lemma (step apply (Step (Var value) (BindF fn :: rest)) == Step (fn value) rest)
-  = ()
-
-let step_var_prompt
-    (#v #cl: Type)
-    (apply: apply_t v cl)
-    (value: v)
-    (hs: handlers cl)
-    (ret: option (v -> comp_tree v cl))
-    (rest: stack v cl)
-  : Lemma
-      (step apply (Step (Var value) (PromptF hs ret :: rest)) ==
-        (match ret with
-          | Some r -> Step (r value) rest
-          | None -> Step (Var value) rest))
-  = ()
-
-let step_var_prompt_identity
-    (#v #cl: Type)
-    (apply: apply_t v cl)
-    (value: v)
-    (hs: handlers cl)
-    (rest: stack v cl)
-  : Lemma (step apply (Step (Var value) (PromptF hs None :: rest)) == Step (Var value) rest)
-  = ()
-
-let handle_installs
-    (#v #cl: Type)
-    (hs: handlers cl)
-    (ret: option (v -> comp_tree v cl))
-    (k: stack v cl)
-    (eff op: string)
-  : Lemma
-      (requires Some? (lookup_clause hs eff op))
-      (ensures handled_in eff op (PromptF hs ret :: k))
-  = ()
-
-let handled_in_cons
-    (#v #cl: Type)
-    (eff op: string)
-    (f: frame v cl)
-    (k: stack v cl)
-  : Lemma
-      (requires handled_in eff op k)
-      (ensures handled_in eff op (f :: k))
-  = ()
 
 (* ------------------------------------------------------------------ *)
 
@@ -397,7 +265,7 @@ let ws_var (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (x: v)
 
 let ws_perform (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
                (eff op: string) (payload: list v)
-  : Lemma (ws cok a (Perform eff op payload <: comp_tree v cl) <==> a eff op == true)
+  : Lemma (ws cok a (Perform eff op payload <: comp_tree v cl) <==> a eff op)
   = ws_perform_eq #v #cl cok a eff op payload
 
 let ws_op (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
@@ -491,7 +359,7 @@ let av_prompt (#v #cl: Type) (hs: handlers cl) (ret: option (v -> comp_tree v cl
 let av_append (#v #cl: Type) (k1 k2: stack v cl) (a: can_perform)
   : Lemma (equiv_can (can_in_with (k1 @ k2) a) (can_in_with k1 (can_in_with k2 a)))
   = introduce forall (e o: string).
-      (can_in_with (k1 @ k2) a) e o == (can_in_with k1 (can_in_with k2 a)) e o
+      (can_in_with (k1 @ k2) a) e o <==> (can_in_with k1 (can_in_with k2 a)) e o
     with append_memP_forall k1 k2
 
 (* ------------------------------------------------------------------ *)

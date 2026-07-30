@@ -157,61 +157,58 @@ let apply_t (v cl : Type) = cl -> list v -> (v -> comp_tree v cl) -> comp_tree v
 //  Well-scopedness                                                    //
 // ------------------------------------------------------------------ //
 
-let can_perform = eff:string -> op:string -> bool
+// The type of *capability environment* - that `can_perform eff op` holds means
+// one can perform the action (eff, op) in current environment.
+let can_perform = eff:string -> op:string -> prop
 
-let can_nothing () : GTot can_perform = fun _ _ -> false
+let can_nothing () : GTot can_perform = fun _ _ -> False
 
 // Extending with handlers
 let extend (#cl: Type) (hs: handlers cl) (c: can_perform) : GTot can_perform =
-  fun eff op -> Some? (lookup_clause hs eff op) || c eff op
+  fun eff op -> Some? (lookup_clause hs eff op) \/ c eff op
 
 let can_in_with
     (#v #cl: Type)
     (k: stack v cl)
     (c: can_perform)
   : GTot can_perform
-  = fun eff op -> Some? (find_prompt eff op k) || c eff op
+  = fun eff op -> Some? (find_prompt eff op k) \/ c eff op
 
 let can_in (#v #cl: Type) (k: stack v cl) : GTot can_perform = can_in_with k (can_nothing ())
 
- // Pointwise equality of effect-capability
-let equiv_can (can1 can2: can_perform) : prop = forall (eff op: string). can1 eff op == can2 eff op
-
 (**
- * **The clause judgement**: `cok can c` reads *the handler clause `c` fires no
- * action outside `can`*.
+ * Pointwise *equivalence* of capability environments.
+ *)
+let equiv_can (can1 can2: can_perform) : prop = forall (eff op: string). can1 eff op <==> can2 eff op
+
+(** 
+ * `clause_ok_t` is an *capability-indexed* predicate over the handler clause.
+ * Given `cok : clause_ok_t cl`, read `cok can c` as "the handler clause `c`
+ * only performs actions permitted by the capability environment `can`."
  *
- * Clauses are opaque to the machine — `cl` is instantiated with a PureScript
- * closure — so nothing can be *computed* about them here; well-scopedness of
- * clauses is therefore left as a parameter of the whole development rather than
- * baked in. Instantiating `cok := fun _ _ -> True` recovers the simpler
- * judgement in which clauses are only allowed to touch the world through the
- * continuation they are handed. The extra generality is what makes room for a
- * clause that *delegates* — one that performs an action of its own, to be
- * handled further out — since such a clause is well scoped exactly when the
- * action it fires is available where the clause runs.
+ * Note that cok is not provable　within F*　and its validity is assumed to be 
+ * verified within PureScript's type system. 
  *)
 let clause_ok_t (cl: Type) = can_perform -> cl -> prop
 
-(**
- * The clause judgement respects `equiv_can`: it may not distinguish two
- * environments offering the same actions. This is the only assumption the 
- * development makes about `clause_ok_t`. It is needed because the environments
- * the machine computes are equal pointwise but rarely syntactically: 
- * `can (BindF fn :: k)` and `can k`, for instance, are two different closures 
- * denoting the same set of actions.
- *)
-let clause_ok_congr (#cl: Type) (cok: clause_ok_t cl) : prop =
-  forall (can1 can2: can_perform) (c: cl). equiv_can can1 can2 ==> (cok can1 c <==> cok can2 c)
+let clause_ok_congr
+    (#cl: Type)
+    (cok: clause_ok_t cl)
+  : prop
+  = forall (can1 can2: can_perform) (c: cl).
+      equiv_can can1 can2 ==> (cok can1 c <==> cok can2 c)
 
-(** **A well-scoped handler table**: every clause it holds is well scoped in `can`. *)
+(** 
+ * A handler well-scopedness predicate: We **define** `handler_ok cok can hs` as
+ * "every handler clause `c` in `hs` is well-scoped (cok can c) wrt `can`". 
+*)
 let handler_ok
     (#cl: Type)
     (cok: clause_ok_t cl)
     (can: can_perform)
     (hs: handlers cl) : prop =
-  forall eff op clause. 
-      lookup_clause hs eff op == Some clause ==> cok can clause
+  forall c. 
+    (exists eff op. lookup_clause hs eff op == Some c) ==> cok can c
 
 (**
  * **Well-scopedness, step-indexed**: `ws_n n cok can c` is the well-scopedness of
@@ -246,13 +243,18 @@ let handler_ok
  * approximations rather than a limit that could collapse.
  *)
 private
-let rec ws_n (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can: can_perform) (c: comp_tree v cl)
-  : GTot prop (decreases %[n; 1; 0])
+let rec ws_n 
+    (#v #cl: Type)
+    (n: nat)
+    (cok: clause_ok_t cl)
+    (can: can_perform)
+    (c: comp_tree v cl)
+  : Tot prop (decreases %[n; 1; 0])
   = if n = 0 then True
     else
       match c with
       | Var _ -> True
-      | Perform eff op _ -> can eff op == true
+      | Perform eff op _ -> can eff op
       | Op inner fn ->
           ws_n (n - 1) cok can inner /\ (forall (x: v). ws_n (n - 1) cok can (fn x))
       | Handle hs ret body ->
@@ -274,7 +276,7 @@ let rec ws_n (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can: can_perform) (c
  * frames above it see more than the frames below.
  *)
 and wf_stack_n (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can: can_perform) (k: stack v cl)
-  : GTot prop (decreases %[n; 0; length k])
+  : Tot prop (decreases %[n; 0; length k])
   = if n = 0 then True
     else
       match k with
@@ -325,8 +327,8 @@ let ret_ws (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (ret: option 
 
 let ws_perform_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                   (eff op: string) (payload: list v)
-  : Lemma (ws cok can (Perform eff op payload <: comp_tree v cl) <==> can eff op == true)
-  = assert (ws_n 1 cok can (Perform eff op payload <: comp_tree v cl) <==> can eff op == true)
+  : Lemma (ws cok can (Perform eff op payload <: comp_tree v cl) <==> can eff op)
+  = assert (ws_n 1 cok can (Perform eff op payload <: comp_tree v cl) <==> can eff op)
 
 let ws_op_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
               (c: comp_tree v cl) (fn: v -> comp_tree v cl)
@@ -402,7 +404,7 @@ let handler_ok_cong (#cl: Type) (cok: clause_ok_t cl) (can1 can2: can_perform) (
 (* Congruence has to be proved at every index before it can be closed over,
    hence a pair of step-indexed lemmas mirroring `ws_n` / `wf_stack_n`. *)
 private
-let rec ws_n_cong (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can_perform)
+let rec ws_n_congr (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can_perform)
                   (c: comp_tree v cl)
   : Lemma (requires clause_ok_congr cok /\ equiv_can can1 can2)
           (ensures ws_n n cok can1 c <==> ws_n n cok can2 c)
@@ -413,20 +415,20 @@ let rec ws_n_cong (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can_
       | Var _ -> ()
       | Perform _ _ _ -> ()
       | Op inner fn ->
-          ws_n_cong (n - 1) cok can1 can2 inner;
+          ws_n_congr (n - 1) cok can1 can2 inner;
           introduce forall (x: v).
             (ws_n (n - 1) cok can1 (fn x) <==> ws_n (n - 1) cok can2 (fn x))
-          with ws_n_cong (n - 1) cok can1 can2 (fn x)
+          with ws_n_congr (n - 1) cok can1 can2 (fn x)
       | Handle hs ret body ->
           assert (equiv_can (extend hs can1) (extend hs can2));
-          ws_n_cong (n - 1) cok (extend hs can1) (extend hs can2) body;
+          ws_n_congr (n - 1) cok (extend hs can1) (extend hs can2) body;
           handler_ok_cong cok can1 can2 hs;
           (match ret with
             | None -> ()
             | Some r ->
               introduce forall (x: v).
                 (ws_n (n - 1) cok can1 (r x) <==> ws_n (n - 1) cok can2 (r x))
-              with ws_n_cong (n - 1) cok can1 can2 (r x))
+              with ws_n_congr (n - 1) cok can1 can2 (r x))
       | Resumed frames _ -> wf_stack_n_cong n cok can1 can2 frames
 
 and wf_stack_n_cong (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can_perform)
@@ -444,7 +446,7 @@ and wf_stack_n_cong (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: ca
           introduce forall (x: v).
             (ws_n (n - 1) cok (can_in_with rest can1) (fn x) <==>
              ws_n (n - 1) cok (can_in_with rest can2) (fn x))
-          with ws_n_cong (n - 1) cok (can_in_with rest can1) (can_in_with rest can2) (fn x)
+          with ws_n_congr (n - 1) cok (can_in_with rest can1) (can_in_with rest can2) (fn x)
       | PromptF hs ret :: rest ->
           assert (equiv_can (can_in_with rest can1) (can_in_with rest can2));
           wf_stack_n_cong n cok can1 can2 rest;
@@ -455,13 +457,13 @@ and wf_stack_n_cong (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: ca
               introduce forall (x: v).
                 (ws_n (n - 1) cok (can_in_with rest can1) (r x) <==>
                  ws_n (n - 1) cok (can_in_with rest can2) (r x))
-              with ws_n_cong (n - 1) cok (can_in_with rest can1) (can_in_with rest can2) (r x))
+              with ws_n_congr (n - 1) cok (can_in_with rest can1) (can_in_with rest can2) (r x))
 
 let ws_cong_eq (#v #cl: Type) (cok: clause_ok_t cl) (can1 can2: can_perform) (c: comp_tree v cl)
   : Lemma (requires clause_ok_congr cok /\ equiv_can can1 can2)
           (ensures ws cok can1 c <==> ws cok can2 c)
   = introduce forall (n: nat). (ws_n n cok can1 c <==> ws_n n cok can2 c)
-    with ws_n_cong n cok can1 can2 c
+    with ws_n_congr n cok can1 can2 c
 
 let wf_stack_cong_eq (#v #cl: Type) (cok: clause_ok_t cl) (can1 can2: can_perform) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ equiv_can can1 can2)
@@ -552,26 +554,8 @@ let step
       | Resumed kont value -> Step (Var value) (kont @ k)
 
 
-(**
- * **The multi-step relation**: the iteration of `step`, i.e. its transitive closure
- * cut off at `fuel` transitions.
- *
- * The `fuel` argument is there for termination only. It is not part of the semantics:
- * the machine is not "charged" for a transition in any meaningful sense, and no theorem
- * below reads anything into the particular number handed in. It merely lets a partial
- * function—the machine may well diverge—be written down as a total one, which is what
- * F* insists on. Once a terminal state (`Done` or `Stuck`) is reached the remaining fuel
- * is simply burnt without effect; `steps_terminal` states exactly that, and
- * `steps_stable` turns it into the statement that the answer does not depend on how
- * generous the caller was.
- *
- * The `GTot` effect is deliberate. `steps` exists to state theorems and to exercise the
- * machine inside `assert_norm`; it is never meant to run in the PureScript/JavaScript
- * world, where `Hoop.Runtime.run` (a `Div` function, and the one that is extracted)
- * plays that role. Marking it ghost lets the effect system, rather than a comment,
- * enforce that separation: `steps` cannot leak into extracted code, and indeed it
- * produces none.
- *)
+// The multi-step relation**: the iteration of `step`, i.e. its transitive closure
+// cut off at fuel transitions. 
 let rec steps
       (#v #cl: Type)
       (apply: apply_t v cl)
