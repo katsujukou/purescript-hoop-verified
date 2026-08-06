@@ -547,7 +547,3 @@ else instance
   ( Fail (Text "The type of operation must be Function (->) or Computation (->*)")
   ) =>
   FastSignature _1 _2 _3 _4
-
--- | The delimited continuation passed to a full clause. `b` is the
--- | operation's result, `r` the row the handler performs into, `o` the
--- | answer type.

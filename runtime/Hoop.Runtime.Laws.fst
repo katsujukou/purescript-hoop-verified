@@ -2,13 +2,12 @@
  * The monad laws, and the algebraicity of operations, for the Hoop runtime.
  *
  * The three laws are *not* equalities of computation trees: `Op (Var a) fn` and
- * `fn a` are different trees, and the machine visits different configurations on
- * the way. What is claimed here is the only thing that can be claimed --
- * *observational* equivalence: plugged into the same continuation, the two sides
- * either both diverge or both come back with the same value. "Any continuation"
- * means any stack, and since handlers live on the stack as `PromptF` frames,
- * that quantification *is* the quantification over handler contexts which the
- * TypeScript test suite can only sample.
+ * `fn a` are different trees, and the machine visits different configurations
+ * on the way. What is claimed is *observational* equivalence: plugged into the
+ * same continuation, the two sides either both diverge or both come back with
+ * the same value. "Any continuation" means any stack, and since handlers live
+ * on the stack as `PromptF` frames, that quantification *is* the quantification
+ * over handler contexts -- which a test suite can only sample.
  *
  * What is proved:
  *
@@ -19,22 +18,23 @@
  *   - `handle_not_algebraic`  `Handle` does *not*                  -- a concrete refutation
  *
  * `apply_obs_congr` is a condition on the FFI parameter `apply`, in the same
- * spirit as `Hoop.Runtime.apply_ok`, and is discussed at length where it is
- * defined. It is not vacuous: `lapply_obs_congr` exhibits a four-clause `apply`
- * that satisfies it -- the same `apply` that refutes algebraicity of `Handle`,
- * so that failure cannot be blamed on the hypothesis being unsatisfiable.
+ * spirit as `Hoop.Runtime.apply_ok`, and is discussed where it is defined. It
+ * is not vacuous: `lapply_obs_congr` exhibits a four-clause `apply` satisfying
+ * it -- the same `apply` that refutes algebraicity of `Handle`, so that failure
+ * cannot be blamed on an unsatisfiable hypothesis.
  *
  * *A word on closures.* Several statements below go out of their way not to
  * write down a lambda that the machine also writes down (`kont_of`,
- * `apply_pointwise`, the `LAddAfter` case of `lapply_obs_congr`). The reason is
- * uniform: F* gives each anonymous function an opaque SMT symbol determined by
- * its elaborated shape, closing over its free variables -- and for a lambda
- * under a `match`, the free variable is the *scrutinee*, not the pattern
- * variable. Two lambdas that agree pointwise are then two unrelated symbols,
- * and function extensionality is not available to connect them. Every place
- * that matters is flagged in a comment.
+ * `apply_pointwise`, the `LAddAfter` case of `lapply_obs_congr`). F* gives each
+ * anonymous function an opaque SMT symbol determined by its elaborated shape,
+ * closing over its free variables -- and for a lambda under a `match`, the free
+ * variable is the *scrutinee*, not the pattern variable. Two lambdas that agree
+ * pointwise are then unrelated symbols, and function extensionality is not
+ * available to connect them.
  *)
 module Hoop.Runtime.Laws
+
+friend Hoop.Runtime.Handlers
 
 open Hoop.Runtime
 open Hoop.Runtime.Properties
@@ -52,11 +52,8 @@ open FStar.List.Tot
 let converges (#v #cl: Type) (apply: apply_t v cl) (s: state v cl) (x: v) : GTot prop =
   exists (n: nat). steps apply n s == Done x
 
-(**
- * **A machine run has at most one result.** Two runs of different lengths that
- * both stop agree, because the longer one is the shorter one continued, and a
- * `Done` state is a fixed point of `step`.
- *)
+(** **A machine run has at most one result**: the longer of two stopping runs is
+    the shorter one continued, and `Done` is a fixed point of `step`. *)
 let converges_det
     (#v #cl: Type)
     (apply: apply_t v cl)
@@ -78,15 +75,13 @@ let converges_det
  * value within `n` transitions, `c2` reaches the same value in that same
  * continuation -- eventually, with no bound.
  *
- * The quantification over the stack `k` is the whole point. A stack is where
- * handlers live (as `PromptF` frames), so ranging over every `k` is exactly
- * ranging over every handler context -- the observation the TypeScript test
- * suite approximates by a hand-picked family of handlers and notes it cannot
- * actually perform.
+ * The quantification over the stack `k` is the whole point: a stack is where
+ * handlers live, so ranging over every `k` is ranging over every handler
+ * context.
  *
- * The index `n` bounds only the *left* run. It is what makes the assumption
- * `apply_obs_congr` below usable as an induction hypothesis; `obs_le` closes
- * over it and is the notion one actually reads.
+ * The index `n` bounds only the *left* run. It is what makes `apply_obs_congr`
+ * below usable as an induction hypothesis; `obs_le` closes over it and is the
+ * notion one actually reads.
  *)
 let obs_le_n
     (#v #cl: Type)
@@ -132,14 +127,9 @@ let obs_eq_refl (#v #cl: Type) (apply: apply_t v cl) (c: comp_tree v cl)
 
 (**
  * **The index is downward closed**: an approximation good to depth `n` is good
- * to any smaller depth. The reason is that the bound is on a run that *stops*:
- * a run that stops in `m` transitions is still stopped, at the same value, after
- * `n`, so the shorter runs are already among those the deeper index covers.
- *
- * This is what makes the indexed notion usable in practice -- one may always
- * spend part of the budget on a transition and carry the rest -- and it is used
- * below to check that `apply_obs_congr` is satisfied by a clause that inspects
- * the value its continuation returns.
+ * to any smaller depth, because a run that stops in `m` transitions is still
+ * stopped, at the same value, after `n`. This is what lets a proof spend part
+ * of the budget on a transition and carry the rest.
  *)
 let obs_le_n_mono
     (#v #cl: Type)
@@ -161,49 +151,36 @@ let obs_le_n_mono
  *
  * Like `apply_ok` in `Hoop.Runtime`, this is a condition on the FFI boundary,
  * not a theorem: `apply` hands the payload and the captured continuation to an
- * opaque PureScript closure, and F* never sees that closure's body. It appears
- * only as a hypothesis of the laws below.
+ * opaque PureScript closure whose body F* never sees. It appears only as a
+ * hypothesis of the laws below.
  *
- * *Why it is needed at all.* This is not a technicality that a cleverer proof
- * would remove. Consider the right identity, `Op m Var ~ m`. Stepping the left
- * side pushes a `BindF Var` frame that the right side does not have. If `m`
- * performs an operation, `find_prompt` cuts the stack at the handling prompt and
- * packages everything above it as the delimited continuation -- and that extra
- * frame is *inside the package*. The clause therefore receives literally
- * different continuations on the two sides, and since `apply` is a black box,
- * nothing at all can be said about the two results unless something is assumed.
- * Associativity is the same story with `BindF f :: BindF g :: k` against
- * `BindF (fun x -> Op (f x) g) :: k`. (The left identity, by contrast, needs no
- * assumption: there the extra frame is consumed two transitions later, before
- * any operation can see it.)
+ * *Why it is needed at all.* Consider right identity, `Op m Var ~ m`. Stepping
+ * the left side pushes a `BindF Var` frame the right side does not have; if `m`
+ * performs an operation, `find_prompt` packages everything above the handling
+ * prompt as the delimited continuation, and that extra frame is *inside the
+ * package*. The clause therefore receives literally different continuations on
+ * the two sides, and `apply` is a black box, so nothing can be said about the
+ * results unless something is assumed. Associativity is the same story.
+ * (Left identity needs no assumption: there the extra frame is consumed two
+ * transitions later, before any operation can see it.)
  *
- * *Why the index.* The obvious phrasing -- observationally equivalent
- * continuations give observationally equivalent results -- is too weak to be
- * used. The proof below establishes the laws by induction on the length of the
- * left-hand run, and at the point where the assumption is invoked it has, of the
- * two continuations, only the approximation the induction hypothesis supplies:
- * `obs_le_n` at a strictly smaller index. Feeding that to an unindexed
- * hypothesis would require the very statement being proved, at every index, so
- * the induction would be circular. Demanding that `apply` preserve the index
- * breaks the circle.
+ * *Why the index.* The unindexed phrasing is too weak to use. The proof below
+ * inducts on the length of the left-hand run, and where the assumption is
+ * invoked it has only what the induction hypothesis supplies about the two
+ * continuations: `obs_le_n` at a strictly smaller index. Feeding that to an
+ * unindexed hypothesis would require the very statement being proved, at every
+ * index. Demanding that `apply` preserve the index breaks the circle.
  *
- * The demand is a causality condition: the result of `apply` may not converge
- * in `n` transitions by consulting behaviour of the continuation that only
- * shows up after more than `n`. It is nevertheless *stronger* than the
- * unindexed reading, which it implies (take the conjunction over all `n`), and
- * that should be said plainly: what is assumed here is more than "`apply`
- * respects observation", it is that `apply` respects observation uniformly in
- * the depth at which it is observed.
+ * It is a causality condition -- the result of `apply` may not converge in `n`
+ * transitions by consulting behaviour of the continuation that shows up only
+ * after more than `n` -- and it is *stronger* than the unindexed reading, which
+ * it implies. What is assumed is not merely that `apply` respects observation,
+ * but that it does so uniformly in the depth at which it is observed.
  *
- * It is not vacuous, and not far-fetched either: `lapply_obs_congr` at the
- * bottom of this file verifies it for an `apply` whose clauses drop the
- * continuation, resume it, and resume it and then inspect the value it returns.
- * The note there records the one shape not covered by that check -- a clause
- * resuming the continuation twice -- and why checking it would need machinery
- * this development does not build.
- *
- * Note also that `obs_le_n`, hence this condition, is directional: the two
- * directions of each law are proved separately, and neither needs symmetry.
+ * `lapply_obs_congr` at the bottom of this file verifies the condition for a
+ * concrete `apply`, and records the one clause shape its check does not cover.
+ * Note finally that `obs_le_n`, hence this condition, is directional: the two
+ * directions of each law are proved separately.
  *)
 let apply_obs_congr (#v #cl: Type) (apply: apply_t v cl) : GTot prop =
   forall (n: nat) (c: cl) (payload: list v) (kf1 kf2: v -> comp_tree v cl).
@@ -240,19 +217,15 @@ let converges_fwd
       else assert (steps apply n s == steps apply (n - 1) (step apply s))
 
 (**
- * **Approximation is a congruence for the left argument of a bind.** If `c2`
- * does everything `c1` does to depth `n`, then so does `c1 >>= g` for `c2 >>= g`
- * -- with the *same* `g`. One transition of the left run is spent pushing
- * `BindF g`, and the rest is a run of `c1` under a stack that both sides share,
- * which is where the hypothesis applies; the budget lost to the push is
- * recovered by `obs_le_n_mono`.
+ * **Approximation is a congruence for the left argument of a bind**, with the
+ * *same* `g`. One transition of the left run is spent pushing `BindF g`, and
+ * the rest is a run of `c1` under a stack both sides share, which is where the
+ * hypothesis applies; `obs_le_n_mono` recovers the budget lost to the push.
  *
- * The restriction to a common `g` is not laziness. Were the two binds to carry
- * *different* continuations, the frames on the stack would differ during the
- * whole of the left run, and relating them would be the business of `sim` --
- * whose conclusion is an unbounded convergence, from which no index can be
- * recovered to feed a second use of the hypothesis. See the note on
- * `lapply_obs_congr`.
+ * The restriction to a common `g` is not laziness: with different
+ * continuations the stacks would differ throughout the left run, and relating
+ * them would be the business of `sim`, whose conclusion is an unbounded
+ * convergence from which no index survives for a second use of the hypothesis.
  *)
 let op_congr_head
     (#v #cl: Type)
@@ -320,12 +293,10 @@ let fp_shift_below
 let rev_cons (#a: Type) (hd: a) (l: list a) : Lemma (rev (hd :: l) == rev l @ [hd])
   = rev_acc_rev' l [hd]; rev_rev' l
 
-(**
- * **The accumulator of `find_prompt_aux` is exactly a shift.** The frames the
- * search has already walked past are pushed, reversed, onto the bottom of the
- * captured segment -- which is what makes `find_prompt` return the frames in
- * their original order. Every fact below about `find_prompt` goes through this.
- *)
+(** **The accumulator of `find_prompt_aux` is exactly a shift**: the frames
+    already walked past are pushed, reversed, onto the bottom of the captured
+    segment, which is what returns them in their original order. Every fact
+    below about `find_prompt` goes through this. *)
 let rec fp_aux_acc
     (#v #cl: Type)
     (eff op: string)
@@ -348,10 +319,8 @@ let rec fp_aux_acc
             | None -> below ())
         | BindF _ -> below ())
 
-(**
- * **The prompt lies in the upper part.** Then the search never reaches the lower
- * part, which simply stays where it was: at the bottom of `below`.
- *)
+(** **The prompt lies in the upper part**: the search never reaches the lower
+    part, which stays where it was, at the bottom of `below`. *)
 let rec fp_append_in
     (#v #cl: Type)
     (eff op: string)
@@ -376,10 +345,8 @@ let rec fp_append_in
             | None -> below ())
         | BindF _ -> below ())
 
-(**
- * **The upper part holds no prompt for this action.** Then the search walks
- * clean past it, and the whole of it is captured.
- *)
+(** **The upper part holds no prompt for this action**: the search walks clean
+    past it, and the whole of it is captured. *)
 let rec fp_append_out
     (#v #cl: Type)
     (eff op: string)
@@ -409,9 +376,9 @@ let rec fp_append_out
  *     BindF f :: BindF g :: k    against    BindF (fun x -> Op (f x) g) :: k.
  *
  * Both are the same phenomenon: a fixed, prompt-free block of frames `d1`
- * replaced by another such block `d2`, somewhere inside an otherwise identical
- * stack. `sim` below proves, once, that such a replacement is unobservable; the
- * laws are its instances.
+ * replaced by another such block `d2` inside an otherwise identical stack.
+ * `sim` below proves once that such a replacement is unobservable; the laws are
+ * its instances.
  *)
 
 (** A block of frames installs no handler. *)
@@ -477,22 +444,17 @@ let redex_converges
 // ------------------------------------------------------------------ //
 
 (**
- * **The delimited continuation `step` hands to a clause**, named.
+ * **The delimited continuation `step` hands to a clause**, named -- not for
+ * convenience. `step` builds it as the anonymous `fun x -> Resumed captured x`,
+ * where `captured` is bound by the `match` on `find_prompt eff op k`, so after
+ * elaboration the lambda closes over *the search result itself*. Closure
+ * equality is not extensional, so a freshly written `fun x -> Resumed cap x` is
+ * a different SMT symbol however provably equal `cap` and `captured` are: any
+ * statement about the machine at a `Perform` must spell the continuation
+ * exactly as `step` does, which is what this definition is for.
  *
- * This is not a convenience. `step` builds the continuation as the anonymous
- * `fun x -> Resumed captured x`, where `captured` is bound by the `match` on
- * `find_prompt eff op k`; after elaboration that lambda closes over *the result
- * of the search itself*, and its body projects `captured` out of it. F* gives
- * each such closure an opaque SMT symbol keyed by its shape, and equality of
- * closures is not extensional: a freshly written `fun x -> Resumed cap x`,
- * however provably equal `cap` and `captured` are, is a *different* symbol and
- * nothing relates the two. Any statement about the machine at a `Perform` must
- * therefore spell the continuation exactly as `step` does -- which is what this
- * definition, matching `Hoop.Runtime.step` clause for clause, is for.
- *
- * The `None` branch is unreachable wherever this is used (the caller always
- * knows the search succeeded); it is filled in with `Var` only to keep the
- * definition total and free of a refinement.
+ * The `None` branch is unreachable wherever this is used; it is filled in with
+ * `Var` only to keep the definition total and free of a refinement.
  *)
 let kont_of (#v #cl: Type) (eff op: string) (k: stack v cl) : v -> comp_tree v cl =
   match find_prompt eff op k with
@@ -513,19 +475,16 @@ let kont_of_beta
 (**
  * **Feeding a clause two continuations that agree pointwise is unobservable.**
  *
- * This looks like it ought to be `apply c payload kf1 == apply c payload kf2` by
- * functional extensionality, and morally it is; F* does not have that axiom for
- * plain arrows, and `apply` is opaque anyway. It is not needed as an extra
- * assumption, though: pointwise *equal* continuations are in particular
- * observationally related *at every index*, so `apply_obs_congr` -- already
- * assumed -- delivers the conclusion at every index, which is `obs_le`.
+ * Morally this is functional extensionality, which F* does not have for plain
+ * arrows. No extra assumption is needed, though: pointwise *equal*
+ * continuations are in particular observationally related at every index, so
+ * the already-assumed `apply_obs_congr` delivers the conclusion at every index,
+ * which is `obs_le`.
  *
- * The situation arises for a reason worth recording. Two runs of the machine
- * that differ only in a block of frames *below* the handling prompt reach the
- * same clause with the same captured segment, but `step` builds the continuation
- * as a closure over the whole result of `find_prompt`, and those results differ
- * in their third component. The two closures are therefore distinct terms that
- * agree pointwise -- exactly the situation this lemma is for.
+ * The situation arises when two runs differ only in a block of frames *below*
+ * the handling prompt: they reach the same clause with the same captured
+ * segment, but `step` builds the continuation as a closure over the whole
+ * `find_prompt` result, and those results differ in their third component.
  *)
 let apply_pointwise
     (#v #cl: Type)
@@ -555,18 +514,18 @@ let step_perform_found
 (**
  * **Replacing `d1` by `d2` anywhere in the stack preserves convergence.**
  *
- * The statement is generalised over the frames `pre` sitting *above* the block
- * and the frames `post` sitting *below* it, because that is what the induction
- * needs: every transition of the machine either pushes a frame onto `pre`, pops
- * one off it, or -- at a `Perform` -- cuts the stack in two, and the block ends
- * up wholly on one side of the cut precisely because it holds no prompt.
+ * Generalised over the frames `pre` above the block and `post` below it,
+ * because that is what the induction needs: every transition either pushes a
+ * frame onto `pre`, pops one off it, or -- at a `Perform` -- cuts the stack in
+ * two, and the block ends up wholly on one side of the cut precisely because it
+ * holds no prompt.
  *
- * The induction is on the length `n` of the left-hand run. Five of the six cases
- * are bookkeeping. The one with content is a `Perform` whose handling prompt
- * lies *below* the block: there the block is swallowed into the delimited
- * continuation handed to the clause, the two sides call `apply` on genuinely
- * different arguments, and only `apply_obs_congr` can bridge them -- fed with the
- * induction hypothesis two steps down, which is exactly the index it demands.
+ * The induction is on the length `n` of the left-hand run. Five of the six
+ * cases are bookkeeping; the one with content is a `Perform` whose handling
+ * prompt lies *below* the block, where the block is swallowed into the
+ * delimited continuation, the two sides call `apply` on genuinely different
+ * arguments, and only `apply_obs_congr` can bridge them -- fed the induction
+ * hypothesis two steps down, which is exactly the index it demands.
  *)
 let rec sim
     (#v #cl: Type)
@@ -617,12 +576,10 @@ let rec sim
           no_prompt_unhandled eff op d2;
           (match find_prompt eff op pre with
             | Some (cap, cls, bel) ->
-                // The prompt lies above the block: both machines capture the very
-                // same segment `cap`, and the block stays below the cut, at the
-                // bottom of `bel`. The two continuations handed to the clause are
-                // pointwise equal -- both resume `cap` -- but are built as closures
-                // over the two search results, which differ; `apply_pointwise`
-                // bridges that gap.
+                // The prompt lies above the block: both machines capture the
+                // same segment `cap` and the block stays below the cut. The two
+                // continuations are pointwise equal but built as closures over
+                // differing search results; `apply_pointwise` bridges the gap.
                 fp_append_in eff op pre (d1 @ post);
                 fp_append_in eff op pre (d2 @ post);
                 step_perform_found apply eff op payload k1 cap cls (bel @ (d1 @ post));
@@ -662,12 +619,12 @@ let rec sim
     end
 
 (**
- * **The case with content.** The action is handled below the block, so the block
- * is part of what `find_prompt` captures and hands to the clause. The two sides
- * therefore call `apply` on continuations that differ -- by exactly the same
- * replacement, one level down inside a `Resumed` node. `apply_obs_congr` turns
- * that into a relation between the two clause bodies, and the induction
- * hypothesis at `n - 2` supplies the premise it needs.
+ * **The case with content.** The action is handled below the block, so the
+ * block is part of what `find_prompt` captures. The two sides therefore call
+ * `apply` on continuations differing by exactly the same replacement, one level
+ * down inside a `Resumed` node; `apply_obs_congr` turns that into a relation
+ * between the clause bodies, and the induction hypothesis at `n - 2` supplies
+ * the premise it needs.
  *)
 and perform_below
     (#v #cl: Type)
@@ -713,13 +670,11 @@ and perform_below
 (**
  * **Left identity**: `pure a >>= fn  ~  fn a`.
  *
- * The one law that needs no assumption at all, and the reason is visible in the
- * transition sequence: the extra frame the left side pushes is popped two
- * transitions later, by the value `a` that is sitting right there. No operation
- * ever runs while it is on the stack, so no captured continuation can tell the
- * two sides apart. The relation is in fact a strict step count -- `n + 2` on the
- * left is `n` on the right -- and both directions of the observation follow from
- * that.
+ * The one law that needs no assumption: the extra frame the left side pushes is
+ * popped two transitions later, by the value `a` sitting right there, so no
+ * operation ever runs while it is on the stack and no captured continuation can
+ * tell the two sides apart. The relation is a strict step count -- `n + 2` on
+ * the left is `n` on the right -- and both directions follow from that.
  *)
 let left_identity
     (#v #cl: Type)
@@ -745,12 +700,9 @@ let left_identity
 (**
  * The redex equation behind right identity: a `BindF` frame holding the return
  * of the monad is popped without doing anything, so one transition on the left
- * is none on the right.
- *
- * The frame's function is taken as a parameter constrained pointwise, rather
- * than written as `Var` outright, so that the lemma applies to any continuation
- * that behaves like the unit -- and so that nothing here depends on how F*
- * happens to encode a constructor used as a function.
+ * is none on the right. The frame's function is a parameter constrained
+ * pointwise rather than `Var` outright, so that nothing depends on how F*
+ * encodes a constructor used as a function.
  *)
 let redex_right
     (#v #cl: Type)
@@ -764,13 +716,12 @@ let redex_right
 (**
  * **Right identity**: `m >>= pure  ~  m`.
  *
- * Unlike left identity this is *not* a step-count relation, and it is not a
- * local fact either: the extra `BindF` frame stays on the stack for as long as
- * `m` runs, so any operation `m` performs is captured together with it and the
- * clause is handed a continuation the right-hand side does not have. That is
- * precisely the replacement `sim` handles, with `[BindF Var]` on one side and
- * the empty block on the other -- and it is why the law is stated under
- * `apply_obs_congr`.
+ * Unlike left identity this is neither a step-count relation nor a local fact:
+ * the extra `BindF` frame stays on the stack as long as `m` runs, so any
+ * operation `m` performs is captured together with it and the clause is handed
+ * a continuation the right-hand side does not have. That is precisely the
+ * replacement `sim` handles -- `[BindF Var]` against the empty block -- and why
+ * the law is stated under `apply_obs_congr`.
  *)
 let right_identity
     (#v #cl: Type)
@@ -820,9 +771,8 @@ let redex_assoc
  * **Associativity**: `(m >>= f) >>= g  ~  m >>= (fun x -> f x >>= g)`.
  *
  * Two `BindF` frames on the left against one composite frame on the right. As
- * with right identity, `m` runs with the block on the stack, so an operation
- * performed by `m` is captured together with it and the two clauses receive
- * different continuations -- hence, again, `apply_obs_congr`.
+ * with right identity, `m` runs with the block on the stack, so the two clauses
+ * receive different continuations -- hence, again, `apply_obs_congr`.
  *)
 let associativity
     (#v #cl: Type)
@@ -867,23 +817,21 @@ let associativity
 (**
  * **Operations are algebraic**: `(perform op >>= cont) >>= k  ~  perform op >>= (fun x -> cont x >>= k)`.
  *
- * In a freer-monad presentation this is exactly what algebraicity *is*. The
- * usual formulation, "an operation commutes with the continuation",
+ * The usual formulation, "an operation commutes with the continuation",
  *
  *     op(m1, .., mn) >>= k  =  op(m1 >>= k, .., mn >>= k),
  *
  * is not directly expressible here: this encoding has no operation node holding
- * subcomputations. An operation appears as a bare `Perform`, and the only way to
- * put anything after it is to bind. Commuting the operation with a continuation
- * therefore *is* re-associating a bind whose leftmost leaf is a `Perform` --
- * which is associativity, specialised.
+ * subcomputations. An operation appears as a bare `Perform`, and the only way
+ * to put anything after it is to bind, so commuting it with a continuation
+ * *is* re-associating a bind whose leftmost leaf is a `Perform` -- which is
+ * associativity, specialised.
  *
  * The content is nonetheless real, and is what makes `perform` an *operation*
  * rather than an arbitrary effectful call: whatever the handler does with the
- * captured continuation -- resume once, drop it, resume it twice -- the answer
- * does not depend on how much of the surrounding program was already bound to
- * the operation at the moment it was performed. `Handle`, in the next section,
- * fails exactly this test.
+ * captured continuation, the answer does not depend on how much of the
+ * surrounding program was already bound to the operation when it was performed.
+ * `Handle`, in the next section, fails exactly this test.
  *)
 let perform_algebraic
     (#v #cl: Type)
@@ -907,18 +855,16 @@ let perform_algebraic
  *     Op (Handle hs ret m) k   ~   Handle hs ret (Op m k)
  *
  * -- that a handler installed around a computation may be pushed outwards past
- * a bind. It cannot, and the reason is the one thing a handler does that an
- * operation does not: it *delimits* continuation capture. On the left, `k` sits
- * below the prompt, so a clause that discards the captured continuation still
- * leaves `k` to run. On the right, `k` sits above the prompt, inside what gets
- * captured, so the very same clause discards it.
+ * a bind. It cannot, for the one thing a handler does that an operation does
+ * not: it *delimits* continuation capture. On the left, `k` sits below the
+ * prompt, so a clause that discards the captured continuation still leaves `k`
+ * to run; on the right, `k` sits above the prompt, inside what gets captured,
+ * so the very same clause discards it.
  *
- * `apply` is an abstract parameter of the whole development, so a refutation has
- * to instantiate it. The clause language below is a three-clause miniature of a
- * real one -- resume with a constant, resume with the payload, abort -- and only
- * the third is needed for the counterexample; the other two are there so that
- * `lapply` is not degenerate, and in particular so that
- * `lapply_obs_congr` below is not a statement about a clause that never looks at
+ * `apply` is an abstract parameter of the whole development, so a refutation
+ * has to instantiate it. Only `LAbort` below is needed for the counterexample;
+ * the others are there so that `lapply` is not degenerate, and in particular so
+ * that `lapply_obs_congr` is not a statement about a clause that never looks at
  * its continuation.
  *)
 noeq
@@ -943,24 +889,23 @@ let lapply (c: lcl) (payload: list int) (kf: int -> comp_tree int lcl)
  * three laws are stated under, so the failure below cannot be blamed on a
  * pathological `apply`.
  *
- * The four clauses cover the ways a clause can treat its continuation, save one.
- * `LAbort` ignores it, so the two results are literally the same term. `LConst`
- * and `LEcho` resume it in head position, where the hypothesis applies as it
- * stands. `LAddAfter` resumes it and then *inspects the value it returns* --
- * the deep-handler case, and the only one that needs an argument, namely
- * `op_congr_head`.
+ * The four clauses cover the ways a clause can treat its continuation, save
+ * one. `LAbort` ignores it, so the two results are literally the same term;
+ * `LConst` and `LEcho` resume it in head position, where the hypothesis applies
+ * as it stands; `LAddAfter` resumes it and then *inspects the value it
+ * returns* -- the deep-handler case, and the only one needing an argument,
+ * namely `op_congr_head`.
  *
- * The case not covered is a clause that resumes the continuation *twice*, as a
- * nondeterminism handler does: there the continuation occurs both in head
- * position and inside a later frame, so the two sides run under stacks that
- * differ, and `op_congr_head` no longer applies. Such a clause does satisfy the
- * condition -- the budget `n` bounds the whole of the left run, hence each of
- * its uses of the continuation -- but establishing that would need a congruence
- * relating two stacks that differ pointwise, which the development below does
- * not have: `sim` relates stacks differing by a *fixed* block, and returns an
- * unbounded convergence from which no index survives for a second use of the
- * hypothesis. This is recorded as a limitation of the demonstration, not of the
- * condition.
+ * Not covered is a clause that resumes the continuation *twice*, as a
+ * nondeterminism handler does: the continuation then occurs both in head
+ * position and inside a later frame, so the two sides run under differing
+ * stacks and `op_congr_head` no longer applies. Such a clause does satisfy the
+ * condition -- the budget `n` bounds the whole left run, hence each use of the
+ * continuation -- but establishing that needs a congruence relating two stacks
+ * that differ pointwise, which this development lacks: `sim` relates stacks
+ * differing by a *fixed* block and returns an unbounded convergence, from which
+ * no index survives for a second use of the hypothesis. A limitation of the
+ * demonstration, not of the condition.
  *)
 let lapply_obs_congr () : Lemma (apply_obs_congr lapply)
   = introduce forall (n: nat) (c: lcl) (payload: list int)
@@ -971,11 +916,10 @@ let lapply_obs_congr () : Lemma (apply_obs_congr lapply)
     with _.
       (match c with
         | LAddAfter m ->
-            // The frame `fun r -> Var (r + m)` is not written out here: it would
-            // be a different closure from the one in `lapply`'s body, which after
-            // elaboration closes over `c` and projects `m` out of it. It is read
-            // off the result instead -- where it is visibly the same on both
-            // sides, since it does not mention the continuation at all.
+            // The frame `fun r -> Var (r + m)` is not written out: it would be
+            // a different closure from the one in `lapply`'s body, which after
+            // elaboration closes over `c`. It is read off the result instead,
+            // where it is visibly the same on both sides.
             let t1 = lapply c payload kf1 in
             let t2 = lapply c payload kf2 in
             assert (Op? t1 /\ Op? t2);
@@ -987,7 +931,7 @@ let lapply_obs_congr () : Lemma (apply_obs_congr lapply)
         | _ -> ())
 
 (** The handler: one clause, which aborts with `-1`, and no return clause. *)
-let lexc : handlers lcl = [("exn", "fail", LAbort (-1))]
+let lexc : handlers lcl = mk_handlers [("exn", "fail", LAbort (-1))]
 
 (** The operation, and the continuation to be bound to it. *)
 let lperform : comp_tree int lcl = Perform "exn" "fail" []
@@ -999,12 +943,9 @@ let handle_then : comp_tree int lcl = Op (Handle lexc None lperform) lcont
 (** `handle h (m >>= k)` -- the handler is *outside*, so `k` is captured and dropped. *)
 let then_handle : comp_tree int lcl = Handle lexc None (Op lperform lcont)
 
-(**
- * The two runs, in the empty continuation. Five transitions on one side, four on
- * the other, and different answers: `-2` where the bind survived, `-1` where it
- * was discarded with the captured continuation. These are the numbers the
- * TypeScript suite records for the same pair of programs.
- *)
+(** The two runs, in the empty continuation, give different answers: `-2` where
+    the bind survived, `-1` where it was discarded with the captured
+    continuation. *)
 let handle_then_runs () : Lemma (steps lapply 8 (load handle_then) == Done (-2))
   = assert_norm (steps lapply 8 (load handle_then) == Done (-2))
 
@@ -1018,8 +959,7 @@ let then_handle_runs () : Lemma (steps lapply 8 (load then_handle) == Done (-1))
  *
  * Note what is *not* claimed: that no reformulation of `Handle` could be
  * algebraic. The point is about this runtime, and it is the expected one --
- * `handle` is a handler-forming construct, not an operation, and the monad laws
- * proved above say nothing about it.
+ * `handle` is a handler-forming construct, not an operation.
  *)
 let handle_not_algebraic () : Lemma (~(obs_eq lapply handle_then then_handle))
   = handle_then_runs ();
