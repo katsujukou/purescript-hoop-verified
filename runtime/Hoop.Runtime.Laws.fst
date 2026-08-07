@@ -18,26 +18,37 @@
  *   - `handle_not_algebraic`  `Handle` does *not*                  -- a concrete refutation
  *
  * `apply_obs_congr` is a condition on the FFI parameter `apply`, in the same
- * spirit as `Hoop.Runtime.apply_ok`, and is discussed where it is defined. It
+ * spirit as `Hoop.Runtime.WellScopedness.apply_ok`, and is discussed where it is defined. It
  * is not vacuous: `lapply_obs_congr` exhibits a four-clause `apply` satisfying
  * it -- the same `apply` that refutes algebraicity of `Handle`, so that failure
  * cannot be blamed on an unsatisfiable hypothesis.
  *
- * *A word on closures.* Several statements below go out of their way not to
- * write down a lambda that the machine also writes down (`kont_of`,
- * `apply_pointwise`, the `LAddAfter` case of `lapply_obs_congr`). F* gives each
- * anonymous function an opaque SMT symbol determined by its elaborated shape,
- * closing over its free variables -- and for a lambda under a `match`, the free
- * variable is the *scrutinee*, not the pattern variable. Two lambdas that agree
- * pointwise are then unrelated symbols, and function extensionality is not
- * available to connect them.
+ * *A word on closures.* F* gives each anonymous function an opaque SMT symbol
+ * determined by its elaborated shape, closing over its free variables -- and
+ * for a lambda under a `match`, the free variable is the *scrutinee*, not the
+ * pattern variable. Two lambdas that agree pointwise are then unrelated
+ * symbols, and function extensionality is not available to connect them. So
+ * several statements below go out of their way not to write down a lambda that
+ * the machine also writes down: see `apply_pointwise` and the `LAddAfter` case
+ * of `lapply_obs_congr`.
+ *
+ * The delimited continuation `step` hands to a clause used to be the worst of
+ * these, and no longer is: `Hoop.Runtime.Semantics.kont_of` gives it a name, so `step`
+ * writes no lambda at a `Perform` and its continuation is the partial
+ * application `kont_of captured`, whose symbol depends on `captured` alone.
+ * `kont_found` below is what survives of the workaround -- not a way of
+ * spelling a closure the machine spells differently, but the genuinely
+ * higher-level notion "the continuation for `(eff, op)` on this stack", search
+ * included, which the simulation proof wants because it holds two stacks whose
+ * searches agree only in part.
  *)
 module Hoop.Runtime.Laws
 
 friend Hoop.Runtime.Handlers
 
-open Hoop.Runtime
-open Hoop.Runtime.Properties
+open Hoop.Runtime.Syntax
+open Hoop.Runtime.Semantics
+open Hoop.Runtime.Metatheory
 open FStar.List.Tot
 
 // ------------------------------------------------------------------ //
@@ -61,11 +72,9 @@ let converges_det
     (x y: v)
   : Lemma (requires converges apply s x /\ converges apply s y) (ensures x == y)
   = eliminate exists (n: nat). steps apply n s == Done x
-    returns x == y
-    with _.
+    with
       eliminate exists (m: nat). steps apply m s == Done y
-      returns x == y
-      with _.
+      with
         if n <= m then steps_stable apply n (m - n) s
         else steps_stable apply m (n - m) s
 
@@ -140,7 +149,7 @@ let obs_le_n_mono
   = introduce forall (k: stack v cl) (x: v).
       (steps apply m (Step c1 k) == Done x ==> converges apply (Step c2 k) x)
     with introduce _ ==> _
-    with _. steps_stable apply m (n - m) (Step c1 k)
+    with steps_stable apply m (n - m) (Step c1 k)
 
 // ------------------------------------------------------------------ //
 //  The condition imposed on the FFI parameter `apply`                 //
@@ -199,8 +208,7 @@ let converges_back
     (x: v)
   : Lemma (requires converges apply (step apply s) x) (ensures converges apply s x)
   = eliminate exists (n: nat). steps apply n (step apply s) == Done x
-    returns converges apply s x
-    with _.
+    with
       assert (steps apply (n + 1) s == steps apply n (step apply s))
 
 (** ... and forwards. *)
@@ -211,8 +219,7 @@ let converges_fwd
     (x: v)
   : Lemma (requires converges apply s x) (ensures converges apply (step apply s) x)
   = eliminate exists (n: nat). steps apply n s == Done x
-    returns converges apply (step apply s) x
-    with _.
+    with
       if n = 0 then ()
       else assert (steps apply n s == steps apply (n - 1) (step apply s))
 
@@ -238,7 +245,7 @@ let op_congr_head
   = introduce forall (k: stack v cl) (x: v).
       (steps apply n (Step (Op c1 g) k) == Done x ==> converges apply (Step (Op c2 g) k) x)
     with introduce _ ==> _
-    with _. begin
+    with begin
       obs_le_n_mono apply n (n - 1) c1 c2;
       assert (steps apply (n - 1) (Step c1 (BindF g :: k)) == Done x);
       converges_back apply (Step (Op c2 g) k) x
@@ -282,43 +289,6 @@ let fp_shift_comp
     | None -> ()
     | Some (cap, _, _) -> append_assoc a b cap
 
-let fp_shift_below
-    (#v #cl: Type)
-    (a p: stack v cl)
-    (o: option (stack v cl & cl & stack v cl))
-  : Lemma (fp_shift a (fp_below p o) == fp_below p (fp_shift a o))
-  = ()
-
-(** `rev` peels a head onto the tail of the reversal. *)
-let rev_cons (#a: Type) (hd: a) (l: list a) : Lemma (rev (hd :: l) == rev l @ [hd])
-  = rev_acc_rev' l [hd]; rev_rev' l
-
-(** **The accumulator of `find_prompt_aux` is exactly a shift**: the frames
-    already walked past are pushed, reversed, onto the bottom of the captured
-    segment, which is what returns them in their original order. Every fact
-    below about `find_prompt` goes through this. *)
-let rec fp_aux_acc
-    (#v #cl: Type)
-    (eff op: string)
-    (soFar k: stack v cl)
-  : Lemma (ensures find_prompt_aux eff op soFar k == fp_shift (rev soFar) (find_prompt eff op k))
-          (decreases k)
-  = match k with
-    | [] -> ()
-    | hd :: tl ->
-      let below () : Lemma (find_prompt_aux eff op soFar k == fp_shift (rev soFar) (find_prompt eff op k)) =
-        fp_aux_acc eff op (hd :: soFar) tl;
-        fp_aux_acc eff op [hd] tl;
-        rev_cons hd soFar;
-        fp_shift_comp (rev soFar) [hd] (find_prompt eff op tl)
-      in
-      (match hd with
-        | PromptF hs _ ->
-          (match lookup_clause hs eff op with
-            | Some _ -> rev_cons hd soFar
-            | None -> below ())
-        | BindF _ -> below ())
-
 (** **The prompt lies in the upper part**: the search never reaches the lower
     part, which stays where it was, at the bottom of `below`. *)
 let rec fp_append_in
@@ -331,19 +301,12 @@ let rec fp_append_in
   = match k1 with
     | [] -> ()
     | hd :: tl ->
-      let below () : Lemma (requires handled_in eff op tl)
-                           (ensures find_prompt eff op (k1 @ k2) == fp_below k2 (find_prompt eff op k1)) =
-        fp_append_in eff op tl k2;
-        fp_aux_acc eff op [hd] (tl @ k2);
-        fp_aux_acc eff op [hd] tl;
-        fp_shift_below [hd] k2 (find_prompt eff op tl)
-      in
       (match hd with
         | PromptF hs _ ->
           (match lookup_clause hs eff op with
             | Some _ -> ()
-            | None -> below ())
-        | BindF _ -> below ())
+            | None -> fp_append_in eff op tl k2)
+        | BindF _ -> fp_append_in eff op tl k2)
 
 (** **The upper part holds no prompt for this action**: the search walks clean
     past it, and the whole of it is captured. *)
@@ -358,7 +321,6 @@ let rec fp_append_out
     | [] -> ()
     | hd :: tl ->
       fp_append_out eff op tl k2;
-      fp_aux_acc eff op [hd] (tl @ k2);
       fp_shift_comp [hd] tl (find_prompt eff op k2)
 
 // ------------------------------------------------------------------ //
@@ -444,32 +406,30 @@ let redex_converges
 // ------------------------------------------------------------------ //
 
 (**
- * **The delimited continuation `step` hands to a clause**, named -- not for
- * convenience. `step` builds it as the anonymous `fun x -> Resumed captured x`,
- * where `captured` is bound by the `match` on `find_prompt eff op k`, so after
- * elaboration the lambda closes over *the search result itself*. Closure
- * equality is not extensional, so a freshly written `fun x -> Resumed cap x` is
- * a different SMT symbol however provably equal `cap` and `captured` are: any
- * statement about the machine at a `Perform` must spell the continuation
- * exactly as `step` does, which is what this definition is for.
+ * **The delimited continuation `step` hands to a clause at `(eff, op)` on the
+ * stack `k`** -- the search folded in. `Hoop.Runtime.Semantics.kont_of` already names the
+ * continuation itself; what is named here is the composite "run the search,
+ * then take the continuation of whatever it found", which is the form the
+ * proofs below want because they hold two stacks whose searches agree only
+ * partly.
  *
  * The `None` branch is unreachable wherever this is used; it is filled in with
  * `Var` only to keep the definition total and free of a refinement.
  *)
-let kont_of (#v #cl: Type) (eff op: string) (k: stack v cl) : v -> comp_tree v cl =
+let kont_found (#v #cl: Type) (eff op: string) (k: stack v cl) : GTot (v -> comp_tree v cl) =
   match find_prompt eff op k with
-  | Some (captured, clause, below) -> (fun x -> Resumed captured x)
+  | Some (captured, clause, below) -> kont_of captured
   | None -> Var
 
 (** ... and its only relevant property: it resumes the captured segment. *)
-let kont_of_beta
+let kont_found_beta
     (#v #cl: Type)
     (eff op: string)
     (k cap: stack v cl)
     (cls: cl)
     (bel: stack v cl)
   : Lemma (requires find_prompt eff op k == Some (cap, cls, bel))
-          (ensures forall (y: v). kont_of eff op k y == Resumed cap y)
+          (ensures forall (y: v). kont_found eff op k y == Resumed cap y)
   = ()
 
 (**
@@ -508,7 +468,7 @@ let step_perform_found
     (bel: stack v cl)
   : Lemma (requires find_prompt eff op k == Some (cap, cls, bel))
           (ensures step apply (Step (Perform eff op payload) k) ==
-                   Step (apply cls payload (kont_of eff op k)) bel)
+                   Step (apply cls payload (kont_found eff op k)) bel)
   = ()
 
 (**
@@ -584,11 +544,11 @@ let rec sim
                 fp_append_in eff op pre (d2 @ post);
                 step_perform_found apply eff op payload k1 cap cls (bel @ (d1 @ post));
                 step_perform_found apply eff op payload k2 cap cls (bel @ (d2 @ post));
-                kont_of_beta eff op k1 cap cls (bel @ (d1 @ post));
-                kont_of_beta eff op k2 cap cls (bel @ (d2 @ post));
+                kont_found_beta eff op k1 cap cls (bel @ (d1 @ post));
+                kont_found_beta eff op k2 cap cls (bel @ (d2 @ post));
                 sim apply i j d1 d2 (n - 1) bel post
-                    (apply cls payload (kont_of eff op k1)) x;
-                apply_pointwise apply cls payload (kont_of eff op k1) (kont_of eff op k2);
+                    (apply cls payload (kont_found eff op k1)) x;
+                apply_pointwise apply cls payload (kont_found eff op k1) (kont_found eff op k2);
                 converges_back apply (Step c k2) x
             | None ->
                 fp_append_out eff op pre (d1 @ post);
@@ -611,10 +571,10 @@ let rec sim
                       assert (find_prompt eff op k2 == Some ((pre @ d2) @ capP, cls, bel));
                       step_perform_found apply eff op payload k1 ((pre @ d1) @ capP) cls bel;
                       step_perform_found apply eff op payload k2 ((pre @ d2) @ capP) cls bel;
-                      kont_of_beta eff op k1 ((pre @ d1) @ capP) cls bel;
-                      kont_of_beta eff op k2 ((pre @ d2) @ capP) cls bel;
+                      kont_found_beta eff op k1 ((pre @ d1) @ capP) cls bel;
+                      kont_found_beta eff op k2 ((pre @ d2) @ capP) cls bel;
                       perform_below apply i j d1 d2 n pre post capP cls bel
-                                    (kont_of eff op k1) (kont_of eff op k2) payload x;
+                                    (kont_found eff op k1) (kont_found eff op k2) payload x;
                       converges_back apply (Step c k2) x))
     end
 
@@ -651,7 +611,7 @@ and perform_below
            (steps apply (n - 1) (Step (kf1 y) k) == Done z ==>
             converges apply (Step (kf2 y) k) z)
     with introduce _ ==> _
-    with _. begin
+    with begin
       append_assoc (pre @ d1) capP k;
       append_assoc pre d1 (capP @ k);
       append_assoc (pre @ d2) capP k;
@@ -685,14 +645,14 @@ let left_identity
   = introduce forall (k: stack v cl) (x: v).
       (converges apply (Step (Op (Var a) fn) k) x ==> converges apply (Step (fn a) k) x)
     with introduce _ ==> _
-    with _. begin
+    with begin
       converges_fwd apply (Step (Op (Var a) fn) k) x;
       converges_fwd apply (Step (Var a) (BindF fn :: k)) x
     end;
     introduce forall (k: stack v cl) (x: v).
       (converges apply (Step (fn a) k) x ==> converges apply (Step (Op (Var a) fn) k) x)
     with introduce _ ==> _
-    with _. begin
+    with begin
       converges_back apply (Step (Var a) (BindF fn :: k)) x;
       converges_back apply (Step (Op (Var a) fn) k) x
     end
@@ -734,19 +694,17 @@ let right_identity
     introduce forall (k: stack v cl) (x: v).
       (converges apply (Step (Op m (Var #v #cl)) k) x ==> converges apply (Step m k) x)
     with introduce _ ==> _
-    with _. begin
+    with begin
       converges_fwd apply (Step (Op m (Var #v #cl)) k) x;
       eliminate exists (n: nat). steps apply n (Step m (d @ k)) == Done x
-      returns converges apply (Step m k) x
-      with _. sim apply 1 0 d [] n [] k m x
+      with sim apply 1 0 d [] n [] k m x
     end;
     introduce forall (k: stack v cl) (x: v).
       (converges apply (Step m k) x ==> converges apply (Step (Op m (Var #v #cl)) k) x)
     with introduce _ ==> _
-    with _. begin
+    with begin
       eliminate exists (n: nat). steps apply n (Step m k) == Done x
-      returns converges apply (Step (Op m (Var #v #cl)) k) x
-      with _.
+      with
         (sim apply 0 1 [] d n [] k m x;
          converges_back apply (Step (Op m (Var #v #cl)) k) x)
     end
@@ -788,23 +746,21 @@ let associativity
     introduce forall (k: stack v cl) (x: v).
       (converges apply (Step (Op (Op m f) g) k) x ==> converges apply (Step (Op m h) k) x)
     with introduce _ ==> _
-    with _. begin
+    with begin
       converges_fwd apply (Step (Op (Op m f) g) k) x;
       converges_fwd apply (Step (Op m f) (BindF g :: k)) x;
       eliminate exists (n: nat). steps apply n (Step m (d1 @ k)) == Done x
-      returns converges apply (Step (Op m h) k) x
-      with _.
+      with
         (sim apply 1 2 d1 d2 n [] k m x;
          converges_back apply (Step (Op m h) k) x)
     end;
     introduce forall (k: stack v cl) (x: v).
       (converges apply (Step (Op m h) k) x ==> converges apply (Step (Op (Op m f) g) k) x)
     with introduce _ ==> _
-    with _. begin
+    with begin
       converges_fwd apply (Step (Op m h) k) x;
       eliminate exists (n: nat). steps apply n (Step m (d2 @ k)) == Done x
-      returns converges apply (Step (Op (Op m f) g) k) x
-      with _.
+      with
         (sim apply 2 1 d2 d1 n [] k m x;
          converges_back apply (Step (Op m f) (BindF g :: k)) x;
          converges_back apply (Step (Op (Op m f) g) k) x)
@@ -913,7 +869,7 @@ let lapply_obs_congr () : Lemma (apply_obs_congr lapply)
       ((forall (x: int). obs_le_n lapply n (kf1 x) (kf2 x)) ==>
        obs_le_n lapply n (lapply c payload kf1) (lapply c payload kf2))
     with introduce _ ==> _
-    with _.
+    with
       (match c with
         | LAddAfter m ->
             // The frame `fun r -> Var (r + m)` is not written out: it would be
@@ -970,7 +926,7 @@ let handle_not_algebraic () : Lemma (~(obs_eq lapply handle_then then_handle))
     introduce exists (n: nat). steps lapply n (Step then_handle k0) == Done (-1)
     with 8 and ();
     introduce obs_eq lapply handle_then then_handle ==> False
-    with _. begin
+    with begin
       assert (converges lapply (Step handle_then k0) (-2));
       assert (converges lapply (Step then_handle k0) (-2));
       converges_det lapply (Step then_handle k0) (-2) (-1)
