@@ -140,8 +140,7 @@ let one_more_step
       (requires exists (n:nat). r == steps apply n (step apply s))
       (ensures (exists (m:nat). r == steps apply m s))
   = eliminate exists (n:nat). r == steps apply n (step apply s)
-    returns _
-    with _.
+    with
       introduce exists (m:nat). r == steps apply m s
       with (n + 1) and ()
 
