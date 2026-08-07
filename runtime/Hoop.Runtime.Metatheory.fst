@@ -1,13 +1,15 @@
-module Hoop.Runtime.Properties
+module Hoop.Runtime.Metatheory
 
 open FStar.List.Tot
 
-open Hoop.Runtime
+open Hoop.Runtime.Syntax
+open Hoop.Runtime.Semantics
+open Hoop.Runtime.WellScopedness
 
-// `Hoop.Runtime.find_prompt` is implemented tail-recursively, which 
-// is stack-safe and more performant, but hard to use in writing proofs.
-// Here, find_prompt' is non-tail recursive variant and intend to be used 
-// inside the theorem proofs.
+// `Hoop.Runtime.Semantics.find_prompt` is tail-recursive -- stack-safe and
+// faster, but awkward to reason about. `find_prompt'` is the
+// non-tail-recursive variant the proofs below use instead; the two lemmas
+// after it justify the swap.
 let rec find_prompt'
     (#v #cl: Type)
     (eff op: string)
@@ -27,7 +29,6 @@ let rec find_prompt'
         | None -> None
         | Some (cap, c, below) -> Some (f :: cap, c, below))
 
-// The use of find_prompt' in the proofs is justified by the following two lemmas:
 let rec find_prompt_aux_correct (#v #cl: Type) (eff op: string) (soFar k: stack v cl)
     : Lemma
       (ensures
@@ -46,7 +47,6 @@ let rec find_prompt_aux_correct (#v #cl: Type) (eff op: string) (soFar k: stack 
           | None -> find_prompt_aux_correct eff op (hd :: soFar) tl)
       | BindF _ -> find_prompt_aux_correct eff op (hd :: soFar) tl)
 
-// The correctness of find_prompt
 let find_prompt_correct
     (#v #cl: Type)
     (eff op: string) 
@@ -69,7 +69,7 @@ let rec find_prompt_partitions_spec
         | None -> find_prompt_partitions_spec eff op rest)
     | _ :: rest -> find_prompt_partitions_spec eff op rest
 
-// Corollary: The property of `find_prompt_partitions` also holds for the extract version of `find_prompt`.
+// ... and hence for the extracted `find_prompt`.
 let find_prompt_partitions
     (#v #cl: Type)
     (eff op: string)
@@ -93,7 +93,7 @@ let rec find_prompt_last_spec
         | None -> find_prompt_last_spec eff op rest)
     | _ :: rest -> find_prompt_last_spec eff op rest
 
-// Corollary: The property of `find_prompt_last` also holds for the extract version of `find_prompt`.
+// ... and hence for the extracted `find_prompt`.
 let find_prompt_last
     (#v #cl: Type)
     (eff op: string)
@@ -122,7 +122,7 @@ let rec find_prompt_innermost_spec
       (find_prompt_last_spec eff op rest;
         find_prompt_innermost_spec eff op rest)
 
-// Corollary
+// ... and hence for the extracted `find_prompt`.
 let find_prompt_innermost
     (#v #cl: Type) 
     (eff op: string) 
@@ -135,29 +135,26 @@ let find_prompt_innermost
 
 (* ------------------------------------------------------------------ *)
 
-let rec lookup_clause_memP
+// The table being abstract, neither of these is an induction any more: the
+// induction is on `table hs` and lives in `Hoop.Runtime.Handlers`. What is left
+// here is the transport across `lookup_clause_spec`.
+let lookup_clause_memP
     (#cl: Type)
     (hs: handlers cl)
     (eff op: string)
   : Lemma
       (requires Some? (lookup_clause hs eff op))
-      (ensures (lookup_clause_soundness hs eff op)) 
-      (decreases hs)
-  = match hs with
-    | [] -> ()
-    | (e, o, _) :: rest -> if e = eff && o = op then () else lookup_clause_memP rest eff op
+      (ensures (lookup_clause_soundness hs eff op))
+  = assoc_clause_memP (table hs) eff op
 
-let rec lookup_clause_none 
+let lookup_clause_none
     (#cl: Type)
     (hs: handlers cl)
     (eff op: string)
-  : Lemma 
+  : Lemma
       (requires None? (lookup_clause hs eff op))
       (ensures lookup_clause_completeness hs eff op)
-      (decreases hs)
-  = match hs with
-    | [] -> ()
-    | (e, o, _) :: rest -> lookup_clause_none rest eff op
+  = assoc_clause_none (table hs) eff op
 
 let step_perform
     (#v #cl: Type)
@@ -169,8 +166,8 @@ let step_perform
       (requires Some? (find_prompt eff op k))
       (ensures 
           (let Some (captured, clause, below) = find_prompt eff op k in
-              (step apply (Step (Perform eff op payload) k) == 
-                  Step (apply clause payload (fun x -> Resumed captured x)) below) /\
+              (step apply (Step (Perform eff op payload) k) ==
+                  Step (apply clause payload (kont_of captured)) below) /\
               captured @ below == k))
   = find_prompt_partitions eff op k
 
@@ -187,8 +184,7 @@ let step_perform_stuck
 
 (* ------------------------------------------------------------------ *)
 
-// Zero fuel is a no-op.
-let steps_zero 
+let steps_zero
     (#v #cl: Type)
     (apply: apply_t v cl)
     (s: state v cl)
@@ -251,12 +247,9 @@ let steps_stable
 (* ------------------------------------------------------------------ *)
 (* Well-scopedness: the defining equations                             *)
 (*                                                                     *)
-(* Each equation is proved in two halves, and the half that has to peel *)
-(* the step index lives in `Hoop.Runtime` -- `ws_n` and `wf_stack_n`    *)
-(* are private there, so `..._fwd` / `..._bwd` are as close as this     *)
-(* module ever gets to the index. What is left here is the assembly of  *)
-(* the two halves into an `<==>`, plus the backward directions that go  *)
-(* through on their own.                                                *)
+(* Each equation is proved in two halves. The half that peels the step  *)
+(* index lives in `Hoop.Runtime`, since `ws_n` and `wf_stack_n` are     *)
+(* private there; what is left here is the assembly into an `<==>`.     *)
 (* ------------------------------------------------------------------ *)
 
 let ws_var (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (x: v)
@@ -467,7 +460,7 @@ let pres_perform (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
     (* the captured segment is well formed on top of `below` *)
     wf_stack_append cok captured below (can_nothing ());
     assert (wf_stack cok (can_in below) captured);
-    let kf : v -> comp_tree v cl = fun x -> Resumed captured x in
+    let kf : v -> comp_tree v cl = kont_of captured in
     introduce forall (x: v). ws cok (can_in below) (kf x)
     with ws_resumed cok (can_in below) captured x;
     assert (ws cok (can_in below) (apply clause payload kf))
