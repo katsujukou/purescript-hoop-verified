@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# runtime/Hoop.Runtime.fst --[F* verification]--> OCaml --[js_of_ocaml]--> src/Hoop/Engine.js
+# runtime/*.fst --[F* verification]--> OCaml --[js_of_ocaml]--> src/Hoop/Engine.js
 #
 # Every tool comes from the nix devShell. Intermediate artifacts land in build/.
 # src/Hoop/Engine.js is generated -- do not edit it by hand.
@@ -21,12 +21,38 @@ OUT="$ROOT/src/Hoop/Engine.js"
 CACHE="$ROOT/.fstar-cache"
 
 # Modules to verify, in dependency order. Interfaces (.fsti) are picked up
-# automatically when present.
-VERIFY_MODULES=(Hoop.Runtime Hoop.Runtime.Properties Hoop.Runtime.Test)
+# automatically when present. Reading the list top to bottom:
+#
+#   Handlers        the handler table, behind an interface
+#   Syntax          the AST -- `comp_tree` and `frame`
+#   Semantics       the reference machine, stack search and all
+#   WellScopedness  the judgement that rules `Stuck` out
+#   Metatheory      preservation and progress, proved of `Semantics`
+#   Env             the evidence environment, behind an interface
+#   Env.Stack       the environment a stack offers, and that the two agree.
+#                   UNREFERENCED as of the tail-resumptive merge: it locates a
+#                   prompt by the height it was installed at, and the machine's
+#                   `MEnvF` frame makes a height into the reference stack
+#                   unavailable. Kept verified pending a decision on its fate;
+#                   nothing below depends on it.
+#   Hoop.Runtime    THE MACHINE, and the only module the FFI touches:
+#                   `Semantics` with the stack search replaced by an evidence
+#                   lookup and with tail-resumptive (`fast`) clauses, linked to
+#                   `Semantics` by a weak simulation through `erase_st`.
+#   Test, Laws      leaves -- `assert_norm` fixtures and the monad laws
+VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime.Env.Stack Hoop.Runtime Hoop.Runtime.Test Hoop.Runtime.Laws)
 
-# Modules to extract to OCaml. Only the runtime itself becomes JavaScript;
-# the others are specifications and proofs.
-EXTRACT_MODULES=(Hoop.Runtime)
+# Modules to extract to OCaml, in dependency order -- this is also the order
+# ocamlc links them in below. The four omitted are proof-only: `WellScopedness`,
+# `Metatheory` and `Laws` are `prop` and `Lemma` throughout and extract to
+# nothing, and `Test` is fixtures.
+#
+# `--extract` reads a module name as a namespace prefix as well, so asking for
+# `Hoop.Runtime` offers up the whole `Hoop.Runtime.*` namespace. Every module in
+# it now has an interface, and a module whose implementation is behind one is
+# not offered, so nothing omitted here reaches build/ml. Give one of them an
+# implementation-only module again and its .ml will reappear.
+EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime.Env.Stack Hoop.Runtime)
 
 # Names the generated JS exposes. Must match the `export` calls in hoop_ffi.ml.
 # All of them are uncurried multi-argument functions -- the PureScript side
@@ -85,13 +111,51 @@ for m in "${EXTRACT_MODULES[@]}"; do
     --odir "$BUILD/ml" "$FST_DIR/$m.fst"
 done
 
-# F*'s unbounded integers extract to zarith, which would drag a large numeric
-# library into the JavaScript bundle. Nothing in the runtime should need them.
-if grep -q 'Prims\.int' "$BUILD"/ml/*.ml; then
-  echo "ERROR: extracted OCaml references Prims.int (zarith)." >&2
-  echo "       Mark the nat/int-using definitions noextract, give them a ghost" >&2
-  echo "       effect, or switch to machine integers." >&2
-  grep -n 'Prims\.int' "$BUILD"/ml/*.ml >&2
+# F*'s own Prims realises integers with zarith, which would drag a large numeric
+# library into the JavaScript bundle. runtime/ml/shim/Prims.ml replaces it with
+# checked native ints instead; the three guards below are what make that
+# substitution safe to rely on. See the header of that file for the argument.
+#
+# (a) The runtime counts stack frames, so `Prims.nat` is expected in the
+#     extracted output. A signed `Prims.int` is not: the overflow check in the
+#     shim tests for a negative result, which is only a sound test when no
+#     genuinely negative value can arise. Mark such a definition `noextract` or
+#     give it a ghost effect.
+if grep -qE 'Prims\.int([^_A-Za-z0-9]|$)' "$BUILD"/ml/*.ml; then
+  echo "ERROR: extracted OCaml references the signed Prims.int." >&2
+  echo "       The shim's overflow check assumes every extracted integer is a" >&2
+  echo "       nat. Mark the definition noextract or give it a ghost effect." >&2
+  grep -nE 'Prims\.int([^_A-Za-z0-9]|$)' "$BUILD"/ml/*.ml >&2
+  exit 1
+fi
+
+# (b) The handwritten shim and glue must not reach for a bignum library either,
+#     and Prims.ml must still be the native-int realisation. Comments are
+#     stripped first: Prims.ml's header discusses zarith at length, and a guard
+#     that fires on its own documentation is one people route around.
+strip_ocaml_comments() {
+  awk '
+    BEGIN { d = 0 }
+    {
+      out = ""
+      for (i = 1; i <= length($0); i++) {
+        two = substr($0, i, 2)
+        if (two == "(*")      { d++;   i++; continue }
+        if (d > 0 && two == "*)") { d--; i++; continue }
+        if (d == 0) out = out substr($0, i, 1)
+      }
+      print out
+    }' "$1"
+}
+
+for f in "$ML_DIR"/shim/*.ml "$ML_DIR"/hoop_ffi.ml; do
+  if strip_ocaml_comments "$f" | grep -nE '\bZ\.|zarith|Stdint'; then
+    echo "ERROR: $f references a bignum library." >&2
+    exit 1
+  fi
+done
+if ! grep -q 'type int = Stdlib\.Int\.t' "$ML_DIR/shim/Prims.ml"; then
+  echo "ERROR: runtime/ml/shim/Prims.ml no longer realises Prims.int natively." >&2
   exit 1
 fi
 
@@ -130,7 +194,7 @@ mkdir -p "$(dirname "$OUT")"
 // ---------------------------------------------------------------------------
 // Generated file -- do not edit.
 //
-//   runtime/$( IFS=,; echo "${EXTRACT_MODULES[*]}" ).fst
+$( for m in "${EXTRACT_MODULES[@]}"; do echo "//   runtime/$m.fst"; done )
 //     -> F* verification -> OCaml extraction -> js_of_ocaml
 //
 // Regenerate with: hoop-build-runtime  (or ./scripts/build-runtime.sh)
@@ -153,4 +217,24 @@ EOF
   done
 } > "$OUT"
 
-log "Done: $(wc -c < "$OUT" | tr -d ' ') bytes"
+# (c) The last word belongs to the bundle itself. Guards (a) and (b) read
+#     sources; this one reads what actually ships, and so also catches a bignum
+#     arriving through a route neither of them models. The size budget is the
+#     same check by another route: linking zarith or Printf/Format multiplies
+#     the output several times over, so a bundle that stays small has not.
+if grep -qE 'ml_z_|caml_z_|BigInt|Stdint' "$OUT"; then
+  echo "ERROR: the generated bundle contains bignum support code." >&2
+  grep -noE 'ml_z_[a-z_]*|caml_z_[a-z_]*|BigInt|Stdint' "$OUT" | head >&2
+  exit 1
+fi
+
+SIZE="$(wc -c < "$OUT" | tr -d ' ')"
+BUDGET=60000
+if [ "$SIZE" -gt "$BUDGET" ]; then
+  echo "ERROR: bundle is $SIZE bytes, over the $BUDGET-byte budget." >&2
+  echo "       Something heavy got linked in -- check for a new library" >&2
+  echo "       dependency in hoop_ffi.ml or a shim that grew." >&2
+  exit 1
+fi
+
+log "Done: $SIZE bytes (budget $BUDGET)"

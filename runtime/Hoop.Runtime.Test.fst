@@ -1,15 +1,21 @@
 module Hoop.Runtime.Test
 
-open Hoop.Runtime
-open Hoop.Runtime.Properties
+friend Hoop.Runtime.Handlers
+(* The evidence environment is abstract too, and the differential tests at the
+   bottom run it. Same reason: `assert_norm` would stop at the first `lookup`. *)
+friend Hoop.Runtime.Env
+
+open Hoop.Runtime.Syntax
+open Hoop.Runtime.Semantics
+open Hoop.Runtime.Metatheory
+
+module M = Hoop.Runtime
 
 
 
-(*
-  Hoop.Runtime is parametric in the value type v and the clause type cl, so the
-  tests plug in concrete, computable types to observe the actual behaviour.
-  In production, v := FStar.Dyn.dyn and cl := a PureScript closure.
-*)
+(* Hoop.Runtime.Syntax is parametric in the value type v and the clause type
+   cl, so the tests plug in concrete, computable types to observe the actual
+   behaviour. In production, v := FStar.Dyn.dyn and cl := a PureScript closure. *)
 
 type tv =
   | VI : int -> tv
@@ -23,9 +29,9 @@ let vadd (a b: tv) : tv =
 
 
 
-(* The clause language used by the tests. Real clauses are PureScript closures whose
-   bodies are opaque, but the machine is supposed to follow the very same discipline for
-   any clause whatsoever, so we line up a few representative ones *)
+(* The clause language used by the tests. Real clauses are opaque PureScript
+   closures, but the machine follows the same discipline for any clause
+   whatsoever, so a few representative ones suffice. *)
 
 noeq
 type tcl =
@@ -48,13 +54,11 @@ let tapply (c: tcl) (payload: list tv) (k: (tv -> comp_tree tv tcl)) : comp_tree
   | CTwice -> Op (k (VI 1)) (fun _ -> k (VI 2))
   | CResumeAdd a b -> Op (k a) (fun r -> Var (vadd r b))
 
-(*
-  `steps` is GTot, hence so is `exec`. F* does not admit GTot for a nullary top-level
-  let, so no test binds its execution result at top level; each one instead embeds the
-  run directly inside an assert_norm (the body of an assert_norm is a proposition, that
-  is, a ghost position, so the GTot call is normalized right there).
-  Helpers that merely build up the program under test, such as `reader`, may stay in Tot.
-*)
+(* `steps` is GTot, hence so is `exec`, and F* does not admit GTot for a nullary
+   top-level let. No test therefore binds its result at top level; each embeds
+   the run directly inside an assert_norm, whose body is a proposition and so a
+   ghost position. Helpers that merely build the program under test, such as
+   `reader`, may stay in Tot. *)
 
 let exec (c: comp_tree tv tcl) : GTot (state tv tcl) = steps tapply 1000 (load c)
 
@@ -77,7 +81,7 @@ let _ =
 (* ---- 2. Basic handler: the perform reaches it ---- *)
 
 let reader (n: int) (body: comp_tree tv tcl) : comp_tree tv tcl =
-  Handle [("Reader", "ask", CConst (VI n))] None body
+  Handle (mk_handlers [("Reader", "ask", CConst (VI n))]) None body
 
 let _ =
   assert_norm
@@ -100,7 +104,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle [("Reader", "ask", CConst (VI 1))]
+    (result (exec (Handle (mk_handlers [("Reader", "ask", CConst (VI 1))])
                   (Some (fun _ -> Var (VS "wrapped")))
                   (Op (Perform "Reader" "ask" []) (fun n -> Var n))))
       == Some (VS "wrapped"))
@@ -111,7 +115,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle [("Exc", "throw", CAbort (VS "boom"))]
+    (result (exec (Handle (mk_handlers [("Exc", "throw", CAbort (VS "boom"))])
                   (Some (fun _ -> Var (VS "should not run")))
                   (Op (Perform "Exc" "throw" []) (fun _ -> Var (VS "should not run either")))))
       == Some (VS "boom"))
@@ -132,7 +136,7 @@ let _ =
 let _ =
   assert_norm
     (result (exec (reader 1
-                  (Handle [("Other", "op", CConst VU)]
+                  (Handle (mk_handlers [("Other", "op", CConst VU)])
                           None
                           (Op (Perform "Reader" "ask" []) (fun n -> Var n)))))
       == Some (VI 1))
@@ -143,7 +147,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle [("Amb", "flip", CTwice)]
+    (result (exec (Handle (mk_handlers [("Amb", "flip", CTwice)])
                   None
                   (Op (Perform "Amb" "flip" []) (fun n -> Var (vadd n (VI 100))))))
       == Some (VI 102))
@@ -154,28 +158,23 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle [("Echo", "say", CEcho)]
+    (result (exec (Handle (mk_handlers [("Echo", "say", CEcho)])
                   None
                   (Op (Perform "Echo" "say" [VS "hello"]) (fun s -> Var s))))
       == Some (VS "hello"))
 
 
 
-(* ---- 10. An unhandled effect ends up Stuck (where the TS version throws) ---- *)
+(* ---- 10. An unhandled effect ends up Stuck ---- *)
 
 let _ = assert_norm (exec (Perform "Nope" "missing" []) == Stuck "Nope" "missing")
 
 
 
 (*
-  ---- 11-12. Ported from the following two cases of machine.test.ts on the TS side.
-  Since a resumed continuation re-installs the prompt, the value returned by `k`
-  is "the value that has already gone through the return clause" -- the essence of
-  deep handlers.
-
-    "deep semantics through the return clause (Var)"
-    "continuation after resume: k's result is the value already
-     processed by the return clause"
+  ---- 11-12. Deep semantics through the return clause. Since a resumed
+  continuation re-installs the prompt, the value `k` returns is the value that
+  has already gone through the return clause.
 *)
 
 let ret1000:option (tv -> comp_tree tv tcl) = Some (fun v -> Var (vadd v (VI 1000)))
@@ -186,7 +185,7 @@ let ret1000:option (tv -> comp_tree tv tcl) = Some (fun v -> Var (vadd v (VI 100
 
 let _ =
   assert_norm
-    (result (exec (Handle [("ask", "ask", CConst (VI 1))] ret1000 (Perform "ask" "ask" [])))
+    (result (exec (Handle (mk_handlers [("ask", "ask", CConst (VI 1))]) ret1000 (Perform "ask" "ask" [])))
       == Some (VI 1001))
 
 
@@ -195,7 +194,308 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle [("ask", "ask", CResumeAdd (VI 1) (VI 100))]
+    (result (exec (Handle (mk_handlers [("ask", "ask", CResumeAdd (VI 1) (VI 100))])
                   ret1000
                   (Perform "ask" "ask" [])))
       == Some (VI 1101))
+
+
+(*
+  ---- 13-19. The machine that ships, differentially, over full clauses ----
+
+  `Hoop.Runtime.msim` proves that one machine transition is one or two reference
+  transitions, so none of this can fail while that proof stands. It is here
+  because it exercises what the proof deliberately does not: the evidence
+  realisation actually running -- `lookup`, `extend`, `outer` -- on programs
+  where resolving to the wrong level is the difference between capturing the
+  right frames and capturing one too many.
+
+  The comparison is between whole *states*, through the erasure: `erase_st` of
+  where the machine stops must be `Some` of where the reference machine stops. A
+  wrong split cannot hide behind a right result.
+
+  These seven were written against an earlier machine, which carried the
+  evidence environment beside a reference `state` and agreed with `Semantics`
+  state by state. That machine is gone: a fast clause body runs without the
+  capture the reference performs, so the two stacks no longer have equal length
+  and `erase_st` is what relates them. The programs, the handler tables and the
+  expected answers are unchanged; what is restated is the *form* of the
+  comparison -- `erase_st q == Some s` in place of `q == s` -- and the clause
+  type, which is now tagged. Every entry below is tagged `Full`, so
+  `M.desugar taf tafast (Full c) == taf c` and the reference run is the run
+  `exec` performs above, one tag thicker.
+*)
+
+let tct = M.ct tv tcl
+
+(* The FFI's full interpreter at the tagged clause type: `tapply`'s body, and
+   nothing else. *)
+let taf (c: tcl) (payload: list tv) (k: tv -> tct) : tct =
+  match c with
+  | CConst v -> k v
+  | CEcho ->
+    (match payload with
+      | x :: _ -> k x
+      | [] -> Var VU)
+  | CAbort v -> Var v
+  | CTwice -> Op (k (VI 1)) (fun _ -> k (VI 2))
+  | CResumeAdd a b -> Op (k a) (fun r -> Var (vadd r b))
+
+(* No table in 13-19 tags an entry `Fast`, so this is never reached. It must
+   still be supplied: the machine takes both interpreters, and which one applies
+   is decided by the tag on the entry rather than by the handle. *)
+let tafast (c: tcl) (payload: list tv) : tct = Var VU
+
+(* The reference machine, at the desugared reading of the table. *)
+let texec (p: tct) : GTot (state tv (M.clause tcl)) =
+  steps (M.desugar taf tafast) 1000 (load p)
+
+(* The machine that ships. *)
+let texec_m (p: tct) : M.mstate tv tcl = M.msteps taf tafast 1000 (M.mload p)
+
+let mresult (#cl: Type) (q: M.mstate tv cl) : option tv =
+  match q with
+  | M.MDone v -> Some v
+  | _ -> None
+
+let reader_t (n: int) (body: tct) : tct =
+  Handle (mk_handlers [("Reader", "ask", M.Full (CConst (VI n)))]) None body
+
+
+
+(* 13. A pure chain of Ops -- no prompt, no evidence, but the stack moves *)
+
+let prog_pure: tct =
+  Op (Var (VI 1)) (fun x -> Op (Var (VI 2)) (fun y -> Var (vadd x y)))
+
+let _ = assert_norm (M.erase_st (texec_m prog_pure) == Some (texec prog_pure))
+let _ = assert_norm (mresult (texec_m prog_pure) == Some (VI 3))
+
+
+
+(* 14. Deep handler: the prompt is re-installed, so the evidence for the second
+   perform has to be re-derived on the reinstalled segment *)
+
+let prog_deep: tct =
+  reader_t 7 (Op (Perform "Reader" "ask" [])
+                 (fun a -> Op (Perform "Reader" "ask" []) (fun b -> Var (vadd a b))))
+
+let _ = assert_norm (M.erase_st (texec_m prog_deep) == Some (texec prog_deep))
+let _ = assert_norm (mresult (texec_m prog_deep) == Some (VI 14))
+
+
+
+(* 15. Shadowing: the environment must resolve to the inner prompt *)
+
+let prog_shadow: tct =
+  reader_t 1 (reader_t 2 (Op (Perform "Reader" "ask" []) (fun n -> Var n)))
+
+let _ = assert_norm (M.erase_st (texec_m prog_shadow) == Some (texec prog_shadow))
+let _ = assert_norm (mresult (texec_m prog_shadow) == Some (VI 2))
+
+
+
+(* 16. Escape: a level that does not bind the key must not intercept it *)
+
+let prog_escape: tct =
+  reader_t 1 (Handle (mk_handlers [("Other", "op", M.Full (CConst VU))])
+                     None
+                     (Op (Perform "Reader" "ask" []) (fun n -> Var n)))
+
+let _ = assert_norm (M.erase_st (texec_m prog_escape) == Some (texec prog_escape))
+let _ = assert_norm (mresult (texec_m prog_escape) == Some (VI 1))
+
+
+
+(* 17. Multi-shot. The clause resumes twice, and the second resumption happens
+   under a stack one frame taller than the first -- the case in which evidence
+   frozen at installation time would cut one frame too many. *)
+
+let prog_twice: tct =
+  Handle (mk_handlers [("Amb", "flip", M.Full CTwice)])
+         None
+         (Op (Perform "Amb" "flip" []) (fun n -> Var (vadd n (VI 100))))
+
+let _ = assert_norm (M.erase_st (texec_m prog_twice) == Some (texec prog_twice))
+let _ = assert_norm (mresult (texec_m prog_twice) == Some (VI 102))
+
+
+
+(* 18. Multi-shot under a nested prompt, so that the segment reinstalled on the
+   second resumption carries a prompt of its own and its level is re-derived *)
+
+let prog_twice_nested: tct =
+  Handle (mk_handlers [("Amb", "flip", M.Full CTwice)])
+         None
+         (reader_t 5
+           (Op (Perform "Amb" "flip" [])
+               (fun n -> Op (Perform "Reader" "ask" []) (fun r -> Var (vadd n r)))))
+
+let _ = assert_norm (M.erase_st (texec_m prog_twice_nested) == Some (texec prog_twice_nested))
+let _ = assert_norm (mresult (texec_m prog_twice_nested) == Some (VI 7))
+
+
+
+(* 19. An unhandled effect: the environment's `None` and the search's `None`
+   must coincide *)
+
+let _ =
+  assert_norm
+    (texec_m (Perform "Nope" "missing" []) == M.MStuck "Nope" "missing")
+
+
+(*
+  ---- 20-25. The same machine, over tail-resumptive clauses ----
+
+  Same discipline as 13-19, on the part `MEnvF` is for: a fast clause body
+  running in place, the environment it runs under, and the `rev`-based loops
+  that replace the three structural walks.
+
+  The fuel is the same 1000 on both sides. It need not be: the machine reaches
+  its terminal state in *fewer* transitions than the reference, and a terminal
+  state is a fixed point of both iterations, so any fuel large enough for the
+  reference is large enough for both.
+*)
+
+(*
+  The clause language of these tests, kept separate from `tcl` so that the
+  fixtures above are untouched. Each constructor is read by *both* interpreters
+  -- which is exactly what the `Hoop.Runtime.clause` tag is for: the tag on
+  the table entry, not the clause handle, decides which reading applies. The
+  names say which reading each was written for.
+*)
+noeq
+type fcl =
+  | FRet : tv -> fcl (* fast: the operation's result, immediately *)
+  | FEcho : fcl (* fast: the operation's result is payload[0] *)
+  (* fast, and effectful: the body performs `Reader.ask` and adds. The action
+     belongs to the *handler's* context, so it must resolve outside this
+     clause's own prompt -- see `fprog_masked`. *)
+  | FAsk : tv -> fcl
+  (* fast, and effectful in the other direction: the body performs `Amb.flip`,
+     which a *full* clause handles, so the capture takes the `MEnvF` with it --
+     see `fprog_capture`. *)
+  | FFlip : tv -> fcl
+  | XRet : tv -> fcl (* full: resume with a constant *)
+  | XTwice : fcl (* full: resume twice -- multi-shot *)
+  | XAbort : tv -> fcl (* full: drop the continuation *)
+
+let fct = M.ct tv fcl
+
+(* The FFI's full interpreter: handed the delimited continuation. *)
+let faf (c: fcl) (payload: list tv) (k: tv -> fct) : fct =
+  match c with
+  | XRet v -> k v
+  | XTwice -> Op (k (VI 1)) (fun _ -> k (VI 2))
+  | XAbort v -> Var v
+  | FRet v -> k v
+  | FEcho -> (match payload with x :: _ -> k x | [] -> Var VU)
+  | FAsk v -> Op (Perform "Reader" "ask" []) (fun r -> k (vadd r v))
+  | FFlip v -> Op (Perform "Amb" "flip" []) (fun r -> k (vadd r v))
+
+(* The FFI's fast interpreter: not handed the continuation, and cannot be. The
+   body's value *is* the operation's result. *)
+let fafast (c: fcl) (payload: list tv) : fct =
+  match c with
+  | FRet v -> Var v
+  | FEcho -> (match payload with x :: _ -> Var x | [] -> Var VU)
+  | FAsk v -> Op (Perform "Reader" "ask" []) (fun r -> Var (vadd r v))
+  | FFlip v -> Op (Perform "Amb" "flip" []) (fun r -> Var (vadd r v))
+  | XRet v -> Var v
+  | XTwice -> Var (VI 1)
+  | XAbort v -> Var v
+
+(* The reference machine, run at the desugared reading of the table. *)
+let fexec (p: fct) : GTot (state tv (M.clause fcl)) =
+  steps (M.desugar faf fafast) 1000 (load p)
+
+(* The machine that ships. *)
+let fexec_m (p: fct) : M.mstate tv fcl = M.msteps faf fafast 1000 (M.mload p)
+
+
+
+(* 20. A fast clause dispatches at all, and its body's value is the operation's
+   result. Reader.ask, the canonical tail-resumptive operation. *)
+
+let fprog_basic: fct =
+  Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 42)))])
+         None
+         (Op (Perform "Reader" "ask" []) (fun n -> Var n))
+
+let _ = assert_norm (M.erase_st (fexec_m fprog_basic) == Some (fexec fprog_basic))
+let _ = assert_norm (mresult (fexec_m fprog_basic) == Some (VI 42))
+
+
+
+(* 21. Deep semantics through a fast clause: the prompt is never left, so the
+   second perform finds it again. The machine never cut the stack, so
+   this is the case in which a wrong `MEnvF` return would show up as a lost
+   frame. *)
+
+let fprog_deep: fct =
+  Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 7)))])
+         None
+         (Op (Perform "Reader" "ask" [])
+             (fun a -> Op (Perform "Reader" "ask" []) (fun b -> Var (vadd a b))))
+
+let _ = assert_norm (M.erase_st (fexec_m fprog_deep) == Some (fexec fprog_deep))
+let _ = assert_norm (mresult (fexec_m fprog_deep) == Some (VI 14))
+
+
+
+(* 22. The masking, which is the whole point of `MEnvF` carrying the saved
+   environment. `Log.emit`'s fast body performs `Reader.ask`. Between the perform
+   site and the `Log` prompt sits a *nearer* `Reader` handler, and the body must
+   not see it: a tail-resumptive clause runs in the context its handler was
+   installed in. 1005, not 1100. *)
+
+let fprog_masked: fct =
+  Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 5)))]) None
+    (Handle (mk_handlers [("Log", "emit", M.Fast (FAsk (VI 1000)))]) None
+      (Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 100)))]) None
+        (Op (Perform "Log" "emit" []) (fun r -> Var r))))
+
+let _ = assert_norm (M.erase_st (fexec_m fprog_masked) == Some (fexec fprog_masked))
+let _ = assert_norm (mresult (fexec_m fprog_masked) == Some (VI 1005))
+
+
+
+(* 23. Capture across an `MEnvF`, and multi-shot through it. `Log.emit`'s fast
+   body performs `Amb.flip`, whose clause is *full* and resumes twice, so the
+   split has to jump over the region the `MEnvF` masks and hand the clause a
+   segment in which that `MEnvF` has become the `BindF` the reference machine
+   has there. Nothing is reinstalled as an `MEnvF` on either resumption -- which
+   is what makes the second one safe. *)
+
+let fprog_capture: fct =
+  Handle (mk_handlers [("Amb", "flip", M.Full XTwice)]) None
+    (Handle (mk_handlers [("Log", "emit", M.Fast (FFlip (VI 0)))]) None
+      (Op (Perform "Log" "emit" []) (fun r -> Var (vadd r (VI 100)))))
+
+let _ = assert_norm (M.erase_st (fexec_m fprog_capture) == Some (fexec fprog_capture))
+let _ = assert_norm (mresult (fexec_m fprog_capture) == Some (VI 102))
+
+
+
+(* 24. Full and fast clauses in the same table, and a full clause that drops the
+   continuation from underneath a fast one. *)
+
+let fprog_mixed: fct =
+  Handle (mk_handlers [("Exc", "throw", M.Full (XAbort (VS "boom")))]) None
+    (Handle (mk_handlers [("Echo", "say", M.Fast FEcho)])
+            (Some (fun _ -> Var (VS "should not run")))
+      (Op (Perform "Echo" "say" [VS "hello"])
+          (fun s -> Op (Perform "Exc" "throw" []) (fun _ -> Var s))))
+
+let _ = assert_norm (M.erase_st (fexec_m fprog_mixed) == Some (fexec fprog_mixed))
+let _ = assert_norm (mresult (fexec_m fprog_mixed) == Some (VS "boom"))
+
+
+
+(* 25. An unhandled operation: the environment's `None` and the search's `None`
+   must coincide on this machine too. *)
+
+let fprog_stuck: fct = Perform "Nope" "missing" []
+
+let _ = assert_norm (M.erase_st (fexec_m fprog_stuck) == Some (fexec fprog_stuck))
+let _ = assert_norm (fexec_m fprog_stuck == M.MStuck "Nope" "missing")

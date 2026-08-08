@@ -10,20 +10,21 @@
  * is phrased through `levels`.
  *
  * Abstraction buys two things. `keys` may be a *computable projection*, so a
- * realisation is free to derive the key list once when the table is built and
+ * realisation is free to derive the keyset once when the table is built and
  * hand it back here; a ghost function of the table's contents could not express
- * that, and the environment demands the whole list at every `Handle` while a
+ * that, and the environment demands the whole keyset at every `Handle` while a
  * closure-capturing handler such as `catch` builds a fresh table at every call.
  * And `lookup_clause` is pinned to a specification rather than to a linear
  * scan, so a realisation keeping a nested object and answering `hs[eff][op]` is
  * equally admissible. `Hoop.Runtime.Handlers.fst` discharges the interface with
- * an association list plus its derived keys.
+ * the flat entry list beside a copy of it grouped by effect, which is that
+ * nested object in list form.
  *
  * *The `u#a` on the `val` below is load-bearing.* A `val` has no body, so
  * without it F* generalises argument and result universes independently, and
  * two things break. The realisation, a refinement of a record over `cl`, no
- * longer has the declared type; and `Hoop.Runtime.comp_tree` cannot be formed
- * at all, since its `Handle` node carries a `handlers cl` field and an
+ * longer has the declared type; and `Hoop.Runtime.Syntax.comp_tree` cannot be
+ * formed at all, since its `Handle` node carries a `handlers cl` field and an
  * inductive must live at least as high as every field. Neither failure names a
  * universe intelligibly -- the second reports `Failed to solve universe
  * inequalities for inductives`, and dropping the annotation from the definition
@@ -39,8 +40,22 @@ module Hoop.Runtime.Handlers
 
 open FStar.List.Tot
 
-(** **A dispatch key**: the pair naming an operation, as `Hoop.Runtime.Env`
-    keys its levels. *)
+(**
+ * **A dispatch key**: the pair naming an operation.
+ *
+ * Declared here, where the clauses are, and taken from here by everything else
+ * keyed by an operation -- the evidence environment included, whose levels bind
+ * precisely the keys of the table that installed them. Two agreeing definitions
+ * in two modules would leave `keys_correct` relating types that merely happen
+ * to coincide; one definition makes the relation structural.
+ *
+ * A realisation with string-keyed objects would encode the pair into one
+ * string, say `"<strlen eff>:<eff><op>"`. That such an encoding is injective
+ * cannot be proved here -- it needs `string_of_int` to be injective and never
+ * to produce a `':'`, and `FStar.String` says nothing about it -- so the model
+ * keeps the pair rather than assume it, leaving the encoding an optimisation
+ * inside the realisation, to be covered by differential testing.
+ *)
 let key : eqtype = string & string
 
 (** **One entry of a table**: a key together with the clause it selects. *)
@@ -67,6 +82,41 @@ let rec entry_keys (#cl: Type) (l: list (entry cl)) : Tot (list key) (decreases 
   | [] -> []
   | (eff, op, _) :: rest -> (eff, op) :: entry_keys rest
 
+(* ------------------------------------------------------------------ *)
+(*  Key sets                                                           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **A set of dispatch keys**, abstract, and *independent of the clause type*.
+ *
+ * The environment stores one of these per installed prompt and asks it a single
+ * question -- does it bind this key? -- once per level crossed on every
+ * `perform`. That is the hot loop of the whole runtime, so the question is put
+ * to an abstract type rather than to a `list key`: a flat list answers a miss in
+ * as many comparisons as the handler declares operations, while a realisation
+ * grouping the operations under their effect answers the same miss in one.
+ *
+ * `Type0` and not a function of `cl` on purpose. A keyset is what a handler
+ * table hands the environment, and the environment knows nothing of clauses;
+ * were the type to mention `cl`, `Hoop.Runtime.Env` would have to be
+ * parameterised by it.
+ *)
+val keyset : Type0
+
+(**
+ * **The specification view of a keyset**: the keys it holds, as a list. Ghost,
+ * so no realisation is obliged to flatten itself; it exists so that everything
+ * *about* keysets can go on being said with `mem` on a plain list, which is what
+ * keeps `Hoop.Runtime.Env.level` -- and hence `Hoop.Runtime.Env.equiv` -- free
+ * of this abstraction. See the header of `Hoop.Runtime.Env` on why that matters.
+ *)
+val keyset_view (s: keyset) : GTot (list key)
+
+(** **Membership**, computed: the one question the environment asks, and the
+    reason the type is abstract. Pinned to the view, so a realisation may answer
+    it however it likes. *)
+val contains (s: keyset) (k: key) : Tot (b: bool { b <==> k `mem` keyset_view s })
+
 (** **The handler table**, abstract. The `u#a` is the one annotation in the pair
     of files that cannot be dropped -- see the module header. *)
 val handlers (cl: Type u#a) : Type u#a
@@ -84,25 +134,37 @@ val table (#cl: Type) (hs: handlers cl) : GTot (list (entry cl))
  * does not bind it.
  *
  * A refinement rather than a separate lemma because `lookup_clause` occurs
- * inside `Hoop.Runtime.handler_ok` and inside `handles`, both unfolded by the
- * solver on nearly every query, and a fact carried by the type never has to be
- * recalled.
+ * inside `Hoop.Runtime.WellScopedness.handler_ok` and inside `handles`, both
+ * unfolded by the solver on nearly every query, and a fact carried by the type
+ * never has to be recalled.
  *)
 val lookup_clause (#cl: Type) (hs: handlers cl) (eff op: string)
   : Tot (o: option cl { o == assoc_clause (table hs) eff op })
 
+let clause_memP (#cl: Type) (c:cl) (hs: handlers cl)
+  : prop
+  = exists eff op. lookup_clause hs eff op == Some c
+
 (**
  * **The keys a table binds**, cached: concrete rather than ghost, which is the
- * point of the abstraction. A realisation is expected to have derived this list
- * once, when the table was built.
+ * point of the abstraction. A realisation is expected to have derived this
+ * keyset once, when the table was built -- this must be a field read, since the
+ * environment demands it at every `Handle` and a closure-capturing handler such
+ * as `catch` builds a fresh table at every call.
  *
  * The refinement is the bridge to the environment -- the keys are *exactly* the
  * operations the table handles, so "the environment binds this key" and "this
- * table has a clause for this operation" are interchangeable.
+ * table has a clause for this operation" are interchangeable. It is stated
+ * twice, once through `contains` and once through the view, because callers
+ * come from both sides: the machine runs `contains`, while every specification
+ * downstream (`Hoop.Runtime.Env.find_level`, `level_well_keyed`) speaks of `mem`
+ * on the view.
  *)
 val keys (#cl: Type) (hs: handlers cl)
-  : Tot (ks: list key {
-      forall (eff op: string). ((eff, op) `mem` ks) <==> Some? (lookup_clause hs eff op)
+  : Tot (ks: keyset {
+      (forall (eff op: string). contains ks (eff, op) <==> Some? (lookup_clause hs eff op)) /\
+      (forall (eff op: string).
+        ((eff, op) `mem` keyset_view ks) <==> Some? (lookup_clause hs eff op))
     })
 
 (**
@@ -125,9 +187,10 @@ val mk_handlers (#cl: Type) (l: list (entry cl)) : Tot (hs: handlers cl { table 
 val lookup_clause_spec (#cl: Type) (hs: handlers cl) (eff op: string)
   : Lemma (lookup_clause hs eff op == assoc_clause (table hs) eff op)
 
-(** **The keys are exactly the handled operations.** *)
+(** **The keys are exactly the handled operations.** Stated on the view, which
+    is the side every specification downstream is written in. *)
 val keys_correct (#cl: Type) (hs: handlers cl) (eff op: string)
-  : Lemma (((eff, op) `mem` keys hs) <==> Some? (lookup_clause hs eff op))
+  : Lemma (((eff, op) `mem` keyset_view (keys hs)) <==> Some? (lookup_clause hs eff op))
 
 (** **The view of a table built from a list is that list.** *)
 val table_mk_handlers (#cl: Type) (l: list (entry cl))
@@ -138,14 +201,20 @@ val table_mk_handlers (#cl: Type) (l: list (entry cl))
 val lookup_clause_mk_handlers (#cl: Type) (l: list (entry cl)) (eff op: string)
   : Lemma (lookup_clause (mk_handlers l) eff op == assoc_clause l eff op)
 
-(** **The keys of a table built from a list are the keys of the list.** An
-    equality of *lists*, not merely of the sets they denote, so that a caller
-    can reduce the reference realisation's cache away. *)
-val keys_mk_handlers (#cl: Type) (l: list (entry cl))
-  : Lemma (keys (mk_handlers l) == entry_keys l)
+(**
+ * **The keys of a table built from a list are the keys of the list**, as sets.
+ *
+ * Not as *lists*: `keyset` is abstract precisely so that a realisation may
+ * reorder and coalesce the keys -- grouping the operations under their effect is
+ * exactly such a reordering -- and `entry_keys` keeps the order and the
+ * duplicates of the entry list. What survives is the only thing anything ever
+ * asked of it.
+ *)
+val keys_mk_handlers (#cl: Type) (l: list (entry cl)) (eff op: string)
+  : Lemma (contains (keys (mk_handlers l)) (eff, op) <==> ((eff, op) `mem` entry_keys l))
 
 (** **Association lookup never forges a clause.** The soundness half of
-    `Hoop.Runtime.Properties.lookup_clause_memP`, stated on the model because
+    `Hoop.Runtime.Metatheory.lookup_clause_memP`, stated on the model because
     that is where the induction lives. *)
 val assoc_clause_memP (#cl: Type) (l: list (entry cl)) (eff op: string)
   : Lemma
@@ -153,7 +222,7 @@ val assoc_clause_memP (#cl: Type) (l: list (entry cl)) (eff op: string)
       (ensures memP (eff, op, Some?.v (assoc_clause l eff op)) l)
 
 (** **Association lookup never misses a clause.** The completeness half of
-    `Hoop.Runtime.Properties.lookup_clause_none`. *)
+    `Hoop.Runtime.Metatheory.lookup_clause_none`. *)
 val assoc_clause_none (#cl: Type) (l: list (entry cl)) (eff op: string)
   : Lemma
       (requires None? (assoc_clause l eff op))

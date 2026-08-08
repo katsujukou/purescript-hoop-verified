@@ -6,132 +6,54 @@ open Hoop.Runtime.Syntax
 open Hoop.Runtime.Semantics
 open Hoop.Runtime.WellScopedness
 
-// `Hoop.Runtime.Semantics.find_prompt` is tail-recursive -- stack-safe and
-// faster, but awkward to reason about. `find_prompt'` is the
-// non-tail-recursive variant the proofs below use instead; the two lemmas
-// after it justify the swap.
-let rec find_prompt'
+let rec find_prompt_partitions
     (#v #cl: Type)
     (eff op: string)
     (k: stack v cl)
-  : GTot (o:option (stack v cl & cl & stack v cl) { handled_in eff op k <==> Some? o }) 
-  = match k with
-    | [] -> None
-    | PromptF hs ret :: rest ->
-      (match lookup_clause hs eff op with
-        | Some c -> Some ([PromptF hs ret], c, rest)
-        | None ->
-          (match find_prompt' eff op rest with
-            | None -> None
-            | Some (cap, c, below) -> Some (PromptF hs ret :: cap, c, below)))
-    | f :: rest ->
-      (match find_prompt' eff op rest with
-        | None -> None
-        | Some (cap, c, below) -> Some (f :: cap, c, below))
-
-let rec find_prompt_aux_correct (#v #cl: Type) (eff op: string) (soFar k: stack v cl)
-    : Lemma
-      (ensures
-        (find_prompt_aux eff op soFar k ==
-          (match find_prompt' eff op k with
-            | None -> None
-            | Some (cap, c, below) -> Some (rev_acc soFar cap, c, below))))
-      (decreases k) =
-  match k with
-  | [] -> ()
-  | hd :: tl ->
-    (match hd with
-      | PromptF hs _ ->
-        (match lookup_clause hs eff op with
-          | Some _ -> ()
-          | None -> find_prompt_aux_correct eff op (hd :: soFar) tl)
-      | BindF _ -> find_prompt_aux_correct eff op (hd :: soFar) tl)
-
-let find_prompt_correct
-    (#v #cl: Type)
-    (eff op: string) 
-    (k: stack v cl)
-  : Lemma (find_prompt eff op k == find_prompt' eff op k)
-  = find_prompt_aux_correct eff op [] k
-
-let rec find_prompt_partitions_spec
-    (#v #cl: Type)
-    (eff op: string)
-    (k: stack v cl)
-  : Lemma 
-      (ensures find_prompt_partitions_correctness (find_prompt' #v #cl) eff op k)
+  : Lemma
+      (ensures find_prompt_partitions_correctness eff op k)
       (decreases k)
   = match k with
     | [] -> ()
     | PromptF hs _ :: rest ->
       (match lookup_clause hs eff op with
         | Some _ -> ()
-        | None -> find_prompt_partitions_spec eff op rest)
-    | _ :: rest -> find_prompt_partitions_spec eff op rest
+        | None -> find_prompt_partitions eff op rest)
+    | _ :: rest -> find_prompt_partitions eff op rest
 
-// ... and hence for the extracted `find_prompt`.
-let find_prompt_partitions
-    (#v #cl: Type)
-    (eff op: string)
-    (k: stack v cl)
-  : Lemma (find_prompt_partitions_correctness (find_prompt #v #cl) eff op k)
-  = find_prompt_correct eff op k; 
-    find_prompt_partitions_spec eff op k
-
-let rec find_prompt_last_spec 
+let rec find_prompt_last
     (#v #cl: Type)
     (eff op: string)
     (k: stack v cl)
   : Lemma
-      (ensures (find_prompt_last_correctness (find_prompt' #v #cl) eff op k))
+      (ensures find_prompt_last_correctness eff op k)
       (decreases k)
   = match k with
     | [] -> ()
     | PromptF hs _ :: rest ->
       (match lookup_clause hs eff op with
         | Some _ -> ()
-        | None -> find_prompt_last_spec eff op rest)
-    | _ :: rest -> find_prompt_last_spec eff op rest
+        | None -> find_prompt_last eff op rest)
+    | _ :: rest -> find_prompt_last eff op rest
 
-// ... and hence for the extracted `find_prompt`.
-let find_prompt_last
+let rec find_prompt_innermost
     (#v #cl: Type)
     (eff op: string)
     (k: stack v cl)
   : Lemma
-      (find_prompt_last_correctness (find_prompt #v #cl) eff op k)
-  = find_prompt_correct eff op k;
-    find_prompt_last_spec eff op k
-
-let rec find_prompt_innermost_spec 
-    (#v #cl: Type) 
-    (eff op: string) 
-    (k: stack v cl)
-  : Lemma
-      (ensures (find_prompt_innermost_correctness (find_prompt' #v #cl) eff op k))
-      (decreases k) 
+      (ensures (find_prompt_innermost_correctness eff op k))
+      (decreases k)
   = match k with
     | [] -> ()
     | PromptF hs _ :: rest ->
       (match lookup_clause hs eff op with
         | Some _ -> ()
         | None ->
-          (find_prompt_last_spec eff op rest;
-            find_prompt_innermost_spec eff op rest))
+          (find_prompt_last eff op rest;
+            find_prompt_innermost eff op rest))
     | _ :: rest ->
-      (find_prompt_last_spec eff op rest;
-        find_prompt_innermost_spec eff op rest)
-
-// ... and hence for the extracted `find_prompt`.
-let find_prompt_innermost
-    (#v #cl: Type) 
-    (eff op: string) 
-    (k: stack v cl)
-  : Lemma
-      (ensures (find_prompt_innermost_correctness (find_prompt #v #cl) eff op k))
-      (decreases k) 
-  = find_prompt_correct eff op k;
-    find_prompt_innermost_spec eff op k
+      (find_prompt_last eff op rest;
+        find_prompt_innermost eff op rest)
 
 (* ------------------------------------------------------------------ *)
 
@@ -265,76 +187,99 @@ let ws_op (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
           (c: comp_tree v cl) (fn: v -> comp_tree v cl)
   : Lemma (ws cok a (Op c fn) <==> (ws cok a c /\ (forall (x: v). ws cok a (fn x))))
   = (introduce ws cok a (Op c fn) ==> (ws cok a c /\ (forall (x: v). ws cok a (fn x)))
-     with _. ws_op_fwd cok a c fn);
+     with ws_op_fwd cok a c fn);
     (introduce (ws cok a c /\ (forall (x: v). ws cok a (fn x))) ==> ws cok a (Op c fn)
-     with _. ())
+     with ())
 
-let ws_handle (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (hs: handlers cl)
-              (ret: option (v -> comp_tree v cl)) (body: comp_tree v cl)
-  : Lemma (ws cok a (Handle hs ret body) <==>
-            (ws cok (extend hs a) body /\ handler_ok cok a hs /\ ret_ws cok a ret))
-  = (introduce ws cok a (Handle hs ret body) ==>
-               (ws cok (extend hs a) body /\ handler_ok cok a hs /\ ret_ws cok a ret)
-     with _. ws_handle_fwd cok a hs ret body);
-    (introduce (ws cok (extend hs a) body /\ handler_ok cok a hs /\ ret_ws cok a ret) ==>
-               ws cok a (Handle hs ret body)
-     with _. ws_handle_bwd cok a hs ret body)
+let ws_handle
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (hs: handlers cl)
+    (ret: option (v -> comp_tree v cl)) 
+    (body: comp_tree v cl)
+  : Lemma
+      (ws cok a (Handle hs ret body) <==>
+      (ws cok (extend hs a) body /\ handler_ok cok a hs /\ ret_ws cok a ret))
+  = introduce
+      ws cok a (Handle hs ret body) ==>
+        (ws cok (extend hs a) body /\ handler_ok cok a hs /\ ret_ws cok a ret)
+     with ws_handle_fwd cok a hs ret body;
+    introduce
+      (ws cok (extend hs a) body /\ handler_ok cok a hs /\ ret_ws cok a ret) ==>
+        ws cok a (Handle hs ret body)
+     with ws_handle_bwd cok a hs ret body
 
-let ws_resumed (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (frames: stack v cl) (x: v)
+let ws_resumed 
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (frames: stack v cl)
+    (x: v)
   : Lemma (ws cok a (Resumed frames x) <==> wf_stack cok a frames)
-  = (introduce ws cok a (Resumed frames x) ==> wf_stack cok a frames
-     with _. ws_resumed_fwd cok a frames x);
-    (introduce wf_stack cok a frames ==> ws cok a (Resumed frames x) with _. ())
+  = introduce
+      ws cok a (Resumed frames x) ==> wf_stack cok a frames
+    with ws_resumed_fwd cok a frames x;
+    // assert (wf_stack cok a frames ==> ws cok a (Resumed frames x));
+    ()
 
-let wf_stack_nil (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
+let wf_stack_nil
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
   : Lemma (wf_stack cok a ([] <: stack v cl))
   = ()
 
-let wf_stack_bind (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
-             (fn: v -> comp_tree v cl) (rest: stack v cl)
-  : Lemma (wf_stack cok a (BindF fn :: rest) <==>
+let wf_stack_bind
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (fn: (v -> comp_tree v cl))
+    (rest: stack v cl)
+  : Lemma
+      (wf_stack cok a (BindF fn :: rest) <==>
             ((forall (x: v). ws cok (can_in_with rest a) (fn x)) /\ wf_stack cok a rest))
-  = (introduce wf_stack cok a (BindF fn :: rest) ==>
-               ((forall (x: v). ws cok (can_in_with rest a) (fn x)) /\ wf_stack cok a rest)
-     with _. wf_stack_bind_fwd cok a fn rest);
-    (introduce ((forall (x: v). ws cok (can_in_with rest a) (fn x)) /\ wf_stack cok a rest) ==>
-               wf_stack cok a (BindF fn :: rest)
-     with _. ())
+  = introduce
+      wf_stack cok a (BindF fn :: rest) ==>
+        ((forall (x: v). ws cok (can_in_with rest a) (fn x)) /\ wf_stack cok a rest)
+    with wf_stack_bind_fwd cok a fn rest
 
-let wf_stack_prompt (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (hs: handlers cl)
-               (ret: option (v -> comp_tree v cl)) (rest: stack v cl)
-  : Lemma (wf_stack cok a (PromptF hs ret :: rest) <==>
-            (handler_ok cok (can_in_with rest a) hs /\
-             ret_ws cok (can_in_with rest a) ret /\
-             wf_stack cok a rest))
-  = (introduce wf_stack cok a (PromptF hs ret :: rest) ==>
-               (handler_ok cok (can_in_with rest a) hs /\
-                ret_ws cok (can_in_with rest a) ret /\ wf_stack cok a rest)
-     with _. wf_stack_prompt_fwd cok a hs ret rest);
-    (introduce (handler_ok cok (can_in_with rest a) hs /\
-                ret_ws cok (can_in_with rest a) ret /\ wf_stack cok a rest) ==>
-               wf_stack cok a (PromptF hs ret :: rest)
-     with _. wf_stack_prompt_bwd cok a hs ret rest)
+let wf_stack_prompt
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (hs: handlers cl)
+    (ret: option (v -> comp_tree v cl))
+    (rest: stack v cl)
+  : Lemma
+      (wf_stack cok a (PromptF hs ret :: rest) <==>
+          (handler_ok cok (can_in_with rest a) hs /\
+              ret_ws cok (can_in_with rest a) ret /\
+              wf_stack cok a rest))
+  = introduce
+      wf_stack cok a (PromptF hs ret :: rest) ==>
+        (handler_ok cok (can_in_with rest a) hs /\
+          ret_ws cok (can_in_with rest a) ret /\ wf_stack cok a rest)
+    with wf_stack_prompt_fwd cok a hs ret rest;
+    introduce 
+      (handler_ok cok (can_in_with rest a) hs /\
+        ret_ws cok (can_in_with rest a) ret /\ wf_stack cok a rest
+      ) ==> wf_stack cok a (PromptF hs ret :: rest)
+    with wf_stack_prompt_bwd cok a hs ret rest
 
 (* ------------------------------------------------------------------ *)
 (* Congruence in the environment                                       *)
 (* ------------------------------------------------------------------ *)
 
-let clauses_ok_cong (#cl: Type) (cok: clause_ok_t cl) (a1 a2: can_perform) (hs: handlers cl)
-  : Lemma (requires clause_ok_congr cok /\ equiv_can a1 a2)
-          (ensures handler_ok cok a1 hs <==> handler_ok cok a2 hs)
-  = introduce forall (c: cl). (cok a1 c <==> cok a2 c)
-    with assert (clause_ok_congr cok)
-
-let ws_cong (#v #cl: Type) (cok: clause_ok_t cl) (a1 a2: can_perform) (c: comp_tree v cl)
+let ws_congr (#v #cl: Type) (cok: clause_ok_t cl) (a1 a2: can_perform) (c: comp_tree v cl)
   : Lemma (requires clause_ok_congr cok /\ equiv_can a1 a2)
           (ensures ws cok a1 c <==> ws cok a2 c)
-  = ws_cong_eq cok a1 a2 c
+  = ws_congr_eq cok a1 a2 c
 
-let wf_stack_cong (#v #cl: Type) (cok: clause_ok_t cl) (a1 a2: can_perform) (k: stack v cl)
+let wf_stack_congr (#v #cl: Type) (cok: clause_ok_t cl) (a1 a2: can_perform) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ equiv_can a1 a2)
           (ensures wf_stack cok a1 k <==> wf_stack cok a2 k)
-  = wf_stack_cong_eq cok a1 a2 k
+  = wf_stack_congr_eq cok a1 a2 k
 
 (* ------------------------------------------------------------------ *)
 (* How the environment reacts to the stack surgery `step` performs     *)
@@ -374,7 +319,7 @@ let rec wf_stack_append (#v #cl: Type) (cok: clause_ok_t cl) (k1 k2: stack v cl)
           wf_stack_bind cok (can_in_with k2 a) fn r1;
           introduce forall (x: v).
             (ws cok (can_in_with (r1 @ k2) a) (fn x) <==> ws cok (can_in_with r1 (can_in_with k2 a)) (fn x))
-          with ws_cong cok (can_in_with (r1 @ k2) a) (can_in_with r1 (can_in_with k2 a)) (fn x)
+          with ws_congr cok (can_in_with (r1 @ k2) a) (can_in_with r1 (can_in_with k2 a)) (fn x)
         | PromptF hs ret ->
           wf_stack_prompt cok a hs ret (r1 @ k2);
           wf_stack_prompt cok (can_in_with k2 a) hs ret r1;
@@ -384,7 +329,7 @@ let rec wf_stack_append (#v #cl: Type) (cok: clause_ok_t cl) (k1 k2: stack v cl)
               introduce forall (x: v).
                 (ws cok (can_in_with (r1 @ k2) a) (r x) <==>
                  ws cok (can_in_with r1 (can_in_with k2 a)) (r x))
-              with ws_cong cok (can_in_with (r1 @ k2) a) (can_in_with r1 (can_in_with k2 a)) (r x)))
+              with ws_congr cok (can_in_with (r1 @ k2) a) (can_in_with r1 (can_in_with k2 a)) (r x)))
 
 let wf_stack_split_prompt (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
                      (k1: stack v cl) (hs: handlers cl)
@@ -404,7 +349,7 @@ let pres_op (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
           (ensures wf_state cok (step apply (Step (Op inner fn) k)))
   = ws_op cok (can_in k) inner fn;
     av_bind fn k (can_nothing ());
-    ws_cong cok (can_in k) (can_in (BindF fn :: k)) inner;
+    ws_congr cok (can_in k) (can_in (BindF fn :: k)) inner;
     wf_stack_bind cok (can_nothing ()) fn k
 
 let pres_handle (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
@@ -414,7 +359,7 @@ let pres_handle (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
           (ensures wf_state cok (step apply (Step (Handle hs ret body) k)))
   = ws_handle cok (can_in k) hs ret body;
     av_prompt hs ret k (can_nothing ());
-    ws_cong cok (extend hs (can_in k)) (can_in (PromptF hs ret :: k)) body;
+    ws_congr cok (extend hs (can_in k)) (can_in (PromptF hs ret :: k)) body;
     wf_stack_prompt cok (can_nothing ()) hs ret k
 
 let pres_var (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
@@ -512,7 +457,7 @@ let load_wf (#v #cl: Type) (cok: clause_ok_t cl) (c: comp_tree v cl)
   : Lemma (requires clause_ok_congr cok /\ ws cok (can_nothing ()) c)
           (ensures wf_state cok (load c))
   = wf_stack_nil #v #cl cok (can_nothing ());
-    ws_cong cok (can_nothing ()) (can_in ([] <: stack v cl)) c
+    ws_congr cok (can_nothing ()) (can_in ([] <: stack v cl)) c
 
 let wf_never_stuck (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (s: state v cl)
   : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)

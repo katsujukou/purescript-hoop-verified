@@ -6,7 +6,8 @@ node_modules
 
 # Generated files
 build
-.fstar-cache
+.fstar-cache*
+dep.graph
 .psci
 .purs-repl
 .psc-ide-port

@@ -5,23 +5,15 @@ open Hoop.Runtime.Semantics
 open Hoop.Runtime.WellScopedness
 open FStar.List.Tot
 
-let find_prompt_t
-    (v:Type)
-    (cl:Type)
-  = eff: string ->
-    op: string ->
-    k: stack v cl ->
-    GTot (o:option (stack v cl & cl & stack v cl) { handled_in eff op k <==> Some? o })
-
-(** **Preservation of the stack**: `cap @ below == k`, i.e. `find_prompt` really
-    *splits* the stack, dropping, adding and moving no frame. *)
+// Preservation of the stack: `cap @ below == k`, i.e. `find_prompt`
+// really splits the stack -- dropping, adding and moving no frames.
 let find_prompt_partitions_correctness
     (#v #cl: Type)
-    (find_prompt: find_prompt_t v cl)
     (eff op: string)
     (k: stack v cl)
-  : prop
+  : GTot prop
   = handled_in eff op k ==>
+      // handled_in guarantees find_prompt returns Some
       (let Some (cap, _, below) = find_prompt eff op k in
           cap @ below == k
       )
@@ -30,8 +22,7 @@ val find_prompt_partitions
     (#v #cl: Type)
     (eff op: string)
     (k: stack v cl)
-  : Lemma
-      (find_prompt_partitions_correctness find_prompt eff op k)
+  : Lemma (find_prompt_partitions_correctness eff op k)
 
 (**
  * **The last frame of the captured continuation**: the captured segment is
@@ -41,11 +32,10 @@ val find_prompt_partitions
  * same effect again inside it.
  *)
 let find_prompt_last_correctness
-    (#v #cl : Type)
-    (find_prompt: find_prompt_t v cl)
-    (eff op : string)
-    (k : stack v cl)
-  : prop
+    (#v #cl: Type)
+    (eff op: string)
+    (k: stack v cl)
+  : GTot prop
   = handled_in eff op k ==>
       (let Some (cap, c, _) = find_prompt eff op k in
           // captured continuation must not be empty
@@ -61,7 +51,7 @@ val find_prompt_last
     (eff op: string)
     (k: stack v cl)
   : Lemma 
-    (find_prompt_last_correctness find_prompt eff op k)
+    (find_prompt_last_correctness eff op k)
 
 (**
  * **Innermost**: of the prompts able to handle the action, `find_prompt`
@@ -71,10 +61,9 @@ val find_prompt_last
  *)
 let find_prompt_innermost_correctness
     (#v #cl: Type)
-    (find_prompt: find_prompt_t v cl)
     (eff op: string)
     (k: stack v cl)
-  : prop
+  : GTot prop
   = handled_in eff op k ==>
       (let Some (cap, _, _) = find_prompt eff op k in
           // The captured continuation stack is non-empty.
@@ -88,7 +77,7 @@ val find_prompt_innermost
     (eff op: string)
     (k: stack v cl)
   : Lemma
-      (find_prompt_innermost_correctness (find_prompt #v #cl) eff op k)
+      (find_prompt_innermost_correctness eff op k)
 
 (** Corollary: the meaning of `handled_in`. *)
 let find_prompt_none
@@ -444,17 +433,12 @@ val wf_stack_prompt
  * yields `can_in (BindF fn :: k)`, a different closure from `can_in k` although
  * it offers exactly the same actions. Every preservation proof below therefore
  * ends with a congruence step, and these lemmas are it.
+ *
+ * The third member of the family, `handler_ok_congr`, is
+ * `Hoop.Runtime.WellScopedness`'s: the step-indexed congruence there needs it,
+ * and this module is downstream, so it cannot be proved here and used there.
  *)
-val clauses_ok_cong
-    (#cl: Type)
-    (cok: clause_ok_t cl)
-    (a1 a2: can_perform)
-    (hs: handlers cl)
-  : Lemma
-      (requires clause_ok_congr cok /\ equiv_can a1 a2)
-      (ensures handler_ok cok a1 hs <==> handler_ok cok a2 hs)
-
-val ws_cong
+val ws_congr
     (#v #cl: Type)
     (cok: clause_ok_t cl)
     (a1 a2: can_perform)
@@ -463,7 +447,7 @@ val ws_cong
       (requires clause_ok_congr cok /\ equiv_can a1 a2)
       (ensures ws cok a1 c <==> ws cok a2 c)
 
-val wf_stack_cong
+val wf_stack_congr
     (#v #cl: Type)
     (cok: clause_ok_t cl)
     (a1 a2: can_perform)

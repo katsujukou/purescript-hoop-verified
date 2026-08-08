@@ -1,6 +1,14 @@
 {
   inputs = {
-    fstar.url = "github:FStarLang/FStar";
+    # Pinned to a release tag, not master. `flake.lock` already pins the exact
+    # revision, so a fresh clone is reproducible either way -- what this buys is
+    # that `nix flake update` (run to bump, say, purescript-overlay) cannot drag
+    # F* to master as a side effect. Changing the F* version is now an explicit
+    # edit to this line, visible in review.
+    #
+    # Note `nixpkgs.follows = "fstar/nixpkgs"` below: moving F* also moves ocaml
+    # and js_of_ocaml, so the generated bundle is expected to change with it.
+    fstar.url = "github:FStarLang/FStar/v2026.08.02";
     nixpkgs.follows = "fstar/nixpkgs";
     purescript-overlay = {
       url = "github:thomashoneyman/purescript-overlay";
@@ -51,6 +59,7 @@
             pkgs.ocamlPackages.findlib
             pkgs.ocamlPackages.zarith
             pkgs.ocamlPackages.js_of_ocaml-compiler
+            pkgs.ocamlPackages.js_of_ocaml-ppx
           ] ++ (with pkgs;
           [ purs 
             spago-unstable
