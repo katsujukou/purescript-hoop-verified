@@ -54,7 +54,7 @@ val find_prompt_last
     (find_prompt_last_correctness eff op k)
 
 (**
- * **Innermost**: of the prompts able to handle the action, `find_prompt`
+ * **The innermost lemma**: of the prompts able to handle the action, `find_prompt`
  * selects the one closest to the top of the stack. This is the correctness of
  * handler shadowing — with nested handler scopes for the same action, `perform`
  * always reaches the innermost.
@@ -79,15 +79,6 @@ val find_prompt_innermost
   : Lemma
       (find_prompt_innermost_correctness eff op k)
 
-(** Corollary: the meaning of `handled_in`. *)
-let find_prompt_none
-    (#v #cl: Type)
-    (eff op: string)
-    (k: stack v cl)
-  : Lemma
-      (~(handled_in eff op k) <==>
-          (forall (f: frame v cl). memP f k ==> not (handles eff op f)))
-  = ()
 // -------------------------------------- //
 
 (**
@@ -117,9 +108,9 @@ val lookup_clause_memP
 
 (**
  * **Completeness of `lookup_clause`**: a `None` means the table really has no
- * entry for `(eff, op)`. The frame-layer counterpart of `find_prompt_none`: a
- * `handles` check fails because the prompt truly lacks the operation, not
- * because the search missed it. Only with this can `find_prompt_innermost`
+ * entry for `(eff, op)`. The frame-layer counterpart of `find_prompt`'s 
+ * refinement: a `handles` check fails because the prompt truly lacks the operation,
+ * not because the search missed it. Only with this can `find_prompt_innermost`
  * validly claim that no handler is ever bypassed.
  *)
 let lookup_clause_completeness

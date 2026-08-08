@@ -102,7 +102,7 @@ let step_perform_stuck
   : Lemma
       (~(handled_in eff op k) <==>
           step apply (Step (Perform eff op payload) k) == Stuck eff op)
-  = find_prompt_none eff op k
+  = ()
 
 (* ------------------------------------------------------------------ *)
 
