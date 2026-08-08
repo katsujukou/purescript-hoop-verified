@@ -29,18 +29,12 @@ CACHE="$ROOT/.fstar-cache"
 #   WellScopedness  the judgement that rules `Stuck` out
 #   Metatheory      preservation and progress, proved of `Semantics`
 #   Env             the evidence environment, behind an interface
-#   Env.Stack       the environment a stack offers, and that the two agree.
-#                   UNREFERENCED as of the tail-resumptive merge: it locates a
-#                   prompt by the height it was installed at, and the machine's
-#                   `MEnvF` frame makes a height into the reference stack
-#                   unavailable. Kept verified pending a decision on its fate;
-#                   nothing below depends on it.
 #   Hoop.Runtime    THE MACHINE, and the only module the FFI touches:
 #                   `Semantics` with the stack search replaced by an evidence
 #                   lookup and with tail-resumptive (`fast`) clauses, linked to
 #                   `Semantics` by a weak simulation through `erase_st`.
 #   Test, Laws      leaves -- `assert_norm` fixtures and the monad laws
-VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime.Env.Stack Hoop.Runtime Hoop.Runtime.Test Hoop.Runtime.Laws)
+VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime Hoop.Runtime.Test Hoop.Runtime.Laws)
 
 # Modules to extract to OCaml, in dependency order -- this is also the order
 # ocamlc links them in below. The four omitted are proof-only: `WellScopedness`,
@@ -52,7 +46,7 @@ VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics
 # it now has an interface, and a module whose implementation is behind one is
 # not offered, so nothing omitted here reaches build/ml. Give one of them an
 # implementation-only module again and its .ml will reappear.
-EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime.Env.Stack Hoop.Runtime)
+EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime)
 
 # Names the generated JS exposes. Must match the `export` calls in hoop_ffi.ml.
 # All of them are uncurried multi-argument functions -- the PureScript side

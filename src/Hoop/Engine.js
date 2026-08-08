@@ -5,7 +5,6 @@
 //   runtime/Hoop.Runtime.Syntax.fst
 //   runtime/Hoop.Runtime.Semantics.fst
 //   runtime/Hoop.Runtime.Env.fst
-//   runtime/Hoop.Runtime.Env.Stack.fst
 //   runtime/Hoop.Runtime.fst
 //     -> F* verification -> OCaml extraction -> js_of_ocaml
 //

@@ -49,8 +49,8 @@ open Hoop.Runtime.Handlers
  * Were it to carry a keyset, `equiv` would compare keysets by `==` and so
  * distinguish two environments that bind the same keys through differently
  * built keysets -- an equality strictly stronger than the one intended, which
- * `Hoop.Runtime.Env.Stack.reinstall_equiv` and everything resting on it would
- * silently be asking for. Keeping the *view* here leaves `equiv` exactly as
+ * `Hoop.Runtime.mreinstall_equiv` and everything resting on it would silently
+ * be asking for. Keeping the *view* here leaves `equiv` exactly as
  * weak as it was and confines the keyset to the realisation, which is where the
  * speed of `contains` is wanted and where nothing is compared.
  *)
@@ -84,7 +84,7 @@ let equiv (#a: Type) (w1 w2: env a) : GTot prop = levels w1 == levels w2
 
 (** **The number of levels**. Concrete rather than ghost: the machine uses it to
     turn an evidence into a count of prompts, which is how the stack split is
-    recovered without an identity test (see `Hoop.Runtime.Env.Stack`). *)
+    recovered without an identity test (see `Hoop.Runtime.msplit`). *)
 val depth (#a: Type) (w: env a) : Tot (n: nat { n == length (levels w) })
 
 (**
@@ -182,7 +182,7 @@ val outer_extend (#a: Type) (w: env a) (ks: keyset) (x: a)
 
 (** **The hot path**: the evidence for `k`, or `None` if no level binds it. This
     replaces the linear scan of `Hoop.Runtime.Semantics.find_prompt`; that it
-    answers the same question is the content of `Hoop.Runtime.Env.Stack`. *)
+    answers the same question is `Hoop.Runtime.lookup_find`. *)
 val lookup (#a: Type) (w: env a) (k: key)
   : Tot (o: option (evidence a) { lookup_agrees w k o })
 
