@@ -134,6 +134,35 @@ let rec groups_view_no_var (g: list (string & list string)) (l: string)
         groups_view_no_var rest l
 
 (**
+ * **`mem` at `string`**, written out.
+ *
+ * `FStar.List.Tot.Base.mem` would do, and the shim already realises it, so
+ * unlike `op_lookup` and `op_names` above this one is not written out to keep
+ * the trusted base small. It is written out for what it extracts to.
+ *
+ * The shim's `mem` is polymorphic, so its `hd = x` extracts to OCaml's
+ * *structural* equality: `caml_equal`, which reaches `caml_compare_val` and
+ * tests each operand with `caml_is_ml_string` -- a regular-expression match per
+ * operand, per element scanned. At a known `string` the OCaml compiler picks
+ * `caml_string_equal` instead, which js_of_ocaml compiles to `===`. Every other
+ * comparison in this module is already monomorphic and already gets that -- the
+ * OCaml compiler specialises `=` on its own wherever the type is a known
+ * `string`, so nothing else here needed changing. This call was the one place
+ * the machine's hot loop still paid for a generic comparison, and dropping it
+ * is worth around a tenth of the running time of a State-heavy loop.
+ *
+ * The refinement is what lets the proofs below go on speaking of `mem`: the
+ * result is the *same boolean*, so `contains_aux_correct` and everything it
+ * feeds are unchanged.
+ *)
+private
+let rec mem_string (x: string) (l: list string)
+  : Tot (b: bool { b <==> x `mem` l }) (decreases l)
+  = match l with
+    | [] -> false
+    | hd :: tl -> hd = x || mem_string x tl
+
+(**
  * Membership, computed -- the machine's hot loop, run once per level crossed by
  * every `perform`.
  *
@@ -149,7 +178,7 @@ let rec contains_aux (g: list (string & list string)) (eff op: string)
   : Tot bool (decreases g)
   = match g with
     | [] -> false
-    | (e, ops) :: rest -> (e = eff && op `mem` ops) || contains_aux rest eff op
+    | (e, ops) :: rest -> (e = eff && op `mem_string` ops) || contains_aux rest eff op
 
 (* Carried by a pattern rather than called from the body of `contains`: that
    body is on the machine's hot path and is run by the normaliser in

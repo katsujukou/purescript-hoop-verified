@@ -139,7 +139,20 @@ type evidence (a: Type) = {
 (**
  * **The model of lookup**, on the view: the innermost level binding `k`, paired
  * with the levels outside it. Shadowing is the `if` taking the first match.
+ *
+ * *Why `noextract`.* This is the model; `lookup` is what runs, and it answers
+ * against the abstract `keyset` with `Handlers.contains` rather than against a
+ * list of keys. Nothing calls this at runtime -- extracted, its only caller was
+ * itself. It is not merely dead weight, though: it is the one place the
+ * extracted runtime used `mem` at a type other than `string`, and a polymorphic
+ * `mem` is realised by a *generic* structural comparison. Keeping it off the
+ * extracted side is what leaves `runtime/ml/shim/FStar_List_Tot_Base.ml` free of
+ * any `mem` at all, and so leaves `caml_compare_val` out of the bundle -- see
+ * the note on `mem_string` in `Hoop.Runtime.Handlers`. As with `firstn` below, a
+ * `let` in an interface is extracted on its own rather than with its callers, so
+ * the qualifier is needed here.
  *)
+noextract
 let rec find_level (#a: Type) (ls: list (level a)) (k: key)
   : Tot (option (a & list (level a))) (decreases ls)
   = match ls with
