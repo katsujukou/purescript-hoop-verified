@@ -12,10 +12,19 @@
 // shape the builders produce; F* proves what each tag then means, but nothing
 // proves the tag was read off correctly.
 //
+// The prompt-local cell section likewise. F* proves what NewP / ReadP / WriteP
+// mean and runtime/Hoop.Runtime.Test.fst pins the answers by assert_norm, but
+// nothing proves that hoop_ffi.ml builds those nodes rather than three others,
+// and nothing there runs through js_of_ocaml. The two Koka figures at the end of
+// that section are the sharpest instrument in this file: a runtime that held a
+// cell behind a shared mutable box would agree with every other test here and
+// disagree with exactly those two.
+//
 // Run with: node test/js/engine-smoke.mjs   (after hoop-build-runtime)
 
 import {
   pureImpl, bindImpl, performImpl, withImpl, runImpl,
+  newCellImpl, readCellImpl, writeCellImpl,
   mkFullClauseImpl, mkFastClauseImpl, mkReturnImpl, undefinedReturnImpl,
   emptyClausesImpl, emptyHandlersImpl, insertClauseImpl, insertClausesImpl,
 } from '../../src/Hoop/Engine.js'
@@ -50,6 +59,13 @@ function throws(fn, pattern, what = '') {
 const pure = pureImpl
 const bind = (c, f) => bindImpl(c, f)
 const perform = (eff, op, ...args) => performImpl(eff, op, null, args)
+
+// Prompt-local cells. `label` is the string a PureScript `new` would mint; it
+// names a binder, not a location, so these are spelled out at their arities
+// rather than aliased, to keep the uncurried convention visible.
+const newCell = (label, init, body) => newCellImpl(label, init, body)
+const readCell = (label) => readCellImpl(label)
+const writeCell = (label, value) => writeCellImpl(label, value)
 
 // A handler table { [eff]: { [op]: clause } }, built through the same record
 // builders PureScript uses rather than with object literals -- the builders are
@@ -282,6 +298,238 @@ check('a fast body cannot reach a handler installed inside its own prompt', () =
   throws(() => runImpl(prog), /Unhandled effect operation 'reader\.ask'/)
 })
 
+// --- prompt-local cells ----------------------------------------------------
+//
+// `newCell` installs a cell for the duration of a computation; `readCell` and
+// `writeCell` reach the NEAREST enclosing cell of that label. There is no
+// mutable box and no pointer: the cell lives in a stack frame BY VALUE, so a
+// write rebuilds the frame and a captured continuation carries the value it was
+// captured with. That is the whole design, and everything below is a
+// consequence of it.
+//
+// These mirror fixtures 26-30 of runtime/Hoop.Runtime.Test.fst. What is checked
+// here and not there is that hoop_ffi.ml builds the right node with the right
+// arguments -- three `magic`-crossing constructors that no type checker on
+// either side of the boundary can see through.
+
+check('a cell installs, reads, writes and reads again', () => {
+  // Also pins that a write EVALUATES TO the value written: the machine's
+  // WriteP rule steps to `Var y`, not to unit.
+  const prog = newCell('c', 1,
+    bind(readCell('c'), (a) =>
+      bind(writeCell('c', 5), (w) =>
+        bind(readCell('c'), (b) => pure([a, w, b])))))
+  eq(runImpl(prog), [1, 5, 5])
+})
+
+check('a cell holds an opaque value by identity', () => {
+  const sentinel = { tag: 'sentinel' }
+  if (runImpl(newCell('c', sentinel, readCell('c'))) !== sentinel)
+    throw new Error('identity not preserved through a cell')
+})
+
+check('the value of a new is the value of its body', () => {
+  eq(runImpl(newCell('c', 1, pure('body'))), 'body')
+})
+
+// The cell is installed INSIDE the handler's prompt, so the segment the clause
+// captures contains its frame and the resumption reinstalls it. Nothing about
+// the cell survives the perform by accident: it survives because the frame does.
+check('a cell survives a perform that reaches an outer handler and resumes', () => {
+  const h = table({ reader: { ask: ctl((_p, k) => k(7)) } })
+  const prog = withImpl(undefinedReturnImpl, h,
+    newCell('c', 1,
+      bind(readCell('c'), (a) =>
+        bind(perform('reader', 'ask'), (r) =>
+          bind(writeCell('c', a + r), () =>
+            bind(readCell('c'), (b) => pure([a, r, b])))))))
+  eq(runImpl(prog), [1, 7, 8])
+})
+
+check('nested cells with distinct labels do not interfere', () => {
+  const prog = newCell('a', 1, newCell('b', 2,
+    bind(writeCell('a', 10), () =>
+      bind(readCell('b'), (y) =>
+        bind(readCell('a'), (x) => pure([x, y]))))))
+  eq(runImpl(prog), [10, 2])
+})
+
+// The model's rule is innermost-wins, in `Hoop.Runtime.Semantics.find_param`
+// (and, on the machine that ships, in the shadowing of one environment level by
+// another). Pinned here so that a future change to either cannot alter it
+// silently: the inner write must land on the inner cell and leave the outer one
+// at the value it had.
+check('the innermost cell of a repeated label wins, and shadowing is total', () => {
+  const prog = newCell('c', 1,
+    bind(readCell('c'), (before) =>
+      bind(newCell('c', 2, bind(writeCell('c', 20), () => readCell('c'))), (inner) =>
+        bind(readCell('c'), (after) => pure([before, inner, after])))))
+  eq(runImpl(prog), [1, 20, 1])
+})
+
+// --- cells out of scope ------------------------------------------------------
+//
+// The machine reports a cell miss as MStuck under the reserved effect name
+// `%hoop.var`, which the generic branch of run_impl would spell as
+// "Unhandled effect operation '%hoop.var.c'" -- accurate and useless.
+// hoop_ffi.ml special-cases it. The message may assert whose fault it is:
+// `Hoop.Runtime.execute`'s postcondition is unconditional, so an MStuck means
+// the reference machine is stuck on the same program.
+
+const escaped = /prompt-local cell '(.*)' was read or written outside the scope/
+
+check('reading a cell that was never installed reports an escape', () => {
+  throws(() => runImpl(readCell('c')), escaped)
+  throws(() => runImpl(bind(readCell('c'), (x) => pure(x))), escaped)
+})
+
+check('writing a cell that was never installed reports an escape', () => {
+  throws(() => runImpl(writeCell('c', 1)), escaped)
+})
+
+check('the escape message names the cell, not the reserved effect', () => {
+  throws(() => runImpl(readCell('someLabel')), /cell 'someLabel'/)
+  // The generic wording must NOT be what surfaces.
+  let msg = ''
+  try { runImpl(readCell('someLabel')) } catch (e) { msg = String(e.message) }
+  if (/Unhandled effect operation/.test(msg))
+    throw new Error(`the generic message leaked: ${JSON.stringify(msg)}`)
+  if (/%hoop\.var/.test(msg))
+    throw new Error(`the reserved effect name leaked: ${JSON.stringify(msg)}`)
+})
+
+// A genuine escape, which is the failure mode the message is written for. The
+// handler is installed OUTSIDE the cell, so the capture cuts below the cell's
+// frame and hands the clause a segment that contains it; the clause body itself
+// then runs beneath the `new`, where the cell no longer exists.
+check('a clause body below the new cannot reach the cell above it', () => {
+  const esc = table({ esc: { go: ctl((_p, _k) => readCell('c')) } })
+  const prog = withImpl(undefinedReturnImpl, esc, newCell('c', 1, perform('esc', 'go')))
+  throws(() => runImpl(prog), escaped)
+})
+
+// --- cells and tail-resumptive clauses ---------------------------------------
+//
+// The hard case the F* work identified. While a fast clause body is in flight
+// the machine has an MEnvF frame caching the environment the handler was
+// installed under, and the frames between it and its own prompt are masked. A
+// cell BELOW the prompt is therefore reached only by jumping over that region --
+// and a write to it has to come back up through the region and rebuild the
+// cached environment on the way, or the cache goes stale. Not a proof obstacle;
+// a wrong answer.
+
+check('a fast body reaches a cell below its own prompt, and writes it', () => {
+  // runtime/Hoop.Runtime.Test.fst fixture 30, through the FFI. The body reads
+  // 10 and writes 11; the continuation reads 11 back through frames the machine
+  // never took apart.
+  const log = table({
+    log: { emit: fast(() => bind(readCell('s'), (n) => bind(writeCell('s', n + 1), () => pure(n)))) },
+  })
+  const prog = newCell('s', 10,
+    withImpl(undefinedReturnImpl, log,
+      bind(perform('log', 'emit'), (r) =>
+        bind(readCell('s'), (n) => pure([r, n])))))
+  eq(runImpl(prog), [10, 11])
+})
+
+// The same, with a NEARER cell of the SAME label between the perform site and
+// the fast clause's own prompt. A tail-resumptive body runs in the context its
+// handler was installed in, so it must read and write the OUTER cell and leave
+// the nearer one alone -- 10 and 11, not 100 and 101. This is the cell analogue
+// of the masking test above, and it is where a cached-pointer cell would be
+// caught: it would find the nearer one.
+check('a fast body sees the cell its handler was installed under', () => {
+  const log = table({
+    log: { emit: fast(() => bind(readCell('s'), (n) => bind(writeCell('s', n + 1), () => pure(n)))) },
+  })
+  const prog = newCell('s', 10,
+    bind(withImpl(undefinedReturnImpl, log,
+      newCell('s', 100,
+        bind(perform('log', 'emit'), (r) =>
+          bind(readCell('s'), (inner) => pure([r, inner]))))),
+      (pair) => bind(readCell('s'), (outer) => pure(pair.concat([outer])))))
+  eq(runImpl(prog), [10, 100, 11])
+})
+
+// The negative form: a cell that exists only inside the fast clause's own
+// prompt is out of the body's reach entirely, not merely shadowed.
+check('a fast body cannot reach a cell installed inside its own prompt', () => {
+  const log = table({ log: { emit: fast(() => readCell('s')) } })
+  const prog = withImpl(undefinedReturnImpl, log, newCell('s', 5, perform('log', 'emit')))
+  throws(() => runImpl(prog), escaped)
+})
+
+// --- the two Koka 3.2.2 figures ----------------------------------------------
+//
+// One program --
+//
+//     b <- flip; write (read + 1); (b, read)
+//
+// -- and only the nesting swapped. Measured against Koka 3.2.2:
+//
+//     choice(state) = [(False,1),(True,1)]   -- state installed INSIDE choice
+//     state(choice) = [(False,1),(True,2)]   -- state installed OUTSIDE choice
+//
+// The mechanism is where the cell's frame ends up relative to the prompt the
+// `choice` clause captures at. Installed inside, the cell is part of the
+// captured segment, so every resumption reinstalls it at the value it was
+// captured with and each branch counts from 0. Installed outside, it lies below
+// the cut, the capture does not carry it, and the first branch's write is still
+// there when the second runs.
+//
+// A runtime holding the cell behind a shared mutable box would give
+// [(False,1),(True,2)] for BOTH, and pass every other test in this file while
+// doing so. These are fixtures 26-29 in runtime/Hoop.Runtime.Test.fst; the point
+// of running them here is that this is the independent path -- through the
+// handwritten FFI, the extracted machine and js_of_ocaml, none of which the
+// assert_norms exercise.
+
+// `choice.flip` resumes once with false and once with true and pairs the two
+// results, exactly as CBoth does in the F* fixtures. No return clause, so a
+// branch's raw value is what the clause collects.
+const choice = table({
+  choice: { flip: ctl((_p, k) => bind(k(false), (r1) => bind(k(true), (r2) => pure([r1, r2])))) },
+})
+
+const sbody =
+  bind(perform('choice', 'flip'), (b) =>
+    bind(readCell('s'), (n) =>
+      bind(writeCell('s', n + 1), () =>
+        bind(readCell('s'), (n2) => pure([b, n2])))))
+
+check('choice(state): a cell inside the choice handler is per-branch', () => {
+  const prog = withImpl(undefinedReturnImpl, choice, newCell('s', 0, sbody))
+  eq(runImpl(prog), [[false, 1], [true, 1]])
+})
+
+check('state(choice): a cell outside the choice handler is shared', () => {
+  const prog = newCell('s', 0, withImpl(undefinedReturnImpl, choice, sbody))
+  eq(runImpl(prog), [[false, 1], [true, 2]])
+})
+
+// --- awkward cell labels -----------------------------------------------------
+
+// A cell key and an operation key are different constructors of
+// Hoop.Runtime.Handlers.key, so a cell labelled `s` and an effect labelled `s`
+// bind different keys in the same environment and cannot shadow one another.
+check('a cell label cannot collide with an effect label', () => {
+  const h = table({ s: { ask: ctl((_p, k) => k(99)) } })
+  const prog = withImpl(undefinedReturnImpl, h,
+    newCell('s', 1, bind(perform('s', 'ask'), (v) => bind(readCell('s'), (c) => pure([v, c])))))
+  eq(runImpl(prog), [99, 1])
+})
+
+// Nothing keys a JS object by a cell label -- every table a VarKey reaches is an
+// association list -- so `__proto__` is an ordinary label here. Checked anyway,
+// because the label crosses the boundary as a JS string and the guarantee is a
+// property of the extracted code rather than of this file.
+check('__proto__, unicode and empty strings work as cell labels', () => {
+  eq(runImpl(newCell('__proto__', 1, bind(writeCell('__proto__', 2), () => readCell('__proto__')))), 2)
+  const prog = newCell('状態', 1, newCell('', 2,
+    bind(readCell('状態'), (a) => bind(readCell(''), (b) => pure([a, b])))))
+  eq(runImpl(prog), [1, 2])
+})
+
 // --- dispatch --------------------------------------------------------------
 
 check('dispatch distinguishes operations within one effect', () => {
@@ -410,6 +658,23 @@ check('a deeply nested stack of prompts resolves the outermost', () => {
   let prog = perform('reader', 'ask')
   for (let i = 0; i < depth; i++) prog = withImpl(undefinedReturnImpl, filler, prog)
   eq(runImpl(withImpl(undefinedReturnImpl, outer, prog)), 'bottom')
+})
+
+// A cell is a level of the same environment, so a read at depth walks the same
+// list. Nothing here is a performance claim -- test/js/bench.mjs measures the
+// slope -- but a read 2000 prompts from its cell must still find it, and must
+// not recurse on the JS stack while doing so.
+check('a deeply nested stack of prompts resolves the outermost cell', () => {
+  const filler = table({ other: { nop: ctl((_p, k) => k(null)) } })
+  let prog = readCell('s')
+  for (let i = 0; i < 2000; i++) prog = withImpl(undefinedReturnImpl, filler, prog)
+  eq(runImpl(newCell('s', 'bottom', prog)), 'bottom')
+})
+
+check('a deeply nested stack of cells resolves the outermost cell', () => {
+  let prog = readCell('s')
+  for (let i = 0; i < 2000; i++) prog = newCell('c' + i, i, prog)
+  eq(runImpl(newCell('s', 'bottom', prog)), 'bottom')
 })
 
 check('a long bind chain under a handler does not blow up', () => {

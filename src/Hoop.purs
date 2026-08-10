@@ -5,10 +5,10 @@ module Hoop
 
 import Prelude
 
-import Hoop.Engine (Hoop, continue, handler, run, with)
+import Hoop.Engine ((:=), Handler, Hoop, continue, handler, perform, read, run, var, with, write)
 import Hoop.Reader (READER, ask)
 import Hoop.State (STATE, get, set)
-import Hoop.Types (class EffNewtype, type (->*), Action, EffType, fast, full)
+import Hoop.Types (class EffNewtype, type (->*), Action, EffType, Region, fast, full, scalar)
 import Type.Proxy (Proxy(..))
 import Type.Row (type (+))
 

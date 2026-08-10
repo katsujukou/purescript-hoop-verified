@@ -46,9 +46,22 @@
 // reinstall all disappear from the per-perform cost and what remains is
 // Env.lookup plus ordinary machine steps. Whatever slope survives in (1b) is
 // the lookup's; whatever (1a) has on top of it is the capture's.
+//
+//   D  depth: environment levels between a prompt-local cell access and the
+//      cell itself. Sweep (5).
+//
+// D is the cell counterpart of N, and it exists because a cell IS a level of
+// the same environment: `newCell` extends it exactly as a handler does, and a
+// read is one `Env.lookup`. The shipped realisation of `lookup` is a scan of
+// levels, so a read is linear in the prompts AND cells between the access and
+// the cell -- not O(1). The Env interface admits an O(1) realisation with no
+// proof changing, and sweep (5) is what says whether building one would be
+// worth the trouble. Read against (1a) and (1b): if a read's slope is far
+// below a full clause's, the scan is not what a program pays for.
 
 import {
   pureImpl as pure, bindImpl as bind, performImpl, withImpl, runImpl,
+  newCellImpl as newCell, readCellImpl as readCell, writeCellImpl as writeCell,
   undefinedReturnImpl as noRet, emptyHandlersImpl, insertClauseImpl, insertClausesImpl,
 } from '../../src/Hoop/Engine.js'
 
@@ -185,6 +198,84 @@ for (const W of [10, 50, 200]) {
   const at = (p) => best(() => measure(20, 1, 1, target(W, p))).min.toFixed(0).padStart(7)
   console.log(`      W=${String(W).padEnd(18)} head ${at(0)}  mid ${at(W >> 1)}  tail ${at(W - 1)}`)
 }
+
+// ---------------------------------------------------------------------------
+// (5) Prompt-local cells
+// ---------------------------------------------------------------------------
+//
+// The shape is the same as the perform sweeps: PERFORMS right-nested accesses,
+// with D levels between them and the cell. Read the numbers against (1a) and
+// (1b), which are the same harness on the same machine.
+//
+// Both a handler and a cell push exactly one environment level, so the sweep is
+// run twice -- filler prompts, then filler cells. The walk is the same length
+// either way; what differs is the per-level work, since a prompt's level tests
+// membership against a keyset while a cell's holds one name. The gap between
+// (5a) and (5b) is that difference, nothing else.
+//
+// A read is one Env.lookup and stops there: no capture, no split, no rebuild.
+// A write is the expensive one BY CONSTRUCTION, and not incidentally: because
+// the cell lives in a frame by value, a write has to rebuild the stack down to
+// that frame and the environment down to that level -- twice O(D), allocating
+// as it goes. That is the price of the read being one lookup, and of a captured
+// continuation carrying its own copy. Expect the write's slope to dominate.
+
+const CELL = '$bench'
+
+// Right-nested accesses summing what they yield. A read yields the cell's value
+// and a write yields the value written (the machine's WriteP rule steps to
+// `Var y`), so both sum to PERFORMS with the cell holding 1.
+function nestAccess(n, access) {
+  let k = (acc) => pure(acc)
+  for (let i = 0; i < n; i++) {
+    const prev = k
+    k = (acc) => bind(access(), (v) => prev(acc + v))
+  }
+  return k(0)
+}
+
+const readAccess = () => readCell(CELL)
+const writeAccess = () => writeCell(CELL, 1)
+// The floor: the same chain of binds with no cell operation in it at all, so
+// that the intercepts below can be read as a cost over ordinary machine steps
+// rather than as an absolute.
+const noAccess = () => pure(1)
+
+const promptsBetween = (prog, D) => {
+  for (let i = 0; i < D; i++) prog = withImpl(noRet, filler(1, 1, i), prog)
+  return prog
+}
+const cellsBetween = (prog, D) => {
+  for (let i = 0; i < D; i++) prog = newCell('c' + i, 0, prog)
+  return prog
+}
+
+// ns per access.
+function measureCell(D, access, between) {
+  const prog = newCell(CELL, 1, between(nestAccess(PERFORMS, access), D))
+  const t0 = performance.now()
+  const result = runImpl(prog)
+  const ms = performance.now() - t0
+  if (result !== PERFORMS) throw new Error(`wrong result ${result}, expected ${PERFORMS}`)
+  return (ms * 1e6) / PERFORMS
+}
+
+const DS = [0, 1, 2, 5, 10, 20, 50]
+
+console.log('\n  (5a) D sweep: cell READ, D filler PROMPTS between access and cell')
+for (const D of DS) row(`D=${D}`, best(() => measureCell(D, readAccess, promptsBetween)))
+
+console.log('\n  (5b) D sweep: cell READ, D filler CELLS between access and cell')
+for (const D of DS) row(`D=${D}`, best(() => measureCell(D, readAccess, cellsBetween)))
+
+console.log('\n  (5c) D sweep: cell WRITE, D filler PROMPTS -- rebuilds stack and env')
+for (const D of DS) row(`D=${D}`, best(() => measureCell(D, writeAccess, promptsBetween)))
+
+console.log('\n  (5d) D sweep: cell WRITE, D filler CELLS')
+for (const D of DS) row(`D=${D}`, best(() => measureCell(D, writeAccess, cellsBetween)))
+
+console.log('\n  (5e) floor: the same chain with no cell operation, D filler prompts')
+for (const D of DS) row(`D=${D}`, best(() => measureCell(D, noAccess, promptsBetween)))
 
 // Handler table construction: withImpl runs handlers_of_js and mk_handlers
 // eagerly, so this is the whole per-installation cost. Needed to judge any

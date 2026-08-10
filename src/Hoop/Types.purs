@@ -8,6 +8,9 @@
 -- @inline export fast always
 -- @inline export unClause always
 
+-- @inline export mkRegion always
+-- @inline export scalar always
+
 module Hoop.Types
   ( Action
   , AnyPayload
@@ -18,6 +21,9 @@ module Hoop.Types
   , EvKey(..)
   , Fast
   , Full
+  , Local
+  , Region
+  , Scalar(..)
   , asAnyPayload
   , class EffNewtype
   , class MkAction
@@ -25,6 +31,8 @@ module Hoop.Types
   , fast
   , full
   , mkAction
+  , mkRegion
+  , scalar
   , type (->*)
   , unClause
   )
@@ -77,6 +85,62 @@ fast = unsafeCoerce
 
 unClause :: forall c f. Clause c f -> f
 unClause = unsafeCoerce
+
+-- | **The open-region token.** A computation whose row carries
+-- | `"%hoop.var" :: Local s inits` runs with the cells `inits` installed,
+-- | in the region `s`. It is the surface reading of the runtime's
+-- | capability judgement: `Hoop.Runtime.WellScopedness` makes a `ReadP l`
+-- | well scoped exactly when `can var_eff l` holds, and cells share the
+-- | capability environment with handlers under the reserved effect name
+-- | `%hoop.var`.
+-- |
+-- | The token is coarser than the runtime judgement -- one entry per
+-- | region rather than one per cell -- and soundly so: a region is open
+-- | precisely while every one of its cell frames is installed, so an open
+-- | token entails `can var_eff l` for each `l` in `inits`.
+-- |
+-- | `s` is a phantom: `var` quantifies it rank-2, which is what stops a
+-- | cell of one region being read in another that happens to declare the
+-- | same label at the same type.
+-- |
+-- | No handler may be written for this label -- `Hoop.Engine` fails the
+-- | attempt with a custom error, and the runtime could not represent such
+-- | a table anyway (`Hoop.Runtime.Handlers.keys_no_var`).
+foreign import data Local :: Type -> Row Type -> EffType
+
+-- | The capability to reach the cells of one open region: `s` identifies
+-- | the region, `inits` declares its cells. `read` and `write` take the
+-- | region and name the cell by a visible type application, so there is no
+-- | per-cell handle to hold -- and therefore none to let slip.
+-- |
+-- | This is what makes the scope discipline lexical rather than dynamic.
+-- | `s` is bound by the rank-2 `forall` in `Hoop.Engine.var`, so nothing
+-- | mentioning it -- neither the region nor a computation that uses it --
+-- | can leave through an operation's result, the answer type or a
+-- | continuation, all of which are fixed outside the region.
+-- |
+-- | The token carries nothing: a cell's runtime name is its label, and the
+-- | label is recovered from the type at each `read` and `write`.
+newtype Region :: Type -> Row Type -> Type
+newtype Region s inits = Region Unit
+
+mkRegion :: forall s inits. Region s inits
+mkRegion = Region unit
+
+-- | Declare a region of one cell holding a record.
+-- |
+-- | `var` reads a bare initial value as a single unnamed cell and a record
+-- | as one cell per field, which leaves no way to ask for a single cell
+-- | whose contents happen to be a record. This wrapper is that way.
+-- |
+-- | ```purs
+-- | var (scalar { x: 0, y: 0 }) \c -> read c   -- one cell, a record inside
+-- | var { x: 0, y: 0 } \c -> read @"x" c       -- two cells
+-- | ```
+newtype Scalar a = Scalar a
+
+scalar :: forall a. a -> Scalar a
+scalar = Scalar
 
 newtype EvKey = EvKey String
 

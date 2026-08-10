@@ -32,6 +32,16 @@
 -- @inline export handlerScoped always
 -- @inline export withF always
 
+-- @inline export var always
+-- @inline export read always
+-- @inline export write always
+-- @inline export assign always
+-- @inline export installCellsNil(..).installCellsList always
+-- @inline export installCellsCons(..).installCellsList always
+-- @inline export varInitRecord(..).installCells always
+-- @inline export varInitScalarWrapped(..).installCells always
+-- @inline export varInitScalar(..).installCells always
+
 -- @inline export handlerParam always
 -- @inline export buildParamHandlerReturnClause(..).buildParamHandler always
 -- @inline export buildParamHandlerIdentity(..).buildParamHandler always
@@ -60,6 +70,9 @@ module Hoop.Engine
   , class ComputationSignature
   , class FastSignature
   , class FullSignature
+  , class InstallCells
+  , class SoleCell
+  , class VarInit
   , class MkHandlerClauses
   , class MkHandlers
   , class MkHandlersList
@@ -67,17 +80,24 @@ module Hoop.Engine
   , class PerformEffect
   , class PerformList
   , class UnexpectedFieldsGuard
+  , assign
   , continue
   , handler
+  , installCells
+  , installCellsList
   , mkHandlers
   , mkHandlerClauses
   , mkHandlersList
   , perform
   , performEffect
   , performList
+  , read
   , run
   , toRuntimeClause
+  , var
   , with
+  , write
+  , (:=)
   )
   where
 
@@ -86,7 +106,7 @@ import Prelude
 import Data.Function.Uncurried (Fn1, Fn2, Fn3, Fn4, runFn2, runFn3)
 import Data.Symbol (class IsSymbol, reflectSymbol)
 import Hoop.TypeUtil (class HasLabel, class RowListLength, class TypeEquals, proof, type (++), type (:), type (|>), List, Nil)
-import Hoop.Types (class EffNewtype, class MkAction, type (->*), AnyPayload, Clause, EffType, Fast, Full, evKey, mkAction, unClause)
+import Hoop.Types (class EffNewtype, class MkAction, type (->*), AnyPayload, Clause, EffType, Fast, Full, Local, Region, Scalar(..), evKey, mkAction, mkRegion, unClause)
 import Partial.Unsafe (unsafeCrashWith)
 import Prim.Boolean (False, True)
 import Prim.Row as Row
@@ -148,7 +168,20 @@ class PerformList :: RowList EffType -> Symbol -> Type -> Constraint
 class PerformList effL op comptyp | effL op -> comptyp where
   performList :: comptyp
 
-instance performListImpl ::
+-- The reserved label is not an effect the surface can reach: cells are
+-- read and written by `read` / `write`, never performed. The runtime
+-- agrees -- `Hoop.Runtime.WellScopedness` makes a `Perform` under
+-- `var_eff` ill scoped outright.
+instance performListVar ::
+  ( Fail
+      ( Text "`%hoop.var` is reserved for prompt-local cells and has no operations to perform."
+          |> Text "  Use `read @\"label\"` / `write @\"label\"` on the region `var` hands out."
+      )
+  ) =>
+  PerformList (RL.Cons "%hoop.var" _1 RL.Nil) _2 _3 where
+  performList = unsafeCrashWith "impossible"
+
+else instance performListImpl ::
   ( EffNewtype efftyp repr
   , PerformEffect efflbl efftyp repr op comptyp
   ) =>
@@ -165,7 +198,21 @@ class PerformEffect :: Symbol -> EffType -> Row Type -> Symbol -> Type -> Constr
 class PerformEffect efflbl efftyp repr op comptyp | efflbl efftyp repr op -> comptyp where
   performEffect :: comptyp
 
-instance performEffectImpl1 ::
+-- The same guard as on `PerformList`, repeated here because
+-- `performEffect` is exported and names its effect label by type
+-- application, so it is a way round that one. The runtime's `perform_impl`
+-- does not check the reserved name -- `ws` merely assumes it -- which
+-- makes this the boundary where the assumption is enforced.
+instance performEffectVar ::
+  ( Fail
+      ( Text "`%hoop.var` is reserved for prompt-local cells and has no operations to perform."
+          |> Text "  Use `read @\"label\"` / `write @\"label\"` on the region `var` hands out."
+      )
+  ) =>
+  PerformEffect "%hoop.var" _1 _2 _3 _4 where
+  performEffect = unsafeCrashWith "impossible"
+
+else instance performEffectImpl1 ::
   ( Row.Cons op comp _1 repr
   , ComputationSignature comp args ret
   , Row.Cons efflbl efftyp _2 eff
@@ -271,7 +318,20 @@ class CanonicalizeHandlersList effhL from to | effhL from -> to where
 instance canonicalizeHandlersListNil :: CanonicalizeHandlersList RL.Nil from from where
   canonicalizeHandlersList _ h = h
 
-instance canonicalizeHandlersListCons ::
+-- A region is opened by `var` and by nothing else. The runtime cannot
+-- represent a handler table that binds a cell -- `keys` is provably free
+-- of `VarKey` (`Hoop.Runtime.Handlers.keys_no_var`) -- so this guard has
+-- no soundness to protect; it is here to say so in words.
+instance canonicalizeHandlersListVar ::
+  ( Fail
+      ( Text "`%hoop.var` is reserved for prompt-local cells; no handler can be written for it."
+          |> Text "  Use `var` to open a region of cells around the handler."
+      )
+  ) =>
+  CanonicalizeHandlersList (RL.Cons "%hoop.var" _1 _2) from to where
+  canonicalizeHandlersList _ _ = unsafeCrashWith "impossible"
+
+else instance canonicalizeHandlersListCons ::
   ( Row.Cons efflbl fromCls fromRest from
   , CanonicalizeHandlersList tail fromRest toRest
   , EffNewtype efftyp repr
@@ -427,7 +487,18 @@ instance mkHandlersListNil ::
   MkHandlersList RL.Nil hs r o where
   mkHandlersList _ = emptyHandlersImpl unit
 
-instance mkHandlersListCons ::
+-- The same guard, for the callers that reach the table builder without
+-- going through `canonicalizeHandlers` first.
+instance mkHandlersListVar ::
+  ( Fail
+      ( Text "`%hoop.var` is reserved for prompt-local cells; no handler can be written for it."
+          |> Text "  Use `var` to open a region of cells around the handler."
+      )
+  ) =>
+  MkHandlersList (RL.Cons "%hoop.var" _1 _2) hs r o where
+  mkHandlersList _ = unsafeCrashWith "impossible"
+
+else instance mkHandlersListCons ::
   ( Row.Cons efflbl (Record cls) rest hs
   , EffNewtype efftyp repr
   , RowToList repr reprL
@@ -547,3 +618,320 @@ else instance
   ( Fail (Text "The type of operation must be Function (->) or Computation (->*)")
   ) =>
   FastSignature _1 _2 _3 _4
+
+{------------ Prompt-local cells ------------}
+
+-- The three cell primitives, in the machine's calling convention.
+-- `newCellImpl` is the one that changes the row: it wraps a computation
+-- running with the cell installed into one running without it, which is
+-- exactly what `NewP` does to the stack.
+--
+-- NOT EXPORTED, AND LOAD-BEARING. `var` is the only caller, and the
+-- placement invariant recorded on `var` -- the one that makes cell labels
+-- safe to collide -- holds because of that. Export this, or call it from
+-- anywhere else, and a cell can be installed at a stack position that is
+-- not directly below its handler's prompt; the invariant is then lost,
+-- innermost-wins starts resolving a clause to somebody else's cell, and
+-- labels have to be minted per dynamic instantiation to get the guarantee
+-- back. That is a different design, not a patch: a minted label is not a
+-- `Symbol`, so it cannot key the row token, and the type-level scope
+-- discipline would have to be rebuilt on something else.
+--
+-- Worth re-reading before scoped effects: an operation that carries a
+-- computation gets to decide where that computation runs, which is exactly
+-- the freedom this invariant assumes nobody has.
+foreign import newCellImpl :: forall inner outer a o. Fn3 String a (Hoop inner o) (Hoop outer o)
+foreign import readCellImpl :: forall r a. String -> Hoop r a
+
+-- Evaluates to the value written, not to unit: the `WriteP` rule steps to
+-- `Var x`. `write` below returns it; `assign` is the one that discards it.
+foreign import writeCellImpl :: forall r a. Fn2 String a (Hoop r a)
+
+-- | The region a closed `var` is instantiated at. The region variable is a
+-- | phantom used only to keep two regions apart under the rank-2 `forall`
+-- | in `var`; once `var` has discharged the token there is nothing left to
+-- | tell apart, so the caller's `s` is instantiated here.
+data Closed
+
+-- | Open a region of prompt-local cells around a handler.
+-- |
+-- | ```purs
+-- | with
+-- |   (var { count: 0 } \c ->
+-- |      handler (Proxy :: _ (STATE Int + ()))
+-- |        { state:
+-- |            { get: fast \_ -> read @"count" c
+-- |            , set: fast \n -> write @"count" c n
+-- |            }
+-- |        })
+-- |   program
+-- | ```
+-- |
+-- | The record of initial values is the region's declaration: one cell per
+-- | field, named by the field and typed by the value. The callback receives
+-- | the region token, and the row it works in carries the matching
+-- | `Local`, which `var` discharges -- so a cell is reachable from the
+-- | handler's clauses and from nothing outside them.
+-- |
+-- | This is precisely nested `NewP` around the handler's prompt: cells sit
+-- | *below* it, so a clause (which runs outside its own prompt) can reach
+-- | them, and a captured continuation carries its own copy of their
+-- | contents.
+-- |
+-- | **THE PLACEMENT INVARIANT.** *Cells are installed directly below their
+-- | own handler's prompt, and a clause runs on the stack below that
+-- | prompt. So the first frame of a given label that a clause meets is
+-- | always its own handler's, whatever else is stacked above.*
+-- |
+-- | This is why cell labels need not be unique, and they are not: they are
+-- | field names, and a bare `var` uses one reserved label for every region
+-- | it ever opens. Two regions in one stack routinely share a label, and
+-- | the machine's rule is innermost-wins, so a collision would be a *wrong
+-- | answer* rather than a crash -- the worse failure mode. The invariant is
+-- | what rules it out, and it holds for one reason only: `newCellImpl` is
+-- | private and `var` is its sole caller, so nothing can install a cell
+-- | anywhere else. See the note there for what breaks if that changes.
+-- |
+-- | The invariant is pinned by two tests in `Test.Hoop` ("two regions
+-- | sharing a label each see their own cell", "the same handler nested in
+-- | itself does not shadow its own cell"), not proved. F* proves what
+-- | `NewP` / `ReadP` / `WriteP` mean; where the surface *puts* them is this
+-- | module's obligation.
+-- |
+-- | **Before adding scoped effects, re-derive it.** An operation that
+-- | carries a computation lets a clause choose where that computation
+-- | runs, and a computation resumed at a stack position other than the one
+-- | it was suspended at is precisely the case the invariant does not cover.
+-- |
+-- | **A handler polymorphic in its cell's type must say `scalar`.** The
+-- | record-or-not dispatch is an instance chain, and with the initial
+-- | value's type abstract there is nothing to dispatch on: the chain
+-- | stalls on the record instance rather than falling through to the
+-- | scalar one, and reports it as a partial overlap. Naming the reading
+-- | settles it, and the region row stays concrete in shape (one cell)
+-- | while its contents stay abstract, which is what `read` needs.
+-- |
+-- | ```purs
+-- | handleState :: forall s r a. s -> Handler (STATE s ()) r a a
+-- | handleState init = var (scalar init) \c ->   -- ✗ without `scalar`
+-- |   handler (Proxy :: _ (STATE s ()))
+-- |     { state: { get: fast \_ -> read c, set: fast \s' -> c := s' } }
+-- | ```
+-- |
+-- | `Hoop.State.handleState` is that handler, and is the worked example.
+-- |
+-- | **Declare a handler's cells in one `var`, not in nested ones.** Every
+-- | region's token sits in the row under the same reserved label, so
+-- | nesting duplicates that label and only the innermost is reachable:
+-- |
+-- | ```purs
+-- | var { outer: 1 } \c1 ->        -- legal, but c1 is out of reach below
+-- |   var { inner: 2 } \c2 ->
+-- |     handler ...
+-- |       { get: fast \_ -> read @"inner" c1 }   -- ✗ s0 vs s1, at "%hoop.var"
+-- |
+-- | var { outer: 1, inner: 2 } \c ->             -- ✓ one region, both cells
+-- |   handler ... { get: fast \_ -> read @"outer" c }
+-- | ```
+-- |
+-- | The failure is a type error naming `%hoop.var` and two region
+-- | variables, never a wrong answer, so the rule is enforced -- just not
+-- | explained -- by the compiler. Lifting it would need the token to carry
+-- | a *stack* of regions, and extending that stack is a class whose result
+-- | mentions `s`, which is exactly what cannot be solved under the rank-2
+-- | `forall` that makes the containment work. Fresh labels would not help:
+-- | a row label is a `Symbol`, and there is no minting one.
+-- |
+-- | **Escape is a type error.** `s` is bound by the callback's own
+-- | `forall`, and every way to touch a cell mentions it -- the token, and
+-- | any computation reading or writing through it. None of them can be
+-- | smuggled out through an operation's result, the answer type or a
+-- | continuation, because all three are fixed outside the region. Naming a
+-- | cell by type application rather than by a handle value is what buys
+-- | this: there is no per-cell token whose type could forget the region.
+-- |
+-- | **This is `ST`, not `StateT`.** Settled deliberately, so read it as a
+-- | positioning rather than as a stage on the way somewhere.
+-- |
+-- | A cell is a binder with a lifetime. `var` is `runST` and `Region s` is
+-- | `ST s`: the rank-2 `forall` bounds the lifetime, and outside it there
+-- | is nothing left to observe. The state consequently does *not* appear
+-- | in the handler's answer type, and a cell-backed handler is
+-- | `Handler effh r a a` -- never `Handler effh r a (a /\ s)`.
+-- |
+-- | Two things follow, and neither is a gap to be closed later.
+-- |
+-- |   - **A cell-backed handler does not hand back its final state.** The
+-- |     return clause is a pure `a -> o` and cannot read a cell, and there
+-- |     is no way round that within this reading. Wanting the final state
+-- |     means wanting a state *monad*, and that is the other handler: the
+-- |     parameter-passing one, written with `full` clauses and an answer
+-- |     type of `s -> Hoop r (a /\ s)`. `Test.Hoop.statePP` is it. The two
+-- |     coexist on purpose -- cells buy tail resumption, parameter passing
+-- |     buys the state in the answer.
+-- |
+-- |   - **There is no `with`-variant that opens a region around a whole
+-- |     computation.** One would work -- a body sits above the cell frames
+-- |     and the search runs downward, so it would reach them, and it would
+-- |     be the way to get the final state out with `fast` clauses intact.
+-- |     It is left out because it makes cells readable *and writable* by
+-- |     the handled program, and a handler's local state being poked at by
+-- |     the code it handles is not what a cell is for. `with` stays a
+-- |     single combinator.
+var
+  :: forall init inits effh r a o
+   . VarInit init inits
+  => init
+  -> (forall s. Region s inits -> Handler effh ("%hoop.var" :: Local s inits | r) a o)
+  -> Handler effh r a o
+var init k =
+  let
+    inner :: Handler effh ("%hoop.var" :: Local Closed inits | r) a o
+    inner = k mkRegion
+  in
+    case inner of
+      Handler install -> Handler \comp -> installCells init (install comp)
+
+-- | Read a cell of the open region. The `Row.Cons` constraint is the
+-- | cell's membership in it: a label the region does not declare, or one
+-- | declared at another type, has nothing to match.
+-- |
+-- | The label may be omitted when the region declares exactly one cell --
+-- | always the case for a bare `var 0`, and the reason it needs no field
+-- | name. For a record, prefer writing it: `read c` on a one-field record
+-- | stops compiling the day a second field is added.
+-- |
+-- | **A helper polymorphic over the region must write the row open.** The
+-- | region's cells have to be visible in the type for `Row.Cons` to find
+-- | the one named, so a rigid `inits` will not do however many constraints
+-- | are carried alongside it; `(count :: Int | rest)` will. `RowToList`
+-- | and `SoleCell` then have nothing to reduce and are simply propagated,
+-- | the caller discharging them where the row is closed.
+-- |
+-- | ```purs
+-- | bump
+-- |   :: forall s rest initsL r
+-- |    . RowToList (count :: Int | rest) initsL
+-- |   => SoleCell initsL "count"
+-- |   => Region s (count :: Int | rest)
+-- |   -> Hoop ("%hoop.var" :: Local s (count :: Int | rest) | r) Unit
+-- | bump c = do
+-- |   n <- read @"count" c
+-- |   assign @"count" c (n + 1)
+-- | ```
+read
+  :: forall @l s inits initsL a rest r
+   . RowToList inits initsL
+  => SoleCell initsL l
+  => Row.Cons l a rest inits
+  => IsSymbol l
+  => Region s inits
+  -> Hoop ("%hoop.var" :: Local s inits | r) a
+read _ = readCellImpl (reflectSymbol (Proxy :: _ l))
+
+-- | Write a cell of the open region, and evaluate to the value written.
+-- |
+-- | Nothing is mutated: the machine rebuilds the stack down to the cell's
+-- | frame, so a continuation captured before the write still sees the
+-- | value it was captured with.
+-- |
+-- | The result is the machine's own -- the `WriteP` rule steps to `Var x`
+-- | -- so this costs exactly one node. Use `assign` (or `:=`) in statement
+-- | position, where the extra node buys the `Unit`.
+-- |
+-- | The label may be omitted on the same terms as `read`'s.
+write
+  :: forall @l s inits initsL a rest r
+   . RowToList inits initsL
+  => SoleCell initsL l
+  => Row.Cons l a rest inits
+  => IsSymbol l
+  => Region s inits
+  -> a
+  -> Hoop ("%hoop.var" :: Local s inits | r) a
+write _ x = runFn2 writeCellImpl (reflectSymbol (Proxy :: _ l)) x
+
+-- | `write`, with the written value discarded -- the shape a `set`-like
+-- | operation wants. Costs the one node `write` saves.
+-- |
+-- | With the label inferred this is an ordinary binary function, which is
+-- | what lets it carry the `:=` operator: an operator takes no type
+-- | application, so `c := n` works exactly where `read c` does.
+assign
+  :: forall @l s inits initsL a rest r
+   . RowToList inits initsL
+  => SoleCell initsL l
+  => Row.Cons l a rest inits
+  => IsSymbol l
+  => Region s inits
+  -> a
+  -> Hoop ("%hoop.var" :: Local s inits | r) Unit
+assign c x = runFn2 bindImpl (write @l c x) \_ -> pureImpl unit
+
+infix 4 assign as :=
+
+-- | The label a `read` or `write` means when none was given.
+-- |
+-- | A one-cell region names it; any other region leaves it to the type
+-- | application, which is what the fall-through instance is for -- it
+-- | determines nothing and so lets the caller's label stand.
+class SoleCell :: RowList Type -> Symbol -> Constraint
+class SoleCell initsL l | initsL -> l
+
+instance soleCellOne :: SoleCell (RL.Cons l a RL.Nil) l
+else instance soleCellMany :: SoleCell initsL l
+
+-- | Normalise a region's declaration and install its cells.
+-- |
+-- | A record declares one cell per field; anything else declares a single
+-- | cell under a reserved label the surface never shows, which is what
+-- | lets `var 0` skip inventing a field name. `Scalar` forces the second
+-- | reading for a value that is itself a record.
+-- |
+-- | The mapping mentions no region: `init -> inits` is settled entirely
+-- | outside `var`'s rank-2 `forall`, and the region variable is attached
+-- | afterwards, by `Region s inits` and the row token.
+class VarInit :: Type -> Row Type -> Constraint
+class VarInit init inits | init -> inits where
+  -- The two rows are unrelated on purpose: this is the row discharge, the
+  -- surface counterpart of pushing the cells' frames onto the stack.
+  installCells :: forall inner outer o. init -> Hoop inner o -> Hoop outer o
+
+instance varInitRecord ::
+  ( RowToList inits initsL
+  , InstallCells initsL
+  ) =>
+  VarInit (Record inits) inits where
+  installCells = installCellsList @initsL
+
+else instance varInitScalarWrapped ::
+  VarInit (Scalar a) ("%hoop.scalar" :: a) where
+  installCells (Scalar x) body = runFn3 newCellImpl scalarLabel x body
+
+else instance varInitScalar ::
+  VarInit a ("%hoop.scalar" :: a) where
+  installCells x body = runFn3 newCellImpl scalarLabel x body
+
+-- The label the one cell of a non-record region lives under. Reserved, and
+-- never shown: `read` and `write` recover it from `SoleCell`.
+scalarLabel :: String
+scalarLabel = "%hoop.scalar"
+
+-- | Wrap a computation in the `NewP` nodes that install a record region's
+-- | cells, driven by the `RowList` of its initial values.
+class InstallCells :: RowList Type -> Constraint
+class InstallCells initsL where
+  installCellsList :: forall inits inner outer o. Record inits -> Hoop inner o -> Hoop outer o
+
+instance installCellsNil :: InstallCells RL.Nil where
+  installCellsList _ = unsafeCoerce
+
+instance installCellsCons ::
+  ( InstallCells tail
+  , IsSymbol l
+  ) =>
+  InstallCells (RL.Cons l a tail) where
+  installCellsList inits body =
+    runFn3 newCellImpl l (RU.unsafeGet l inits) (installCellsList @tail inits body)
+    where
+    l = reflectSymbol (Proxy :: _ l)
