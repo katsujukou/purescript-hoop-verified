@@ -19,4 +19,4 @@ count i =
 main :: Effect Unit
 main = do
   n <- sizeArg
-  logShow $ run (run (with stateFullH (count n)) 0) 
+  logShow $ run (run (with stateFullH (count n)) 0)

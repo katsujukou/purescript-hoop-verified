@@ -35,8 +35,7 @@ module Hoop.Types
   , scalar
   , type (->*)
   , unClause
-  )
-  where
+  ) where
 
 import Prelude
 
@@ -144,10 +143,10 @@ scalar = Scalar
 
 newtype EvKey = EvKey String
 
-derive newtype instance eqEvKey :: Eq EvKey 
-derive newtype instance ordEvKey :: Ord EvKey 
+derive newtype instance eqEvKey :: Eq EvKey
+derive newtype instance ordEvKey :: Ord EvKey
 
-evKey :: String -> String -> EvKey 
+evKey :: String -> String -> EvKey
 evKey eff op = EvKey $ Fmt.fmt @"{len}:{eff}{op}" { len: String.length eff, eff, op }
 
 foreign import data AnyPayload :: Type
@@ -163,14 +162,14 @@ type Action = { eff :: String, op :: String, key :: String, payload :: Array Any
 
 type MkActionFn r = Fn4 String String String (Array AnyPayload) r
 
-runMkActionFn 
+runMkActionFn
   :: forall r
    . MkActionFn r
-  -> String   -- effect
-  -> String   -- op
-  -> String   -- evkey
+  -> String -- effect
+  -> String -- op
+  -> String -- evkey
   -> Array AnyPayload
-  -> r 
+  -> r
 runMkActionFn = runFn4
 
 class MkAction :: List Type -> Type -> Type -> Constraint
@@ -178,7 +177,7 @@ class NonEmpty args <= MkAction args r fn | args r -> fn where
   mkAction :: String -> String -> EvKey -> (MkActionFn r) -> fn
 
 instance mkAction1 :: MkAction (a : Nil) r (a -> r) where
-  mkAction eff op (EvKey key) k = \a -> runMkActionFn k eff op key [ asAnyPayload a ] 
+  mkAction eff op (EvKey key) k = \a -> runMkActionFn k eff op key [ asAnyPayload a ]
 
 else instance mkAction2 :: MkAction (a : b : Nil) r (a -> b -> r) where
   mkAction eff op (EvKey key) k = \a b -> runMkActionFn k eff op key [ asAnyPayload a, asAnyPayload b ]

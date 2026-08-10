@@ -101,25 +101,25 @@ main = runSpecAndExitProcess [ consoleReporter ] do
     it "the return clause is applied at the end" do
       let
         h = handler (Proxy :: _ (READER Int ()))
-              { reader: \_ k -> continue k 1
-              , pure: \v -> v * 10
-              }
+          { reader: \_ k -> continue k 1
+          , pure: \v -> v * 10
+          }
       run (with h ask) `shouldEqual` 10
 
     it "the value continue returns has already passed through the return clause" do
       let
         h = handler (Proxy :: _ (READER Int ()))
-              { reader: \_ k -> map (_ + 100) (continue k 1)
-              , pure: \v -> v * 10
-              }
+          { reader: \_ k -> map (_ + 100) (continue k 1)
+          , pure: \v -> v * 10
+          }
       run (with h ask) `shouldEqual` 110
 
     it "a clause that discards the continuation skips the rest" do
       let
         h = handler (Proxy :: _ (EXC ()))
-              { exc: \msg _ -> pure ("caught: " <> msg)
-              , pure: \_ -> "unreachable"
-              }
+          { exc: \msg _ -> pure ("caught: " <> msg)
+          , pure: \_ -> "unreachable"
+          }
         prog = do
           _ <- throw "boom"
           pure unit
@@ -128,18 +128,19 @@ main = runSpecAndExitProcess [ consoleReporter ] do
     it "multi-shot: the continuation can be resumed twice" do
       let
         h = handler (Proxy :: _ (AMB ()))
-              { amb: \_ k -> do
-                  xs <- continue k true
-                  ys <- continue k false
-                  pure (xs <> ys)
-              , pure: \v -> [ v ]
-              }
+          { amb: \_ k -> do
+              xs <- continue k true
+              ys <- continue k false
+              pure (xs <> ys)
+          , pure: \v -> [ v ]
+          }
       run (with h (map (if _ then 1 else 2) flip)) `shouldEqual` [ 1, 2 ]
 
     it "an operation the inner handler does not cover escapes outward" do
       let
         readerH = handler (Proxy :: _ (READER Int ())) { reader: \_ k -> continue k 5 }
         excH = handler (Proxy :: _ (EXC ())) { exc: \_ _ -> pure 0 }
+
         prog :: Hoop (EXC (READER Int ())) Int
         prog = ask
       run (with readerH (with excH prog)) `shouldEqual` 5
@@ -147,11 +148,11 @@ main = runSpecAndExitProcess [ consoleReporter ] do
     it "a handler with several operations dispatches on the operation name" do
       let
         h = handler (Proxy :: _ (STATE Int ()))
-              { state:
-                  { get: \_ k -> continue k 5
-                  , set: \_ k -> continue k unit
-                  }
+          { state:
+              { get: \_ k -> continue k 5
+              , set: \_ k -> continue k unit
               }
+          }
         prog = do
           _ <- set 99
           n <- get
@@ -167,6 +168,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       let
         outer = handler (Proxy :: _ (READER Int ())) { reader: \_ k -> continue k 1 }
         inner = handler (Proxy :: _ (READER Int ())) { reader: \_ k -> continue k 2 }
+
         prog :: Hoop (READER Int (READER Int ())) Int
         prog = ask
       run (with outer (with inner prog)) `shouldEqual` 2
@@ -183,6 +185,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               n <- ask
               continue k (n * 10)
           }
+
         prog :: Hoop (READER Int (READER Int ())) Int
         prog = ask
       run (with outer (with inner prog)) `shouldEqual` 10
@@ -288,6 +291,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
         readerH = var 99 \c ->
           handler (Proxy :: _ (READER Int ()))
             { reader: fast \_ -> read c }
+
         prog :: Hoop (READER Int (STATE Int ())) Int
         prog = do
           _ <- set 5
@@ -313,6 +317,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
                 , set: fast \n -> c := n
                 }
             }
+
         prog :: Hoop (STATE Int ()) Int
         prog = do
           _ <- set 1
@@ -366,6 +371,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               pure (xs <> ys)
           , pure: \v -> [ v ]
           }
+
         prog :: Hoop (STATE Int (AMB ())) Int
         prog = do
           b <- flip

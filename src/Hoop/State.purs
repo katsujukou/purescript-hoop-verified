@@ -8,17 +8,17 @@ import Type.Proxy (Proxy(..))
 
 foreign import data State :: Type -> EffType
 
-type State' s = 
-  ( get :: Unit ->* s 
-  , set :: s ->* Unit 
+type State' s =
+  ( get :: Unit ->* s
+  , set :: s ->* Unit
   )
 
-instance EffNewtype (State s) (State' s) 
+instance EffNewtype (State s) (State' s)
 
 type STATE s r = (state :: State s | r)
 
-get :: forall s r. Hoop (STATE s r) s 
-get = perform @(STATE _ ()) @"get" unit 
+get :: forall s r. Hoop (STATE s r) s
+get = perform @(STATE _ ()) @"get" unit
 
 set :: forall s r. s -> Hoop (STATE s r) Unit
 set = perform @(STATE _ ()) @"set"

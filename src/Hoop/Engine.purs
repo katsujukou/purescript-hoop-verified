@@ -98,8 +98,7 @@ module Hoop.Engine
   , with
   , write
   , (:=)
-  )
-  where
+  ) where
 
 import Prelude
 
