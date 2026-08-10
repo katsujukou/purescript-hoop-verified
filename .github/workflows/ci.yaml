@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+# Cancel a superseded run when new commits land on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'scripts/**'
+              - 'src/**'
+              - 'test/**'
+              - 'benchmarks/**'
+              - 'runtime/**'
+              - 'spago.yaml'
+              - 'spago.lock'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/ci.yaml'
+
+  ci:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v17
+        with:
+          name: katsujukou-github
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - uses: nicknovitski/nix-develop@v1
+
+      - name: Verify & build runtime
+        run: hoop-build-runtime
+
+      - name: Engine.js is up to date
+        run: git diff --exit-code -- src/Hoop/Engine.js
+
+      # Exercises the FFI boundary directly, below the PureScript surface --
+      # the trusted layer no F* proof covers. Needs only the runtime build
+      # above, not `spago build`. Exits non-zero on any failure.
+      - name: Runtime smoke test
+        run: node test/js/engine-smoke.mjs
+
+      - name: Build
+        run: spago build
+
+      - name: PureScript Test
+        run: spago test
+
+      - name: Format check
+        run: git ls-files '*.purs' | xargs purs-tidy check
+
+  ps-ci-gate:
+    needs: [ci]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on the ci result
+        run: |
+          result='${{ needs.ci.result }}'
+          if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+            echo "::error::PureScript CI did not pass (result: $result)"
+            exit 1
+          fi
+          echo "CI gate green (ci result: $result)"
