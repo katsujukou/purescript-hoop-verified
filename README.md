@@ -1,4 +1,4 @@
-# Purescript Hoop
+# PureScript Hoop
 
 Hoop is an algebraic effects & handlers library based on a CEK-like effect runtime with verified soundness.
 
@@ -13,7 +13,7 @@ The most distinctive feature of Hoop is **the use of a theorem prover** in its r
 
 ## Verified Correctness
 
-F\* is a dependently typed language similar to Coq, Agda, and Lean. True to its nature as a proof-oriented language, it allows developers to write proofs directly alongside their programs.
+[F\*](https://fstar-lang.org/) is a dependently typed language similar to Coq, Agda, and Lean. True to its nature as a proof-oriented language, it allows developers to write proofs directly alongside their programs.
 
 For instance, the following snippet showcases a typical F\* implementation. Here, the `snoc` function (which appends an element to the end of a list) specifies that it returns a list whose length is precisely incremented by one via a *refinement type*. Additionally, the lemma `rev_preserves_length` independently states and **proves** that the list reversal function `rev` preserves the original length of the list:
 
