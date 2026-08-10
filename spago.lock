@@ -1,18 +1,51 @@
 {
   "workspace": {
     "packages": {
+      "benchmarks": {
+        "path": "benchmarks",
+        "core": {
+          "dependencies": [
+            "console",
+            "effect",
+            "hoop",
+            "node-process",
+            "refs",
+            "run",
+            "transformers"
+          ]
+        },
+        "test": {
+          "dependencies": []
+        }
+      },
       "hoop": {
         "path": "./",
         "core": {
           "dependencies": [
-            "aff",
-            "effect",
-            "fmt",
-            "functions",
-            "nullable",
-            "prelude",
-            "record",
-            "unsafe-coerce"
+            {
+              "aff": ">=8.0.0 <9.0.0"
+            },
+            {
+              "effect": ">=4.0.0 <5.0.0"
+            },
+            {
+              "fmt": ">=0.2.1 <0.3.0"
+            },
+            {
+              "functions": ">=6.0.0 <7.0.0"
+            },
+            {
+              "nullable": ">=6.0.0 <7.0.0"
+            },
+            {
+              "prelude": ">=6.0.2 <7.0.0"
+            },
+            {
+              "record": ">=4.0.0 <5.0.0"
+            },
+            {
+              "unsafe-coerce": ">=6.0.0 <7.0.0"
+            }
           ]
         },
         "test": {
@@ -20,6 +53,7 @@
             "arrays",
             "either",
             "maybe",
+            "record-studio",
             "spec",
             "spec-node"
           ]
@@ -817,6 +851,15 @@
         "unfoldable"
       ]
     },
+    "console": {
+      "type": "registry",
+      "version": "6.1.0",
+      "integrity": "sha256-3T5PPz1mATZmV0C4GzkCkpLlCa5xG7u8ZNgnLrrrI1Q=",
+      "dependencies": [
+        "effect",
+        "prelude"
+      ]
+    },
     "const": {
       "type": "registry",
       "version": "6.0.0",
@@ -1087,6 +1130,20 @@
         "tailrec",
         "tuples",
         "unfoldable"
+      ]
+    },
+    "heterogeneous": {
+      "type": "registry",
+      "version": "0.7.0",
+      "integrity": "sha256-pQwcFvhWL8noktxaoD7FlLs2F2lYf3QHoyO0VOWO3I0=",
+      "dependencies": [
+        "either",
+        "foldable-traversable",
+        "functors",
+        "prelude",
+        "record",
+        "tuples",
+        "variant"
       ]
     },
     "identity": {
@@ -1511,6 +1568,19 @@
         "unsafe-coerce"
       ]
     },
+    "record-studio": {
+      "type": "registry",
+      "version": "1.0.4",
+      "integrity": "sha256-CRnFvSXpDDzio+buibUxFU9zPZDd7/lzrYC1Ya3FuIw=",
+      "dependencies": [
+        "heterogeneous",
+        "lists",
+        "prelude",
+        "record",
+        "typelevel-prelude",
+        "unsafe-coerce"
+      ]
+    },
     "refs": {
       "type": "registry",
       "version": "6.0.0",
@@ -1518,6 +1588,28 @@
       "dependencies": [
         "effect",
         "prelude"
+      ]
+    },
+    "run": {
+      "type": "registry",
+      "version": "5.0.0",
+      "integrity": "sha256-zGCyG7IamjYWypKMXTP9PFis2ShnoZJKZiu3SbXMc+M=",
+      "dependencies": [
+        "aff",
+        "control",
+        "effect",
+        "either",
+        "free",
+        "maybe",
+        "newtype",
+        "partial",
+        "prelude",
+        "tailrec",
+        "tuples",
+        "type-equality",
+        "typelevel-prelude",
+        "unsafe-coerce",
+        "variant"
       ]
     },
     "safe-coerce": {
@@ -1708,6 +1800,22 @@
       "version": "6.0.0",
       "integrity": "sha256-0L1QsaY20OILjfU5TV72d3U/tSjhmL9hJ32WMp857Lk=",
       "dependencies": []
+    },
+    "variant": {
+      "type": "registry",
+      "version": "8.0.0",
+      "integrity": "sha256-Ydrgl8liWEwYQOWW76PdZtg3vxKpoKgsnmFyTLgZkoU=",
+      "dependencies": [
+        "control",
+        "enums",
+        "foldable-traversable",
+        "lists",
+        "maybe",
+        "partial",
+        "prelude",
+        "type-equality",
+        "unsafe-coerce"
+      ]
     }
   }
 }

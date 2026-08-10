@@ -1,0 +1,10 @@
+package:
+  name: benchmarks
+  dependencies:
+    - console
+    - effect
+    - hoop
+    - node-process
+    - refs
+    - run
+    - transformers
