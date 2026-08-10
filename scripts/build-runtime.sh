@@ -52,6 +52,7 @@ EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantic
 # All of them are uncurried multi-argument functions -- the PureScript side
 # imports them through Fn2 / Fn3.
 EXPORTS=(pureImpl bindImpl performImpl withImpl runImpl
+         newCellImpl readCellImpl writeCellImpl
          mkFullClauseImpl mkFastClauseImpl mkReturnImpl undefinedReturnImpl
          emptyClausesImpl emptyHandlersImpl insertClauseImpl insertClausesImpl)
 
