@@ -4,12 +4,25 @@
  * WEAK SIMULATION rather than by per-transition state equality.
  *
  * C and K are `Hoop.Runtime.Syntax`; the reference reading of the transitions is
- * `Hoop.Runtime.Semantics`. This module supplies E. In a conventional CEK
- * machine E maps variables to values; in Hoop, lexical environments are already
- * captured by PureScript/JavaScript closures, so E is repurposed as an *evidence
- * environment* mapping each handled operation to the prompt that handles it and
- * to the environment outside that prompt. `Hoop.Runtime.Semantics.step` searches
- * the stack at every `perform`; here that search is one `Env.lookup`.
+ * `Hoop.Runtime.Semantics`. This module supplies E, and E does two jobs.
+ *
+ *   - It is an *evidence environment*, mapping each handled operation to the
+ *     prompt that handles it and to the environment outside that prompt.
+ *     `Hoop.Runtime.Semantics.step` searches the stack at every `perform`; here
+ *     that search is one `Env.lookup`.
+ *
+ *   - It is the *classical* E, mapping a name to a value. In a conventional CEK
+ *     machine that is all E does; in Hoop the lexical bindings are already held
+ *     by PureScript/JavaScript closures, so for a long time this role had no
+ *     occupant and E was a handler context wearing the letter. Prompt-local
+ *     cells are the one genuinely `label -> value` binding the language has, and
+ *     they live here: a `NewP` extends E by a level exactly as a `Handle` does,
+ *     a `ReadP` is one `Env.lookup`, and leaving either frame pops one level.
+ *
+ * The two sorts of name cannot collide, because `Hoop.Runtime.Handlers.key` has
+ * a constructor for each and no handler table can build the cell one -- see the
+ * header there, and `pd` below on why the second role belongs in E and not in a
+ * store.
  *
  * Three layers, and the middle one is the machine:
  *
@@ -107,17 +120,37 @@ let desugar (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
 (* ------------------------------------------------------------------ *)
 
 (**
- * **What a level of the evidence environment carries here**: the prompt frame
- * and nothing else. No height, no prompt count -- the machine never
- * needs to locate a prompt by arithmetic, because it never cuts its stack at one
- * except through `msplit`, which walks.
+ * **What a level of the evidence environment carries here**: the frame that
+ * installed it, which is a prompt or a cell and never a bind. No height, no
+ * prompt count -- the machine never needs to locate a prompt by arithmetic,
+ * because it never cuts its stack at one except through `msplit`, which walks.
+ *
+ * *Why a cell is a level too.* In a classical CEK machine E maps variables to
+ * values. Ours mapped effect names to handler evidence and nothing else -- a
+ * *handler context*, not an environment; the classical E was absent because the
+ * language is closed and PureScript's own closures hold the lexical bindings.
+ * A prompt-local cell is the one thing in this language that genuinely is a
+ * `label -> value` binding, so putting it here is what makes E take on the
+ * second role, and it is the role the letter was named for. The payload is
+ * consequently a `ParamF` or a `PromptF`, and the two lookups -- an operation's
+ * evidence and a cell's value -- are one operation on one structure, kept apart
+ * by the two constructors of `Hoop.Runtime.Handlers.key`.
+ *
+ * *And a cell belongs in E rather than in a store.* A CESK store is global and
+ * persistent, which is precisely the cached-pointer machine this design was
+ * chosen over: there both strands of a resumption share one cell and
+ * `choice(state)` comes out `[(False,1),(True,2)]`. An environment is captured
+ * and restored with the continuation, so each resumption gets the cell as it
+ * was captured -- which is where `choice(state) = [(False,1),(True,1)]` comes
+ * from. **The per-branch semantics is a consequence of cells living in E.**
+ * `Hoop.Runtime.Test` fixtures 26-29 are the two figures that measure it.
  *)
-let pd (v cl: Type) = f: rframe v cl { PromptF? f }
+let pd (v cl: Type) = f: rframe v cl { PromptF? f \/ ParamF? f }
 let menv (v cl: Type) = E.env (pd v cl)
 
 (**
- * **The environment a *reference* stack offers.** One level per prompt,
- * innermost first. The machine's environment is compared against this,
+ * **The environment a *reference* stack offers.** One level per prompt and one
+ * per cell, innermost first. The machine's environment is compared against this,
  * up to `E.equiv`, in `config_ok`.
  *
  * `noextract`: it states an invariant, and no transition computes it -- the
@@ -129,6 +162,8 @@ let rec env_of_stack (#v #cl: Type) (k: rstack v cl)
   = match k with
     | [] -> E.empty
     | BindF _ :: r -> env_of_stack r
+    | ParamF l x :: r ->
+        E.extend (env_of_stack r) (var_keyset l) (ParamF l x <: pd v cl)
     | PromptF hs ret :: r ->
         E.extend (env_of_stack r) (keys hs) (PromptF hs ret <: pd v cl)
 
@@ -142,6 +177,10 @@ let rec env_of_stack (#v #cl: Type) (k: rstack v cl)
 noeq
 type mframe (v cl: Type) =
   | MBindF : fn:(v -> ct v cl) -> mframe v cl
+  // The machine's parameter frame, erasing POINTWISE and TOTALLY to `ParamF`.
+  // Unlike `MEnvF` it stands for exactly one reference frame, so it costs the
+  // erasure no definedness condition and `stack_ok` nothing.
+  | MParamF : label:string -> value:v -> mframe v cl
   | MPromptF : hs:handlers (clause cl) -> ret:option (v -> ct v cl) -> mframe v cl
   | MEnvF : eff:string -> op:string -> saved:menv v cl -> mframe v cl
 
@@ -181,6 +220,8 @@ let rec erase_k (#v #cl: Type) (kk: mstack v cl)
   : GTot (option (rstack v cl)) (decreases kk)
   = match kk with
     | [] -> Some []
+    | MParamF l x :: r ->
+        (match erase_k r with None -> None | Some k -> Some (ParamF l x :: k))
     | MBindF fn :: r ->
         (match erase_k r with None -> None | Some k -> Some (BindF fn :: k))
     | MPromptF hs ret :: r ->
@@ -217,6 +258,7 @@ let erase_st (#v #cl: Type) (q: mstate v cl) : GTot (option (rstate v cl)) =
 let rec stack_ok (#v #cl: Type) (kk: mstack v cl) : GTot prop (decreases kk) =
   match kk with
   | [] -> True
+  | MParamF _ _ :: r -> stack_ok r
   | MBindF _ :: r -> stack_ok r
   | MPromptF _ _ :: r -> stack_ok r
   | MEnvF eff op saved :: r ->
@@ -276,6 +318,10 @@ let rec msplit (#v #cl: Type) (eff op: string) (kk: mstack v cl)
         (decreases (length kk))
   = match kk with
     | [] -> None
+    | MParamF l x :: r ->
+        (match msplit eff op r with
+          | None -> None
+          | Some (cap, b) -> Some (ParamF l x :: cap, b))
     | MBindF fn :: r ->
         (match msplit eff op r with
           | None -> None
@@ -313,6 +359,7 @@ noextract
 let rec inj_k (#v #cl: Type) (k: rstack v cl) : Tot (mstack v cl) (decreases k) =
   match k with
   | [] -> []
+  | ParamF l x :: r -> MParamF l x :: inj_k r
   | BindF fn :: r -> MBindF fn :: inj_k r
   | PromptF hs ret :: r -> MPromptF hs ret :: inj_k r
 
@@ -329,6 +376,8 @@ let rec mreinstall (#v #cl: Type) (w: menv v cl) (k: rstack v cl)
   = match k with
     | [] -> w
     | BindF _ :: r -> mreinstall w r
+    | ParamF l x :: r ->
+        E.extend (mreinstall w r) (var_keyset l) (ParamF l x <: pd v cl)
     | PromptF hs ret :: r ->
         E.extend (mreinstall w r) (keys hs) (PromptF hs ret <: pd v cl)
 
@@ -349,6 +398,7 @@ let rec inj_onto (#v #cl: Type) (rk: rstack v cl) (acc: mstack v cl)
   : Tot (mstack v cl) (decreases rk)
   = match rk with
     | [] -> acc
+    | ParamF l x :: r -> inj_onto r (MParamF l x :: acc)
     | BindF fn :: r -> inj_onto r (MBindF fn :: acc)
     | PromptF hs ret :: r -> inj_onto r (MPromptF hs ret :: acc)
 
@@ -357,6 +407,7 @@ let rec inj_onto_append (#v #cl: Type) (l1 l2: rstack v cl) (acc: mstack v cl)
   : Lemma (ensures inj_onto (l1 @ l2) acc == inj_onto l2 (inj_onto l1 acc)) (decreases l1)
   = match l1 with
     | [] -> ()
+    | ParamF l x :: r -> inj_onto_append r l2 (MParamF l x :: acc)
     | BindF fn :: r -> inj_onto_append r l2 (MBindF fn :: acc)
     | PromptF hs ret :: r -> inj_onto_append r l2 (MPromptF hs ret :: acc)
 
@@ -383,6 +434,8 @@ let rec mreinstall_loop (#v #cl: Type) (w: menv v cl) (rk: rstack v cl)
   = match rk with
     | [] -> w
     | BindF _ :: r -> mreinstall_loop w r
+    | ParamF l x :: r ->
+        mreinstall_loop (E.extend w (var_keyset l) (ParamF l x <: pd v cl)) r
     | PromptF hs ret :: r ->
         mreinstall_loop (E.extend w (keys hs) (PromptF hs ret <: pd v cl)) r
 
@@ -394,6 +447,8 @@ let rec mreinstall_loop_append (#v #cl: Type) (w: menv v cl) (l1 l2: rstack v cl
   = match l1 with
     | [] -> ()
     | BindF _ :: r -> mreinstall_loop_append w r l2
+    | ParamF l x :: r ->
+        mreinstall_loop_append (E.extend w (var_keyset l) (ParamF l x <: pd v cl)) r l2
     | PromptF hs ret :: r ->
         mreinstall_loop_append (E.extend w (keys hs) (PromptF hs ret <: pd v cl)) r l2
 
@@ -432,6 +487,7 @@ let rec msplit_acc (#v #cl: Type) (eff op: string) (acc: rstack v cl) (kk: mstac
         (decreases (length kk))
   = match kk with
     | [] -> None
+    | MParamF l x :: r -> msplit_acc eff op (ParamF l x :: acc) r
     | MBindF fn :: r -> msplit_acc eff op (BindF fn :: acc) r
     | MPromptF hs ret :: r ->
         (match lookup_clause hs eff op with
@@ -470,6 +526,11 @@ let rec msplit_acc_agrees
   : Lemma (ensures msplit_acc_ok eff op acc kk) (decreases (length kk))
   = match kk with
     | [] -> ()
+    | MParamF l x :: r ->
+        msplit_acc_agrees eff op (ParamF l x :: acc) r;
+        (match msplit eff op r with
+          | None -> ()
+          | Some (cap, _) -> rev_cons_append (ParamF l x <: rframe v cl) acc cap)
     | MBindF fn :: r ->
         msplit_acc_agrees eff op (BindF fn :: acc) r;
         (match msplit eff op r with
@@ -503,6 +564,350 @@ let msplit_fast (#v #cl: Type) (eff op: string) (kk: mstack v cl)
   = msplit_acc_agrees eff op [] kk;
     msplit_acc eff op [] kk
 
+(* ------------------------------------------------------------------ *)
+(*  5b.  Prompt-local state, on the machine                            *)
+(*                                                                     *)
+(*  The one place where a cell costs this machine more than it costs   *)
+(*  the reference: while a tail-resumptive body is in flight, the      *)
+(*  frames an `MEnvF` masks are ABSENT FROM THE ERASED STACK -- the    *)
+(*  erasure absorbs them into the `BindF (kont_of ...)` the reference  *)
+(*  machine really has there -- so a cell inside a masked region is    *)
+(*  invisible to the reference machine and must be invisible here too. *)
+(*  Both walks therefore jump over a masked region exactly as `msplit` *)
+(*  does, by re-running the split on the `MEnvF`'s own key.            *)
+(*                                                                     *)
+(*  THE READ IS NOT HERE. It is one `E.lookup` in `mstep`, because a   *)
+(*  cell is a level of the evidence environment; `mfind_param` below   *)
+(*  survives only as the statement that the walk and the lookup agree, *)
+(*  which is `mfind_param_agrees` together with `lookup_param_find`.   *)
+(*                                                                     *)
+(*  THE WRITE CARRIES AN ENVIRONMENT. A cell's value is a level's      *)
+(*  payload, so changing it changes `E.levels`, and the machine's `w`  *)
+(*  must be rebuilt rather than carried across a `WriteP` as it was    *)
+(*  when a level held only a prompt. Both walks below therefore thread *)
+(*  the environment of the stack they are rebuilding: they descend     *)
+(*  popping one level per prompt and per cell crossed, and ascend      *)
+(*  pushing one back for each. The environment of the rebuilt stack is *)
+(*  produced by the same recursion that produces the rebuilt stack, so *)
+(*  it costs the walk no second pass -- and it is the ONLY way to get  *)
+(*  the saved environment of an `MEnvF` right: a write that reaches    *)
+(*  below a tail-resumptive body's own prompt changes a cell the       *)
+(*  PERFORM SITE can see, so the environment that frame restores on    *)
+(*  completion is stale unless it is rebuilt too. `Hoop.Runtime.Test`  *)
+(*  fixture 30 is exactly that program.                                *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **Reading a cell, by walking.** The nearest `MParamF` with this label that is
+ * not inside a masked region.
+ *
+ * `noextract`: nothing runs it. The machine reads a cell out of its environment
+ * in one `E.lookup`, and this is kept as the other side of the equation --
+ * `mfind_param_agrees` says the walk finds what the reference machine finds and
+ * `lookup_param_find` says the lookup does, so the two answers are the same
+ * answer. Were the environment ever to be realised differently, this is the
+ * specification it would be measured against.
+ *)
+noextract
+let rec mfind_param (#v #cl: Type) (l: string) (kk: mstack v cl)
+  : Tot (option v) (decreases (length kk))
+  = match kk with
+    | [] -> None
+    | MParamF l' x :: r -> if l' = l then Some x else mfind_param l r
+    | MBindF _ :: r -> mfind_param l r
+    | MPromptF _ _ :: r -> mfind_param l r
+    | MEnvF e o _ :: r ->
+        (match msplit_fast e o r with
+          | None -> None
+          | Some (_, b) -> mfind_param l b)
+
+(**
+ * **Replacing what lies below a split point.** `mrepl eff op w kk wb' b'`
+ * rebuilds `kk` with the machine stack below the prompt handling `(eff, op)`
+ * replaced by `b'` -- the frames above it copied, the masked regions carried
+ * along intact -- and rebuilds the environment alongside it: `w` is the
+ * environment `kk` offers, `wb'` the one `b'` offers, and the answer's first
+ * component is the one the rebuilt stack offers.
+ *
+ * It exists for one caller: a write whose cell sits below an `MEnvF` has to
+ * come back up through the region that `MEnvF` masks, and the region is
+ * delimited by a search rather than by a count, so it cannot simply be
+ * consed back on. `mrepl_agrees` is what says the rebuild leaves the erasure
+ * of the region -- the captured segment -- exactly where it was, and leaves the
+ * environment the one that segment on the new tail offers.
+ *
+ * *The `MEnvF` branch is where the environment earns its passage.* Its saved
+ * environment is the perform site's, which is the one the frames below the
+ * frame offer -- and those frames have just been rebuilt around a changed cell.
+ * The recursive call that puts the region back therefore hands back the new
+ * saved environment, and it is that value, not the old `sv`, that goes into the
+ * frame. Nothing else could supply it: `sv` describes `cap @ below`, the
+ * write touched `below`, and the length of `cap` is known only to this walk.
+ *
+ * *This is the specification.* What the machine runs is `mrepl_fast` in 5c
+ * below, which computes the same answer without a recursion as deep as the
+ * stack; see there.
+ *)
+noextract
+let rec mrepl (#v #cl: Type) (eff op: string)
+    (w: menv v cl) (kk: mstack v cl)
+    (wb': menv v cl) (b': mstack v cl)
+  : Tot (option (menv v cl & mstack v cl)) (decreases (length kk))
+  = match kk with
+    | [] -> None
+    | MBindF fn :: r ->
+        (match mrepl eff op w r wb' b' with
+          | None -> None
+          | Some (w', r') -> Some (w', MBindF fn :: r'))
+    | MParamF l y :: r ->
+        (match mrepl eff op (pop_env w) r wb' b' with
+          | None -> None
+          | Some (w', r') ->
+              Some (E.extend w' (var_keyset l) (ParamF l y <: pd v cl), MParamF l y :: r'))
+    | MPromptF hs ret :: r ->
+        (match lookup_clause hs eff op with
+          | Some _ ->
+              Some (E.extend wb' (keys hs) (PromptF hs ret <: pd v cl), MPromptF hs ret :: b')
+          | None ->
+            (match mrepl eff op (pop_env w) r wb' b' with
+              | None -> None
+              | Some (w', r') ->
+                  Some (E.extend w' (keys hs) (PromptF hs ret <: pd v cl), MPromptF hs ret :: r')))
+    | MEnvF e' o' sv :: r ->
+        (match msplit_fast e' o' r with
+          | None -> None
+          | Some (_, mrest) ->
+            (match mrepl eff op w mrest wb' b' with
+              | None -> None
+              | Some (wm', mrest') ->
+                (match mrepl e' o' sv r wm' mrest' with
+                  | None -> None
+                  | Some (sv', r') -> Some (wm', MEnvF e' o' sv' :: r'))))
+
+(**
+ * **Writing a cell.** The frames above the cell are rebuilt and the frames
+ * below are shared, exactly as `Hoop.Runtime.Semantics.set_param` does on the
+ * reference stack -- with the masked regions jumped over on the way down and
+ * spliced back by `mrepl` on the way up -- and the environment is rebuilt with
+ * them, since the cell's value is a level's payload.
+ *
+ * `w` is the environment the stack offers and the answer's first component is
+ * the environment the rebuilt stack offers. That the two are related by exactly
+ * one level's payload is true but not said here: saying it would need an
+ * `Hoop.Runtime.Env` operation that replaces a payload in place, and the walk
+ * has to rebuild the levels above the cell in any case, because it is rebuilding
+ * the frames above the cell in any case.
+ *
+ * *This is the specification.* What the machine runs is `mset_param_fast` in 5c
+ * below.
+ *)
+noextract
+let rec mset_param (#v #cl: Type) (l: string) (x: v) (w: menv v cl) (kk: mstack v cl)
+  : Tot (option (menv v cl & mstack v cl)) (decreases (length kk))
+  = match kk with
+    | [] -> None
+    | MParamF l' y :: r ->
+        if l' = l
+        then Some (E.extend (pop_env w) (var_keyset l) (ParamF l x <: pd v cl), MParamF l x :: r)
+        else
+          (match mset_param l x (pop_env w) r with
+            | None -> None
+            | Some (w', r') ->
+                Some (E.extend w' (var_keyset l') (ParamF l' y <: pd v cl), MParamF l' y :: r'))
+    | MBindF fn :: r ->
+        (match mset_param l x w r with
+          | None -> None
+          | Some (w', r') -> Some (w', MBindF fn :: r'))
+    | MPromptF hs ret :: r ->
+        (match mset_param l x (pop_env w) r with
+          | None -> None
+          | Some (w', r') ->
+              Some (E.extend w' (keys hs) (PromptF hs ret <: pd v cl), MPromptF hs ret :: r'))
+    | MEnvF e o sv :: r ->
+        (match msplit_fast e o r with
+          | None -> None
+          | Some (_, b) ->
+            (match mset_param l x w b with
+              | None -> None
+              | Some (wb', b') ->
+                (match mrepl e o sv r wb' b' with
+                  | None -> None
+                  | Some (sv', r') -> Some (wb', MEnvF e o sv' :: r'))))
+
+(* ------------------------------------------------------------------ *)
+(*  5c.  The two walks of the write, as loops                          *)
+(*                                                                     *)
+(*  `mrepl` and `mset_param` recurse over the machine stack and build  *)
+(*  their answer on the way back out, so the extracted runtime maps    *)
+(*  the whole depth of the stack onto the host's call stack -- the     *)
+(*  same few tens of thousands of frames that `inj_onto`,              *)
+(*  `mreinstall_loop` and `msplit_acc` in 5a exist to keep off it.     *)
+(*  Each is therefore paired with an accumulating loop, proved equal   *)
+(*  to it, WITH THE EQUALITY IN THE LOOP'S TYPE, so that every         *)
+(*  statement about the specification -- `mrepl_agrees`,               *)
+(*  `mset_param_agrees`, and `msim` through them -- is a statement     *)
+(*  about what runs.                                                   *)
+(*                                                                     *)
+(*  Unlike the three in 5a these walks rebuild as they return, and     *)
+(*  they now rebuild an environment as well as a stack, so the         *)
+(*  accumulator is unwound rather than reversed: `unwind` replays the  *)
+(*  frames passed on the way down, innermost first, pushing one level  *)
+(*  back for each prompt and each cell.                                *)
+(*                                                                     *)
+(*  The nested call in each `MEnvF` branch stays nested, exactly as it *)
+(*  does in `msplit_acc`, and for the same reason: jumping over a      *)
+(*  masked region means finding its far end first, and putting the     *)
+(*  region back means walking it. Its depth is the number of NESTED    *)
+(*  FAST CLAUSE BODIES in flight, not the number of frames. What this  *)
+(*  section removes is the recursion proportional to the stack.        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **Replaying the frames the descent passed**, innermost first, rebuilding the
+ * environment with them.
+ *
+ * The accumulator is a machine stack because that is what its entries are;
+ * neither loop below ever pushes an `MEnvF` onto it -- an `MEnvF` is not passed
+ * over, it is jumped over and then rebuilt by a nested walk -- so that branch is
+ * unreachable. It is written as the identity on the frame rather than left out
+ * because `unwind` is a total function, and because the specification equation
+ * proved below quantifies over every accumulator: both sides read an unreachable
+ * entry the same way, so nothing has to establish that it does not occur.
+ *)
+let rec unwind (#v #cl: Type) (acc: mstack v cl) (w: menv v cl) (kk: mstack v cl)
+  : Tot (menv v cl & mstack v cl) (decreases acc)
+  = match acc with
+    | [] -> (w, kk)
+    | MBindF fn :: a -> unwind a w (MBindF fn :: kk)
+    | MParamF l y :: a ->
+        unwind a (E.extend w (var_keyset l) (ParamF l y <: pd v cl)) (MParamF l y :: kk)
+    | MPromptF hs ret :: a ->
+        unwind a (E.extend w (keys hs) (PromptF hs ret <: pd v cl)) (MPromptF hs ret :: kk)
+    | MEnvF e o sv :: a -> unwind a w (MEnvF e o sv :: kk)
+
+(* Unwinding an answer that may not exist. Named so that no `match` appears in
+   the statement of the two lemmas below. *)
+noextract
+let unwind_opt (#v #cl: Type) (acc: mstack v cl) (o: option (menv v cl & mstack v cl))
+  : GTot (option (menv v cl & mstack v cl))
+  = match o with
+    | None -> None
+    | Some (w, kk) -> Some (unwind acc w kk)
+
+(** **The replacement, as a descent and an unwind.** *)
+let rec mrepl_acc (#v #cl: Type) (eff op: string)
+    (w: menv v cl) (kk: mstack v cl)
+    (wb': menv v cl) (b': mstack v cl)
+    (acc: mstack v cl)
+  : Tot (option (menv v cl & mstack v cl)) (decreases (length kk))
+  = match kk with
+    | [] -> None
+    | MBindF fn :: r -> mrepl_acc eff op w r wb' b' (MBindF fn :: acc)
+    | MParamF l y :: r -> mrepl_acc eff op (pop_env w) r wb' b' (MParamF l y :: acc)
+    | MPromptF hs ret :: r ->
+        (match lookup_clause hs eff op with
+          | Some _ ->
+              Some (unwind acc
+                      (E.extend wb' (keys hs) (PromptF hs ret <: pd v cl))
+                      (MPromptF hs ret :: b'))
+          | None -> mrepl_acc eff op (pop_env w) r wb' b' (MPromptF hs ret :: acc))
+    | MEnvF e' o' sv :: r ->
+        (match msplit_fast e' o' r with
+          | None -> None
+          | Some (_, mrest) ->
+            (match mrepl_acc eff op w mrest wb' b' [] with
+              | None -> None
+              | Some (wm', mrest') ->
+                (match mrepl_acc e' o' sv r wm' mrest' [] with
+                  | None -> None
+                  | Some (sv', r') -> Some (unwind acc wm' (MEnvF e' o' sv' :: r')))))
+
+private
+let rec mrepl_acc_agrees (#v #cl: Type) (eff op: string)
+    (w: menv v cl) (kk: mstack v cl)
+    (wb': menv v cl) (b': mstack v cl)
+    (acc: mstack v cl)
+  : Lemma
+      (ensures
+        mrepl_acc eff op w kk wb' b' acc == unwind_opt acc (mrepl eff op w kk wb' b'))
+      (decreases (length kk))
+  = match kk with
+    | [] -> ()
+    | MBindF fn :: r -> mrepl_acc_agrees eff op w r wb' b' (MBindF fn :: acc)
+    | MParamF l y :: r -> mrepl_acc_agrees eff op (pop_env w) r wb' b' (MParamF l y :: acc)
+    | MPromptF hs ret :: r ->
+        (match lookup_clause hs eff op with
+          | Some _ -> ()
+          | None -> mrepl_acc_agrees eff op (pop_env w) r wb' b' (MPromptF hs ret :: acc))
+    | MEnvF e' o' sv :: r ->
+        (match msplit_fast e' o' r with
+          | None -> ()
+          | Some (_, mrest) ->
+            mrepl_acc_agrees eff op w mrest wb' b' [];
+            (match mrepl eff op w mrest wb' b' with
+              | None -> ()
+              | Some (wm', mrest') -> mrepl_acc_agrees e' o' sv r wm' mrest' []))
+
+(** **The replacement the machine runs.** Its answer is the specification's, and
+    the equality is in the type, so `mrepl_agrees` speaks about both at once. *)
+let mrepl_fast (#v #cl: Type) (eff op: string)
+    (w: menv v cl) (kk: mstack v cl)
+    (wb': menv v cl) (b': mstack v cl)
+  : Tot (o: option (menv v cl & mstack v cl) { o == mrepl eff op w kk wb' b' })
+  = mrepl_acc_agrees eff op w kk wb' b' [];
+    mrepl_acc eff op w kk wb' b' []
+
+(** **The write, as a descent and an unwind.** *)
+let rec mset_acc (#v #cl: Type) (l: string) (x: v)
+    (w: menv v cl) (kk: mstack v cl) (acc: mstack v cl)
+  : Tot (option (menv v cl & mstack v cl)) (decreases (length kk))
+  = match kk with
+    | [] -> None
+    | MParamF l' y :: r ->
+        if l' = l
+        then
+          Some (unwind acc
+                  (E.extend (pop_env w) (var_keyset l) (ParamF l x <: pd v cl))
+                  (MParamF l x :: r))
+        else mset_acc l x (pop_env w) r (MParamF l' y :: acc)
+    | MBindF fn :: r -> mset_acc l x w r (MBindF fn :: acc)
+    | MPromptF hs ret :: r -> mset_acc l x (pop_env w) r (MPromptF hs ret :: acc)
+    | MEnvF e o sv :: r ->
+        (match msplit_fast e o r with
+          | None -> None
+          | Some (_, b) ->
+            (match mset_acc l x w b [] with
+              | None -> None
+              | Some (wb', b') ->
+                (match mrepl_fast e o sv r wb' b' with
+                  | None -> None
+                  | Some (sv', r') -> Some (unwind acc wb' (MEnvF e o sv' :: r')))))
+
+private
+let rec mset_acc_agrees (#v #cl: Type) (l: string) (x: v)
+    (w: menv v cl) (kk: mstack v cl) (acc: mstack v cl)
+  : Lemma
+      (ensures mset_acc l x w kk acc == unwind_opt acc (mset_param l x w kk))
+      (decreases (length kk))
+  = match kk with
+    | [] -> ()
+    | MParamF l' y :: r ->
+        if l' = l then () else mset_acc_agrees l x (pop_env w) r (MParamF l' y :: acc)
+    | MBindF fn :: r -> mset_acc_agrees l x w r (MBindF fn :: acc)
+    | MPromptF hs ret :: r -> mset_acc_agrees l x (pop_env w) r (MPromptF hs ret :: acc)
+    | MEnvF e o sv :: r ->
+        (match msplit_fast e o r with
+          | None -> ()
+          | Some (_, b) -> mset_acc_agrees l x w b [])
+
+(** **The write the machine runs.** Its answer is the specification's, and the
+    equality is in the type, so `mset_param_agrees` -- and `msim` through it --
+    speaks about both at once. *)
+let mset_param_fast (#v #cl: Type) (l: string) (x: v) (w: menv v cl) (kk: mstack v cl)
+  : Tot (o: option (menv v cl & mstack v cl) { o == mset_param l x w kk })
+  = mset_acc_agrees l x w kk [];
+    mset_acc l x w kk []
+
 (**
  * **One transition of the machine.**
  *
@@ -518,6 +923,15 @@ let msplit_fast (#v #cl: Type) (eff op: string) (kk: mstack v cl)
  *   - `Perform` / `Full`     the existing path: capture, hand the segment to the
  *                            clause, run on below the prompt.
  *   - `Resumed`              splice and re-derive.
+ *   - `NewP` / `ReadP`       a cell is a level of the environment: install one,
+ *                            and read one back out. The read is the transition
+ *                            this design was taken for -- one `Env.lookup`,
+ *                            against a walk of the machine stack that had to run
+ *                            a `msplit` at every `MEnvF` it crossed.
+ *   - `WriteP`               rebuilds the stack, because the erasure reads cell
+ *                            values off frames, AND the environment, because a
+ *                            cell's value is a level's payload. Twice O(depth),
+ *                            and the price of the read above.
  *
  * *What a capture does to an `MEnvF`.* A delimited continuation travels inside a
  * `Resumed` node of the *shared* AST, so it is made of reference frames; the
@@ -552,6 +966,9 @@ let mstep
       | Var value ->
           (match kk with
             | [] -> MDone value
+            // A cell is a level, so leaving its frame leaves its level, exactly
+            // as leaving a prompt does.
+            | MParamF _ _ :: r -> MStep (Var value) (pop_env w) r
             | MBindF fn :: r -> MStep (fn value) w r
             | MPromptF hs ret :: r ->
                 let w' = pop_env w in
@@ -560,20 +977,46 @@ let mstep
                   | None -> MStep (Var value) w' r)
             | MEnvF _ _ saved :: r -> MStep (Var value) saved r)
       | Perform eff op payload ->
-          (match E.lookup w (eff, op) with
+          (match E.lookup w (OpKey eff op) with
             | None -> MStuck eff op
+            // The evidence of an `OpKey` is a prompt: a cell's level binds a
+            // `VarKey` and nothing else, so the second branch is unreachable --
+            // `lookup_find` is what says so. It is written out because `mstep`
+            // is a total function and `pd` now admits both frames.
             | Some ev ->
-              (match lookup_clause (PromptF?.hs ev.E.prompt) eff op with
-                | None -> MStuck eff op
-                | Some (Fast c0) ->
-                    MStep (afast c0 payload) ev.E.below (MEnvF eff op w :: kk)
-                | Some (Full c0) ->
-                  (match msplit_fast eff op kk with
+              (match ev.E.prompt with
+                | ParamF _ _ -> MStuck eff op
+                | PromptF hs _ ->
+                  (match lookup_clause hs eff op with
                     | None -> MStuck eff op
-                    | Some (captured, b) ->
-                        MStep (af c0 payload (kont_of captured)) ev.E.below b)))
+                    | Some (Fast c0) ->
+                        MStep (afast c0 payload) ev.E.below (MEnvF eff op w :: kk)
+                    | Some (Full c0) ->
+                      (match msplit_fast eff op kk with
+                        | None -> MStuck eff op
+                        | Some (captured, b) ->
+                            MStep (af c0 payload (kont_of captured)) ev.E.below b))))
       | Resumed kont value ->
           MStep (Var value) (mreinstall_fast w kont) (inj_append kont kk)
+      // A cell binds a name to a value, so it extends the environment -- one
+      // level, exactly as a `Handle` does, and popped again by the `Var` rule
+      // above when its frame is left.
+      | NewP l init body ->
+          MStep body (E.extend w (var_keyset l) (ParamF l init <: pd v cl)) (MParamF l init :: kk)
+      // The read: ONE lookup, no walk. This is what moving cells into E buys,
+      // and it is the whole of the transition. The `PromptF` branch is
+      // unreachable for the same reason the `ParamF` branch above is.
+      | ReadP l ->
+          (match E.lookup w (VarKey l) with
+            | None -> MStuck var_eff l
+            | Some ev ->
+              (match ev.E.prompt with
+                | PromptF _ _ -> MStuck var_eff l
+                | ParamF _ y -> MStep (Var y) w kk))
+      | WriteP l y ->
+          (match mset_param_fast l y w kk with
+            | None -> MStuck var_eff l
+            | Some (w', kk') -> MStep (Var y) w' kk')
 
 (* ------------------------------------------------------------------ *)
 (*  6.  Reference-side facts about `find_prompt`                        *)
@@ -596,6 +1039,11 @@ let fp_bind (#v #cl: Type) (eff op: string) (fn: v -> comp_tree v cl) (k: stack 
   : Lemma (fp_same (find_prompt eff op (BindF fn :: k)) (find_prompt eff op k))
   = ()
 
+(** **A parameter frame is transparent to the search too.** *)
+let fp_param (#v #cl: Type) (eff op: string) (l: string) (x: v) (k: stack v cl)
+  : Lemma (fp_same (find_prompt eff op (ParamF l x :: k)) (find_prompt eff op k))
+  = ()
+
 (** **A prompt that handles the action stops the search there.** *)
 let fp_prompt_hit
     (#v #cl: Type) (eff op: string)
@@ -606,6 +1054,29 @@ let fp_prompt_hit
         find_prompt eff op (PromptF hs ret :: k)
           == Some ([PromptF hs ret], Some?.v (lookup_clause hs eff op), k))
   = ()
+
+(**
+ * **A captured segment finds its own prompt, on whatever is stacked below it.**
+ * `find_prompt` reads only the frames down to the prompt it stops at, so
+ * replacing everything below that prompt leaves the search's first two
+ * components alone and hands back the replacement as the third. This is what
+ * makes `mrepl` -- which does exactly that replacement, on the machine side --
+ * erase to the stack the reference machine has.
+ *)
+let rec fp_cap_append (#v #cl: Type) (eff op: string) (k: stack v cl) (x: stack v cl)
+  : Lemma
+      (requires Some? (find_prompt eff op k))
+      (ensures
+        (let Some (cap, c, _) = find_prompt eff op k in
+         find_prompt eff op (cap @ x) == Some (cap, c, x)))
+      (decreases k)
+  = match k with
+    | [] -> ()
+    | PromptF hs ret :: rest ->
+        (match lookup_clause hs eff op with
+          | Some _ -> ()
+          | None -> fp_cap_append eff op rest x)
+    | _ :: rest -> fp_cap_append eff op rest x
 
 (** **A prompt that does not is transparent too.** *)
 let fp_prompt_miss
@@ -642,12 +1113,61 @@ let pop_env_agrees
     assert (E.depth w == length (E.levels w));
     assert (E.depth w > 0)
 
+(** **Popping a cell pops exactly one level too.** The counterpart of the above
+    for the frame that carries a `label -> value` binding rather than a handler
+    table, and the reason the `Var` rule pops at an `MParamF`: a cell is a level
+    now, so leaving its frame must leave its level or the environment would
+    outlive the binder. *)
+let pop_env_agrees_param
+    (#v #cl: Type) (w: menv v cl) (l: string) (y: v) (k: rstack v cl)
+  : Lemma
+      (requires w `E.equiv` env_of_stack (ParamF l y :: k))
+      (ensures pop_env w `E.equiv` env_of_stack k)
+  = let lvl : E.level (pd v cl) =
+      { E.keys = keyset_view (var_keyset l); E.payload = (ParamF l y <: pd v cl) } in
+    assert (env_of_stack (ParamF l y :: k)
+            == E.extend (env_of_stack k) (var_keyset l) (ParamF l y <: pd v cl));
+    assert (E.levels (env_of_stack (ParamF l y :: k))
+            == lvl :: E.levels (env_of_stack k));
+    assert (E.levels w == lvl :: E.levels (env_of_stack k));
+    assert (E.depth w == length (E.levels w));
+    assert (E.depth w > 0)
+
 (** **Splicing a segment on and re-deriving from the bottom agree.** *)
 let rec mreinstall_agrees (#v #cl: Type) (k1 k2: rstack v cl)
   : Lemma (ensures env_of_stack (k1 @ k2) == mreinstall (env_of_stack k2) k1) (decreases k1)
   = match k1 with
     | [] -> ()
     | _ :: r -> mreinstall_agrees r k2
+
+(** **Two stacks offering the same environment go on doing so under a common
+    prefix.** `env_of_stack` reads the prefix and the environment of the tail,
+    and nothing else about the tail. *)
+let env_of_stack_append_congr (#v #cl: Type) (pre x y: rstack v cl)
+  : Lemma (requires env_of_stack x == env_of_stack y)
+          (ensures env_of_stack (pre @ x) == env_of_stack (pre @ y))
+  = mreinstall_agrees pre x;
+    mreinstall_agrees pre y
+
+(**
+ * **A write moves no prompt** -- but it does move a cell, and a cell is now a
+ * level, so the environment a `WriteP` leaves behind is NOT the one it found.
+ *
+ * This is the hazard the whole of section 5b is built around: `E.equiv` compares
+ * `E.levels`, a level carries its payload, and a cell's payload is its value, so
+ * changing a cell changes `levels` at that level and `config_ok` has to be
+ * re-established rather than carried. What survives of the old reading is the
+ * statement below -- the *shape* of the environment is untouched, level for
+ * level and key for key, and only the payload of the one cell moves -- which is
+ * why nothing about dispatch has to be reproved.
+ *
+ * *What replaced it.* Nothing states the relation between the two
+ * environments, because nothing needs it: `mset_param` produces the new one by
+ * the same recursion that produces the new stack, and `mset_param_agrees` says
+ * it is the environment the new stack offers -- which is the only thing
+ * `config_ok` ever asks. A lemma relating it to the old one would be a lemma
+ * about a value no transition holds.
+ *)
 
 (** **Re-deriving respects `equiv`**, so the machine may reinstall onto its own
     environment rather than onto one rebuilt from the stack. *)
@@ -692,9 +1212,10 @@ let rec stack_ok_inj_append (#v #cl: Type) (k1: rstack v cl) (kk: mstack v cl)
     context `find_prompt` finds on `k`. Named so that no `match` appears in the
     statement of a lemma. *)
 let lookup_find_ok (#v #cl: Type) (eff op: string) (k: rstack v cl) : GTot prop =
-  match E.lookup (env_of_stack k) (eff, op), find_prompt eff op k with
+  match E.lookup (env_of_stack k) (OpKey eff op), find_prompt eff op k with
   | None, None -> True
   | Some ev, Some (cap, c, below) ->
+      PromptF? ev.E.prompt /\
       lookup_clause (PromptF?.hs ev.E.prompt) eff op == Some c /\
       ev.E.below `E.equiv` env_of_stack below
   | _ -> False
@@ -702,7 +1223,15 @@ let lookup_find_ok (#v #cl: Type) (eff op: string) (k: rstack v cl) : GTot prop 
 let rec lookup_find (#v #cl: Type) (eff op: string) (k: rstack v cl)
   : Lemma (ensures lookup_find_ok eff op k) (decreases k)
   = match k with
-    | [] -> E.lookup_empty #(pd v cl) (eff, op)
+    | [] -> E.lookup_empty #(pd v cl) (OpKey eff op)
+    | ParamF l x :: r ->
+        // A cell binds one `VarKey`, so it is transparent to a dispatch --
+        // which is what the two constructors of `key` were introduced for, and
+        // is why this branch is a `miss` and not a case analysis.
+        E.lookup_extend_miss (env_of_stack r) (var_keyset l) (ParamF l x <: pd v cl)
+          (OpKey eff op);
+        lookup_find eff op r;
+        fp_param eff op l x r
     | BindF fn :: r ->
         lookup_find eff op r;
         fp_bind eff op fn r
@@ -711,12 +1240,55 @@ let rec lookup_find (#v #cl: Type) (eff op: string) (k: rstack v cl)
         keys_correct hs eff op;
         (match lookup_clause hs eff op with
           | Some _ ->
-              E.lookup_extend_hit w (keys hs) (PromptF hs ret <: pd v cl) (eff, op);
+              E.lookup_extend_hit w (keys hs) (PromptF hs ret <: pd v cl) (OpKey eff op);
               fp_prompt_hit eff op hs ret r
           | None ->
-              E.lookup_extend_miss w (keys hs) (PromptF hs ret <: pd v cl) (eff, op);
+              E.lookup_extend_miss w (keys hs) (PromptF hs ret <: pd v cl) (OpKey eff op);
               lookup_find eff op r;
               fp_prompt_miss eff op hs ret r)
+
+(**
+ * **What a cell lookup in `env_of_stack k` must agree with**: the value
+ * `find_param` reads off the stack, and the payload really is the cell's frame.
+ * Named so that no `match` appears in the statement of a lemma.
+ *)
+let lookup_param_ok (#v #cl: Type) (l: string) (k: rstack v cl) : GTot prop =
+  match E.lookup (env_of_stack k) (VarKey l), find_param l k with
+  | None, None -> True
+  | Some ev, Some y -> ev.E.prompt == (ParamF l y <: pd v cl)
+  | _ -> False
+
+(**
+ * **The environment answers the cell read.** The counterpart of `lookup_find`
+ * for E's other role, and the whole justification of `mstep`'s `ReadP`: the
+ * innermost level binding `VarKey l` carries the frame `find_param` would have
+ * walked to.
+ *
+ * Every frame that is not that cell is transparent, and for three different
+ * reasons: a `BindF` installs no level at all; a `ParamF` with another label
+ * binds another `VarKey`; and a `PromptF` binds no `VarKey` whatever its table
+ * says, which is `keys_no_var` and is the fact the sorted key type exists to
+ * supply. Without it a handler declaring an operation under the reserved effect
+ * name would shadow a cell here, and this lemma -- which is quantified over
+ * every stack, `Hoop.Runtime.WellScopedness` not being in scope -- would be
+ * false.
+ *)
+let rec lookup_param_find (#v #cl: Type) (l: string) (k: rstack v cl)
+  : Lemma (ensures lookup_param_ok l k) (decreases k)
+  = match k with
+    | [] -> E.lookup_empty #(pd v cl) (VarKey l)
+    | BindF fn :: r -> lookup_param_find l r
+    | ParamF l' y :: r ->
+        let w = env_of_stack r in
+        if l' = l
+        then E.lookup_extend_hit w (var_keyset l') (ParamF l' y <: pd v cl) (VarKey l)
+        else
+          (E.lookup_extend_miss w (var_keyset l') (ParamF l' y <: pd v cl) (VarKey l);
+           lookup_param_find l r)
+    | PromptF hs ret :: r ->
+        keys_no_var hs l;
+        E.lookup_extend_miss (env_of_stack r) (keys hs) (PromptF hs ret <: pd v cl) (VarKey l);
+        lookup_param_find l r
 
 (* ------------------------------------------------------------------ *)
 (*  10.  The machine split is the reference split                     *)
@@ -752,6 +1324,9 @@ let rec msplit_agrees (#v #cl: Type) (eff op: string) (kk: mstack v cl) (k: rsta
       (decreases (length kk))
   = match kk with
     | [] -> ()
+    | MParamF l x :: r ->
+        let Some kr = erase_k r in
+        msplit_agrees eff op r kr
     | MBindF fn :: r ->
         let Some kr = erase_k r in
         msplit_agrees eff op r kr
@@ -771,6 +1346,227 @@ let rec msplit_agrees (#v #cl: Type) (eff op: string) (kk: mstack v cl) (k: rsta
             assert (erase_k mrest == Some mrest_r);
             assert (k == BindF (kont_of cap') :: mrest_r);
             msplit_agrees eff op mrest mrest_r)
+
+(* ------------------------------------------------------------------ *)
+(*  10a.  The machine's cell operations are the reference's            *)
+(*                                                                     *)
+(*  Three lemmas, and the third is the one with content: it must show  *)
+(*  that rebuilding the machine stack around a masked region erases to *)
+(*  `set_param` on the reference stack -- which needs the region's own  *)
+(*  erasure to come back unchanged, and that is `mrepl_agrees`.         *)
+(* ------------------------------------------------------------------ *)
+
+(** **A read finds what the reference machine finds.** The `MEnvF` branch is
+    where the masking is spent: `msplit` lands on the erasure of what
+    `find_prompt` lands on, and the reference stack there has the captured
+    segment replaced by a single `BindF`, which holds no cell. *)
+let rec mfind_param_agrees (#v #cl: Type) (l: string) (kk: mstack v cl) (k: rstack v cl)
+  : Lemma
+      (requires stack_ok kk /\ erase_k kk == Some k)
+      (ensures mfind_param l kk == find_param l k)
+      (decreases (length kk))
+  = match kk with
+    | [] -> ()
+    | MParamF l' x :: r ->
+        if l' = l then ()
+        else (let Some kr = erase_k r in mfind_param_agrees l r kr)
+    | MBindF fn :: r -> let Some kr = erase_k r in mfind_param_agrees l r kr
+    | MPromptF hs ret :: r -> let Some kr = erase_k r in mfind_param_agrees l r kr
+    | MEnvF e o sv :: r ->
+        let Some kr = erase_k r in
+        msplit_agrees e o r kr;
+        (match msplit e o r with
+          | None -> ()
+          | Some (_, b) ->
+            let Some kb = erase_k b in
+            mfind_param_agrees l b kb)
+
+(** **What replacing below a split point must produce**: the captured segment,
+    unchanged, on top of the erasure of the replacement -- and the environment
+    that stack offers. Named so that no `match` appears in the statement of a
+    lemma. *)
+let mrepl_ok
+    (#v #cl: Type) (eff op: string)
+    (w: menv v cl) (kk: mstack v cl)
+    (wb': menv v cl) (b': mstack v cl) (kb': rstack v cl)
+  : GTot prop
+  = match msplit eff op kk with
+    | None -> True
+    | Some (cap, _) ->
+      (match mrepl eff op w kk wb' b' with
+        | None -> False
+        | Some (w', kk') ->
+            stack_ok kk' /\ erase_k kk' == Some (cap @ kb') /\
+            w' `E.equiv` env_of_stack (cap @ kb'))
+
+(**
+ * **Putting an `MEnvF` back on a rebuilt tail.** Both walks below rebuild the
+ * frames under an `MEnvF` and then have to re-establish two things about the
+ * frame itself: that its prompt is still below it -- which it is, because the
+ * rebuild kept the captured segment and only replaced what lay under it -- and
+ * that the environment it saved is the environment the frames below it offer.
+ *
+ * The second used to be discharged by observing that a write moves no level, so
+ * the old `sv` still did. It does not: a cell IS a level. So the frame is
+ * rebuilt with the environment the recursive call handed back, and this lemma
+ * simply takes that as a hypothesis -- which is why it no longer needs
+ * `find_prompt_partitions` or `env_of_stack_append_congr`. The obligation moved
+ * from here to the caller, where the value that discharges it is in hand.
+ *)
+let envf_rebuild
+    (#v #cl: Type) (e o: string) (sv': menv v cl)
+    (r': mstack v cl) (kr: rstack v cl)
+    (cap below x: rstack v cl) (c: clause cl)
+  : Lemma
+      (requires
+        find_prompt e o kr == Some (cap, c, below) /\
+        stack_ok r' /\ erase_k r' == Some (cap @ x) /\
+        sv' `E.equiv` env_of_stack (cap @ x))
+      (ensures
+        stack_ok (MEnvF e o sv' :: r') /\
+        erase_k (MEnvF e o sv' :: r') == Some (BindF (kont_of cap) :: x))
+  = fp_cap_append e o kr x
+
+(**
+ * **The rebuild is invisible to the erasure**, above the split point, and
+ * produces the environment the rebuilt stack offers. Shaped like
+ * `msplit_agrees`: it walks the machine stack, spends the `MEnvF` invariant to
+ * give the masked region a boundary, and recurses twice there -- once past the
+ * region to reach the replacement, once back over the region to put it on the
+ * new tail.
+ *)
+let rec mrepl_agrees
+    (#v #cl: Type) (eff op: string)
+    (w: menv v cl) (kk: mstack v cl) (k: rstack v cl)
+    (wb': menv v cl) (b': mstack v cl) (kb': rstack v cl)
+  : Lemma
+      (requires
+        stack_ok kk /\ erase_k kk == Some k /\ w `E.equiv` env_of_stack k /\
+        stack_ok b' /\ erase_k b' == Some kb' /\ wb' `E.equiv` env_of_stack kb')
+      (ensures mrepl_ok eff op w kk wb' b' kb')
+      (decreases %[length kk; 1])
+  = match kk with
+    | [] -> ()
+    | MBindF fn :: r ->
+        let Some kr = erase_k r in
+        mrepl_agrees eff op w r kr wb' b' kb'
+    | MParamF l y :: r ->
+        let Some kr = erase_k r in
+        pop_env_agrees_param w l y kr;
+        mrepl_agrees eff op (pop_env w) r kr wb' b' kb'
+    | MPromptF hs ret :: r ->
+        (match lookup_clause hs eff op with
+          | Some _ -> ()
+          | None ->
+            let Some kr = erase_k r in
+            pop_env_agrees w hs ret kr;
+            mrepl_agrees eff op (pop_env w) r kr wb' b' kb')
+    | MEnvF e' o' sv :: r -> mrepl_agrees_envf eff op w e' o' sv r k wb' b' kb'
+
+(** The `MEnvF` branch, split off so that it is a query of its own: it is the
+    only branch that recurses twice, and the only one that has to re-establish
+    the frame's own invariant afterwards. *)
+and mrepl_agrees_envf
+    (#v #cl: Type) (eff op: string) (w: menv v cl)
+    (e' o': string) (sv: menv v cl)
+    (r: mstack v cl) (k: rstack v cl)
+    (wb': menv v cl) (b': mstack v cl) (kb': rstack v cl)
+  : Lemma
+      (requires
+        stack_ok (MEnvF e' o' sv :: r) /\ erase_k (MEnvF e' o' sv :: r) == Some k /\
+        w `E.equiv` env_of_stack k /\
+        stack_ok b' /\ erase_k b' == Some kb' /\ wb' `E.equiv` env_of_stack kb')
+      (ensures mrepl_ok eff op w (MEnvF e' o' sv :: r) wb' b' kb')
+      (decreases %[length (MEnvF e' o' sv :: r); 0])
+  = let Some kr = erase_k r in
+    msplit_agrees e' o' r kr;
+    let Some (cap1, mrest) = msplit e' o' r in
+    let Some (_, c1, below1) = find_prompt e' o' kr in
+    match msplit eff op mrest with
+    | None -> ()
+    | Some (cap2, b) ->
+      msplit_agrees eff op mrest below1;
+      // `k` is `BindF (kont_of cap1) :: below1`, and a bind installs no level,
+      // so the environment the frame offers is the one `mrest` offers.
+      mrepl_agrees eff op w mrest below1 wb' b' kb';
+      let Some (wm', mrest') = mrepl eff op w mrest wb' b' in
+      // Back over the masked region, on the rebuilt tail. The `MEnvF`'s own
+      // saved environment comes out of this call, which is the only place it
+      // can: it describes `cap1 @ below1`, and only this walk knows `cap1`.
+      mrepl_agrees e' o' sv r kr wm' mrest' (cap2 @ kb');
+      let Some (sv', r') = mrepl e' o' sv r wm' mrest' in
+      envf_rebuild e' o' sv' r' kr cap1 below1 (cap2 @ kb') c1
+
+(** **What a write must produce**: the erasure of the rebuilt machine stack is
+    the reference machine's rebuilt stack, the invariant survives, and the
+    environment handed back is the one that stack offers. *)
+let mset_param_ok
+    (#v #cl: Type) (l: string) (x: v)
+    (w: menv v cl) (kk: mstack v cl) (k: rstack v cl)
+  : GTot prop
+  = match mset_param l x w kk, set_param l x k with
+    | None, None -> True
+    | Some (w', kk'), Some k' ->
+        stack_ok kk' /\ erase_k kk' == Some k' /\ w' `E.equiv` env_of_stack k'
+    | _ -> False
+
+(**
+ * **A write does on the machine what it does on the reference machine.**
+ *
+ * Split into a mutually recursive pair for the same reason `mrepl_agrees` is:
+ * the `MEnvF` branch carries a context nothing else in the walk needs -- a
+ * split, a rebuild over the masked region and the frame's own invariant -- and
+ * asking the solver for it together with the four easy branches is one query
+ * large enough to be worth an option. Ordering the two by `%[length kk; 1]` and
+ * `%[length kk; 0]` makes the branch a query of its own without one.
+ *)
+let rec mset_param_agrees
+    (#v #cl: Type) (l: string) (x: v)
+    (w: menv v cl) (kk: mstack v cl) (k: rstack v cl)
+  : Lemma
+      (requires stack_ok kk /\ erase_k kk == Some k /\ w `E.equiv` env_of_stack k)
+      (ensures mset_param_ok l x w kk k)
+      (decreases %[length kk; 1])
+  = match kk with
+    | [] -> ()
+    | MParamF l' y :: r ->
+        let Some kr = erase_k r in
+        pop_env_agrees_param w l' y kr;
+        if l' = l then () else mset_param_agrees l x (pop_env w) r kr
+    | MBindF fn :: r ->
+        let Some kr = erase_k r in
+        mset_param_agrees l x w r kr
+    | MPromptF hs ret :: r ->
+        let Some kr = erase_k r in
+        pop_env_agrees w hs ret kr;
+        mset_param_agrees l x (pop_env w) r kr
+    | MEnvF e o sv :: r -> mset_param_agrees_envf l x w e o sv r k
+
+(** The `MEnvF` branch of the write, as its own query: the cell is below the
+    masked region, so the walk lands beneath the region's prompt, writes there,
+    and comes back up through the region -- which is the one place a write has
+    to rebuild an `MEnvF`, saved environment included. *)
+and mset_param_agrees_envf
+    (#v #cl: Type) (l: string) (x: v) (w: menv v cl)
+    (e o: string) (sv: menv v cl) (r: mstack v cl) (k: rstack v cl)
+  : Lemma
+      (requires
+        stack_ok (MEnvF e o sv :: r) /\ erase_k (MEnvF e o sv :: r) == Some k /\
+        w `E.equiv` env_of_stack k)
+      (ensures mset_param_ok l x w (MEnvF e o sv :: r) k)
+      (decreases %[length (MEnvF e o sv :: r); 0])
+  = let Some kr = erase_k r in
+    msplit_agrees e o r kr;
+    let Some (cap1, b) = msplit e o r in
+    let Some (_, c1, below1) = find_prompt e o kr in
+    mset_param_agrees l x w b below1;
+    match mset_param l x w b with
+    | None -> ()
+    | Some (wb', b') ->
+      let Some below1' = set_param l x below1 in
+      mrepl_agrees e o sv r kr wb' b' below1';
+      let Some (sv', r') = mrepl e o sv r wb' b' in
+      envf_rebuild e o sv' r' kr cap1 below1 below1' c1
 
 (* ------------------------------------------------------------------ *)
 (*  11.  What the reference machine does in two steps                   *)
@@ -910,8 +1706,8 @@ let msim_perform
     let q : mstate v cl = MStep (Perform eff op payload) w kk in
     let Some k = erase_k kk in
     lookup_find eff op k;
-    E.lookup_equiv w (env_of_stack k) (eff, op);
-    match E.lookup w (eff, op) with
+    E.lookup_equiv w (env_of_stack k) (OpKey eff op);
+    match E.lookup w (OpKey eff op) with
     | None ->
         MT.step_perform_stuck eff op payload k apply;
         introduce exists (n: nat).
@@ -920,6 +1716,9 @@ let msim_perform
         with 1 and ()
     | Some ev ->
       assert (handled_in eff op k);
+      // `lookup_find` says the payload is a prompt -- a cell binds a `VarKey`
+      // and this is an `OpKey` -- so `mstep`'s `ParamF` branch is dead.
+      assert (PromptF? ev.E.prompt);
       (match lookup_clause (PromptF?.hs ev.E.prompt) eff op with
         | None -> ()
         | Some (Fast c0) ->
@@ -979,6 +1778,25 @@ let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
             (n == 1 \/ n == 2) /\
             erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
           with 1 and ()
+      | NewP l init body ->
+          extend_equiv w (env_of_stack k) (var_keyset l) (ParamF l init <: pd v cl);
+          introduce exists (n: nat).
+            (n == 1 \/ n == 2) /\
+            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+          with 1 and ()
+      | ReadP l ->
+          lookup_param_find l k;
+          E.lookup_equiv w (env_of_stack k) (VarKey l);
+          introduce exists (n: nat).
+            (n == 1 \/ n == 2) /\
+            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+          with 1 and ()
+      | WriteP l y ->
+          mset_param_agrees l y w kk k;
+          introduce exists (n: nat).
+            (n == 1 \/ n == 2) /\
+            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+          with 1 and ()
       | Var value ->
           (match kk with
             | [] ->
@@ -987,6 +1805,13 @@ let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
                   erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
                 with 1 and ()
             | MBindF fn :: r ->
+                introduce exists (n: nat).
+                  (n == 1 \/ n == 2) /\
+                  erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+                with 1 and ()
+            | MParamF l x :: r ->
+                let Some kr = erase_k r in
+                pop_env_agrees_param w l x kr;
                 introduce exists (n: nat).
                   (n == 1 \/ n == 2) /\
                   erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))

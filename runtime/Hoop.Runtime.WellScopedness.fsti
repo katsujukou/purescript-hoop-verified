@@ -49,20 +49,40 @@ let can_perform = eff:string -> op:string -> prop
 
 let can_nothing () : GTot can_perform = fun _ _ -> False
 
-// Extending with handlers
+(**
+ * **The key namespace is partitioned.** `Hoop.Runtime.Semantics.var_eff` is
+ * reserved for prompt-local cells: no handler table grants a capability under
+ * it, and -- see `ws_n` below -- no `Perform` may claim one. That partition is
+ * what lets cells reuse this *single* capability environment instead of a
+ * second one threaded alongside it: `extend_param` adds a cell exactly as
+ * `extend` adds a table, and `ws_n` / `wf_stack_n` peel one environment, not
+ * two.
+ *
+ * It is a soundness requirement rather than tidiness. Without it a
+ * `Perform var_eff l` would be well scoped by virtue of a *cell* rather than a
+ * handler; `find_prompt` would then find nothing and `progress` would fail --
+ * exactly the failure `pres_perform` reports if the side condition is dropped.
+ *)
 let extend
     (#cl: Type)
     (hs: handlers cl)
     (c: can_perform)
   : GTot can_perform
-  = fun eff op -> Some? (lookup_clause hs eff op) \/ c eff op
+  = fun eff op -> (eff =!= var_eff /\ Some? (lookup_clause hs eff op)) \/ c eff op
+
+// A cell labelled `l` is a capability under the reserved effect name.
+let extend_param (l: string) (c: can_perform) : GTot can_perform
+  = fun eff op -> (eff == var_eff /\ op == l) \/ c eff op
 
 let can_in_with
     (#v #cl: Type)
     (k: stack v cl)
     (c: can_perform)
   : GTot can_perform
-  = fun eff op -> Some? (find_prompt eff op k) \/ c eff op
+  = fun eff op ->
+      (eff =!= var_eff /\ Some? (find_prompt eff op k)) \/
+      (eff == var_eff /\ param_in op k) \/
+      c eff op
 
 let can_in
     (#v #cl: Type)
@@ -138,7 +158,9 @@ let rec ws_n
     else
       match c with
       | Var _ -> True
-      | Perform eff op _ -> can eff op
+      // The reserved effect name is NOT available to an ordinary `perform`:
+      // see the note on `extend` above.
+      | Perform eff op _ -> eff =!= var_eff /\ can eff op
       | Op inner fn ->
           ws_n (n - 1) cok can inner /\ (forall (x: v). ws_n (n - 1) cok can (fn x))
       | Handle hs ret body ->
@@ -148,6 +170,9 @@ let rec ws_n
             | None -> True
             | Some r -> forall (x: v). ws_n (n - 1) cok can (r x))
       | Resumed frames _ -> wf_stack_n n cok can frames
+      | NewP l _ body -> ws_n (n - 1) cok (extend_param l can) body
+      | ReadP l -> can var_eff l
+      | WriteP l _ -> can var_eff l
 
 (**
  * Well-formedness of a stack: `wf_stack_n n cok can k means` that every computation suspended
@@ -168,6 +193,7 @@ and wf_stack_n
       | [] -> True
       | BindF fn :: rest ->
           (forall (x: v). ws_n (n - 1) cok (can_in_with rest can) (fn x)) /\ wf_stack_n n cok can rest
+      | ParamF _ _ :: rest -> wf_stack_n n cok can rest
       | PromptF hs ret :: rest ->
           handler_ok cok (can_in_with rest can) hs /\
           (match ret with
@@ -208,7 +234,7 @@ let ret_ws (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (ret: option 
 
 val ws_perform_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                   (eff op: string) (payload: list v)
-  : Lemma (ws cok can (Perform eff op payload) <==> can eff op)
+  : Lemma (ws cok can (Perform eff op payload) <==> (eff =!= var_eff /\ can eff op))
 
 val ws_op_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
               (c: comp_tree v cl) (fn: v -> comp_tree v cl)
@@ -311,3 +337,23 @@ let apply_ok
   : prop
   = forall (can: can_perform) (c: cl) (payload: list v) (kf: (v -> comp_tree v cl)).
       (cok can c /\ (forall (x: v). ws cok can (kf x))) ==> ws cok can (apply c payload kf)
+
+(* ------------------------------------------------------------------ *)
+(*  Peeling, for prompt-local state                                    *)
+(* ------------------------------------------------------------------ *)
+
+val ws_newp_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                (l: string) (init: v) (body: comp_tree v cl)
+  : Lemma (requires ws cok can (NewP l init body))
+          (ensures ws cok (extend_param l can) body)
+
+val ws_newp_bwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                (l: string) (init: v) (body: comp_tree v cl)
+  : Lemma (requires ws cok (extend_param l can) body)
+          (ensures ws cok can (NewP l init body))
+
+val ws_readp_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (l: string)
+  : Lemma (ws cok can (ReadP l <: comp_tree v cl) <==> can var_eff l)
+
+val ws_writep_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (l: string) (x: v)
+  : Lemma (ws cok can (WriteP l x <: comp_tree v cl) <==> can var_eff l)

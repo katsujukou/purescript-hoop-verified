@@ -39,6 +39,7 @@ let handles
   : GTot (b:bool { b <==> (PromptF? f /\ Some? (lookup_clause (PromptF?.hs f) eff op) )})
   = match f with
     | PromptF hs _ -> Some? (lookup_clause hs eff op)
+    | ParamF _ _ -> false
     | BindF _ -> false
 
 // Can this action be handled within this stack?
@@ -75,6 +76,59 @@ let rec find_prompt
         | Some (cap, c, below) -> Some (f :: cap, c, below))
 
 
+(* ------------------------------------------------------------------ *)
+(*  Prompt-local state                                                 *)
+(*                                                                     *)
+(*  A cell is a `ParamF` frame. Reading walks to the nearest one with   *)
+(*  the right label; writing REBUILDS the stack down to it. Nothing is  *)
+(*  mutated, so a `ParamF` sitting inside a captured segment travels    *)
+(*  with the capture and every resumption gets its own copy -- which is *)
+(*  what makes the composition order of two handlers observable.        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The reserved effect name a cell is a capability under.** Cells share the
+ * capability environment of `Hoop.Runtime.WellScopedness` with handlers, and the
+ * key namespace is partitioned: no handler table may bind an operation under
+ * this name and no `Perform` may claim one. See `ws_n` there.
+ *)
+let var_eff : string = "%hoop.var"
+
+// Does this frame hold the cell labelled `l`?
+let binds_param (#v #cl: Type) (l: string) (f: frame v cl)
+  : GTot (b:bool { b <==> (ParamF? f /\ ParamF?.label f == l) })
+  = match f with
+    | ParamF l' _ -> l' = l
+    | _ -> false
+
+// Is the cell `l` reachable in this stack?
+let param_in (#v #cl: Type) (l: string) (k: stack v cl) : GTot prop
+  = exists (f: frame v cl). (f `memP` k /\ binds_param l f)
+
+// `read`: the current contents of the nearest cell labelled `l`.
+let rec find_param (#v #cl: Type) (l: string) (k: stack v cl)
+  : GTot (o: option v { param_in l k <==> Some? o }) (decreases k)
+  = match k with
+    | [] -> None
+    | ParamF l' x :: rest -> if l' = l then Some x else find_param l rest
+    | _ :: rest -> find_param l rest
+
+// `write`: the stack with the nearest cell labelled `l` set to `x`. The frames
+// above the cell are rebuilt, the frames below are shared.
+let rec set_param (#v #cl: Type) (l: string) (x: v) (k: stack v cl)
+  : GTot (o: option (stack v cl) { param_in l k <==> Some? o }) (decreases k)
+  = match k with
+    | [] -> None
+    | ParamF l' y :: rest ->
+        if l' = l then Some (ParamF l x :: rest)
+        else (match set_param l x rest with
+              | None -> None
+              | Some rest' -> Some (ParamF l' y :: rest'))
+    | f :: rest ->
+        (match set_param l x rest with
+          | None -> None
+          | Some rest' -> Some (f :: rest'))
+
 // The delimited continuation handed to a clause.
 // While `kont_of captured` is definitionally `fun x -> Resumed captured x`, 
 // it is worth defining it as a top-level named function due to the limitation 
@@ -108,6 +162,7 @@ let step
         (match k with
           | [] -> Done value
           | (BindF fn)::rest -> Step (fn value) rest
+          | (ParamF _ _)::rest -> Step (Var value) rest
           | (PromptF _ pure)::rest ->
             (match pure with
               | Some fn -> Step (fn value) rest
@@ -115,6 +170,15 @@ let step
             )
         )
       | Resumed kont value -> Step (Var value) (kont @ k)
+      | NewP l init body -> Step body (ParamF l init :: k)
+      | ReadP l ->
+        (match find_param l k with
+          | None -> Stuck var_eff l
+          | Some x -> Step (Var x) k)
+      | WriteP l x ->
+        (match set_param l x k with
+          | None -> Stuck var_eff l
+          | Some k' -> Step (Var x) k')
 
 
 // The multi-step relation: the iteration of `step`, cut off at `fuel` transitions.

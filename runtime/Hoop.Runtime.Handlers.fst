@@ -64,31 +64,74 @@ let rec mem_op_names (#cl: Type) (ops: list (string & cl)) (op: string)
 (* ------------------------------------------------------------------ *)
 
 (**
- * A keyset is an association list from an effect label to the operations
- * declared under it -- the shape a nested `{eff: {op: _}}` object has, with the
- * clauses dropped.
+ * A keyset is one *level's worth* of names, and a level is either a prompt or a
+ * cell -- hence the two constructors, which are the two constructors of `key`
+ * seen from the other side.
+ *
+ * `KOps` is an association list from an effect label to the operations declared
+ * under it: the shape a nested `{eff: {op: _}}` object has, with the clauses
+ * dropped. `KVar` is a single cell label.
+ *
+ * A record with both a group list and a label list would be more uniform and is
+ * what a set-like reading would suggest, but nothing ever needs a keyset holding
+ * both: `keys` is always a table's operations and `var_keyset` is always one
+ * cell. The sum says so, and costs the hot loop one fewer field to read.
  *)
-let keyset = list (string & list string)
+type ikeyset =
+  | KOps : groups:list (string & list string) -> ikeyset
+  | KVar : label:string -> ikeyset
+
+let keyset = ikeyset
 
 (* The keys one group denotes. Ghost only: nothing computes it. *)
 let effect_keys (e: string) (ops: list string) : GTot (list key) =
-  map (fun (o: string) -> ((e, o) <: key)) ops
+  map (fun (o: string) -> OpKey e o) ops
 
-let rec keyset_view s =
-  match s with
+(* The view of a grouping. Split out from `keyset_view` so that the induction
+   below runs on the list rather than under a constructor. *)
+let rec groups_view (g: list (string & list string)) : GTot (list key) =
+  match g with
   | [] -> []
-  | (e, ops) :: rest -> effect_keys e ops @ keyset_view rest
+  | (e, ops) :: rest -> effect_keys e ops @ groups_view rest
 
-(* Membership in one group, spelt out for the solver: `mem` compares the pairs,
+let keyset_view s =
+  match s with
+  | KOps g -> groups_view g
+  | KVar l -> [VarKey l]
+
+(* Membership in one group, spelt out for the solver: `mem` compares the keys,
    the scan compares the components. *)
 private
 let rec mem_effect_keys (e: string) (ops: list string) (eff op: string)
   : Lemma
-      (ensures ((eff, op) `mem` effect_keys e ops) <==> (e = eff /\ op `mem` ops))
+      (ensures (OpKey eff op `mem` effect_keys e ops) <==> (e = eff /\ op `mem` ops))
       (decreases ops)
   = match ops with
     | [] -> ()
     | _ :: rest -> mem_effect_keys e rest eff op
+
+(* A group denotes operations only -- the half of the sorts' disjointness that
+   needs an induction. Carried by a pattern: it is wanted at every `PromptF`
+   crossed by a cell lookup, and never wanted with `g` any particular list. *)
+private
+let rec mem_effect_keys_var (e: string) (ops: list string) (l: string)
+  : Lemma (ensures ~(VarKey l `mem` effect_keys e ops)) (decreases ops)
+  = match ops with
+    | [] -> ()
+    | _ :: rest -> mem_effect_keys_var e rest l
+
+private
+let rec groups_view_no_var (g: list (string & list string)) (l: string)
+  : Lemma
+      (ensures ~(VarKey l `mem` groups_view g))
+      (decreases g)
+      [SMTPat (VarKey l `mem` groups_view g)]
+  = match g with
+    | [] -> ()
+    | (e, ops) :: rest ->
+        mem_effect_keys_var e ops l;
+        append_mem (effect_keys e ops) (groups_view rest) (VarKey l);
+        groups_view_no_var rest l
 
 (**
  * Membership, computed -- the machine's hot loop, run once per level crossed by
@@ -102,30 +145,39 @@ let rec mem_effect_keys (e: string) (ops: list string) (eff op: string)
  * `handlers`, through `Hoop.Runtime.Env.extend`, and into the level records.
  *)
 private
-let rec contains_aux (s: keyset) (eff op: string) : Tot bool (decreases s) =
-  match s with
-  | [] -> false
-  | (e, ops) :: rest -> (e = eff && op `mem` ops) || contains_aux rest eff op
+let rec contains_aux (g: list (string & list string)) (eff op: string)
+  : Tot bool (decreases g)
+  = match g with
+    | [] -> false
+    | (e, ops) :: rest -> (e = eff && op `mem` ops) || contains_aux rest eff op
 
 (* Carried by a pattern rather than called from the body of `contains`: that
    body is on the machine's hot path and is run by the normaliser in
    `Hoop.Runtime.Test`, so it is kept free of proof terms. *)
 private
-let rec contains_aux_correct (s: keyset) (eff op: string)
+let rec contains_aux_correct (g: list (string & list string)) (eff op: string)
   : Lemma
-      (ensures contains_aux s eff op <==> ((eff, op) `mem` keyset_view s))
-      (decreases s)
-      [SMTPat (contains_aux s eff op)]
-  = match s with
+      (ensures contains_aux g eff op <==> (OpKey eff op `mem` groups_view g))
+      (decreases g)
+      [SMTPat (contains_aux g eff op)]
+  = match g with
     | [] -> ()
     | (e, ops) :: rest ->
         mem_effect_keys e ops eff op;
-        append_mem (effect_keys e ops) (keyset_view rest) (eff, op);
+        append_mem (effect_keys e ops) (groups_view rest) (OpKey eff op);
         contains_aux_correct rest eff op
 
-(* The pair is taken apart by a pattern match rather than with `fst` and `snd`,
-   which would call into `FStar_Pervasives_Native` -- see the module header. *)
-let contains s k = match k with | (eff, op) -> contains_aux s eff op
+(* The two sorts are matched together, so a level of the wrong sort answers
+   `false` in one comparison -- which is the whole of what makes a prompt
+   transparent to a cell lookup and a cell transparent to a dispatch. *)
+let contains s k =
+  match s, k with
+  | KOps g, OpKey eff op -> contains_aux g eff op
+  | KVar l, VarKey l' -> l = l'
+  | KOps _, VarKey _ -> false
+  | KVar _, OpKey _ _ -> false
+
+let var_keyset l = KVar l
 
 (* ------------------------------------------------------------------ *)
 (*  The grouped clause table                                           *)
@@ -212,17 +264,20 @@ let rec glookup_group (#cl: Type) (l: list (entry cl)) (eff op: string)
 (** The keyset of a grouping: the same shape with the clauses dropped, so the
     environment's copy costs one cell per effect and per operation and never
     retains a clause. *)
-let rec gkeys (#cl: Type) (g: gtable cl) : Tot keyset (decreases g) =
-  match g with
-  | [] -> []
-  | (e, ops) :: rest -> (e, op_names ops) :: gkeys rest
+let rec gkeys_groups (#cl: Type) (g: gtable cl)
+  : Tot (list (string & list string)) (decreases g)
+  = match g with
+    | [] -> []
+    | (e, ops) :: rest -> (e, op_names ops) :: gkeys_groups rest
+
+let gkeys (#cl: Type) (g: gtable cl) : Tot keyset = KOps (gkeys_groups g)
 
 (* The induction: the scan of the keyset and the scan of the grouping descend
    together, group by group. *)
 private
 let rec contains_aux_gkeys (#cl: Type) (g: gtable cl) (eff op: string)
   : Lemma
-      (ensures contains_aux (gkeys g) eff op <==> Some? (glookup g eff op))
+      (ensures contains_aux (gkeys_groups g) eff op <==> Some? (glookup g eff op))
       (decreases g)
   = match g with
     | [] -> ()
@@ -230,19 +285,28 @@ let rec contains_aux_gkeys (#cl: Type) (g: gtable cl) (eff op: string)
         mem_op_names ops op;
         contains_aux_gkeys rest eff op
 
-(** **The cached keyset is exactly what the grouping has clauses for.** Both
-    forms, since the machine asks with `contains` and the specifications with
-    `mem` on the view; the second is the first read through the refinement on
-    `contains`. *)
+(** **The cached keyset is exactly what the grouping has clauses for, and holds
+    no cell.** Every form, since the machine asks with `contains` and the
+    specifications with `mem` on the view; the view forms are the computed ones
+    read through the refinement on `contains`, and the `VarKey` ones are
+    `groups_view_no_var` under the `KOps` constructor. *)
 private
 let contains_gkeys (#cl: Type) (g: gtable cl) (eff op: string)
   : Lemma
       (ensures
-        (contains (gkeys g) (eff, op) <==> Some? (glookup g eff op)) /\
-        (((eff, op) `mem` keyset_view (gkeys g)) <==> Some? (glookup g eff op)))
-      [SMTPatOr [[SMTPat (contains (gkeys g) (eff, op))];
-                 [SMTPat ((eff, op) `mem` keyset_view (gkeys g))]]]
+        (contains (gkeys g) (OpKey eff op) <==> Some? (glookup g eff op)) /\
+        ((OpKey eff op `mem` keyset_view (gkeys g)) <==> Some? (glookup g eff op)))
+      [SMTPatOr [[SMTPat (contains (gkeys g) (OpKey eff op))];
+                 [SMTPat (OpKey eff op `mem` keyset_view (gkeys g))]]]
   = contains_aux_gkeys g eff op
+
+private
+let gkeys_no_var (#cl: Type) (g: gtable cl) (l: string)
+  : Lemma
+      (ensures ~(contains (gkeys g) (VarKey l)) /\ ~(VarKey l `mem` keyset_view (gkeys g)))
+      [SMTPatOr [[SMTPat (contains (gkeys g) (VarKey l))];
+                 [SMTPat (VarKey l `mem` keyset_view (gkeys g))]]]
+  = ()
 
 (* ------------------------------------------------------------------ *)
 (*  The table                                                          *)
@@ -253,22 +317,24 @@ let contains_gkeys (#cl: Type) (g: gtable cl) (eff op: string)
    and would be circular here. *)
 let table_ok (#cl: Type) (l: list (entry cl)) (g: gtable cl) (ks: keyset) : prop =
   (forall (eff op: string). glookup g eff op == assoc_clause l eff op) /\
-  (forall (eff op: string). contains ks (eff, op) <==> Some? (assoc_clause l eff op)) /\
+  (forall (eff op: string). contains ks (OpKey eff op) <==> Some? (assoc_clause l eff op)) /\
   (forall (eff op: string).
-    ((eff, op) `mem` keyset_view ks) <==> Some? (assoc_clause l eff op))
+    ((OpKey eff op) `mem` keyset_view ks) <==> Some? (assoc_clause l eff op)) /\
+  (forall (l2: string). ~(contains ks (VarKey l2))) /\
+  (forall (l2: string). ~((VarKey l2) `mem` keyset_view ks))
 
 (* The only induction the interface needs beyond the above: what
    `keys_mk_handlers` reports. *)
 let rec entry_keys_correct (#cl: Type) (l: list (entry cl)) (eff op: string)
   : Lemma
-      (ensures ((eff, op) `mem` entry_keys l) <==> Some? (assoc_clause l eff op))
+      (ensures ((OpKey eff op) `mem` entry_keys l) <==> Some? (assoc_clause l eff op))
       (decreases l)
   = match l with
     | [] -> ()
     | (e, o, _) :: rest ->
-        (* `mem` compares the pairs, `assoc_clause` compares the components;
+        (* `mem` compares the keys, `assoc_clause` compares the components;
            the two agree, but the solver is told so rather than left to find it. *)
-        assert (((eff, op) = (e, o)) <==> (e = eff && o = op));
+        assert ((OpKey eff op = OpKey e o) <==> (e = eff && o = op));
         entry_keys_correct rest eff op
 
 (**
@@ -318,6 +384,8 @@ let mk_handlers #cl l =
 let lookup_clause_spec #cl hs eff op = ()
 
 let keys_correct #cl hs eff op = ()
+
+let keys_no_var #cl hs l = ()
 
 let table_mk_handlers #cl l = ()
 

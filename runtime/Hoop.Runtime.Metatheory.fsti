@@ -322,14 +322,21 @@ val ws_var
 
 (** **A `Perform` is well scoped exactly when its action is available.** The
     only clause of `ws` that can fail, hence the entire content of the
-    predicate; everything else merely propagates it through the tree. *)
+    predicate; everything else merely propagates it through the tree.
+
+    The `eff =!= var_eff` conjunct is the key-namespace partition of
+    `Hoop.Runtime.WellScopedness`: the reserved effect name belongs to
+    prompt-local cells, and a capability held by virtue of a *cell* must not
+    make a `Perform` well scoped, since `find_prompt` would then find nothing
+    and `progress` would fail. *)
 val ws_perform
     (#v #cl: Type)
     (cok: clause_ok_t cl)
     (a: can_perform)
     (eff op: string)
     (payload: list v)
-  : Lemma (ws cok a (Perform eff op payload <: comp_tree v cl) <==> a eff op)
+  : Lemma (ws cok a (Perform eff op payload <: comp_tree v cl) <==>
+           (eff =!= var_eff /\ a eff op))
 
 (** **`Op` distributes**: `c >>= fn` is well scoped exactly when `c` is and
     every branch of `fn` is. A bind installs no handler, so the environment does
@@ -610,8 +617,114 @@ val pres_perform
                 wf_state cok (Step (Perform eff op payload) k))
       (ensures wf_state cok (step apply (Step (Perform eff op payload) k)))
 
+(* ------------------------------------------------------------------ *)
+(*  Preservation for prompt-local state                                *)
+(* ------------------------------------------------------------------ *)
+
+(** **A `ParamF` frame is transparent to `wf_stack`**: it suspends no
+    computation and installs no handler, so it owes nothing. *)
+val wf_stack_param
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (can: can_perform)
+    (l: string)
+    (x: v)
+    (rest: stack v cl)
+  : Lemma (wf_stack cok can (ParamF l x :: rest) <==> wf_stack cok can rest)
+
+(** **A write moves no prompt.** *)
+val set_param_handled
+    (#v #cl: Type)
+    (l: string)
+    (x: v)
+    (k k': stack v cl)
+    (eff op: string)
+  : Lemma
+      (requires set_param l x k == Some k')
+      (ensures Some? (find_prompt eff op k') <==> Some? (find_prompt eff op k))
+
+(** **A write creates and destroys no cell.** Stated through `find_param`
+    rather than `param_in`, because the latter is an existential over `memP`
+    while the induction is structural; the refinement on `find_param`
+    converts. *)
+val set_param_param_in
+    (#v #cl: Type)
+    (l: string)
+    (x: v)
+    (k k': stack v cl)
+    (l2: string)
+  : Lemma
+      (requires set_param l x k == Some k')
+      (ensures Some? (find_param l2 k') <==> Some? (find_param l2 k))
+
+(** **Hence a write leaves the capability environment alone**: the two facts
+    above are exactly the two disjuncts of `can_in_with`. *)
+val set_param_equiv_can
+    (#v #cl: Type)
+    (l: string)
+    (x: v)
+    (k k': stack v cl)
+    (can: can_perform)
+  : Lemma
+      (requires set_param l x k == Some k')
+      (ensures equiv_can (can_in_with k' can) (can_in_with k can))
+
+(** **And leaves the stack well formed.** *)
+val set_param_wf
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (can: can_perform)
+    (l: string)
+    (x: v)
+    (k k': stack v cl)
+  : Lemma
+      (requires clause_ok_congr cok /\ set_param l x k == Some k' /\ wf_stack cok can k)
+      (ensures wf_stack cok can k')
+
+(** **NewP**: installing a cell extends the environment by exactly that cell,
+    which is what `extend_param` says and what `ParamF` contributes to
+    `can_in`. *)
+val pres_newp
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (apply: apply_t v cl)
+    (l: string)
+    (init: v)
+    (body: comp_tree v cl)
+    (k: stack v cl)
+  : Lemma
+      (requires clause_ok_congr cok /\ wf_state cok (Step (NewP l init body) k))
+      (ensures wf_state cok (step apply (Step (NewP l init body) k)))
+
+(** **ReadP**: well-scopedness says the cell is available on `k`, hence
+    `find_param` succeeds and the `Stuck` branch is out. *)
+val pres_readp
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (apply: apply_t v cl)
+    (l: string)
+    (k: stack v cl)
+  : Lemma
+      (requires wf_state cok (Step (ReadP l <: comp_tree v cl) k))
+      (ensures wf_state cok (step apply (Step (ReadP l <: comp_tree v cl) k)))
+
+(** **WriteP**: likewise, and the rebuilt stack is well formed by
+    `set_param_wf`, in an environment `set_param_equiv_can` says has not
+    moved. *)
+val pres_writep
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (apply: apply_t v cl)
+    (l: string)
+    (x: v)
+    (k: stack v cl)
+  : Lemma
+      (requires clause_ok_congr cok /\
+                wf_state cok (Step (WriteP l x <: comp_tree v cl) k))
+      (ensures wf_state cok (step apply (Step (WriteP l x <: comp_tree v cl) k)))
+
 (** **Preservation**: one transition of a well-formed machine leaves it well
-    formed. The five branches above, assembled. *)
+    formed. The eight branches above, assembled. *)
 val step_preserves_wf
     (#v #cl: Type)
     (cok: clause_ok_t cl)
@@ -714,3 +827,85 @@ val load_never_stuck
   : Lemma
       (requires clause_ok_congr cok /\ apply_ok apply cok /\ ws cok (can_nothing ()) c)
       (ensures never_stuck apply (load c))
+
+(* ================================================================== *)
+(*  The var-semantics theorem                                         *)
+(*                                                                    *)
+(*  A characterisation of the REFERENCE SEMANTICS itself, and not a   *)
+(*  machine-versus-reference property: as the latter it would add     *)
+(*  nothing over `Hoop.Runtime.execute_agrees`, which already says    *)
+(*  the shipping machine agrees with `Hoop.Runtime.Semantics.step` on *)
+(*  every program, cells included.                                    *)
+(*                                                                    *)
+(*  What it is instead is the human-auditable statement that          *)
+(*  `set_param` changes EXACTLY the target cell and nothing else --   *)
+(*  and, in its two splice halves, that where a cell sits relative to *)
+(*  a capture is what decides whether a write survives a resumption.  *)
+(*  That is precisely what rules out the implementation this design   *)
+(*  was chosen over: a cell reached through a cached pointer passes   *)
+(*  typing, progress and the monad laws, and fails `set_param_        *)
+(*  captured` -- it would let one branch of a multi-shot resumption   *)
+(*  see another branch's write.                                       *)
+(*                                                                    *)
+(*  Together with `set_param_handled` (no prompt moves) and           *)
+(*  `set_param_param_in` (no cell appears or disappears), the four    *)
+(*  below are a complete account of what a write does.                *)
+(* ================================================================== *)
+
+(** **LOCALITY**: a write to `l` changes the contents of no other cell. *)
+val set_param_local
+    (#v #cl: Type)
+    (l: string)
+    (x: v)
+    (k k': stack v cl)
+    (l2: string)
+  : Lemma
+      (requires set_param l x k == Some k' /\ l2 =!= l)
+      (ensures find_param l2 k' == find_param l2 k)
+
+(** **HIT**: and the target cell really does take the written value. *)
+val set_param_hits
+    (#v #cl: Type)
+    (l: string)
+    (x: v)
+    (k k': stack v cl)
+  : Lemma
+      (requires set_param l x k == Some k')
+      (ensures find_param l k' == Some x)
+
+(**
+ * **SPLICE FIDELITY**: a write whose cell is *not* in the captured segment
+ * passes through the capture boundary and lands in `below`, leaving the
+ * captured frames untouched. This is the half that makes a `ctl` clause which
+ * writes and then resumes see its own write -- the shared reading, and the
+ * Koka behaviour that the `state(choice)` fixture in `Hoop.Runtime.Test`
+ * pins down.
+ *)
+val set_param_splice
+    (#v #cl: Type)
+    (l: string)
+    (x: v)
+    (cap below: stack v cl)
+  : Lemma
+      (requires None? (find_param l cap))
+      (ensures
+        (match set_param l x below with
+          | None -> None? (set_param l x (cap @ below))
+          | Some below' -> set_param l x (cap @ below) == Some (cap @ below')))
+
+(**
+ * **CAPTURE FIDELITY**, the dual: a write whose cell *is* in the captured
+ * segment stays there, so every resumption of a capture holding the cell gets
+ * its own copy. This is the per-branch reading, and the half a cached-pointer
+ * implementation gets wrong; the `choice(state)` fixture pins it down.
+ *)
+val set_param_captured
+    (#v #cl: Type)
+    (l: string)
+    (x: v)
+    (cap below: stack v cl)
+  : Lemma
+      (requires Some? (find_param l cap))
+      (ensures
+        (let Some cap' = set_param l x cap in
+         set_param l x (cap @ below) == Some (cap' @ below)))

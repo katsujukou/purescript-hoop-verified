@@ -30,8 +30,8 @@ open Hoop.Runtime.Semantics
 
 let ws_perform_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                   (eff op: string) (payload: list v)
-  : Lemma (ws cok can (Perform eff op payload) <==> can eff op)
-  = assert (ws_n 1 cok can (Perform eff op payload) <==> can eff op)
+  : Lemma (ws cok can (Perform eff op payload) <==> (eff =!= var_eff /\ can eff op))
+  = assert (ws_n 1 cok can (Perform eff op payload) <==> (eff =!= var_eff /\ can eff op))
 
 let ws_op_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
               (c: comp_tree v cl) (fn: v -> comp_tree v cl)
@@ -136,6 +136,11 @@ let rec ws_n_congr (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can
                 (ws_n (n - 1) cok can1 (r x) <==> ws_n (n - 1) cok can2 (r x))
               with ws_n_congr (n - 1) cok can1 can2 (r x))
       | Resumed frames _ -> wf_stack_n_congr n cok can1 can2 frames
+      | ReadP _ -> ()
+      | WriteP _ _ -> ()
+      | NewP l _ body ->
+          assert (equiv_can (extend_param l can1) (extend_param l can2));
+          ws_n_congr (n - 1) cok (extend_param l can1) (extend_param l can2) body
 
 and wf_stack_n_congr (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can_perform)
                      (k: stack v cl)
@@ -153,6 +158,7 @@ and wf_stack_n_congr (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: c
             (ws_n (n - 1) cok (can_in_with rest can1) (fn x) <==>
              ws_n (n - 1) cok (can_in_with rest can2) (fn x))
           with ws_n_congr (n - 1) cok (can_in_with rest can1) (can_in_with rest can2) (fn x)
+      | ParamF _ _ :: rest -> wf_stack_n_congr n cok can1 can2 rest
       | PromptF hs ret :: rest ->
           assert (equiv_can (can_in_with rest can1) (can_in_with rest can2));
           wf_stack_n_congr n cok can1 can2 rest;
@@ -187,3 +193,27 @@ let wf_stack_congr_eq
   = introduce forall (n: nat). (wf_stack_n n cok can1 k <==> wf_stack_n n cok can2 k)
     with wf_stack_n_congr n cok can1 can2 k
 
+
+(* ------------------------------------------------------------------ *)
+(*  Peeling, for prompt-local state                                    *)
+(* ------------------------------------------------------------------ *)
+
+let ws_newp_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                (l: string) (init: v) (body: comp_tree v cl)
+  : Lemma (requires ws cok can (NewP l init body))
+          (ensures ws cok (extend_param l can) body)
+  = assert (forall (n: nat). ws_n (n + 1) cok can (NewP l init body))
+
+let ws_newp_bwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                (l: string) (init: v) (body: comp_tree v cl)
+  : Lemma (requires ws cok (extend_param l can) body)
+          (ensures ws cok can (NewP l init body))
+  = ()
+
+let ws_readp_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (l: string)
+  : Lemma (ws cok can (ReadP l <: comp_tree v cl) <==> can var_eff l)
+  = assert (ws_n 1 cok can (ReadP l <: comp_tree v cl) <==> can var_eff l)
+
+let ws_writep_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (l: string) (x: v)
+  : Lemma (ws cok can (WriteP l x <: comp_tree v cl) <==> can var_eff l)
+  = assert (ws_n 1 cok can (WriteP l x <: comp_tree v cl) <==> can var_eff l)

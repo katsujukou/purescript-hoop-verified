@@ -306,6 +306,7 @@ let rec fp_append_in
           (match lookup_clause hs eff op with
             | Some _ -> ()
             | None -> fp_append_in eff op tl k2)
+        | ParamF _ _ -> fp_append_in eff op tl k2
         | BindF _ -> fp_append_in eff op tl k2)
 
 (** **The upper part holds no prompt for this action**: the search walks clean
@@ -358,6 +359,54 @@ let rec no_prompt_unhandled
   = match d with
     | [] -> ()
     | _ :: r -> no_prompt_unhandled eff op r
+
+(**
+ * **... and so does the search for a cell.** This is why the laws survive
+ * prompt-local state without a word of their statements changing: `no_prompt`
+ * says every frame of a replaced block is a `BindF`, so a `ParamF` can never
+ * sit in one, and a write can therefore never target `d1` or `d2`. It either
+ * lands above the block, in `pre`, or passes clean through it into `post`;
+ * `set_param_captured` and `set_param_splice` are the two halves, and the
+ * `WriteP` case of `sim` is the case split between them.
+ *)
+let rec no_prompt_no_param
+    (#v #cl: Type)
+    (l: string)
+    (d: stack v cl)
+  : Lemma (requires no_prompt d) (ensures None? (find_param l d)) (decreases d)
+  = match d with
+    | [] -> ()
+    | BindF _ :: r -> no_prompt_no_param l r
+    | ParamF _ _ :: r -> ()
+    | PromptF _ _ :: r -> ()
+
+(** A block holding no cell of this label is transparent to the search. *)
+let rec find_param_append_miss
+    (#v #cl: Type)
+    (l: string)
+    (a b: stack v cl)
+  : Lemma (requires None? (find_param l a))
+          (ensures find_param l (a @ b) == find_param l b)
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | ParamF l' _ :: r -> if l' = l then () else find_param_append_miss l r b
+    | _ :: r -> find_param_append_miss l r b
+
+(** And two stacks the search cannot tell apart stay indistinguishable under a
+    common prefix -- either the prefix holds the cell, or neither tail is
+    reached differently. *)
+let rec find_param_pre
+    (#v #cl: Type)
+    (l: string)
+    (pre t1 t2: stack v cl)
+  : Lemma (requires find_param l t1 == find_param l t2)
+          (ensures find_param l (pre @ t1) == find_param l (pre @ t2))
+          (decreases pre)
+  = match pre with
+    | [] -> ()
+    | ParamF l' _ :: r -> if l' = l then () else find_param_pre l r t1 t2
+    | _ :: r -> find_param_pre l r t1 t2
 
 (**
  * **The law itself, as a transition equation.** When a value finally reaches the
@@ -525,6 +574,9 @@ let rec sim
             | BindF fn :: pre' ->
                 sim apply i j d1 d2 (n - 1) pre' post (fn a) x;
                 converges_back apply (Step c k2) x
+            | ParamF _ _ :: pre' ->
+                sim apply i j d1 d2 (n - 1) pre' post (Var a) x;
+                converges_back apply (Step c k2) x
             | PromptF hs (Some r) :: pre' ->
                 sim apply i j d1 d2 (n - 1) pre' post (r a) x;
                 converges_back apply (Step c k2) x
@@ -575,6 +627,47 @@ let rec sim
                       kont_found_beta eff op k2 ((pre @ d2) @ capP) cls bel;
                       perform_below apply i j d1 d2 n pre post capP cls bel
                                     (kont_found eff op k1) (kont_found eff op k2) payload x;
+                      converges_back apply (Step c k2) x))
+      // Prompt-local state. `no_prompt` forbids a `ParamF` in the replaced
+      // block, so the cell a read or a write reaches is in `pre` or in `post`,
+      // never in `d1` or `d2` -- and the same one on both sides.
+      | NewP l init body ->
+          sim apply i j d1 d2 (n - 1) (ParamF l init :: pre) post body x;
+          converges_back apply (Step c k2) x
+      | ReadP l ->
+          no_prompt_no_param l d1;
+          no_prompt_no_param l d2;
+          find_param_append_miss l d1 post;
+          find_param_append_miss l d2 post;
+          find_param_pre l pre (d1 @ post) (d2 @ post);
+          (match find_param l k1 with
+            | None -> steps_terminal apply (n - 1) (Stuck var_eff l <: state v cl)
+            | Some y ->
+                sim apply i j d1 d2 (n - 1) pre post (Var y) x;
+                converges_back apply (Step c k2) x)
+      | WriteP l y ->
+          no_prompt_no_param l d1;
+          no_prompt_no_param l d2;
+          (match find_param l pre with
+            | Some _ ->
+                // The cell is above the block: the block stays where it is, at
+                // the bottom of the rebuilt prefix.
+                set_param_captured l y pre (d1 @ post);
+                set_param_captured l y pre (d2 @ post);
+                let Some pre' = set_param l y pre in
+                sim apply i j d1 d2 (n - 1) pre' post (Var y) x;
+                converges_back apply (Step c k2) x
+            | None ->
+                // The cell is below the block: the write passes through it,
+                // twice, and lands in `post`.
+                set_param_splice l y pre (d1 @ post);
+                set_param_splice l y pre (d2 @ post);
+                set_param_splice l y d1 post;
+                set_param_splice l y d2 post;
+                (match set_param l y post with
+                  | None -> steps_terminal apply (n - 1) (Stuck var_eff l <: state v cl)
+                  | Some post' ->
+                      sim apply i j d1 d2 (n - 1) pre post' (Var y) x;
                       converges_back apply (Step c k2) x))
     end
 

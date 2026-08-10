@@ -180,7 +180,8 @@ let ws_var (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (x: v)
 
 let ws_perform (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
                (eff op: string) (payload: list v)
-  : Lemma (ws cok a (Perform eff op payload <: comp_tree v cl) <==> a eff op)
+  : Lemma (ws cok a (Perform eff op payload <: comp_tree v cl) <==>
+           (eff =!= var_eff /\ a eff op))
   = ws_perform_eq #v #cl cok a eff op payload
 
 let ws_op (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
@@ -314,6 +315,7 @@ let rec wf_stack_append (#v #cl: Type) (cok: clause_ok_t cl) (k1 k2: stack v cl)
       wf_stack_append cok r1 k2 a;
       av_append r1 k2 a;
       (match f with
+        | ParamF _ _ -> ()
         | BindF fn ->
           wf_stack_bind cok a fn (r1 @ k2);
           wf_stack_bind cok (can_in_with k2 a) fn r1;
@@ -368,6 +370,7 @@ let pres_var (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
           (ensures wf_state cok (step apply (Step (Var value <: comp_tree v cl) k)))
   = match k with
     | [] -> ()
+    | ParamF _ _ :: rest -> ()
     | BindF fn :: rest -> wf_stack_bind cok (can_nothing ()) fn rest
     | PromptF hs ret :: rest -> wf_stack_prompt cok (can_nothing ()) hs ret rest
 
@@ -411,6 +414,110 @@ let pres_perform (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
     assert (ws cok (can_in below) (apply clause payload kf))
 #pop-options
 
+(* ------------------------------------------------------------------ *)
+(* Preservation for prompt-local state                                 *)
+(* ------------------------------------------------------------------ *)
+
+let wf_stack_param (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                   (l: string) (x: v) (rest: stack v cl)
+  : Lemma (wf_stack cok can (ParamF l x :: rest) <==> wf_stack cok can rest)
+  = ()
+
+let rec set_param_handled (#v #cl: Type) (l: string) (x: v) (k k': stack v cl) (eff op: string)
+  : Lemma (requires set_param l x k == Some k')
+          (ensures Some? (find_prompt eff op k') <==> Some? (find_prompt eff op k))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | ParamF l' y :: rest ->
+        if l' = l then ()
+        else (let Some rest' = set_param l x rest in
+              set_param_handled l x rest rest' eff op)
+    | f :: rest ->
+        let Some rest' = set_param l x rest in
+        set_param_handled l x rest rest' eff op
+
+let rec set_param_param_in (#v #cl: Type) (l: string) (x: v) (k k': stack v cl) (l2: string)
+  : Lemma (requires set_param l x k == Some k')
+          (ensures Some? (find_param l2 k') <==> Some? (find_param l2 k))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | ParamF l' y :: rest ->
+        if l' = l then ()
+        else (let Some rest' = set_param l x rest in
+              set_param_param_in l x rest rest' l2)
+    | f :: rest ->
+        let Some rest' = set_param l x rest in
+        set_param_param_in l x rest rest' l2
+
+let set_param_equiv_can (#v #cl: Type) (l: string) (x: v) (k k': stack v cl) (can: can_perform)
+  : Lemma (requires set_param l x k == Some k')
+          (ensures equiv_can (can_in_with k' can) (can_in_with k can))
+  = introduce forall (eff op: string). (can_in_with k' can) eff op <==> (can_in_with k can) eff op
+    with (set_param_handled l x k k' eff op; set_param_param_in l x k k' op)
+
+let rec set_param_wf (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                     (l: string) (x: v) (k k': stack v cl)
+  : Lemma (requires clause_ok_congr cok /\ set_param l x k == Some k' /\ wf_stack cok can k)
+          (ensures wf_stack cok can k')
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | ParamF l' y :: rest ->
+        if l' = l then (wf_stack_param cok can l' y rest; wf_stack_param cok can l x rest)
+        else begin
+          let Some rest' = set_param l x rest in
+          wf_stack_param cok can l' y rest;
+          set_param_wf cok can l x rest rest';
+          wf_stack_param cok can l' y rest'
+        end
+    | BindF fn :: rest ->
+        let Some rest' = set_param l x rest in
+        wf_stack_bind cok can fn rest;
+        set_param_wf cok can l x rest rest';
+        set_param_equiv_can l x rest rest' can;
+        introduce forall (y: v). ws cok (can_in_with rest' can) (fn y)
+        with ws_congr cok (can_in_with rest can) (can_in_with rest' can) (fn y);
+        wf_stack_bind cok can fn rest'
+    | PromptF hs ret :: rest ->
+        let Some rest' = set_param l x rest in
+        wf_stack_prompt cok can hs ret rest;
+        set_param_wf cok can l x rest rest';
+        set_param_equiv_can l x rest rest' can;
+        handler_ok_congr cok (can_in_with rest can) (can_in_with rest' can) hs;
+        (match ret with
+          | None -> ()
+          | Some r ->
+            introduce forall (y: v). ws cok (can_in_with rest' can) (r y)
+            with ws_congr cok (can_in_with rest can) (can_in_with rest' can) (r y));
+        wf_stack_prompt cok can hs ret rest'
+
+let pres_newp (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+              (l: string) (init: v) (body: comp_tree v cl) (k: stack v cl)
+  : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (NewP l init body) k))
+          (ensures wf_state cok (step apply (Step (NewP l init body) k)))
+  = ws_newp_fwd cok (can_in k) l init body;
+    assert (ws cok (extend_param l (can_in k)) body);
+    assert (equiv_can (extend_param l (can_in k)) (can_in (ParamF l init :: k)));
+    ws_congr_eq cok (extend_param l (can_in k)) (can_in (ParamF l init :: k)) body;
+    wf_stack_param cok (can_nothing ()) l init k
+
+let pres_readp (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+               (l: string) (k: stack v cl)
+  : Lemma (requires wf_state cok (Step (ReadP l <: comp_tree v cl) k))
+          (ensures wf_state cok (step apply (Step (ReadP l <: comp_tree v cl) k)))
+  = ws_readp_eq #v #cl cok (can_in k) l
+
+let pres_writep (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+                (l: string) (x: v) (k: stack v cl)
+  : Lemma (requires clause_ok_congr cok /\
+                    wf_state cok (Step (WriteP l x <: comp_tree v cl) k))
+          (ensures wf_state cok (step apply (Step (WriteP l x <: comp_tree v cl) k)))
+  = ws_writep_eq #v #cl cok (can_in k) l x;
+    let Some k' = set_param l x k in
+    set_param_wf cok (can_nothing ()) l x k k'
+
 let step_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (s: state v cl)
   : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
           (ensures wf_state cok (step apply s))
@@ -423,7 +530,10 @@ let step_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
         | Var value -> pres_var cok apply value k
         | Handle hs ret body -> pres_handle cok apply hs ret body k
         | Resumed captured value -> pres_resumed cok apply captured value k
-        | Perform eff op payload -> pres_perform cok apply eff op payload k)
+        | Perform eff op payload -> pres_perform cok apply eff op payload k
+        | NewP l init body -> pres_newp cok apply l init body k
+        | ReadP l -> pres_readp cok apply l k
+        | WriteP l x -> pres_writep cok apply l x k)
 
 let step_progress (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (s: state v cl)
   : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
@@ -482,3 +592,57 @@ let steps_done_unique
       (ensures steps apply n s == steps apply m s)
   = if n <= m then steps_stable apply n (m - n) s 
     else steps_stable apply m (n - m) s
+
+(* ================================================================== *)
+(*  The var-semantics theorem -- see the interface for what it is for. *)
+(* ================================================================== *)
+
+let rec set_param_local (#v #cl: Type) (l: string) (x: v) (k k': stack v cl) (l2: string)
+  : Lemma (requires set_param l x k == Some k' /\ l2 =!= l)
+          (ensures find_param l2 k' == find_param l2 k)
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | ParamF l' y :: rest ->
+        if l' = l then ()
+        else (let Some rest' = set_param l x rest in set_param_local l x rest rest' l2)
+    | f :: rest ->
+        let Some rest' = set_param l x rest in
+        set_param_local l x rest rest' l2
+
+let rec set_param_hits (#v #cl: Type) (l: string) (x: v) (k k': stack v cl)
+  : Lemma (requires set_param l x k == Some k')
+          (ensures find_param l k' == Some x)
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | ParamF l' y :: rest ->
+        if l' = l then ()
+        else (let Some rest' = set_param l x rest in set_param_hits l x rest rest')
+    | f :: rest ->
+        let Some rest' = set_param l x rest in
+        set_param_hits l x rest rest'
+
+let rec set_param_splice (#v #cl: Type) (l: string) (x: v) (cap below: stack v cl)
+  : Lemma (requires None? (find_param l cap))
+          (ensures
+            (match set_param l x below with
+              | None -> None? (set_param l x (cap @ below))
+              | Some below' -> set_param l x (cap @ below) == Some (cap @ below')))
+          (decreases cap)
+  = match cap with
+    | [] -> ()
+    | ParamF l' y :: rest -> set_param_splice l x rest below
+    | f :: rest -> set_param_splice l x rest below
+
+let rec set_param_captured (#v #cl: Type) (l: string) (x: v) (cap below: stack v cl)
+  : Lemma (requires Some? (find_param l cap))
+          (ensures
+            (let Some cap' = set_param l x cap in
+             set_param l x (cap @ below) == Some (cap' @ below)))
+          (decreases cap)
+  = match cap with
+    | [] -> ()
+    | ParamF l' y :: rest ->
+        if l' = l then () else set_param_captured l x rest below
+    | f :: rest -> set_param_captured l x rest below

@@ -41,24 +41,44 @@ module Hoop.Runtime.Handlers
 open FStar.List.Tot
 
 (**
- * **A dispatch key**: the pair naming an operation.
+ * **A name the evidence environment binds**, in either of its two roles.
  *
  * Declared here, where the clauses are, and taken from here by everything else
- * keyed by an operation -- the evidence environment included, whose levels bind
- * precisely the keys of the table that installed them. Two agreeing definitions
- * in two modules would leave `keys_correct` relating types that merely happen
- * to coincide; one definition makes the relation structural.
+ * keyed by a name -- the evidence environment included, whose levels bind
+ * precisely the keys of the table, or of the cell, that installed them. Two
+ * agreeing definitions in two modules would leave `keys_correct` relating types
+ * that merely happen to coincide; one definition makes the relation structural.
  *
- * A realisation with string-keyed objects would encode the pair into one
- * string, say `"<strlen eff>:<eff><op>"`. That such an encoding is injective
- * cannot be proved here -- it needs `string_of_int` to be injective and never
- * to produce a `':'`, and `FStar.String` says nothing about it -- so the model
- * keeps the pair rather than assume it, leaving the encoding an optimisation
- * inside the realisation, to be covered by differential testing.
+ * *Why two constructors and not a pair of strings.* `Hoop.Runtime.Env` is the
+ * E of the machine and it now plays both of E's roles: it maps each handled
+ * operation to the prompt that handles it -- a *handler context* -- and each
+ * prompt-local cell to its value, which is the `label -> value` map the letter
+ * E was named for. One environment, therefore two sorts of name, and they must
+ * not collide: a handler table is built from an arbitrary association list, so
+ * nothing stops one from declaring an operation under the reserved effect name
+ * `Hoop.Runtime.Semantics.var_eff`, and were a cell keyed by the *pair*
+ * `(var_eff, l)` such a table would shadow the cell -- or be shadowed by it --
+ * and the environment would stop answering what the reference machine's stack
+ * search answers. `Hoop.Runtime.WellScopedness` rules that program out, but
+ * `Hoop.Runtime.msim` is proved of *every* configuration and may not appeal to
+ * it. Making the two sorts disjoint constructors settles it in the type: a
+ * `VarKey` is unreachable from any `mk_handlers`, which is `keys_no_var`.
+ *
+ * A realisation with string-keyed objects would encode a key into one string,
+ * say `"<strlen eff>:<eff><op>"` for an operation and `"%<l>"` for a cell. That
+ * such an encoding is injective cannot be proved here -- it needs
+ * `string_of_int` to be injective and never to produce a `':'`, and
+ * `FStar.String` says nothing about it -- so the model keeps the constructors
+ * rather than assume it, leaving the encoding an optimisation inside the
+ * realisation, to be covered by differential testing.
  *)
-let key : eqtype = string & string
+type key =
+  | OpKey : eff:string -> op:string -> key
+  | VarKey : label:string -> key
 
-(** **One entry of a table**: a key together with the clause it selects. *)
+(** **One entry of a table**: a key together with the clause it selects. A table
+    binds operations only, so the entry names one with its two components rather
+    than carrying a `key` that could be a `VarKey`. *)
 let entry (cl: Type u#a) : Type u#a = string & string & cl
 
 (**
@@ -80,7 +100,7 @@ let rec assoc_clause (#cl: Type) (l: list (entry cl)) (eff op: string)
 let rec entry_keys (#cl: Type) (l: list (entry cl)) : Tot (list key) (decreases l) =
   match l with
   | [] -> []
-  | (eff, op, _) :: rest -> (eff, op) :: entry_keys rest
+  | (eff, op, _) :: rest -> OpKey eff op :: entry_keys rest
 
 (* ------------------------------------------------------------------ *)
 (*  Key sets                                                           *)
@@ -116,6 +136,21 @@ val keyset_view (s: keyset) : GTot (list key)
     reason the type is abstract. Pinned to the view, so a realisation may answer
     it however it likes. *)
 val contains (s: keyset) (k: key) : Tot (b: bool { b <==> k `mem` keyset_view s })
+
+(**
+ * **The keyset of a prompt-local cell**: the one name a `ParamF` level binds.
+ *
+ * A cell installs a level of the environment exactly as a handler table does --
+ * that is what makes E hold `label -> value` alongside `operation -> prompt` --
+ * and a level is built from a `keyset`, which is abstract, so the singleton
+ * cannot be written at the call site. Hence this.
+ *
+ * It is here rather than in `Hoop.Runtime.Env` because `keyset` is realised
+ * here and its realisation is what a singleton has to be built in; and it takes
+ * the label rather than a `key` so that the sort is fixed by the type -- there
+ * is no way to ask for a cell level that binds an operation.
+ *)
+val var_keyset (l: string) : Tot (s: keyset { keyset_view s == [VarKey l] })
 
 (** **The handler table**, abstract. The `u#a` is the one annotation in the pair
     of files that cannot be dropped -- see the module header. *)
@@ -159,12 +194,21 @@ let clause_memP (#cl: Type) (c:cl) (hs: handlers cl)
  * come from both sides: the machine runs `contains`, while every specification
  * downstream (`Hoop.Runtime.Env.find_level`, `level_well_keyed`) speaks of `mem`
  * on the view.
+ *
+ * The third and fourth conjuncts are the disjointness of the two sorts, read off
+ * the only constructor a table has: *no* table binds a cell name, whatever
+ * association list it was built from. That is what makes a prompt level
+ * transparent to a cell lookup, and it is stated as a refinement rather than
+ * only as `keys_no_var` for the same reason as the others -- `keys` occurs
+ * under `Hoop.Runtime.env_of_stack`, which the solver unfolds constantly.
  *)
 val keys (#cl: Type) (hs: handlers cl)
   : Tot (ks: keyset {
-      (forall (eff op: string). contains ks (eff, op) <==> Some? (lookup_clause hs eff op)) /\
+      (forall (eff op: string). contains ks (OpKey eff op) <==> Some? (lookup_clause hs eff op)) /\
       (forall (eff op: string).
-        ((eff, op) `mem` keyset_view ks) <==> Some? (lookup_clause hs eff op))
+        ((OpKey eff op) `mem` keyset_view ks) <==> Some? (lookup_clause hs eff op)) /\
+      (forall (l: string). ~(contains ks (VarKey l))) /\
+      (forall (l: string). ~((VarKey l) `mem` keyset_view ks))
     })
 
 (**
@@ -190,7 +234,19 @@ val lookup_clause_spec (#cl: Type) (hs: handlers cl) (eff op: string)
 (** **The keys are exactly the handled operations.** Stated on the view, which
     is the side every specification downstream is written in. *)
 val keys_correct (#cl: Type) (hs: handlers cl) (eff op: string)
-  : Lemma (((eff, op) `mem` keyset_view (keys hs)) <==> Some? (lookup_clause hs eff op))
+  : Lemma (((OpKey eff op) `mem` keyset_view (keys hs)) <==> Some? (lookup_clause hs eff op))
+
+(**
+ * **No handler table binds a cell.** The disjointness of the environment's two
+ * sorts of name, in the form a caller wants it: a prompt level is transparent to
+ * the lookup of a cell, whatever operations its table happens to declare.
+ *
+ * This is what `Hoop.Runtime.lookup_param_find` spends at every `PromptF` frame,
+ * and it is the reason the machine's `ReadP` is a single `Env.lookup` rather
+ * than a walk that has to step over levels of the wrong sort.
+ *)
+val keys_no_var (#cl: Type) (hs: handlers cl) (l: string)
+  : Lemma (~(contains (keys hs) (VarKey l)) /\ ~((VarKey l) `mem` keyset_view (keys hs)))
 
 (** **The view of a table built from a list is that list.** *)
 val table_mk_handlers (#cl: Type) (l: list (entry cl))
@@ -211,7 +267,7 @@ val lookup_clause_mk_handlers (#cl: Type) (l: list (entry cl)) (eff op: string)
  * asked of it.
  *)
 val keys_mk_handlers (#cl: Type) (l: list (entry cl)) (eff op: string)
-  : Lemma (contains (keys (mk_handlers l)) (eff, op) <==> ((eff, op) `mem` entry_keys l))
+  : Lemma (contains (keys (mk_handlers l)) (OpKey eff op) <==> ((OpKey eff op) `mem` entry_keys l))
 
 (** **Association lookup never forges a clause.** The soundness half of
     `Hoop.Runtime.Metatheory.lookup_clause_memP`, stated on the model because

@@ -21,6 +21,12 @@ type tv =
   | VI : int -> tv
   | VS : string -> tv
   | VU : tv
+  // Booleans, pairs and lists, so that the prompt-local-state fixtures at the
+  // bottom can be written as the figures they are checked against rather than
+  // as an encoding of them.
+  | VB : bool -> tv
+  | VP : tv -> tv -> tv
+  | VL : list tv -> tv
 
 let vadd (a b: tv) : tv =
   match a, b with
@@ -42,6 +48,9 @@ type tcl =
   (* Resume with a, then add b to what comes back. A clause that observes the return
      value of the continuation *)
   | CResumeAdd : tv -> tv -> tcl
+  (* Resume once with `False` and once with `True`, collecting the two results
+     into a list -- the `choice` handler of the fixtures at the bottom. *)
+  | CBoth : tcl
 
 let tapply (c: tcl) (payload: list tv) (k: (tv -> comp_tree tv tcl)) : comp_tree tv tcl =
   match c with
@@ -53,6 +62,7 @@ let tapply (c: tcl) (payload: list tv) (k: (tv -> comp_tree tv tcl)) : comp_tree
   | CAbort v -> Var v
   | CTwice -> Op (k (VI 1)) (fun _ -> k (VI 2))
   | CResumeAdd a b -> Op (k a) (fun r -> Var (vadd r b))
+  | CBoth -> Op (k (VB false)) (fun r1 -> Op (k (VB true)) (fun r2 -> Var (VL [r1; r2])))
 
 (* `steps` is GTot, hence so is `exec`, and F* does not admit GTot for a nullary
    top-level let. No test therefore binds its result at top level; each embeds
@@ -240,6 +250,7 @@ let taf (c: tcl) (payload: list tv) (k: tv -> tct) : tct =
   | CAbort v -> Var v
   | CTwice -> Op (k (VI 1)) (fun _ -> k (VI 2))
   | CResumeAdd a b -> Op (k a) (fun r -> Var (vadd r b))
+  | CBoth -> Op (k (VB false)) (fun r1 -> Op (k (VB true)) (fun r2 -> Var (VL [r1; r2])))
 
 (* No table in 13-19 tags an entry `Fast`, so this is never reached. It must
    still be supplied: the machine takes both interpreters, and which one applies
@@ -376,6 +387,11 @@ type fcl =
      which a *full* clause handles, so the capture takes the `MEnvF` with it --
      see `fprog_capture`. *)
   | FFlip : tv -> fcl
+  (* fast, and stateful: the body reads the prompt-local cell of this label,
+     increments it, and returns the value it read. The cell lives *below* this
+     clause's own prompt, so reaching it means walking past the `MEnvF` -- see
+     `fprog_cell_masked`. *)
+  | FBump : string -> fcl
   | XRet : tv -> fcl (* full: resume with a constant *)
   | XTwice : fcl (* full: resume twice -- multi-shot *)
   | XAbort : tv -> fcl (* full: drop the continuation *)
@@ -392,6 +408,7 @@ let faf (c: fcl) (payload: list tv) (k: tv -> fct) : fct =
   | FEcho -> (match payload with x :: _ -> k x | [] -> Var VU)
   | FAsk v -> Op (Perform "Reader" "ask" []) (fun r -> k (vadd r v))
   | FFlip v -> Op (Perform "Amb" "flip" []) (fun r -> k (vadd r v))
+  | FBump s -> Op (ReadP s) (fun n -> Op (WriteP s (vadd n (VI 1))) (fun _ -> k n))
 
 (* The FFI's fast interpreter: not handed the continuation, and cannot be. The
    body's value *is* the operation's result. *)
@@ -401,6 +418,7 @@ let fafast (c: fcl) (payload: list tv) : fct =
   | FEcho -> (match payload with x :: _ -> Var x | [] -> Var VU)
   | FAsk v -> Op (Perform "Reader" "ask" []) (fun r -> Var (vadd r v))
   | FFlip v -> Op (Perform "Amb" "flip" []) (fun r -> Var (vadd r v))
+  | FBump s -> Op (ReadP s) (fun n -> Op (WriteP s (vadd n (VI 1))) (fun _ -> Var n))
   | XRet v -> Var v
   | XTwice -> Var (VI 1)
   | XAbort v -> Var v
@@ -499,3 +517,133 @@ let fprog_stuck: fct = Perform "Nope" "missing" []
 
 let _ = assert_norm (M.erase_st (fexec_m fprog_stuck) == Some (fexec fprog_stuck))
 let _ = assert_norm (fexec_m fprog_stuck == M.MStuck "Nope" "missing")
+
+
+(*
+  ---- 26-30. Prompt-local state ----
+
+  The two fixtures that discriminate this design from the one it was chosen
+  over. Same program --
+
+      b <- choice; set (get + 1); (b, get)
+
+  -- and only the nesting swapped. Measured against Koka 3.2.2:
+
+      choice(state) = [(False,1),(True,1)]   -- state handler INSIDE choice
+      state(choice) = [(False,1),(True,2)]   -- state handler OUTSIDE choice
+
+  The mechanism is where the `ParamF` frame ends up relative to the `PromptF`
+  the `choice` clause captures at.
+
+    - state INSIDE choice: the cell was installed *after* the prompt, so it is
+      part of the captured segment. Every resumption reinstalls the cell at the
+      value it was captured with, and each branch counts from 0. This is
+      `Hoop.Runtime.Metatheory.set_param_captured`.
+
+    - state OUTSIDE choice: the cell was installed *before* the prompt, so it
+      lies below the cut and the capture does not carry it. The first branch's
+      write is still there when the second branch runs. This is
+      `Hoop.Runtime.Metatheory.set_param_splice`.
+
+  A machine holding the cell behind a cached pointer would give
+  [(False,1),(True,2)] for both, and pass typing, progress and the monad laws
+  while doing so.
+*)
+
+let cell : string = "s"
+
+(* b <- choice.flip; s := s + 1; (b, s) *)
+let sbody : comp_tree tv tcl =
+  Op (Perform "Choice" "flip" []) (fun b ->
+  Op (ReadP cell) (fun n ->
+  Op (WriteP cell (vadd n (VI 1))) (fun _ ->
+  Op (ReadP cell) (fun n' -> Var (VP b n')))))
+
+let choice_h (c: comp_tree tv tcl) : comp_tree tv tcl =
+  Handle (mk_handlers [("Choice", "flip", CBoth)]) None c
+
+let state_h (c: comp_tree tv tcl) : comp_tree tv tcl = NewP cell (VI 0) c
+
+
+(* 26. choice(state): the state handler INSIDE choice -- per-branch. *)
+
+let prog_choice_state : comp_tree tv tcl = choice_h (state_h sbody)
+
+let _ =
+  assert_norm
+    (result (exec prog_choice_state)
+      == Some (VL [VP (VB false) (VI 1); VP (VB true) (VI 1)]))
+
+
+(* 27. state(choice): the state handler OUTSIDE choice -- shared. *)
+
+let prog_state_choice : comp_tree tv tcl = state_h (choice_h sbody)
+
+let _ =
+  assert_norm
+    (result (exec prog_state_choice)
+      == Some (VL [VP (VB false) (VI 1); VP (VB true) (VI 2)]))
+
+
+(*
+  28-29. The same two programs on the machine that ships, compared through the
+  erasure. A cell is a frame on both sides and `MParamF` erases to `ParamF`
+  pointwise, so nothing here can differ -- which is what these check.
+*)
+
+let sbody_t : tct =
+  Op (Perform "Choice" "flip" []) (fun b ->
+  Op (ReadP cell) (fun n ->
+  Op (WriteP cell (vadd n (VI 1))) (fun _ ->
+  Op (ReadP cell) (fun n' -> Var (VP b n')))))
+
+let choice_h_t (c: tct) : tct =
+  Handle (mk_handlers [("Choice", "flip", M.Full CBoth)]) None c
+
+let state_h_t (c: tct) : tct = NewP cell (VI 0) c
+
+let tprog_choice_state : tct = choice_h_t (state_h_t sbody_t)
+let tprog_state_choice : tct = state_h_t (choice_h_t sbody_t)
+
+let _ =
+  assert_norm
+    (M.erase_st (texec_m tprog_choice_state) == Some (texec tprog_choice_state))
+let _ =
+  assert_norm
+    (mresult (texec_m tprog_choice_state)
+      == Some (VL [VP (VB false) (VI 1); VP (VB true) (VI 1)]))
+
+let _ =
+  assert_norm
+    (M.erase_st (texec_m tprog_state_choice) == Some (texec tprog_state_choice))
+let _ =
+  assert_norm
+    (mresult (texec_m tprog_state_choice)
+      == Some (VL [VP (VB false) (VI 1); VP (VB true) (VI 2)]))
+
+
+(*
+  30. A cell reached from inside a tail-resumptive clause body, across the
+  region its `MEnvF` masks.
+
+  This is the one place where the machine's cell operations are not the
+  reference's read off frame for frame: while a fast clause body is in flight,
+  the frames between the `MEnvF` and its own prompt are absorbed by the erasure
+  into a single `BindF`, so a cell among them is invisible to the reference
+  machine -- and `mfind_param` and `mset_param` must jump over them for the same
+  reason `msplit` does. Here the cell lives *below* the `Log` prompt, so both
+  the read and the write have to make that jump and land beneath it.
+
+  The body reads 10 and writes 11; the continuation then reads 11 back through
+  the frames the machine never took apart.
+*)
+
+let fprog_cell_masked : fct =
+  NewP cell (VI 10)
+    (Handle (mk_handlers [("Log", "emit", M.Fast (FBump cell))]) None
+      (Op (Perform "Log" "emit" [])
+          (fun r -> Op (ReadP cell) (fun n -> Var (VP r n)))))
+
+let _ =
+  assert_norm (M.erase_st (fexec_m fprog_cell_masked) == Some (fexec fprog_cell_masked))
+let _ = assert_norm (mresult (fexec_m fprog_cell_masked) == Some (VP (VI 10) (VI 11)))

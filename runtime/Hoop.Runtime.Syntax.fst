@@ -63,6 +63,24 @@ type comp_tree (v: Type) (cl: Type) =
       frames: list (frame v cl) ->
       value: v ->
       comp_tree v cl
+  // Prompt-local state. `NewP` installs a cell for the duration of `body`;
+  // `ReadP` and `WriteP` reach the nearest enclosing cell of that label. The
+  // label is the runtime representation of the opaque carrier the PureScript
+  // surface hands out, and it names a *binder*, not a location: the cell lives
+  // in the `ParamF` frame below, by value, so a captured continuation carries
+  // its own copy.
+  | NewP:
+      label: string ->
+      init: v ->
+      body: comp_tree v cl ->
+      comp_tree v cl
+  | ReadP:
+      label: string ->
+      comp_tree v cl
+  | WriteP:
+      label: string ->
+      value: v ->
+      comp_tree v cl
 
 (**
  * A `frame` is the K-part　of the CEK machine and represents a defunctionalized continuation.
@@ -73,6 +91,14 @@ type comp_tree (v: Type) (cl: Type) =
 and frame (v: Type) (cl: Type) =
   | BindF:
       fn:(v -> comp_tree v cl) ->
+      frame v cl
+  // A prompt-local cell, held IN THE FRAME, BY VALUE. There is no mutable cell,
+  // no pointer and no identity: a write rebuilds the frame, so a captured
+  // continuation carries the value it was captured with. Which is what makes
+  // the composition order of two handlers observable, exactly as in Koka.
+  | ParamF:
+      label:string ->
+      value:v ->
       frame v cl
   | PromptF:
       hs:handlers cl ->

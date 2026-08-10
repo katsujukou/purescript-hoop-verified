@@ -1,11 +1,22 @@
 (**
- * The evidence environment -- the E-component of the CEK machine.
+ * The environment -- the E-component of the CEK machine, in both of its roles.
  *
  * Instead of searching the stack at every `perform`, the machine threads an
- * immutable environment mapping each handled `(effect, operation)` pair to
- * *evidence*: the prompt that handles it, together with the environment that
- * prompt was installed under. `Handle` extends the environment by one level;
- * `perform` reads one key out of it.
+ * immutable environment mapping each handled operation to *evidence*: the prompt
+ * that handles it, together with the environment that prompt was installed
+ * under. `Handle` extends the environment by one level; `perform` reads one key
+ * out of it.
+ *
+ * The same structure holds the prompt-local cells, mapping a label to its value
+ * -- which is what E means in a textbook CEK machine, and is why this module is
+ * not called `Evidence`. `NewP` extends it by one level and `ReadP` reads one
+ * key out of it, by the same two operations. Nothing here distinguishes the two
+ * roles: `Hoop.Runtime.Handlers.key` has a constructor for each, so a level
+ * binding operations and a level binding a label are told apart by the keys they
+ * hold, and this module goes on routing keys to payloads without knowing which
+ * sort it is routing. See `Hoop.Runtime.pd` for why a cell belongs in an
+ * environment, which is captured and restored with a continuation, rather than
+ * in a store, which is not.
  *
  * The type `env` is abstract and every specification is phrased through the
  * ghost view `levels`. What this interface commits to is only that an

@@ -23,6 +23,14 @@
                                                      clause  : (payload[], k) => comp
                                                      k       : (value) => comp
 
+  Prompt-local cells. `label` is a JS string minted by PureScript; it names a
+  BINDER, not a location, and the cell it names lives in a stack frame by value:
+
+    newCellImpl(label, init, body)       -> comp   evaluates to body's value
+    readCellImpl(label)                  -> comp   evaluates to the cell's value
+    writeCellImpl(label, value)          -> comp   evaluates to `value`, not unit
+                                                   (the WriteP rule steps to Var)
+
   Clause and return-clause builders:
 
     mkFullClauseImpl(f)                  -> clause   f : a1 => .. => an => resume => comp
@@ -206,6 +214,41 @@ let with_impl (ret : any) (handlers : any) (body : any) : any =
     (Hoop_Runtime_Syntax.Handle (Hoop_Runtime_Handlers.mk_handlers hs, r, magic body)
       : comp)
 
+(* --- Prompt-local cells --------------------------------------------------- *)
+
+(*
+  Three more constructors of the same AST, and nothing else: they build
+  `Hoop_Runtime_Syntax.NewP` / `.ReadP` / `.WriteP`, which
+  `Hoop.Runtime.mstep` runs and `Hoop.Runtime.msim` covers alongside every
+  other node. No new interpreter, no new state -- a cell is a level of the
+  environment and a frame on the stack, both of them the machine's own.
+
+  `init` and `value` cross as `any`, exactly as `pure_impl`'s argument does:
+  the machine stores a `v` and never inspects one, so identity is preserved.
+  `label` crosses as a string, exactly as `eff` and `op` do in `perform_impl`.
+
+  What these ASSUME, beyond what the existing constructors already assume:
+  nothing about the label. A label may repeat, may be empty, may be
+  `__proto__` -- `Hoop.Runtime.Handlers.key` keeps it in a `VarKey`
+  constructor and every table it reaches is an association list, so no JS
+  object is keyed by it and no effect label can collide with it. What a
+  *caller* must arrange is that the label is unique per live `new`, since the
+  machine's rule is innermost-wins and two live cells of one label are
+  indistinguishable to a read. That is the PureScript surface's obligation,
+  not this file's, and getting it wrong is a wrong answer rather than an
+  unsound one.
+*)
+
+let new_cell_impl (label : any) (init : any) (body : any) : any =
+  inject
+    (Hoop_Runtime_Syntax.NewP (string_of_jsstring label, init, magic body) : comp)
+
+let read_cell_impl (label : any) : any =
+  inject (Hoop_Runtime_Syntax.ReadP (string_of_jsstring label) : comp)
+
+let write_cell_impl (label : any) (value : any) : any =
+  inject (Hoop_Runtime_Syntax.WriteP (string_of_jsstring label, value) : comp)
+
 (* --- Clause and return-clause builders ----------------------------------- *)
 
 (*
@@ -312,6 +355,22 @@ let insert_impl =
      the F* side cannot see them doing; what is now proved is that if it is
      reached, the blame lies with the program.
 
+     The branch splits in two on the *reserved* effect name
+     `Hoop.Runtime.Semantics.var_eff`, which the reference machine reports a
+     missing prompt-local cell under: `Stuck var_eff label`. Spelled by the
+     generic message that would read `Unhandled effect operation
+     '%hoop.var.someLabel'` -- true, and useless. It is always the same fault,
+     a cell handle used outside the scope of the `new` that created it, so it
+     is worth naming as that. The constant is READ FROM THE EXTRACTED MODULE
+     rather than written out here, so the two cannot drift apart.
+
+     What that split ASSUMES is the reservation itself: that no program
+     performs an ordinary operation under the effect label `%hoop.var`, in
+     which case the specialised message would be wrong. It is exactly what
+     `Hoop.Runtime.WellScopedness.ws` demands of a `Perform` -- `eff =!=
+     var_eff` -- so a program the PureScript surface accepts cannot violate it,
+     and one that does was already outside the guarded half of the theorem.
+
    - `MStep _`. Unreachable, and not by an appeal to well-scopedness: `mrun`
      returns only from its own catch-all, which it enters only on a state that
      is not `MStep`. It is spelled out because `execute`'s return type is
@@ -328,6 +387,17 @@ let insert_impl =
 let run_impl (c : any) : any =
   match Hoop_Runtime.execute apply_full apply_fast (magic c : comp) with
   | Hoop_Runtime.MDone value -> value
+  | Hoop_Runtime.MStuck (eff, op) when eff = Hoop_Runtime_Semantics.var_eff ->
+      throw
+        ("hoop: the prompt-local cell '" ^ op
+         ^ "' was read or written outside the scope that created it.\n\
+            A cell lives in a stack frame, by value, for exactly as long as the \
+            computation its `new` wraps: a handle that outlives that frame -- \
+            returned out of the body, or carried by a continuation resumed \
+            below the `new` -- names no cell at all.\n\
+            The blame is the program's, not the runtime's: `Hoop.Runtime.execute` \
+            has no precondition, and it is proved to stop where the reference \
+            machine stops, so this is a real escape rather than a lost frame.")
   | Hoop_Runtime.MStuck (eff, op) ->
       throw ("hoop: Unhandled effect operation '" ^ eff ^ "." ^ op ^ "'")
   | Hoop_Runtime.MStep (_, _, _) ->
@@ -344,6 +414,9 @@ let () =
   export "performImpl" (wrap_callback perform_impl);
   export "withImpl" (wrap_callback with_impl);
   export "runImpl" (wrap_callback run_impl);
+  export "newCellImpl" (wrap_callback new_cell_impl);
+  export "readCellImpl" (wrap_callback read_cell_impl);
+  export "writeCellImpl" (wrap_callback write_cell_impl);
   (* Already JS closures -- do not wrap_callback these. *)
   export "mkFullClauseImpl" mk_full_clause_impl;
   export "mkFastClauseImpl" mk_fast_clause_impl;
