@@ -138,7 +138,7 @@ instance EffNewtype Emit Emit'
 ```
 
 This specifies that the Emit effect contains a single operation, `emit`.
-Notice that the signature of the emit operation uses a weired `->*` arrow. This indicates that `emit` is not a standard function, but an **effectful operation**. This signature conveys two pieces of information:
+Notice that the signature of the emit operation uses a weird `->*` arrow. This indicates that `emit` is not a standard function, but an **effectful operation**. This signature conveys two pieces of information:
 
 * `emit` is invoked with a `Unit` argument -- meaning the handler for the emit action takes `Unit` as its payload.
 * The handler must supply an `Int` value when resuming the captured continuation.
@@ -186,7 +186,7 @@ program2 :: Hoop (EMIT + STATE Int) Unit
 program2 = do
   s0 <- perform @(STATE _) @"get" unit
   n1 <- perform @(EMIT ()) @"emit" unit
-  n2 @- perform @(EMIT ()) @"emit" unit
+  n2 <- perform @(EMIT ()) @"emit" unit
   n3 <- perform @(EMIT ()) @"emit" unit
   put (s0 + n3)
   pure $ map (_ + s0) [n1, n2, n3]
