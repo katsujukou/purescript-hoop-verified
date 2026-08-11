@@ -124,6 +124,11 @@ let tag_clause (eff : string) (op : string) (c : any) : any Hoop_Runtime.clause 
    result never contains a duplicate (eff, op) pair. The conversion happens once
    per Handle, not once per perform.
 
+   The table itself is built by Hoop_Runtime.mk_runtime_handlers rather than by
+   Hoop_Runtime_Handlers.mk_handlers, which takes a classifier: this boundary
+   must not get to say what kind a clause is, or "every clause here is fast"
+   would be an assertion rather than a reading of the tag it just attached.
+
    This is the loop the jsoo build paid `caml_string_of_jsstring` for, once per
    key: here `string_of_jsstring` is `%identity`. *)
 let handlers_of_js (o : any) : (string * string * any Hoop_Runtime.clause) list =
@@ -164,7 +169,7 @@ let withImpl (ret : any) (handlers : any) (body : any) : any =
     else Some (fun (x : any) -> (magic (call1 ret x) : comp))
   in
   inject
-    (Hoop_Runtime_Syntax.Handle (Hoop_Runtime_Handlers.mk_handlers hs, r, magic body)
+    (Hoop_Runtime_Syntax.Handle (Hoop_Runtime.mk_runtime_handlers hs, r, magic body)
       : comp)
 
 (* --- Prompt-local cells --------------------------------------------------- *)

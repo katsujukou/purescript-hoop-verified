@@ -88,6 +88,34 @@ type clause (cl: Type u#a) : Type u#a =
   | Full : c:cl -> clause cl
   | Fast : c:cl -> clause cl
 
+(**
+ * **The classifier the shipping path uses.** `Hoop.Runtime.Handlers` is
+ * polymorphic in the clause type and so cannot read a tag; this is the layer
+ * that owns the tags, and this is where the two meet. It is a *definition*, not
+ * an assumption: nothing outside F* gets to say what kind a clause is.
+ *
+ * `KScoped` has no arm yet because `clause` has no `Scoped` constructor yet.
+ * When it gains one this match stops being exhaustive and the build says so --
+ * which is the point of classifying here rather than at the boundary.
+ *)
+let classify_runtime_clause (#cl: Type) (c: clause cl) : Tot clause_kind =
+  match c with
+  | Full _ -> KFull
+  | Fast _ -> KFast
+
+(**
+ * **The table constructor the FFI must call.**
+ *
+ * `Handlers.mk_handlers` takes the classifier as an argument, so a boundary
+ * allowed to call it directly could supply its own -- `fun _ -> KFast` would
+ * declare every table borrowable, and nothing downstream could tell. This
+ * wrapper fixes it, and a build guard is what keeps the direct call out of
+ * `runtime/ml/melange/hoop_ffi.ml`.
+ *)
+let mk_runtime_handlers (#cl: Type) (entries: list (entry (clause cl)))
+  : Tot (handlers (clause cl))
+  = mk_handlers classify_runtime_clause entries
+
 let ct (v: Type) (cl: Type) = comp_tree v (clause cl)
 let rframe (v cl: Type) = frame v (clause cl)
 let rstack (v cl: Type) = stack v (clause cl)
@@ -1032,7 +1060,9 @@ let mstep
 (*  agreeing with `find_prompt` means agreeing on all three components.  *)
 (* ------------------------------------------------------------------ *)
 
-let fp_same (#v #cl: Type) (o1 o2: option (stack v cl & cl & stack v cl)) : prop =
+let fp_same (#v #cl: Type)
+    (o1 o2: option (stack v cl & found_clause cl & stack v cl))
+  : prop =
   match o1, o2 with
   | None, None -> True
   | Some (_, c1, b1), Some (_, c2, b2) -> c1 == c2 /\ b1 == b2
@@ -1048,16 +1078,21 @@ let fp_param (#v #cl: Type) (eff op: string) (l: string) (x: v) (k: stack v cl)
   : Lemma (fp_same (find_prompt eff op (ParamF l x :: k)) (find_prompt eff op k))
   = ()
 
-(** **A prompt that handles the action stops the search there.** *)
+(** **A prompt that handles the action stops the search there.** The hypothesis
+    is still `lookup_clause` -- that is what `handles` and the machine ask -- and
+    the answer names `lookup_handler`, which is what the search now carries. The
+    coherence lemma is what joins them, and this is the only place on the machine
+    side that spends it. *)
 let fp_prompt_hit
     (#v #cl: Type) (eff op: string)
     (hs: handlers cl) (ret: option (v -> comp_tree v cl)) (k: stack v cl)
   : Lemma
       (requires Some? (lookup_clause hs eff op))
       (ensures
+        Some? (lookup_handler hs eff op) /\
         find_prompt eff op (PromptF hs ret :: k)
-          == Some ([PromptF hs ret], Some?.v (lookup_clause hs eff op), k))
-  = ()
+          == Some ([PromptF hs ret], Some?.v (lookup_handler hs eff op), k))
+  = lookup_handler_agrees hs eff op
 
 (**
  * **A captured segment finds its own prompt, on whatever is stacked below it.**
@@ -1077,7 +1112,8 @@ let rec fp_cap_append (#v #cl: Type) (eff op: string) (k: stack v cl) (x: stack 
   = match k with
     | [] -> ()
     | PromptF hs ret :: rest ->
-        (match lookup_clause hs eff op with
+        lookup_handler_agrees hs eff op;
+        (match lookup_handler hs eff op with
           | Some _ -> ()
           | None -> fp_cap_append eff op rest x)
     | _ :: rest -> fp_cap_append eff op rest x
@@ -1089,7 +1125,7 @@ let fp_prompt_miss
   : Lemma
       (requires None? (lookup_clause hs eff op))
       (ensures fp_same (find_prompt eff op (PromptF hs ret :: k)) (find_prompt eff op k))
-  = ()
+  = lookup_handler_agrees hs eff op
 
 (* ------------------------------------------------------------------ *)
 (*  7.  Environment / stack correspondence                             *)
@@ -1220,7 +1256,7 @@ let lookup_find_ok (#v #cl: Type) (eff op: string) (k: rstack v cl) : GTot prop 
   | None, None -> True
   | Some ev, Some (cap, c, below) ->
       PromptF? ev.E.prompt /\
-      lookup_clause (PromptF?.hs ev.E.prompt) eff op == Some c /\
+      lookup_handler (PromptF?.hs ev.E.prompt) eff op == Some c /\
       ev.E.below `E.equiv` env_of_stack below
   | _ -> False
 
@@ -1336,6 +1372,10 @@ let rec msplit_agrees (#v #cl: Type) (eff op: string) (kk: mstack v cl) (k: rsta
         msplit_agrees eff op r kr
     | MPromptF hs ret :: r ->
         let Some kr = erase_k r in
+        // The machine branches on `lookup_clause` -- that is the lookup `mstep`
+        // runs, and the one this walk must agree with -- while the reference
+        // search branches on `lookup_handler`. This is where the two are joined.
+        lookup_handler_agrees hs eff op;
         (match lookup_clause hs eff op with
           | Some _ -> fp_prompt_hit eff op hs ret kr
           | None -> msplit_agrees eff op r kr)
@@ -1420,7 +1460,7 @@ let mrepl_ok
 let envf_rebuild
     (#v #cl: Type) (e o: string) (sv': menv v cl)
     (r': mstack v cl) (kr: rstack v cl)
-    (cap below x: rstack v cl) (c: clause cl)
+    (cap below x: rstack v cl) (c: found_clause (clause cl))
   : Lemma
       (requires
         find_prompt e o kr == Some (cap, c, below) /\
@@ -1597,9 +1637,9 @@ let ref_perform_shape
       (ensures
         (match find_prompt eff op k with
           | None -> True
-          | Some (captured, clause, below) ->
+          | Some (captured, found, below) ->
             step (desugar af afast) (Step (Perform eff op payload) k)
-              == Step (desugar af afast clause payload (kont_of captured)) below))
+              == Step (desugar af afast found.body payload (kont_of captured)) below))
   = MT.step_perform eff op payload k (desugar af afast)
 
 (** **A full clause runs in one reference step**, with the desugaring resolved
@@ -1611,12 +1651,12 @@ let ref_full_one
       (ensures
         (match find_prompt eff op k with
           | None -> True
-          | Some (captured, clause, below) ->
+          | Some (captured, found, below) ->
             steps (desugar af afast) 1 (Step (Perform eff op payload) k)
-              == Step (desugar af afast clause payload (kont_of captured)) below))
+              == Step (desugar af afast found.body payload (kont_of captured)) below))
   = match find_prompt eff op k with
     | None -> ()
-    | Some (captured, clause, below) ->
+    | Some (captured, found, below) ->
       assert (handled_in eff op k);
       assert (steps (desugar af afast) 1 (Step (Perform eff op payload) k)
               == step (desugar af afast) (Step (Perform eff op payload) k));
@@ -1630,15 +1670,15 @@ let ref_fast_two
       (ensures
         (match find_prompt eff op k with
           | None -> True
-          | Some (captured, clause, below) ->
-            (match clause with
+          | Some (captured, found, below) ->
+            (match found.body with
               | Full _ -> True
               | Fast c0 ->
                 steps (desugar af afast) 2 (Step (Perform eff op payload) k)
                   == Step (afast c0 payload) (BindF (kont_of captured) :: below))))
   = match find_prompt eff op k with
     | None -> ()
-    | Some (captured, clause, below) ->
+    | Some (captured, found, below) ->
       assert (handled_in eff op k);
       ref_perform_shape af afast eff op payload k
 
@@ -1654,7 +1694,7 @@ let ref_envf_two
       (ensures
         (match find_prompt eff op k with
           | None -> True
-          | Some (captured, clause, below) ->
+          | Some (captured, found, below) ->
             steps (desugar af afast) 2
               (Step (Var value) (BindF (kont_of captured) :: below))
               == Step (Var value) k))
@@ -1724,6 +1764,9 @@ let msim_perform
       // `lookup_find` says the payload is a prompt -- a cell binds a `VarKey`
       // and this is an `OpKey` -- so `mstep`'s `ParamF` branch is dead.
       assert (PromptF? ev.E.prompt);
+      // `mstep` dispatches on `lookup_clause`; `lookup_find` reports what the
+      // reference search carries, which is the `found_clause`. Same clause.
+      lookup_handler_agrees (PromptF?.hs ev.E.prompt) eff op;
       (match lookup_clause (PromptF?.hs ev.E.prompt) eff op with
         | None -> ()
         | Some (Fast c0) ->

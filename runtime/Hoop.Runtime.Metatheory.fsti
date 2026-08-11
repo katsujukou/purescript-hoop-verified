@@ -42,8 +42,9 @@ let find_prompt_last_correctness
           Cons? cap /\
           // captured continuation has the prompt as the last element
           PromptF? (last cap) /\
-          // and that prompt is for the same handler clause 
-          lookup_clause (PromptF?.hs (last cap)) eff op == Some c
+          // and that prompt is for the same handler clause -- clause AND kind,
+          // since the search carries both and they came from this one table.
+          lookup_handler (PromptF?.hs (last cap)) eff op == Some c
       )
 
 val find_prompt_last
@@ -145,9 +146,9 @@ val lookup_clause_none
   : Lemma
       (requires handled_in eff op k)
       (ensures
-          (let Some (captured, clause, below) = find_prompt eff op k in
+          (let Some (captured, found, below) = find_prompt eff op k in
               (step apply (Step (Perform eff op payload) k) ==
-                  Step (apply clause payload (kont_of captured)) below) /\
+                  Step (apply found.body payload (kont_of captured)) below) /\
               // The stack is preserved -- a consequence of `find_prompt_partitions`.
               captured @ below == k))
 

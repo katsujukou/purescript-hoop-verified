@@ -953,6 +953,17 @@ effect group may dedup and reorder. Success reads one emptiness test; failure
 hands the list straight to the message; and there is no boolean that can
 disagree with the offenders.
 
+*Cached or not — the initial realisation is on demand.* This section originally
+said "cache". What shipped computes `blocking_effects` when asked. **Initial
+realisation: computed on demand, until `Weave` provides a real access pattern
+and a benchmark.** Caching at `mk_handlers` time would put a walk on every
+`Handle` — the operation `benchmarks/src/Benchmarks/CatchInstall.purs` measures,
+and one that a closure-capturing `catch` pays on every call — to precompute an
+answer nothing asks for yet. If `Weave` turns out to be frequent, the same
+table's answer gets recomputed repeatedly and the trade reverses. The refinement
+is identical either way, so it can become a field with nothing downstream to
+revisit; this is a realisation choice, not a decision.
+
 #### The borrow check is one pass over `prepared`
 
 `borrowable_prefix` / `blocking_prefix` inspect every `PromptF` **but the last**
@@ -1120,6 +1131,36 @@ must be written in JS.
 
 The hazard is about partially applied shapes reaching PureScript, and about
 OCaml functions that return functions — not about function-typed arguments.
+
+## A standing constraint: the shim fixes the vocabulary of extracted code
+
+Found while implementing the lookup substrate, and recorded here because it will
+be hit again in Decisions 6 and 7 — building a `Rejected`, walking
+`borrowable_prefix` — and because the failure mode is a confusing build error
+rather than anything that names the cause.
+
+> **Every computational definition in an extracted module may use only
+> operations the handwritten shim realises, even where JavaScript tree-shaking
+> would later remove it.**
+
+The "even where" is the part that surprises. The constraint bites at OCaml /
+Melange typecheck and link time, which happens *before* esbuild decides what
+survives; a definition nothing calls still has to compile. So "it gets tree-
+shaken anyway" is not an argument.
+
+What this cost in practice, in one small module:
+
+| written naturally | why it fails | written instead |
+|---|---|---|
+| `Nil? xs` | extracts to `Prims.uu___is_Nil`, which `runtime/ml/shim/Prims.ml` does not realise | `match xs with [] -> true \| _ -> false` |
+| `not b`, `a && b` | `op_Negation` and friends, likewise absent | explicit matches |
+| `k <> KFast` | extracts to `caml_notequal`, a *generic* comparison — build guard (c) fires | a tag match |
+
+The last one is the interesting one: it would not have failed to compile, it
+would have failed the guard that exists to keep `caml_compare_val` out of the
+bundle. The three constraints are of two different kinds — the shim's coverage
+and the guards' — and both are the price of a small trusted base, which is the
+right price to pay. It is worth knowing before writing rather than after.
 
 ## Prior art, checked against primary sources
 
@@ -1473,7 +1514,117 @@ capability necessary and sufficient for the `catch` / `once` fragment*, and is
 not a claim about scoped operations in general. The bind gate below may add a
 third; it must not be read as overturning this one.
 
-### The next gate: dependent sequencing, before `bracket`
+### The bind gate: run, and it added one operation
+
+Same module. Dependent sequencing was isolated from `bracket` first, so that a
+failure would be attributable to a missing operation rather than to resource
+semantics.
+
+**Criterion 1 — the two operations fail.** Writing `ThenScope`'s clause with
+only `runScope` and `resumeScope` is rejected:
+
+```text
+[ERROR InfiniteType] An infinite type was inferred: ctx2 t0
+  while trying to match type t1 with type t0
+```
+
+— `cxa :: ctx a` being asked to serve as the `a` that `next` consumes.
+
+**Criteria 2–5 — one operation fixes it, and no more.**
+
+```purescript
+bindScope :: forall x y. ctx x -> (x -> Hoop inner y) -> Hoop r (f (ctx y))
+```
+
+typechecks the clause. Nothing that *observes* `ctx` was required (3); no
+`pureScope` was required (4); and the distinction is in the types (5) —
+`runScope` starts from the initial context, `bindScope` continues from the one a
+preceding computation produced.
+
+`bindScope` does **not** break the abstraction: its function argument is
+`x -> Hoop inner y`, over the value rather than over `ctx x`. The clause still
+never sees inside; the machine is what re-enters the intervening prompts and
+applies the function there.
+
+**Minimality.** The three roles do not overlap — `runScope` introduces a
+context, `bindScope` extends one, `resumeScope` eliminates one onto the
+continuation — and none is derivable from the others **parametrically, over
+this interface**: `bindScope` needs a `ctx x` to start from and only `runScope`
+produces one, while `runScope` is unreachable from `bindScope` without a
+`pureScope` that nothing has asked for.
+
+The qualification is load-bearing. What typechecking establishes is
+underivability *by a clause that may use only what it is handed*. It says
+nothing about the language at large, where `unsafeCoerce`, bottom, or simply
+adding a `pureScope` would each change the answer. Absolute underivability is
+not what was checked and should not be claimed.
+
+So the capability is **three operations**, and the earlier "two suffice" stands
+as exactly what it was scoped to: necessary and sufficient for the
+`catch` / `once` fragment, which does no dependent sequencing.
+
+### `bracket` demanded nothing further — and why that matters
+
+Run as a pure expressiveness probe, `bracket alloc use release` typechecks with
+the same three operations, because `use` and `release` are sequenced **inside
+`Hoop inner`**:
+
+```purescript
+bindScope cres \res -> use res >>= \v -> release res >>= \_ -> pure v
+```
+
+One `bindScope`; the ordering is the inner monad's.
+
+Two things follow, and both are worth recording.
+
+*A trap for the surface documentation.* Sequencing them in the tactics layer
+instead — two `bindScope` calls on the same `cres` — **also typechecks, and is
+wrong**: it re-enters the intervening context twice, which for a
+nondeterministic `ctx` duplicates branches.
+
+*Release guarantees are a different problem, confirmed rather than assumed.*
+Inner sequencing buys "release runs after use, if use returns normally". It
+cannot buy "release runs even when use fails, or when the continuation is
+abandoned" — no arrangement of these three operations expresses that. It needs
+finalizer frames in the machine, **not a fourth tactic**.
+
+And it is not an *async* problem, though the implementation milestone currently
+sits in `2026-08-11-async-suspend-roadmap.md`. A finalizer is equally required
+by a synchronous throw, by a clause that discards its continuation, and by a
+multi-shot branch that abandons one of its copies — all of which this runtime
+already has, with no suspension anywhere. **Resource-unwind semantics is
+conceptually independent of asynchrony**; it is scheduled alongside cancellation
+only because that is where the two must agree.
+
+### The gate is closed
+
+Nothing further to probe at the type level. What comes out of it, for the
+production API:
+
+| prototype | published as |
+|---|---|
+| `ScopeTacticsB` (three operations) | `ScopeTactics` |
+| `GeneralScopedClauseB` | `ScopedClause` |
+| `ScopeTactics` (two operations) | not published — kept as the record of what the `catch` / `once` fragment alone needs |
+
+**And this does not make the borrowable milestone heavier.** There
+`ctx ~ Identity`, so the three operations are implementable on prompt borrowing
+exactly as it stands:
+
+```purescript
+runScope body    = weave body
+bindScope cx g   = runScope (g cx)
+resumeScope cx k = continue k cx
+```
+
+`Identity` vanishes at run time, so no cost is paid for the generality.
+Publishing the three-operation shape now is what stops every scoped clause from
+being rewritten when arbitrary prompt weaving arrives — at which point `ctx`
+becomes a real intervening context, and the *machine-side* implementations of
+`bindScope` and `resumeScope` become the research problem rather than the
+surface.
+
+### The gate as originally stated
 
 `bracket alloc use release` is the shape that would force a general
 `bindScope`, but it carries release guarantees, failure paths and continuation

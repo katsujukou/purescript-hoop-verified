@@ -52,6 +52,18 @@ type tcl =
      into a list -- the `choice` handler of the fixtures at the bottom. *)
   | CBoth : tcl
 
+(**
+ * The table constructor the *reference* fixtures use.
+ *
+ * They run at the raw clause type `tcl`, which carries no tag, and the reference
+ * machine never asks what kind a clause is -- so the classifier is arbitrary and
+ * this one says as much by being constant. The machine fixtures further down do
+ * not use it: they run at `M.clause tcl` and go through
+ * `M.mk_runtime_handlers`, which fixes the real classifier, so what they
+ * exercise is the table the shipped runtime builds.
+ *)
+let mkh (#cl: Type) (l: list (entry cl)) : handlers cl = mk_handlers (fun _ -> KFull) l
+
 let tapply (c: tcl) (payload: list tv) (k: (tv -> comp_tree tv tcl)) : comp_tree tv tcl =
   match c with
   | CConst v -> k v
@@ -91,7 +103,7 @@ let _ =
 (* ---- 2. Basic handler: the perform reaches it ---- *)
 
 let reader (n: int) (body: comp_tree tv tcl) : comp_tree tv tcl =
-  Handle (mk_handlers [("Reader", "ask", CConst (VI n))]) None body
+  Handle (mkh [("Reader", "ask", CConst (VI n))]) None body
 
 let _ =
   assert_norm
@@ -114,7 +126,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle (mk_handlers [("Reader", "ask", CConst (VI 1))])
+    (result (exec (Handle (mkh [("Reader", "ask", CConst (VI 1))])
                   (Some (fun _ -> Var (VS "wrapped")))
                   (Op (Perform "Reader" "ask" []) (fun n -> Var n))))
       == Some (VS "wrapped"))
@@ -125,7 +137,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle (mk_handlers [("Exc", "throw", CAbort (VS "boom"))])
+    (result (exec (Handle (mkh [("Exc", "throw", CAbort (VS "boom"))])
                   (Some (fun _ -> Var (VS "should not run")))
                   (Op (Perform "Exc" "throw" []) (fun _ -> Var (VS "should not run either")))))
       == Some (VS "boom"))
@@ -146,7 +158,7 @@ let _ =
 let _ =
   assert_norm
     (result (exec (reader 1
-                  (Handle (mk_handlers [("Other", "op", CConst VU)])
+                  (Handle (mkh [("Other", "op", CConst VU)])
                           None
                           (Op (Perform "Reader" "ask" []) (fun n -> Var n)))))
       == Some (VI 1))
@@ -157,7 +169,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle (mk_handlers [("Amb", "flip", CTwice)])
+    (result (exec (Handle (mkh [("Amb", "flip", CTwice)])
                   None
                   (Op (Perform "Amb" "flip" []) (fun n -> Var (vadd n (VI 100))))))
       == Some (VI 102))
@@ -168,7 +180,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle (mk_handlers [("Echo", "say", CEcho)])
+    (result (exec (Handle (mkh [("Echo", "say", CEcho)])
                   None
                   (Op (Perform "Echo" "say" [VS "hello"]) (fun s -> Var s))))
       == Some (VS "hello"))
@@ -195,7 +207,7 @@ let ret1000:option (tv -> comp_tree tv tcl) = Some (fun v -> Var (vadd v (VI 100
 
 let _ =
   assert_norm
-    (result (exec (Handle (mk_handlers [("ask", "ask", CConst (VI 1))]) ret1000 (Perform "ask" "ask" [])))
+    (result (exec (Handle (mkh [("ask", "ask", CConst (VI 1))]) ret1000 (Perform "ask" "ask" [])))
       == Some (VI 1001))
 
 
@@ -204,7 +216,7 @@ let _ =
 
 let _ =
   assert_norm
-    (result (exec (Handle (mk_handlers [("ask", "ask", CResumeAdd (VI 1) (VI 100))])
+    (result (exec (Handle (mkh [("ask", "ask", CResumeAdd (VI 1) (VI 100))])
                   ret1000
                   (Perform "ask" "ask" [])))
       == Some (VI 1101))
@@ -270,7 +282,7 @@ let mresult (#cl: Type) (q: M.mstate tv cl) : option tv =
   | _ -> None
 
 let reader_t (n: int) (body: tct) : tct =
-  Handle (mk_handlers [("Reader", "ask", M.Full (CConst (VI n)))]) None body
+  Handle (M.mk_runtime_handlers [("Reader", "ask", M.Full (CConst (VI n)))]) None body
 
 
 
@@ -309,7 +321,7 @@ let _ = assert_norm (mresult (texec_m prog_shadow) == Some (VI 2))
 (* 16. Escape: a level that does not bind the key must not intercept it *)
 
 let prog_escape: tct =
-  reader_t 1 (Handle (mk_handlers [("Other", "op", M.Full (CConst VU))])
+  reader_t 1 (Handle (M.mk_runtime_handlers [("Other", "op", M.Full (CConst VU))])
                      None
                      (Op (Perform "Reader" "ask" []) (fun n -> Var n)))
 
@@ -323,7 +335,7 @@ let _ = assert_norm (mresult (texec_m prog_escape) == Some (VI 1))
    frozen at installation time would cut one frame too many. *)
 
 let prog_twice: tct =
-  Handle (mk_handlers [("Amb", "flip", M.Full CTwice)])
+  Handle (M.mk_runtime_handlers [("Amb", "flip", M.Full CTwice)])
          None
          (Op (Perform "Amb" "flip" []) (fun n -> Var (vadd n (VI 100))))
 
@@ -336,7 +348,7 @@ let _ = assert_norm (mresult (texec_m prog_twice) == Some (VI 102))
    second resumption carries a prompt of its own and its level is re-derived *)
 
 let prog_twice_nested: tct =
-  Handle (mk_handlers [("Amb", "flip", M.Full CTwice)])
+  Handle (M.mk_runtime_handlers [("Amb", "flip", M.Full CTwice)])
          None
          (reader_t 5
            (Op (Perform "Amb" "flip" [])
@@ -436,7 +448,7 @@ let fexec_m (p: fct) : M.mstate tv fcl = M.msteps faf fafast 1000 (M.mload p)
    result. Reader.ask, the canonical tail-resumptive operation. *)
 
 let fprog_basic: fct =
-  Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 42)))])
+  Handle (M.mk_runtime_handlers [("Reader", "ask", M.Fast (FRet (VI 42)))])
          None
          (Op (Perform "Reader" "ask" []) (fun n -> Var n))
 
@@ -451,7 +463,7 @@ let _ = assert_norm (mresult (fexec_m fprog_basic) == Some (VI 42))
    frame. *)
 
 let fprog_deep: fct =
-  Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 7)))])
+  Handle (M.mk_runtime_handlers [("Reader", "ask", M.Fast (FRet (VI 7)))])
          None
          (Op (Perform "Reader" "ask" [])
              (fun a -> Op (Perform "Reader" "ask" []) (fun b -> Var (vadd a b))))
@@ -468,9 +480,9 @@ let _ = assert_norm (mresult (fexec_m fprog_deep) == Some (VI 14))
    installed in. 1005, not 1100. *)
 
 let fprog_masked: fct =
-  Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 5)))]) None
-    (Handle (mk_handlers [("Log", "emit", M.Fast (FAsk (VI 1000)))]) None
-      (Handle (mk_handlers [("Reader", "ask", M.Fast (FRet (VI 100)))]) None
+  Handle (M.mk_runtime_handlers [("Reader", "ask", M.Fast (FRet (VI 5)))]) None
+    (Handle (M.mk_runtime_handlers [("Log", "emit", M.Fast (FAsk (VI 1000)))]) None
+      (Handle (M.mk_runtime_handlers [("Reader", "ask", M.Fast (FRet (VI 100)))]) None
         (Op (Perform "Log" "emit" []) (fun r -> Var r))))
 
 let _ = assert_norm (M.erase_st (fexec_m fprog_masked) == Some (fexec fprog_masked))
@@ -486,8 +498,8 @@ let _ = assert_norm (mresult (fexec_m fprog_masked) == Some (VI 1005))
    is what makes the second one safe. *)
 
 let fprog_capture: fct =
-  Handle (mk_handlers [("Amb", "flip", M.Full XTwice)]) None
-    (Handle (mk_handlers [("Log", "emit", M.Fast (FFlip (VI 0)))]) None
+  Handle (M.mk_runtime_handlers [("Amb", "flip", M.Full XTwice)]) None
+    (Handle (M.mk_runtime_handlers [("Log", "emit", M.Fast (FFlip (VI 0)))]) None
       (Op (Perform "Log" "emit" []) (fun r -> Var (vadd r (VI 100)))))
 
 let _ = assert_norm (M.erase_st (fexec_m fprog_capture) == Some (fexec fprog_capture))
@@ -499,8 +511,8 @@ let _ = assert_norm (mresult (fexec_m fprog_capture) == Some (VI 102))
    continuation from underneath a fast one. *)
 
 let fprog_mixed: fct =
-  Handle (mk_handlers [("Exc", "throw", M.Full (XAbort (VS "boom")))]) None
-    (Handle (mk_handlers [("Echo", "say", M.Fast FEcho)])
+  Handle (M.mk_runtime_handlers [("Exc", "throw", M.Full (XAbort (VS "boom")))]) None
+    (Handle (M.mk_runtime_handlers [("Echo", "say", M.Fast FEcho)])
             (Some (fun _ -> Var (VS "should not run")))
       (Op (Perform "Echo" "say" [VS "hello"])
           (fun s -> Op (Perform "Exc" "throw" []) (fun _ -> Var s))))
@@ -560,7 +572,7 @@ let sbody : comp_tree tv tcl =
   Op (ReadP cell) (fun n' -> Var (VP b n')))))
 
 let choice_h (c: comp_tree tv tcl) : comp_tree tv tcl =
-  Handle (mk_handlers [("Choice", "flip", CBoth)]) None c
+  Handle (mkh [("Choice", "flip", CBoth)]) None c
 
 let state_h (c: comp_tree tv tcl) : comp_tree tv tcl = NewP cell (VI 0) c
 
@@ -598,7 +610,7 @@ let sbody_t : tct =
   Op (ReadP cell) (fun n' -> Var (VP b n')))))
 
 let choice_h_t (c: tct) : tct =
-  Handle (mk_handlers [("Choice", "flip", M.Full CBoth)]) None c
+  Handle (M.mk_runtime_handlers [("Choice", "flip", M.Full CBoth)]) None c
 
 let state_h_t (c: tct) : tct = NewP cell (VI 0) c
 
@@ -640,10 +652,81 @@ let _ =
 
 let fprog_cell_masked : fct =
   NewP cell (VI 10)
-    (Handle (mk_handlers [("Log", "emit", M.Fast (FBump cell))]) None
+    (Handle (M.mk_runtime_handlers [("Log", "emit", M.Fast (FBump cell))]) None
       (Op (Perform "Log" "emit" [])
           (fun r -> Op (ReadP cell) (fun n -> Var (VP r n)))))
 
 let _ =
   assert_norm (M.erase_st (fexec_m fprog_cell_masked) == Some (fexec fprog_cell_masked))
 let _ = assert_norm (mresult (fexec_m fprog_cell_masked) == Some (VP (VI 10) (VI 11)))
+
+
+(*
+  ---- 31-34. `blocking_effects`, actually run ----
+
+  These check nothing the interface leaves open. The refinement on
+  `blocking_effects` already says of *every* table exactly which effects the
+  list holds, and the solver discharges all four from it without looking at one
+  character of the realisation -- which is what the `--no_smt` below forbids it
+  from doing.
+
+  What they buy is that the *executable* form reduces at all. Nothing calls
+  `blocking_effects`: the borrowability check belongs to the `Weave` transition,
+  which does not exist yet, so esbuild's tree shaking drops it and it is absent
+  from `src/Hoop/Engine.js` entirely. Every other definition the runtime
+  extracts is exercised by the smoke tests against the shipped bundle; this one
+  has no bundle to be exercised in, and until `Weave` lands these four
+  `assert_norm`s are the only thing that has ever *run* it.
+
+  Hence `--no_smt`, which fails unless the term reduces to the literal on the
+  right, and hence the `friend Hoop.Runtime.Handlers` at the top of this file.
+  Without the friendship the normaliser stops at the abstract
+  `blocking_effects`, the solver quietly finishes the job from the refinement,
+  and every one of these still passes -- as the reading they are not. That was
+  checked, in a module that does not friend: `--no_smt` reports the whole
+  application unreduced.
+
+  33 and 34 are the pair that earns its place. `blocking_effects` is stated
+  through `lookup_handler` and not over the entry list, so a table binding one
+  operation twice is judged on the entry that would actually be dispatched --
+  Decision 7 of the scoped-effects design note. The two tables differ only in
+  which of the two entries comes first, and the answer flips with it: a `Full`
+  clause shadowed by a `Fast` one blocks nothing. Nothing else in this suite
+  pins that.
+
+  Built with `M.mk_runtime_handlers`, as 13-30 are, so what they run over is the
+  table the shipped runtime builds and the kinds are the real classifier's --
+  `mkh`'s constant `fun _ -> KFull` would make every table block.
+*)
+
+(* 31. Every clause tail-resumptive: nothing blocks. *)
+
+let bh_all_fast : handlers (M.clause tcl) =
+  M.mk_runtime_handlers [("Reader", "ask", M.Fast (CConst (VI 1)));
+                         ("Log", "emit", M.Fast CEcho)]
+
+(* 32. One full clause among fast ones: its effect, and only its effect. *)
+
+let bh_one_full : handlers (M.clause tcl) =
+  M.mk_runtime_handlers [("Reader", "ask", M.Fast (CConst (VI 1)));
+                         ("Exc", "throw", M.Full (CAbort (VS "boom")))]
+
+(* 33. The same operation twice, fast first: the `Full` entry is shadowed, so it
+   is not dispatchable, so it does not block. *)
+
+let bh_fast_over_full : handlers (M.clause tcl) =
+  M.mk_runtime_handlers [("St", "get", M.Fast (CConst (VI 0)));
+                         ("St", "get", M.Full (CConst (VI 9)))]
+
+(* 34. The same two entries, swapped: now the `Full` one is what dispatches. *)
+
+let bh_full_over_fast : handlers (M.clause tcl) =
+  M.mk_runtime_handlers [("St", "get", M.Full (CConst (VI 9)));
+                         ("St", "get", M.Fast (CConst (VI 0)))]
+
+#push-options "--no_smt"
+let _ = assert_norm (blocking_effects bh_all_fast == [])
+let _ = assert_norm (blocking_effects bh_one_full == ["Exc"])
+let _ = assert_norm (blocking_effects bh_fast_over_full == [])
+let _ = assert_norm (blocking_effects bh_full_over_fast == ["St"])
+#pop-options

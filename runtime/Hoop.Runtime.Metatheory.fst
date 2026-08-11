@@ -16,7 +16,10 @@ let rec find_prompt_partitions
   = match k with
     | [] -> ()
     | PromptF hs _ :: rest ->
-      (match lookup_clause hs eff op with
+      // The search branches on `lookup_handler`, `handles` on `lookup_clause`;
+      // the coherence lemma is what makes the two branchings the same one.
+      lookup_handler_agrees hs eff op;
+      (match lookup_handler hs eff op with
         | Some _ -> ()
         | None -> find_prompt_partitions eff op rest)
     | _ :: rest -> find_prompt_partitions eff op rest
@@ -31,7 +34,10 @@ let rec find_prompt_last
   = match k with
     | [] -> ()
     | PromptF hs _ :: rest ->
-      (match lookup_clause hs eff op with
+      // The search branches on `lookup_handler`, `handles` on `lookup_clause`;
+      // the coherence lemma is what makes the two branchings the same one.
+      lookup_handler_agrees hs eff op;
+      (match lookup_handler hs eff op with
         | Some _ -> ()
         | None -> find_prompt_last eff op rest)
     | _ :: rest -> find_prompt_last eff op rest
@@ -46,7 +52,10 @@ let rec find_prompt_innermost
   = match k with
     | [] -> ()
     | PromptF hs _ :: rest ->
-      (match lookup_clause hs eff op with
+      // The search branches on `lookup_handler`, `handles` on `lookup_clause`;
+      // the coherence lemma is what makes the two branchings the same one.
+      lookup_handler_agrees hs eff op;
+      (match lookup_handler hs eff op with
         | Some _ -> ()
         | None ->
           (find_prompt_last eff op rest;
@@ -87,9 +96,9 @@ let step_perform
   : Lemma
       (requires Some? (find_prompt eff op k))
       (ensures 
-          (let Some (captured, clause, below) = find_prompt eff op k in
+          (let Some (captured, found, below) = find_prompt eff op k in
               (step apply (Step (Perform eff op payload) k) ==
-                  Step (apply clause payload (kont_of captured)) below) /\
+                  Step (apply found.body payload (kont_of captured)) below) /\
               captured @ below == k))
   = find_prompt_partitions eff op k
 
@@ -419,29 +428,33 @@ let pres_perform (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
           (ensures wf_state cok (step apply (Step (Perform eff op payload) k)))
   = ws_perform #v #cl cok (can_in k) eff op payload;
     assert (Some? (find_prompt eff op k));
-    let Some (captured, clause, below) = find_prompt eff op k in
+    let Some (captured, found, below) = find_prompt eff op k in
     step_perform eff op payload k apply;
     find_prompt_partitions eff op k;
     find_prompt_last eff op k;
     assert (captured @ below == k);
     assert (Cons? captured);
-    (* the prompt that owns `clause` is the last frame of `captured` *)
+    (* the prompt that owns `found` is the last frame of `captured` *)
     append_init_last captured;
     append_assoc (init captured) [last captured] below;
     assert (k == init captured @ (last captured :: below));
     assert (PromptF? (last captured));
     let PromptF phs pret = last captured in
-    assert (lookup_clause phs eff op == Some clause);
+    assert (lookup_handler phs eff op == Some found);
+    (* `handler_ok` is stated of `lookup_clause`, which is where the coherence
+       lemma is spent: the clause this prompt dispatches is `found.body`. *)
+    lookup_handler_agrees phs eff op;
+    assert (lookup_clause phs eff op == Some found.body);
     wf_stack_split_prompt cok (can_nothing ()) (init captured) phs pret below;
     assert (handler_ok cok (can_in below) phs);
-    assert (cok (can_in below) clause);
+    assert (cok (can_in below) found.body);
     (* the captured segment is well formed on top of `below` *)
     wf_stack_append cok captured below (can_nothing ());
     assert (wf_stack cok (can_in below) captured);
     let kf : v -> comp_tree v cl = kont_of captured in
     introduce forall (x: v). ws cok (can_in below) (kf x)
     with ws_resumed cok (can_in below) captured x;
-    assert (ws cok (can_in below) (apply clause payload kf))
+    assert (ws cok (can_in below) (apply found.body payload kf))
 #pop-options
 
 (* ------------------------------------------------------------------ *)

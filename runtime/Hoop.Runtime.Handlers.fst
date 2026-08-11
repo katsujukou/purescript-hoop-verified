@@ -238,6 +238,63 @@ let rec glookup (#cl: Type) (g: gtable cl) (eff op: string)
               | None -> glookup rest eff op)
         else glookup rest eff op
 
+(* ------------------------------------------------------------------ *)
+(*  The same two scans, projecting the clause out                      *)
+(*                                                                     *)
+(*  The grouping stores `found_clause cl`, because the kinds are        *)
+(*  computed once when the table is built and never at lookup time.     *)
+(*  `lookup_clause` therefore has a field to read -- but that is ALL it  *)
+(*  has to do: these two return the stored clause directly rather than   *)
+(*  mapping over the option `glookup` returns, so the hot path allocates *)
+(*  exactly what it allocated before this record existed. They are the   *)
+(*  realisation of the interface's insistence that `lookup_clause` is a   *)
+(*  primitive; see the note there.                                      *)
+(* ------------------------------------------------------------------ *)
+
+let rec op_lookup_body (#cl: Type) (ops: list (string & found_clause cl)) (op: string)
+  : Tot (option cl) (decreases ops)
+  = match ops with
+    | [] -> None
+    | (o, f) :: rest -> if o = op then Some f.body else op_lookup_body rest op
+
+let rec glookup_body (#cl: Type) (g: gtable (found_clause cl)) (eff op: string)
+  : Tot (option cl) (decreases g)
+  = match g with
+    | [] -> None
+    | (e, ops) :: rest ->
+        if e = eff
+        then (match op_lookup_body ops op with
+              | Some c -> Some c
+              | None -> glookup_body rest eff op)
+        else glookup_body rest eff op
+
+(* The projecting scan finds what the scan finds, clause for clause. Carried by
+   patterns: both facts are wanted at arbitrary groupings, and the whole point of
+   the duplication is that nothing downstream should have to know about it. *)
+private
+let rec op_lookup_body_spec (#cl: Type) (ops: list (string & found_clause cl)) (op: string)
+  : Lemma
+      (ensures op_lookup_body ops op == map_opt (fun (f: found_clause cl) -> f.body)
+                                                (op_lookup ops op))
+      (decreases ops)
+      [SMTPat (op_lookup_body ops op)]
+  = match ops with
+    | [] -> ()
+    | _ :: rest -> op_lookup_body_spec rest op
+
+private
+let rec glookup_body_spec (#cl: Type) (g: gtable (found_clause cl)) (eff op: string)
+  : Lemma
+      (ensures glookup_body g eff op == map_opt (fun (f: found_clause cl) -> f.body)
+                                                (glookup g eff op))
+      (decreases g)
+      [SMTPat (glookup_body g eff op)]
+  = match g with
+    | [] -> ()
+    | (e, ops) :: rest ->
+        op_lookup_body_spec ops op;
+        glookup_body_spec rest eff op
+
 (**
  * Adding one entry to a grouping, *in front of* whatever is already there for
  * its key: the operation goes to the head of its effect's list, and a new effect
@@ -290,6 +347,35 @@ let rec glookup_group (#cl: Type) (l: list (entry cl)) (eff op: string)
         glookup_group rest eff op;
         glookup_ginsert (group rest) e o c eff op
 
+(**
+ * **Classifying the entry list**, once, on the way into the grouping.
+ *
+ * This is where `classify` is spent -- the only place it is ever applied. A
+ * lookup reads a kind that was decided when the table was built, so the cost of
+ * knowing a clause's kind is one field, paid once per `Handle`, and never a
+ * function call on the dispatch path.
+ *)
+let rec map_found (#cl: Type) (classify: cl -> clause_kind) (l: list (entry cl))
+  : Tot (list (entry (found_clause cl))) (decreases l)
+  = match l with
+    | [] -> []
+    | (e, o, c) :: rest -> (e, o, found_of classify c) :: map_found classify rest
+
+(* Classifying commutes with association lookup -- of course it does; it is
+   pointwise. Carried by a pattern because `mk_handlers` needs it at every
+   `(eff, op)` at once. *)
+private
+let rec assoc_map_found (#cl: Type) (classify: cl -> clause_kind) (l: list (entry cl))
+    (eff op: string)
+  : Lemma
+      (ensures assoc_clause (map_found classify l) eff op
+                 == map_opt (found_of classify) (assoc_clause l eff op))
+      (decreases l)
+      [SMTPat (assoc_clause (map_found classify l) eff op)]
+  = match l with
+    | [] -> ()
+    | _ :: rest -> assoc_map_found classify rest eff op
+
 (** The keyset of a grouping: the same shape with the clauses dropped, so the
     environment's copy costs one cell per effect and per operation and never
     retains a clause. *)
@@ -338,14 +424,164 @@ let gkeys_no_var (#cl: Type) (g: gtable cl) (l: string)
   = ()
 
 (* ------------------------------------------------------------------ *)
+(*  What blocks a borrow                                               *)
+(*                                                                     *)
+(*  Walked per effect group, which is the shape the answer is a set of. *)
+(*  The kind of an operation is read through `glookup` ON THE WHOLE     *)
+(*  GROUPING rather than off the group being walked: that is what makes *)
+(*  the equivalence below hold of an arbitrary grouping, one naming an  *)
+(*  effect twice included, and it costs nothing on a grouping built by  *)
+(*  `group`, which names each effect once.                             *)
+(* ------------------------------------------------------------------ *)
+
+(* Matched rather than compared. `<>` at `clause_kind` would extract to OCaml's
+   polymorphic disequality -- `caml_notequal`, a structural walk -- which guard
+   (c) of scripts/build-runtime.sh forbids in the bundle, and rightly: the
+   machine compares nothing but labels. This is a tag test. *)
+let is_fast (k: clause_kind) : Tot bool =
+  match k with
+  | KFast -> true
+  | _ -> false
+
+(* Does any operation of this group dispatch to a clause that is not `KFast`?
+   Written with nested `if`s and no `not`: the extracted runtime links against
+   `runtime/ml/shim/Prims.ml`, which realises only what the machine needs, and
+   `op_Negation` is not among it. Adding it would grow the hand-written trusted
+   base for a negation. *)
+let rec ops_blocking (#cl: Type)
+    (g: gtable (found_clause cl)) (e: string) (ops: list (string & found_clause cl))
+  : Tot bool (decreases ops)
+  = match ops with
+    | [] -> false
+    | (o, _) :: rest ->
+        (match glookup g e o with
+          | Some f -> if is_fast f.kind then ops_blocking g e rest else true
+          | None -> ops_blocking g e rest)
+
+let rec blocking_groups (#cl: Type) (g0 g: gtable (found_clause cl))
+  : Tot (list string) (decreases g)
+  = match g with
+    | [] -> []
+    | (e, ops) :: rest ->
+        let r = blocking_groups g0 rest in
+        if ops_blocking g0 e ops
+        then (if mem_string e r then r else e :: r)
+        else r
+
+(* The property the interface states of the answer, named so that the two halves
+   below and `blocking_effects` all speak of one predicate. *)
+let blocks (#cl: Type) (g: gtable (found_clause cl)) (e: string) : prop =
+  exists (o: string) (f: found_clause cl). glookup g e o == Some f /\ f.kind =!= KFast
+
+private
+let rec ops_blocking_sound (#cl: Type)
+    (g: gtable (found_clause cl)) (e: string) (ops: list (string & found_clause cl))
+  : Lemma (requires ops_blocking g e ops) (ensures blocks g e) (decreases ops)
+  = match ops with
+    | [] -> ()
+    | (o, _) :: rest ->
+        (match glookup g e o with
+          | Some f ->
+              if is_fast f.kind then ops_blocking_sound g e rest
+              else introduce exists (o': string) (f': found_clause cl).
+                     glookup g e o' == Some f' /\ f'.kind =!= KFast
+                   with o f and ()
+          | None -> ops_blocking_sound g e rest)
+
+private
+let rec ops_blocking_complete (#cl: Type)
+    (g: gtable (found_clause cl)) (e: string) (ops: list (string & found_clause cl))
+    (o: string) (f: found_clause cl)
+  : Lemma
+      (requires (o `mem` op_names ops) /\ glookup g e o == Some f /\ f.kind =!= KFast)
+      (ensures ops_blocking g e ops)
+      (decreases ops)
+  = match ops with
+    | [] -> ()
+    | (o', _) :: rest -> if o' = o then () else ops_blocking_complete g e rest o f
+
+(* A hit really came from a group of this grouping, and the operation is one that
+   group declares. This is what lets the walk over groups be complete: the
+   witness of `blocks` is found by `glookup` somewhere, and "somewhere" is a
+   group the walk visits. *)
+private
+let rec glookup_mem (#cl: Type)
+    (g: gtable (found_clause cl)) (e o: string) (f: found_clause cl)
+  : Lemma
+      (requires glookup g e o == Some f)
+      (ensures exists (ops: list (string & found_clause cl)).
+                 (e, ops) `memP` g /\ (o `mem` op_names ops))
+      (decreases g)
+  = match g with
+    | [] -> ()
+    | (e', ops) :: rest ->
+        if e' = e && Some? (op_lookup ops o)
+        then (mem_op_names ops o;
+              introduce exists (ops': list (string & found_clause cl)).
+                (e, ops') `memP` g /\ (o `mem` op_names ops')
+              with ops and ())
+        else glookup_mem rest e o f
+
+private
+let rec blocking_groups_sound (#cl: Type) (g0 g: gtable (found_clause cl)) (e: string)
+  : Lemma
+      (requires e `mem` blocking_groups g0 g)
+      (ensures blocks g0 e)
+      (decreases g)
+  = match g with
+    | [] -> ()
+    | (e', ops) :: rest ->
+        if e' = e && ops_blocking g0 e' ops
+        then ops_blocking_sound g0 e' ops
+        else blocking_groups_sound g0 rest e
+
+private
+let rec blocking_groups_complete (#cl: Type) (g0 g: gtable (found_clause cl))
+    (e: string) (ops: list (string & found_clause cl)) (o: string) (f: found_clause cl)
+  : Lemma
+      (requires (e, ops) `memP` g /\ (o `mem` op_names ops) /\
+                glookup g0 e o == Some f /\ f.kind =!= KFast)
+      (ensures e `mem` blocking_groups g0 g)
+      (decreases g)
+  = match g with
+    | [] -> ()
+    | (e', ops') :: rest ->
+        eliminate ((e', ops') == (e, ops)) \/ ((e, ops) `memP` rest)
+        with ops_blocking_complete g0 e ops o f
+        and  blocking_groups_complete g0 rest e ops o f
+
+(** **The walk reports exactly the blocking effects.** *)
+private
+let blocking_groups_correct (#cl: Type) (g: gtable (found_clause cl))
+  : Lemma (forall (e: string). (e `mem` blocking_groups g g) <==> blocks g e)
+  = introduce forall (e: string). (e `mem` blocking_groups g g) <==> blocks g e
+    with begin
+      introduce (e `mem` blocking_groups g g) ==> blocks g e
+      with blocking_groups_sound g g e;
+      introduce blocks g e ==> (e `mem` blocking_groups g g)
+      with
+        eliminate exists (o: string) (f: found_clause cl).
+          glookup g e o == Some f /\ f.kind =!= KFast
+        with
+          (glookup_mem g e o f;
+           eliminate exists (ops: list (string & found_clause cl)).
+             (e, ops) `memP` g /\ (o `mem` op_names ops)
+           with blocking_groups_complete g g e ops o f)
+    end
+
+(* ------------------------------------------------------------------ *)
 (*  The table                                                          *)
 (* ------------------------------------------------------------------ *)
 
 (* The invariant relating the two derived fields to the entries. Stated with
    `assoc_clause` rather than `lookup_clause`, which is defined against a table
-   and would be circular here. *)
-let table_ok (#cl: Type) (l: list (entry cl)) (g: gtable cl) (ks: keyset) : prop =
-  (forall (eff op: string). glookup g eff op == assoc_clause l eff op) /\
+   and would be circular here.
+   Note which scan the first conjunct names: the CLAUSES the grouping yields are
+   the clauses the entry list yields. It says nothing about the kinds, and there
+   is nothing for it to say -- an arbitrary well-formed table is entitled to
+   whatever kinds it holds, and only `mk_handlers` ties them to a classifier. *)
+let table_ok (#cl: Type) (l: list (entry cl)) (g: gtable (found_clause cl)) (ks: keyset) : prop =
+  (forall (eff op: string). glookup_body g eff op == assoc_clause l eff op) /\
   (forall (eff op: string). contains ks (OpKey eff op) <==> Some? (assoc_clause l eff op)) /\
   (forall (eff op: string).
     ((OpKey eff op) `mem` keyset_view ks) <==> Some? (assoc_clause l eff op)) /\
@@ -367,8 +603,17 @@ let rec entry_keys_correct (#cl: Type) (l: list (entry cl)) (eff op: string)
         entry_keys_correct rest eff op
 
 (**
- * The representation: the entries, the same clauses grouped by effect, and the
- * keyset of that grouping.
+ * The representation: the entries, the same clauses grouped by effect and
+ * carrying the kind the classifier gave them, and the keyset of that grouping.
+ *
+ * *One grouping, not two.* Storing the clauses a second time without their kinds
+ * would keep `lookup_clause` character for character as it was, at the cost of
+ * building and retaining a second copy of the whole structure on every
+ * `Handle` -- and a `Handle` is not rare: a closure-capturing handler such as
+ * `catch` builds a fresh table at every call, which is what the handler
+ * installation benchmark measures. The kind rides along in the record instead,
+ * and `glookup_body` above pays for it with a field read at the hit, not with an
+ * allocation and not with a comparison.
  *
  * A record rather than a tuple, so that the extracted OCaml projects a field of
  * a type declared here instead of calling `FStar_Pervasives_Native.fst` -- the
@@ -383,7 +628,7 @@ let rec entry_keys_correct (#cl: Type) (l: list (entry cl)) (eff op: string)
 noeq
 type htable (cl: Type u#a) : Type u#a = {
   entries : list (entry cl);
-  grouped : gtable cl;
+  grouped : gtable (found_clause cl);
   key_cache : keyset;
 }
 
@@ -395,16 +640,39 @@ let handlers (cl: Type u#a) : Type u#a =
 
 let table #cl hs = hs.entries
 
-let lookup_clause #cl hs eff op = glookup hs.grouped eff op
+let lookup_clause #cl hs eff op = glookup_body hs.grouped eff op
+
+let lookup_handler #cl hs eff op = glookup hs.grouped eff op
+
+(* Both scans descend the same grouping and stop at the same entry; the
+   pattern-carried `glookup_body_spec` is the whole of the argument. *)
+let lookup_handler_agrees #cl hs eff op = ()
 
 let keys #cl hs = hs.key_cache
 
 (* Both derived structures are built here, once per table -- which is once per
-   `Handle` -- and the two patterns above discharge the invariant with no proof
-   term left in the body. *)
-let mk_handlers #cl l =
-  let g = group l in
+   `Handle` -- and the patterns above discharge the invariant with no proof term
+   left in the body. `map_found` is the classifier's one and only application
+   site. *)
+let mk_handlers #cl classify l =
+  let g = group (map_found classify l) in
   { entries = l; grouped = g; key_cache = gkeys g }
+
+(**
+ * **Computed on demand, not cached** -- for now, and the interface cannot tell.
+ *
+ * The design note has this as a cache filled at `mk_handlers` time, beside the
+ * keyset. It is not one yet because nothing calls it yet: the borrowability
+ * check belongs to the `Weave` transition, which does not exist, and until it
+ * does a cache would tax every `Handle` -- the operation the handler
+ * installation benchmark measures -- to precompute an answer no one asks for.
+ * The refinement is what callers see, and it is the same either way, so the day
+ * a weave asks this question often enough to matter the field can be added with
+ * nothing downstream to revisit.
+ *)
+let blocking_effects #cl hs =
+  blocking_groups_correct hs.grouped;
+  blocking_groups hs.grouped hs.grouped
 
 (* ------------------------------------------------------------------ *)
 (*  Derived facts                                                      *)
@@ -416,11 +684,13 @@ let keys_correct #cl hs eff op = ()
 
 let keys_no_var #cl hs l = ()
 
-let table_mk_handlers #cl l = ()
+let table_mk_handlers #cl classify l = ()
 
-let lookup_clause_mk_handlers #cl l eff op = ()
+let lookup_clause_mk_handlers #cl classify l eff op = ()
 
-let keys_mk_handlers #cl l eff op = entry_keys_correct l eff op
+let lookup_handler_mk_handlers #cl classify l eff op = ()
+
+let keys_mk_handlers #cl classify l eff op = entry_keys_correct l eff op
 
 let rec assoc_clause_memP #cl l eff op
   = match l with

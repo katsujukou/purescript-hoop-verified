@@ -2,10 +2,12 @@
  * The handler table -- the dispatch table a `Handle` installs, abstract.
  *
  * A table maps an action -- that is, pair `(eff, op)` to the clause that handles it.
- * The machine asks it exactly two questions: which clause answers this action (
- * `lookup_clause`, on the hot path of `perform`), and which pairs the table binds at all
- * (`keys`, needed once per `Handle` to extend the evidence environment).
- * Nothing else about a table is ever inspected, so the type is abstract and every 
+ * The machine asks it three questions: which clause answers this action (
+ * `lookup_clause`, on the hot path of `perform`), which pairs the table binds at all
+ * (`keys`, needed once per `Handle` to extend the evidence environment), and --
+ * off the hot path, where the answer decides which interpreter a clause is
+ * unwrapped to -- that same clause together with its kind (`lookup_handler`).
+ * Nothing else about a table is ever inspected, so the type is abstract and every
  * specification below is phrased through the ghost view `table` -- as `Hoop.Runtime.Env`
  * is phrased through `levels`.
  *
@@ -80,6 +82,64 @@ type key =
     binds operations only, so the entry names one with its two components rather
     than carrying a `key` that could be a `VarKey`. *)
 let entry (cl: Type u#a) : Type u#a = string & string & cl
+
+(* ------------------------------------------------------------------ *)
+(*  What kind of clause an entry holds                                 *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The kind of a clause, as a flat enumeration** -- deliberately independent of
+ * `cl`.
+ *
+ * A table is polymorphic in the clause type and therefore cannot see a tag:
+ * `Hoop.Runtime.clause`'s `Full` / `Fast` constructors typecheck only where `cl`
+ * is `clause cl0`, which is `Hoop.Runtime` and nowhere else. Anything that has
+ * to *name* a kind while staying `cl`-polymorphic -- scoped dispatch deciding
+ * which interpreter to unwrap to, a boundary rejection reporting the kind it
+ * actually found -- needs a type it can mention, and this is it. The bridge
+ * between the two is a classifier taken once, at `mk_handlers`, in the layer
+ * that owns the tags.
+ *
+ * **`KScoped` is declared now and inhabited later.** `Hoop.Runtime.clause` has
+ * no `Scoped` constructor yet, so no table this repository can build today
+ * classifies an entry as `KScoped`; a later commit adds the constructor and
+ * `Hoop.Runtime.classify_runtime_clause` gains its arm. It is declared here
+ * rather than with that commit so that `blocking_effects` below -- whose
+ * condition is "not `KFast`", not "is `KFull`" -- means the same thing before
+ * and after, and so that adding the constructor does not reopen this type.
+ *)
+type clause_kind =
+  | KFull
+  | KFast
+  | KScoped
+
+(**
+ * **A clause together with its kind**, the shape a lookup that needs both hands
+ * back.
+ *
+ * The point of the record is that the pairing is *structural*: a caller holding
+ * one cannot be looking at a clause from one table and a kind from another, nor
+ * at a kind recomputed by a classifier that has since drifted from the one the
+ * table was built with. That is worth more than the second scan it saves.
+ *)
+type found_clause (cl: Type u#a) : Type u#a = {
+  body : cl;
+  kind : clause_kind;
+}
+
+(** **The classifier, applied.** Named rather than written as a lambda at each
+    use, so that the construction refinement on `mk_handlers` and every proof
+    that reads it speak of one SMT symbol. *)
+let found_of (#cl: Type) (classify: cl -> clause_kind) (c: cl) : found_clause cl =
+  { body = c; kind = classify c }
+
+(** **`option`'s map.** `unfold` so that the specifications below reduce to a
+    `match` the solver can see through rather than to an opaque application. *)
+unfold
+let map_opt (#a #b: Type) (f: a -> b) (o: option a) : option b =
+  match o with
+  | None -> None
+  | Some x -> Some (f x)
 
 (**
  * **First-match association lookup**, the specification of `lookup_clause`.
@@ -172,9 +232,47 @@ val table (#cl: Type) (hs: handlers cl) : GTot (list (entry cl))
  * inside `Hoop.Runtime.WellScopedness.handler_ok` and inside `handles`, both
  * unfolded by the solver on nearly every query, and a fact carried by the type
  * never has to be recalled.
+ *
+ * *This is a primitive of the interface, and it must stay one.* Reading it as
+ * `map_opt (fun f -> f.body) (lookup_handler hs eff op)` would be shorter by a
+ * `val`, by a realisation and by the coherence lemma below -- and it would put
+ * an allocation back on the hot loop. `Hoop.Runtime.mstep`'s ordinary `Perform`
+ * rule reaches its clause through this function and dispatches a `Fast` clause
+ * without ever building a `found_clause`; that record is what the scoped path
+ * pays for, and the scoped path walks the stack anyway. Removing one
+ * polymorphic string comparison from this loop was once worth about 12% of a
+ * State-heavy benchmark, which is the scale a needless record per `perform`
+ * would be measured against.
+ *
+ * The two are therefore realised independently and related by
+ * `lookup_handler_agrees`. A caller loses nothing: what a single combined lookup
+ * would have given definitionally is available here as one lemma call.
  *)
 val lookup_clause (#cl: Type) (hs: handlers cl) (eff op: string)
   : Tot (o: option cl { o == assoc_clause (table hs) eff op })
+
+(**
+ * **The same lookup, with the kind**: for the callers that need to know what
+ * sort of clause they found before they can act on it -- scoped dispatch
+ * choosing an interpreter, a boundary rejection naming what it got, and
+ * `blocking_effects` below.
+ *
+ * Not refined against `table`, because there is nothing to say there that
+ * `lookup_clause`'s refinement and `lookup_handler_agrees` do not already say:
+ * the *kind* half is fixed by the construction refinement on `mk_handlers`, and
+ * only there. The kinds a table reports are exactly the kinds the classifier it
+ * was built with assigns, and no abstract `classify_of : handlers cl -> cl ->
+ * clause_kind` has to be carried around for that to be stated.
+ *)
+val lookup_handler (#cl: Type) (hs: handlers cl) (eff op: string)
+  : Tot (option (found_clause cl))
+
+(** **The two lookups agree on the clause.** The coherence that makes
+    `lookup_handler` a refinement of `lookup_clause` rather than a second,
+    independently fallible search of the same table. *)
+val lookup_handler_agrees (#cl: Type) (hs: handlers cl) (eff op: string)
+  : Lemma (map_opt (fun (f: found_clause cl) -> f.body) (lookup_handler hs eff op)
+             == lookup_clause hs eff op)
 
 let clause_memP (#cl: Type) (c:cl) (hs: handlers cl)
   : prop
@@ -213,11 +311,82 @@ val keys (#cl: Type) (hs: handlers cl)
 
 (**
  * **Building a table from an association list**: the only constructor, and
- * where a realisation pays for its representation -- deriving the key cache or
- * building the nested object -- once per table rather than once per `Handle`.
- * The FFI calls it to convert a PureScript handler record into a machine table.
+ * where a realisation pays for its representation -- deriving the key cache,
+ * building the nested object, classifying the clauses -- once per table rather
+ * than once per `Handle`.
+ *
+ * *Why the classifier is an argument.* It is the one thing a `cl`-polymorphic
+ * table cannot compute for itself, and the one thing that must not be trusted
+ * from the boundary: a `mk_handlers` reachable from the FFI with a classifier of
+ * the FFI's choosing is a trusted input in functional form -- `fun _ -> KFast`
+ * would declare every table borrowable, silently. So the classifier is taken
+ * here, pinned by the refinement below rather than believed, and fixed on the
+ * shipping path by `Hoop.Runtime.mk_runtime_handlers`, which is the only
+ * `mk_handlers` caller the boundary is allowed to name.
+ *
+ * The refinement fixes all three views of the result: the ghost view, the hot
+ * lookup, and the kinds. Only the third mentions `classify`, and it is the only
+ * place in the development that does -- everything else about kinds, including
+ * `blocking_effects`, is derived from `lookup_handler`.
  *)
-val mk_handlers (#cl: Type) (l: list (entry cl)) : Tot (hs: handlers cl { table hs == l })
+val mk_handlers (#cl: Type) (classify: cl -> clause_kind) (l: list (entry cl))
+  : Tot (hs: handlers cl {
+      table hs == l /\
+      (forall (eff op: string). lookup_clause hs eff op == assoc_clause l eff op) /\
+      (forall (eff op: string).
+        lookup_handler hs eff op == map_opt (found_of classify) (assoc_clause l eff op))
+    })
+
+(**
+ * **The effects that stand in the way of a borrow**, as a set.
+ *
+ * A prompt is borrowable -- reinstallable inside a scope without
+ * re-instantiation -- exactly when every clause it can dispatch is `KFast`;
+ * see the scoped-effects design note on why that is a statement about reuse of
+ * the stored representation rather than about tail-resumptiveness. What a
+ * failure has to report is *which* handlers blocked, so what the interface
+ * offers is the list of offending effect labels, and the boolean is derived
+ * from it -- `borrowable` below is a match on this list, not a second answer.
+ * A boolean stored beside a list would be one more thing that can disagree
+ * with it.
+ *
+ * *An abstract projection computed on demand, and not -- unlike `keys` -- a
+ * cache.* That is the initial realisation, and it stands until `Weave` provides
+ * a real access pattern and a benchmark. Caching it at `mk_handlers` time would
+ * put a walk on every `Handle` -- the operation
+ * `benchmarks/src/Benchmarks/CatchInstall.purs` measures, and one a
+ * closure-capturing `catch` pays on every call -- to precompute an answer
+ * nothing asks for yet. If `Weave` turns out to be frequent, the same table's
+ * answer would be recomputed repeatedly and the trade reverses; the refinement
+ * is identical either way, so this can become a field with nothing downstream
+ * to revisit.
+ *
+ * *Stated through `lookup_handler` rather than through the entries.* For a table
+ * whose entry list binds the same operation twice, this judges only the entry
+ * that would actually be dispatched: a shadowed `Full` clause is invisible to
+ * `lookup_clause`, to `clause_memP` and hence to
+ * `Hoop.Runtime.WellScopedness.handler_ok`, so it has no business blocking a
+ * borrow either.
+ *
+ * Pinned **as a set**, exactly as `keys` is, so a realisation walking the table
+ * by effect group may report the labels in any order and need not repeat one.
+ *)
+val blocking_effects (#cl: Type) (hs: handlers cl)
+  : Tot (l: list string {
+      forall (eff: string). eff `mem` l <==>
+        (exists (op: string) (found: found_clause cl).
+          lookup_handler hs eff op == Some found /\ found.kind =!= KFast)
+    })
+
+(** **Borrowability**, derived rather than stored: nothing blocks.
+    `Nil? (blocking_effects hs)` is what this says; it is written as the match
+    because the recognizer extracts to `Prims.uu___is_Nil`, which
+    `runtime/ml/shim/Prims.ml` does not realise -- and the shim exists to stay
+    small. *)
+let borrowable (#cl: Type) (hs: handlers cl) : bool =
+  match blocking_effects hs with
+  | [] -> true
+  | _ -> false
 
 (* ------------------------------------------------------------------ *)
 (*  Derived facts                                                      *)
@@ -249,13 +418,21 @@ val keys_no_var (#cl: Type) (hs: handlers cl) (l: string)
   : Lemma (~(contains (keys hs) (VarKey l)) /\ ~((VarKey l) `mem` keyset_view (keys hs)))
 
 (** **The view of a table built from a list is that list.** *)
-val table_mk_handlers (#cl: Type) (l: list (entry cl))
-  : Lemma (table (mk_handlers l) == l)
+val table_mk_handlers (#cl: Type) (classify: cl -> clause_kind) (l: list (entry cl))
+  : Lemma (table (mk_handlers classify l) == l)
 
 (** **Lookup in a table built from a list is lookup in the list**, the form a
     caller holding a literal table wants. *)
-val lookup_clause_mk_handlers (#cl: Type) (l: list (entry cl)) (eff op: string)
-  : Lemma (lookup_clause (mk_handlers l) eff op == assoc_clause l eff op)
+val lookup_clause_mk_handlers (#cl: Type) (classify: cl -> clause_kind) (l: list (entry cl))
+    (eff op: string)
+  : Lemma (lookup_clause (mk_handlers classify l) eff op == assoc_clause l eff op)
+
+(** **... and the kind it reports is the one the classifier assigns.** The
+    `lookup_handler` counterpart of the above, in the same caller-facing form. *)
+val lookup_handler_mk_handlers (#cl: Type) (classify: cl -> clause_kind) (l: list (entry cl))
+    (eff op: string)
+  : Lemma (lookup_handler (mk_handlers classify l) eff op
+             == map_opt (found_of classify) (assoc_clause l eff op))
 
 (**
  * **The keys of a table built from a list are the keys of the list**, as sets.
@@ -266,8 +443,10 @@ val lookup_clause_mk_handlers (#cl: Type) (l: list (entry cl)) (eff op: string)
  * duplicates of the entry list. What survives is the only thing anything ever
  * asked of it.
  *)
-val keys_mk_handlers (#cl: Type) (l: list (entry cl)) (eff op: string)
-  : Lemma (contains (keys (mk_handlers l)) (OpKey eff op) <==> ((OpKey eff op) `mem` entry_keys l))
+val keys_mk_handlers (#cl: Type) (classify: cl -> clause_kind) (l: list (entry cl))
+    (eff op: string)
+  : Lemma (contains (keys (mk_handlers classify l)) (OpKey eff op)
+             <==> ((OpKey eff op) `mem` entry_keys l))
 
 (** **Association lookup never forges a clause.** The soundness half of
     `Hoop.Runtime.Metatheory.lookup_clause_memP`, stated on the model because

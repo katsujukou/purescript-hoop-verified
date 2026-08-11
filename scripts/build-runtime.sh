@@ -300,6 +300,27 @@ if [ -n "$SYNTAX_BAD" ]; then
   echo "       scoped must not be reachable from the FFI. See the note above." >&2
   exit 1
 fi
+
+#     The same guard, for the handler table. `Hoop_Runtime_Handlers.mk_handlers`
+#     takes a *classifier* -- the function that says whether a clause is `KFull`,
+#     `KFast` or `KScoped` -- and the boundary must not be the one to supply it.
+#     Handing it `fun _ -> KFast` would make "every clause here is borrowable" an
+#     assertion by the TCB rather than a reading of the tag it has just attached,
+#     and the borrowability check would then be checking the boundary's own
+#     claim. `Hoop.Runtime.mk_runtime_handlers` fixes the classifier to
+#     `classify_runtime_clause`, which reads the tag; that is the only route in.
+#
+#     Recorded as a decision in
+#     docs/study-notes/2026-08-11-scoped-effects-detailed-design.md (Decision 7).
+if strip_ocaml_comments "$FFI_SRC" | grep -q 'Hoop_Runtime_Handlers\.mk_handlers'; then
+  echo "ERROR: $FFI_SRC calls Hoop_Runtime_Handlers.mk_handlers directly." >&2
+  echo "       That entry point takes the clause classifier as an argument, so" >&2
+  echo "       calling it from the boundary would let the TCB assert what kind" >&2
+  echo "       each clause is instead of reading the tag it just attached." >&2
+  echo "       Use Hoop_Runtime.mk_runtime_handlers, which fixes the" >&2
+  echo "       classifier to classify_runtime_clause." >&2
+  exit 1
+fi
 # --- 3m. Compile with Melange ----------------------------------------------
 # The repository does not become a dune project: the tree below is generated
 # into build/, used once, and removed by the `rm -rf "$BUILD"` at the top of the

@@ -265,8 +265,8 @@ let op_congr_head
 let fp_shift
     (#v #cl: Type)
     (pre: stack v cl)
-    (o: option (stack v cl & cl & stack v cl))
-  : option (stack v cl & cl & stack v cl)
+    (o: option (stack v cl & found_clause cl & stack v cl))
+  : option (stack v cl & found_clause cl & stack v cl)
   = match o with
     | None -> None
     | Some (cap, c, below) -> Some (pre @ cap, c, below)
@@ -274,8 +274,8 @@ let fp_shift
 let fp_below
     (#v #cl: Type)
     (post: stack v cl)
-    (o: option (stack v cl & cl & stack v cl))
-  : option (stack v cl & cl & stack v cl)
+    (o: option (stack v cl & found_clause cl & stack v cl))
+  : option (stack v cl & found_clause cl & stack v cl)
   = match o with
     | None -> None
     | Some (cap, c, below) -> Some (cap, c, below @ post)
@@ -283,7 +283,7 @@ let fp_below
 let fp_shift_comp
     (#v #cl: Type)
     (a b: stack v cl)
-    (o: option (stack v cl & cl & stack v cl))
+    (o: option (stack v cl & found_clause cl & stack v cl))
   : Lemma (fp_shift a (fp_shift b o) == fp_shift (a @ b) o)
   = match o with
     | None -> ()
@@ -475,7 +475,7 @@ let kont_found_beta
     (#v #cl: Type)
     (eff op: string)
     (k cap: stack v cl)
-    (cls: cl)
+    (cls: found_clause cl)
     (bel: stack v cl)
   : Lemma (requires find_prompt eff op k == Some (cap, cls, bel))
           (ensures forall (y: v). kont_found eff op k y == resumed cap y)
@@ -513,11 +513,11 @@ let step_perform_found
     (eff op: string)
     (payload: list v)
     (k cap: stack v cl)
-    (cls: cl)
+    (cls: found_clause cl)
     (bel: stack v cl)
   : Lemma (requires find_prompt eff op k == Some (cap, cls, bel))
           (ensures step apply (Step (Perform eff op payload) k) ==
-                   Step (apply cls payload (kont_found eff op k)) bel)
+                   Step (apply cls.body payload (kont_found eff op k)) bel)
   = ()
 
 (**
@@ -604,8 +604,8 @@ let rec sim
                 kont_found_beta eff op k1 cap cls (bel @ (d1 @ post));
                 kont_found_beta eff op k2 cap cls (bel @ (d2 @ post));
                 sim apply i j d1 d2 (n - 1) bel post
-                    (apply cls payload (kont_found eff op k1)) x;
-                apply_pointwise apply cls payload (kont_found eff op k1) (kont_found eff op k2);
+                    (apply cls.body payload (kont_found eff op k1)) x;
+                apply_pointwise apply cls.body payload (kont_found eff op k1) (kont_found eff op k2);
                 converges_back apply (Step c k2) x
             | None ->
                 fp_append_out eff op pre (d1 @ post);
@@ -630,7 +630,9 @@ let rec sim
                       step_perform_found apply eff op payload k2 ((pre @ d2) @ capP) cls bel;
                       kont_found_beta eff op k1 ((pre @ d1) @ capP) cls bel;
                       kont_found_beta eff op k2 ((pre @ d2) @ capP) cls bel;
-                      perform_below apply i j d1 d2 n pre post capP cls bel
+                      // `perform_below` only ever feeds its clause to `apply`,
+                      // so it takes the clause and not the search result.
+                      perform_below apply i j d1 d2 n pre post capP cls.body bel
                                     (kont_found eff op k1) (kont_found eff op k2) payload x;
                       converges_back apply (Step c k2) x))
       // Prompt-local state. `no_prompt` forbids a `ParamF` in the replaced
@@ -984,8 +986,10 @@ let lapply_obs_congr () : Lemma (apply_obs_congr lapply)
             op_congr_head lapply n (kf1 0) (kf2 0) (Op?.fn t1)
         | _ -> ())
 
-(** The handler: one clause, which aborts with `-1`, and no return clause. *)
-let lexc : handlers lcl = mk_handlers [("exn", "fail", LAbort (-1))]
+(** The handler: one clause, which aborts with `-1`, and no return clause.
+    `lcl` is the demonstration's own clause type and carries no tag, so the
+    classifier is arbitrary here -- the refutation below never asks for a kind. *)
+let lexc : handlers lcl = mk_handlers (fun _ -> KFull) [("exn", "fail", LAbort (-1))]
 
 (** The operation, and the continuation to be bound to it. *)
 let lperform : comp_tree int lcl = Perform "exn" "fail" []

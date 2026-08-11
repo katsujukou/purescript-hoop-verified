@@ -20,6 +20,85 @@ open Hoop.Runtime.Syntax
 
 type stack (v: Type) (cl: Type) = list (frame v cl)
 
+(* ------------------------------------------------------------------ *)
+(*  Boundary rejections                                                *)
+(*                                                                     *)
+(*  A rejection is NOT a `Stuck`. Keeping the two apart is the whole    *)
+(*  point of the type below, so the distinction is stated once, here,   *)
+(*  and referred to from both constructors.                            *)
+(*                                                                     *)
+(*  `Stuck` means one thing throughout this development: A REQUIRED     *)
+(*  DYNAMIC CAPABILITY IS ABSENT -- an operation no prompt on the stack *)
+(*  handles, or a `read`/`write` with no `ParamF` to reach.             *)
+(*  `Hoop.Runtime.WellScopedness.wf_state` sets that state to `False`,  *)
+(*  and `Hoop.Runtime.Metatheory.progress` PROVES it unreachable from a *)
+(*  well-scoped one.                                                   *)
+(*                                                                     *)
+(*  A rejection is a different failure. The operation IS handled and    *)
+(*  the transition IS defined; what cannot be guaranteed on this side   *)
+(*  of the boundary is the ANSWER-TYPE AGREEMENT the PureScript surface *)
+(*  assumes when it hands a clause over. Folding the two together would *)
+(*  inject that agreement into a theorem which currently says something *)
+(*  else, so the two axes are kept orthogonal:                          *)
+(*                                                                     *)
+(*    well-scopedness               -> never Stuck                     *)
+(*    typed-boundary compatibility  -> never Rejected                  *)
+(*    termination + both            -> Done                            *)
+(*                                                                     *)
+(*  See docs/study-notes/2026-08-11-scoped-effects-detailed-design.md,  *)
+(*  Decision 7.                                                        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **What kind of operation an AST node asks for**, as read off the node itself
+ * -- the counterpart, on the perform side, of
+ * `Hoop.Runtime.Handlers.clause_kind` on the table side.
+ *
+ * **Inhabited meaningfully only once a scoped perform node exists.** The AST has
+ * a single perform constructor today, so every node this repository can build
+ * reads as `KOrdinaryOperation`; `KScopedOperation` is what a dedicated scoped
+ * perform will read as. It is declared here rather than with that node so that
+ * `ClauseKindMismatch` below -- which has to name the kind the node ASKED for
+ * beside the kind the table ACTUALLY held -- means the same thing before and
+ * after, and so that adding the node does not reopen this type.
+ *)
+type operation_kind =
+  | KOrdinaryOperation
+  | KScopedOperation
+
+(**
+ * **Why a dispatch was refused at the boundary.**
+ *
+ * Flat, and deliberately independent of `v` and `cl`: `clause_kind` is flat for
+ * the reason its own comment gives, so a rejection can be named in this
+ * `cl`-polymorphic module and BOTH machines can share the one type --
+ * `Hoop.Runtime.erase_st` maps `MRejected r` to `Rejected r` with nothing to
+ * translate.
+ *
+ *   - `ClauseKindMismatch`: the node asked for one kind of operation and the
+ *     entry it dispatched to held another. The PureScript surface rules this
+ *     out -- an operation's signature is the single source of truth from which
+ *     both the perform site and the clause's canonical type are derived -- but
+ *     the runtime cannot assume it, and a wrong answer is worse than a refusal.
+ *
+ *   - `UnborrowableScope`: a scope could not be entered because prompts between
+ *     it and its owner hold clauses that cannot be borrowed. `blocking_effects`
+ *     names the effect labels responsible, which is the only thing that makes
+ *     the failure actionable to whoever wrote the handler stack.
+ *
+ * **Nothing in this repository builds one yet.** No transition returns
+ * `Rejected`, so `never_rejected` below is trivially satisfiable and the
+ * guarded half of `Hoop.Runtime.execute` is exactly as strong as it was. The
+ * outcome is introduced ahead of its producers because it is a terminal state
+ * -- its meaning is complete without them -- and because the alternative is to
+ * change the same public signature twice.
+ *)
+type rejection =
+  | ClauseKindMismatch : eff:string -> op:string
+                      -> expected:operation_kind -> actual:clause_kind -> rejection
+  | UnborrowableScope  : eff:string -> op:string
+                      -> blocking_effects:list string -> rejection
+
 (** The machine state *)
 noeq
 type state (v: Type) (cl: Type) =
@@ -28,6 +107,10 @@ type state (v: Type) (cl: Type) =
   // Unhandled effect operation exception which should never occur
   // as long as the runtime is sound
   | Stuck : eff: string -> op: string -> state v cl
+  // A dispatch refused at the typed boundary. Terminal, exactly as `Done` and
+  // `Stuck` are, and ruled out by a DIFFERENT condition than `Stuck` is -- see
+  // the note above `rejection`.
+  | Rejected : rejection -> state v cl
 
 // ------------------------------------------------------------------ //
 
@@ -51,20 +134,32 @@ let handled_in
   = exists (f: frame v cl). (f `memP` k /\ handles eff op f)
 
 // Finds the prompt holding the handler for the given action and splits the
-// stack there, returning `(captured, clause, below)`. The captured segment is
+// stack there, returning `(captured, found, below)`. The captured segment is
 // every frame above the matching prompt, prompt included, so resuming
 // reinstalls the handler — deep-handler semantics.
+//
+// The middle component is a `found_clause`: the clause together with the kind
+// the table it came from gave it. It is carried rather than looked up again
+// because the two would then be two searches that could disagree, and because
+// the kind is what decides which interpreter a clause may be unwrapped to. The
+// dispatch below reads only `.body`; every existing theorem about this function
+// therefore says what it always said, at one component's new type.
 let rec find_prompt
     (#v #cl : Type)
     (eff op : string)
     (k : stack v cl)
   : GTot
-      (o: option (stack v cl & cl & stack v cl) { handled_in eff op k <==> Some? o })
+      (o: option (stack v cl & found_clause cl & stack v cl) { handled_in eff op k <==> Some? o })
       (decreases k)
   = match k with
     | [] -> None
     | PromptF hs ret :: rest ->
-      (match lookup_clause hs eff op with
+      // `handles` — and so `handled_in`, which the refinement above is stated in
+      // — asks `lookup_clause`; the search asks `lookup_handler`. That the two
+      // miss together is the coherence lemma, and this is the one place the
+      // reference machine spends it.
+      lookup_handler_agrees hs eff op;
+      (match lookup_handler hs eff op with
         | Some c -> Some ([PromptF hs ret], c, rest)
         | None ->
           (match find_prompt eff op rest with
@@ -150,6 +245,7 @@ let step
   = match s with
     | Done _ -> s
     | Stuck _ _ -> s
+    | Rejected _ -> s
     | Step c k ->
       match c with
       | Op comp fn -> Step comp (BindF fn :: k)
@@ -157,8 +253,8 @@ let step
       | Perform eff op payload ->
         (match find_prompt eff op k with
           | None -> Stuck eff op
-          | Some (captured, clause, below) ->
-            Step (apply clause payload (kont_of captured)) below)
+          | Some (captured, found, below) ->
+            Step (apply found.body payload (kont_of captured)) below)
       | Var value ->
         (match k with
           | [] -> Done value
@@ -198,6 +294,7 @@ let rec steps
       match s with
       | Done _ -> s
       | Stuck _ _ -> s
+      | Rejected _ -> s
       | Step _ _ -> steps apply (fuel - 1) (step apply s)
 
 let one_more_step
@@ -218,7 +315,7 @@ let no_more_steps
     (apply: apply_t v cl)
     (s: state v cl)
   : Lemma
-      (requires Done? s \/ Stuck? s)
+      (requires Done? s \/ Stuck? s \/ Rejected? s)
       (ensures exists (n:nat). s == steps apply n s)
   = introduce exists (n:nat). s == steps apply n s
     with 0
