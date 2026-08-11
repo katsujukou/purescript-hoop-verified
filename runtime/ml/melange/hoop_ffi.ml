@@ -184,17 +184,61 @@ let handlers_of_js (o : any) : (string * string * any Hoop_Runtime.clause) list 
    top-level values under their own names, so there is no export table to keep
    in step -- the names here ARE the interface. *)
 
-let pureImpl (value : any) : any = inject (Hoop_Runtime_Syntax.Var value : comp)
+(* EVERY AST NODE BELOW IS BUILT THROUGH `Hoop_Runtime_Api`, and that is the
+   whole of what this file may build. `Hoop.Runtime.Api` declares smart
+   constructors for the eight nodes the PureScript surface is entitled to
+   produce -- `var`, `op`, `perform`, `performS`, `handle`, `newP`, `readP`,
+   `writeP` -- and declares nothing at all for `Splice`, `Weave`, `BindF`,
+   `ParamF` or `PromptF`. So "the boundary cannot forge a continuation" stopped
+   being a grep over this file and became a property of the module it is written
+   against: there is no name here to write.
+
+   Each constructor is pinned to its counterpart in the AST by a refinement on
+   its result type, so this is a vocabulary restriction and not a semantics --
+   the machine runs exactly the nodes it ran before.
+
+   Why it matters is not the correspondence theorem, which has no precondition
+   and would hold of a forged node too. It is the TRUSTED claim that PureScript
+   only produces well-scoped programs: row types say nothing whatever about
+   frame lists, so a boundary able to fabricate a computation carrying an
+   arbitrary captured segment would make that claim unbelievable at exactly the
+   point `Hoop_Runtime.execute`'s `never_stuck` hypothesis leans on it. See the
+   header of runtime/Hoop.Runtime.Api.fsti. *)
+
+let pureImpl (value : any) : any = inject (Hoop_Runtime_Api.var value : comp)
 
 let bindImpl (c : any) (fn : any) : any =
-  inject (Hoop_Runtime_Syntax.Op (magic c, fun (x : any) -> magic (call1 fn x)) : comp)
+  inject (Hoop_Runtime_Api.op (magic c) (fun (x : any) -> magic (call1 fn x)) : comp)
 
 let performImpl (eff : any) (op : any) (_evkey : any) (payload : any) : any =
   inject
-    (Hoop_Runtime_Syntax.Perform
-       ( string_of_jsstring eff,
-         string_of_jsstring op,
-         Array.to_list (array_of_js payload) )
+    (Hoop_Runtime_Api.perform
+       (string_of_jsstring eff)
+       (string_of_jsstring op)
+       (Array.to_list (array_of_js payload))
+      : comp)
+
+(* A SCOPED perform, and the only difference from the line above is the node it
+   builds: same four arguments, same `Fn4` on the PureScript side, `performS`
+   instead of `perform`.
+
+   The payload carries exactly one element -- the user's higher-order signature
+   value `h (Hoop inner) b` -- and THIS FILE NEITHER KNOWS NOR CHECKS THAT. It
+   is an opaque `any` like every other payload element, and that is Decision 3's
+   whole point: the runtime never traverses the inner computations, so it never
+   owes the `HFunctor` obligation traversing them would require. The scoped
+   clause destructures the payload itself and applies the `weave` capability
+   `apply_scoped` hands it.
+
+   `_evkey` is unused here exactly as it is in `performImpl`: the evidence key
+   is the surface's business, and dispatch is by (eff, op) against the
+   environment. It is taken so that the two entry points have the same shape. *)
+let performScopedImpl (eff : any) (op : any) (_evkey : any) (payload : any) : any =
+  inject
+    (Hoop_Runtime_Api.performS
+       (string_of_jsstring eff)
+       (string_of_jsstring op)
+       (Array.to_list (array_of_js payload))
       : comp)
 
 let withImpl (ret : any) (handlers : any) (body : any) : any =
@@ -204,20 +248,19 @@ let withImpl (ret : any) (handlers : any) (body : any) : any =
     else Some (fun (x : any) -> (magic (call1 ret x) : comp))
   in
   inject
-    (Hoop_Runtime_Syntax.Handle (Hoop_Runtime.mk_runtime_handlers hs, r, magic body)
+    (Hoop_Runtime_Api.handle (Hoop_Runtime.mk_runtime_handlers hs) r (magic body)
       : comp)
 
 (* --- Prompt-local cells --------------------------------------------------- *)
 
 let newCellImpl (label : any) (init : any) (body : any) : any =
-  inject
-    (Hoop_Runtime_Syntax.NewP (string_of_jsstring label, init, magic body) : comp)
+  inject (Hoop_Runtime_Api.newP (string_of_jsstring label) init (magic body) : comp)
 
 let readCellImpl (label : any) : any =
-  inject (Hoop_Runtime_Syntax.ReadP (string_of_jsstring label) : comp)
+  inject (Hoop_Runtime_Api.readP (string_of_jsstring label) : comp)
 
 let writeCellImpl (label : any) (value : any) : any =
-  inject (Hoop_Runtime_Syntax.WriteP (string_of_jsstring label, value) : comp)
+  inject (Hoop_Runtime_Api.writeP (string_of_jsstring label) value : comp)
 
 (* --- Clause and return-clause builders ------------------------------------ *)
 
@@ -227,13 +270,16 @@ let writeCellImpl (label : any) (value : any) : any =
 let mkFullClauseImpl (f : any) : any = mk_full_clause f
 let mkFastClauseImpl (f : any) : any = mk_fast_clause f
 
-(* NOT YET REACHABLE FROM PURESCRIPT, and deliberately so: the export list in
-   scripts/build-runtime.sh does not carry this name, and the AST node a scoped
-   perform needs -- `Hoop_Runtime_Syntax.PerformS` -- is not on guard (e)'s
-   whitelist either. Both are one-line additions to that script, and they are the
-   review artifact for widening the exposed surface; until they are made, the
-   scoped path is complete on the verified side and unreachable from the
-   surface. *)
+(* Reachable from PureScript as of this slice: `mkScopedClauseImpl` is on the
+   export list in scripts/build-runtime.sh beside `performScopedImpl`, which is
+   the perform site the clause answers. The two arrived together on purpose --
+   a scoped clause with no way to build a `PerformS` would only ever be
+   dispatched against by an ordinary perform, which is a rejection, and a
+   `PerformS` with no scoped clause to find is the mirror-image rejection.
+
+   The widening of the exposed surface that this represents is now reviewed in
+   two places rather than in a whitelist: the `val performS` in
+   runtime/Hoop.Runtime.Api.fsti, and this export name. *)
 let mkScopedClauseImpl (f : any) : any = mk_scoped_clause f
 
 let mkReturnImpl (f : any) : any = mk_return (inject pureImpl) f
@@ -264,10 +310,11 @@ let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key 
 
    `Hoop.Runtime.mstep` produces one at a dispatch whose node and whose table
    entry disagree about the kind of the operation, and at a `Weave` whose
-   prepared segment crosses a prompt that cannot be borrowed. No program the
-   PureScript surface can currently build reaches either -- a scoped perform node
-   is not exposed -- but the code is live rather than dead, and the messages are
-   what a user will read when it is.
+   prepared segment crosses a prompt that cannot be borrowed. Both are now
+   reachable: `performScopedImpl` and `mkScopedClauseImpl` are exported, so a
+   surface that pairs a scoped perform with an ordinary clause -- or installs a
+   fully controllable handler between a scope and its owner -- will arrive
+   here. Which is what the two messages below are for.
 
    Note that the build compiles with `-w -a`, so a non-exhaustive match compiles
    silently and fails at run time with `Match_failure`: a constructor added to

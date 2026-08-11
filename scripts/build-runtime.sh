@@ -34,7 +34,7 @@ CACHE="$ROOT/.fstar-cache"
 #                   lookup and with tail-resumptive (`fast`) clauses, linked to
 #                   `Semantics` by a weak simulation through `erase_st`.
 #   Test, Laws      leaves -- `assert_norm` fixtures and the monad laws
-VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime Hoop.Runtime.Test Hoop.Runtime.Laws)
+VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime Hoop.Runtime.Api Hoop.Runtime.Test Hoop.Runtime.Laws)
 
 # Modules to extract to OCaml, in dependency order. The four omitted are
 # proof-only: `WellScopedness`,
@@ -46,7 +46,7 @@ VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics
 # it now has an interface, and a module whose implementation is behind one is
 # not offered, so nothing omitted here reaches build/ml. Give one of them an
 # implementation-only module again and its .ml will reappear.
-EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime)
+EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime Hoop.Runtime.Api)
 
 # Names the generated JS exposes. Must match the top-level values
 # runtime/ml/melange/hoop_ffi.ml defines under these names.
@@ -264,40 +264,118 @@ fi
 #     so it is not a proof; it is what makes an unintended widening of the
 #     exposed surface show up as a diff.
 #
-#     Identifier-based, so it forbids MATCHING on these constructors as well as
-#     building them -- destructuring a computation into frames is the same leak
-#     read backwards. Comments are stripped first, since the header of the
-#     boundary discusses the machine-internal nodes by name.
+#     THIS USED TO BE A WHITELIST of allowed constructor names, checked against
+#     `Hoop_Runtime_Syntax.<Ident>` occurrences. It is now a typed boundary:
+#     `Hoop.Runtime.Api` declares a smart constructor for each of the eight nodes
+#     a program may arrive as, and declares NOTHING for `Splice`, `Weave`,
+#     `BindF`, `ParamF` or `PromptF`. What the boundary may build is therefore a
+#     fact about an interface rather than a list maintained in a shell script,
+#     and this check has one job left: making sure the boundary goes through it.
 #
-#     The whitelist is expected to grow by exactly one entry when a scoped
-#     perform node lands. That one-line diff is the review artifact.
+#     Comments are stripped first, even though nothing needs it today. A future
+#     reader will want to discuss `Splice` by its OCaml name in a comment, and a
+#     guard that fires on its own documentation is one people route around.
 FFI_SRC="$ML_DIR/melange/hoop_ffi.ml"
-SYNTAX_ALLOWED="Var Op Perform Handle NewP ReadP WriteP"
 
-# The whole guard rests on the references being qualified; an `open` would make
-# them invisible to it.
+# The guard reads qualified names, so an `open` would make exactly what it is
+# looking for invisible to it. With the whitelist gone this is no longer a
+# supporting check -- it is the other half of the guard.
 if strip_ocaml_comments "$FFI_SRC" | grep -qE '^[[:space:]]*open[[:space:]]+Hoop_Runtime'; then
   echo "ERROR: $FFI_SRC opens an extracted module." >&2
-  echo "       The constructor whitelist below reads qualified names, so an" >&2
-  echo "       open would hide exactly what it is meant to see." >&2
+  echo "       The checks below read qualified names, so an open would hide" >&2
+  echo "       exactly what they are meant to see." >&2
   exit 1
 fi
 
-SYNTAX_USED="$(strip_ocaml_comments "$FFI_SRC" \
-  | grep -oE 'Hoop_Runtime_Syntax\.[A-Za-z_][A-Za-z0-9_]*' \
-  | sed 's/^Hoop_Runtime_Syntax\.//' | sort -u || true)"
-SYNTAX_BAD=""
-for n in $SYNTAX_USED; do
-  case " $SYNTAX_ALLOWED " in
-    *" $n "*) ;;
-    *) SYNTAX_BAD="$SYNTAX_BAD $n" ;;
-  esac
+#     A BARE module name is a module alias waiting to happen:
+#
+#         module H = Hoop_Runtime_Handlers
+#         let sneaky c l = H.mk_handlers c l
+#
+#     goes straight past a check that only looks for the fully qualified form.
+#     Rejecting the bare occurrence closes it for every module at once, and it
+#     is why the checks below are split into "no bare name" and "only these
+#     qualified names".
+#     The module list is DERIVED from `EXTRACT_MODULES` rather than written out
+#     again. An extracted module the boundary could reach but nobody remembered
+#     to list is exactly the hole this guard exists to close, and a second list
+#     maintained by hand is how that hole gets made. `Hoop.Runtime.Env` was
+#     already missing from a hand-written version of this.
+FFI_MOD_LIST=()
+for m in "${EXTRACT_MODULES[@]}"; do FFI_MOD_LIST+=("${m//./_}"); done
+FFI_MODS="$(IFS='|'; echo "${FFI_MOD_LIST[*]}")"
+if strip_ocaml_comments "$FFI_SRC" | grep -qE "\b($FFI_MODS)\b([^.]|$)"; then
+  echo "ERROR: $FFI_SRC names an extracted module without qualifying it." >&2
+  echo "       A bare name is a module alias in waiting, and an alias hides" >&2
+  echo "       every check below. Write the qualified name at each use." >&2
+  strip_ocaml_comments "$FFI_SRC" | grep -nE "\b($FFI_MODS)\b([^.]|$)" >&2
+  exit 1
+fi
+
+#     What the boundary may READ from each extracted module. `Api` is
+#     unrestricted -- it is the interface this whole guard exists to funnel
+#     through, and its own `.fsti` is what says `Splice` and `Weave` are not
+#     among the nodes a program can arrive as.
+#
+#     `Hoop_Runtime_Syntax` has an EMPTY list: nothing there may be named.
+#
+#     The others are not about building AST nodes but about reading what the
+#     machine produced -- a clause kind to print, a rejection to explain, the
+#     reserved cell label -- with two exceptions that ARE construction and are
+#     deliberately narrow: `mk_runtime_handlers` (which fixes the classifier, so
+#     the boundary cannot assert what kind a clause is) and the three `clause`
+#     tags (of which there is no internal one to hide).
+#
+#     `Hoop_Runtime_Semantics.weave_of` is the reason this list is not simply
+#     "anything but Syntax". It builds a `Weave`, so leaving `Semantics` open
+#     would have handed the boundary the very node `Api` declines to declare --
+#     an interface cannot make a name in a *different* module unreachable.
+#     Every name here is one the boundary uses TODAY. A permission granted
+#     against future need is a permission nobody reviews, so the list is kept to
+#     what is live and widened in the change that needs it.
+ALLOWED_Hoop_Runtime_Syntax=''
+ALLOWED_Hoop_Runtime_Env=''
+ALLOWED_Hoop_Runtime_Handlers='clause_kind KFull KFast KScoped'
+ALLOWED_Hoop_Runtime_Semantics='var_eff rejection ClauseKindMismatch UnborrowableScope operation_kind KOrdinaryOperation KScopedOperation'
+ALLOWED_Hoop_Runtime='ct clause Full Fast Scoped MDone MStuck MStep MRejected execute mk_runtime_handlers'
+ALLOWED_Hoop_Runtime_Api='*'
+
+#     Every extracted module must have a list, empty or not. Without this an
+#     extracted module added later is silently unguarded -- which is precisely
+#     how `Hoop.Runtime.Env` came to be missing.
+for m in "${FFI_MOD_LIST[@]}"; do
+  vn="ALLOWED_$m"
+  if [ -z "${!vn+set}" ]; then
+    echo "ERROR: guard (e) has no allow-list for the extracted module $m." >&2
+    echo "       Add 'ALLOWED_$m=' (empty if the boundary needs nothing from" >&2
+    echo "       it) beside the others. A module with no list is unguarded." >&2
+    exit 1
+  fi
 done
-if [ -n "$SYNTAX_BAD" ]; then
-  echo "ERROR: $FFI_SRC names machine-internal AST constructors:$SYNTAX_BAD" >&2
-  echo "       Only these may be reached from the boundary: $SYNTAX_ALLOWED" >&2
-  echo "       A node the PureScript surface cannot be trusted to build well" >&2
-  echo "       scoped must not be reachable from the FFI. See the note above." >&2
+
+MOD_BAD=""
+for m in "${FFI_MOD_LIST[@]}"; do
+  eval "allowed=\"\$ALLOWED_$m\""
+  # `Api` is unrestricted on purpose: it is the funnel, and its own `.fsti` --
+  # not a list in this script -- is what says which nodes exist.
+  [ "$allowed" = '*' ] && continue
+  used="$(strip_ocaml_comments "$FFI_SRC" \
+    | grep -oE "\b$m\.[A-Za-z_][A-Za-z0-9_]*" \
+    | sed "s/^$m\.//" | sort -u || true)"
+  for n in $used; do
+    case " $allowed " in
+      *" $n "*) ;;
+      *) MOD_BAD="$MOD_BAD $m.$n" ;;
+    esac
+  done
+done
+if [ -n "$MOD_BAD" ]; then
+  echo "ERROR: $FFI_SRC reaches past the Api boundary:$MOD_BAD" >&2
+  echo "       Every node the boundary may BUILD is a smart constructor in" >&2
+  echo "       Hoop.Runtime.Api, which declares nothing for Splice, Weave," >&2
+  echo "       BindF, ParamF or PromptF. What it may READ from the other" >&2
+  echo "       extracted modules is listed above this check; widening that" >&2
+  echo "       list is the review artifact." >&2
   exit 1
 fi
 
