@@ -347,9 +347,9 @@ let pop_env (#v #cl: Type) (w: menv v cl) : Tot (menv v cl) =
   if E.is_empty w then w else E.outer w
 
 (**
- * **Splicing a captured segment back on.** A captured segment is made of
- * *reference* frames -- it travels inside a `Resumed` node of the shared AST --
- * so resuming injects them back as machine frames. No `MEnvF` can appear in
+ * **Splicing a carried segment back on.** A carried segment is made of
+ * *reference* frames -- it travels inside a `Splice` node of the shared AST --
+ * so splicing injects them back as machine frames. No `MEnvF` can appear in
  * one: the erasure turned every `MEnvF` into a `BindF` when the segment was
  * captured.
  *
@@ -922,7 +922,11 @@ let mset_param_fast (#v #cl: Type) (l: string) (x: v) (w: menv v cl) (kk: mstack
  *                            the stack is NOT cut.
  *   - `Perform` / `Full`     the existing path: capture, hand the segment to the
  *                            clause, run on below the prompt.
- *   - `Resumed`              splice and re-derive.
+ *   - `Splice`               splice and re-derive: push the carried frames back
+ *                            as machine frames, rebuild the environment they
+ *                            imply, and run the body under them. At a `Var`
+ *                            body -- the only shape built today -- this is
+ *                            resumption.
  *   - `NewP` / `ReadP`       a cell is a level of the environment: install one,
  *                            and read one back out. The read is the transition
  *                            this design was taken for -- one `Env.lookup`,
@@ -934,7 +938,7 @@ let mset_param_fast (#v #cl: Type) (l: string) (x: v) (w: menv v cl) (kk: mstack
  *                            and the price of the read above.
  *
  * *What a capture does to an `MEnvF`.* A delimited continuation travels inside a
- * `Resumed` node of the *shared* AST, so it is made of reference frames; the
+ * `Splice` node of the *shared* AST, so it is made of reference frames; the
  * captured segment handed to a full clause is therefore the *erasure* of the
  * machine segment, with each `MEnvF` in it replaced by the `BindF` the
  * reference machine has there. Resuming splices reference frames back
@@ -996,8 +1000,8 @@ let mstep
                         | None -> MStuck eff op
                         | Some (captured, b) ->
                             MStep (af c0 payload (kont_of captured)) ev.E.below b))))
-      | Resumed kont value ->
-          MStep (Var value) (mreinstall_fast w kont) (inj_append kont kk)
+      | Splice fs body ->
+          MStep body (mreinstall_fast w fs) (inj_append fs kk)
       // A cell binds a name to a value, so it extends the environment -- one
       // level, exactly as a `Handle` does, and popped again by the `Var` rule
       // above when its frame is left.
@@ -1639,7 +1643,8 @@ let ref_fast_two
       ref_perform_shape af afast eff op payload k
 
 (** **Leaving a fast clause body.** The reference applies the ctl clause's
-    continuation, which is a `Resumed` node, and then splices the segment back on
+    continuation, which is a `Splice` node at a `Var` body, and then splices the
+    segment back on
     -- landing on exactly the stack the machine never took apart. *)
 let ref_envf_two
     (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
@@ -1769,11 +1774,15 @@ let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
             (n == 1 \/ n == 2) /\
             erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
           with 1 and ()
-      | Resumed kont value ->
-          erase_inj_append kont kk;
-          stack_ok_inj_append kont kk;
-          mreinstall_agrees kont k;
-          mreinstall_equiv w (env_of_stack k) kont;
+      // The body travels through untouched -- `erase_st` does not look at the
+      // control component -- so this case is about the STACK and the ENVIRONMENT
+      // only, exactly as it was for a resumption, and it is still one machine
+      // transition against one reference transition.
+      | Splice fs body ->
+          erase_inj_append fs kk;
+          stack_ok_inj_append fs kk;
+          mreinstall_agrees fs k;
+          mreinstall_equiv w (env_of_stack k) fs;
           introduce exists (n: nat).
             (n == 1 \/ n == 2) /\
             erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))

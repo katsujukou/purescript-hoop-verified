@@ -211,18 +211,33 @@ let ws_handle
         ws cok a (Handle hs ret body)
      with ws_handle_bwd cok a hs ret body
 
-let ws_resumed 
+let ws_splice
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (frames: stack v cl)
+    (body: comp_tree v cl)
+  : Lemma (ws cok a (Splice frames body) <==>
+            (wf_stack cok a frames /\ ws cok (can_in_with frames a) body))
+  = introduce
+      ws cok a (Splice frames body) ==>
+        (wf_stack cok a frames /\ ws cok (can_in_with frames a) body)
+    with ws_splice_fwd cok a frames body;
+    // The backward direction goes through by unfolding `ws` and `wf_stack`: at
+    // each index the two conjuncts are instances of the two hypotheses, one at
+    // `n` and one at `n - 1`.
+    ()
+
+// The `Var` specialisation. `ws cok _ (Var x)` is `True`, so the body conjunct
+// carries no information in either direction and this is `ws_splice` verbatim.
+let ws_resumed
     (#v #cl: Type)
     (cok: clause_ok_t cl)
     (a: can_perform)
     (frames: stack v cl)
     (x: v)
-  : Lemma (ws cok a (Resumed frames x) <==> wf_stack cok a frames)
-  = introduce
-      ws cok a (Resumed frames x) ==> wf_stack cok a frames
-    with ws_resumed_fwd cok a frames x;
-    // assert (wf_stack cok a frames ==> ws cok a (Resumed frames x));
-    ()
+  : Lemma (ws cok a (resumed frames x) <==> wf_stack cok a frames)
+  = ws_splice cok a frames (Var x)
 
 let wf_stack_nil
     (#v #cl: Type)
@@ -374,12 +389,27 @@ let pres_var (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
     | BindF fn :: rest -> wf_stack_bind cok (can_nothing ()) fn rest
     | PromptF hs ret :: rest -> wf_stack_prompt cok (can_nothing ()) hs ret rest
 
+let pres_splice (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+                (frames: stack v cl) (body: comp_tree v cl) (k: stack v cl)
+  : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (Splice frames body) k))
+          (ensures wf_state cok (step apply (Step (Splice frames body) k)))
+  = ws_splice cok (can_in k) frames body;
+    // The stack: `frames` is well formed over `k`, so the join is.
+    wf_stack_append cok frames k (can_nothing ());
+    // The body: `ws_splice` recorded it against the environment `frames` offers
+    // on top of `k`'s, and after the splice the machine runs it under the joined
+    // stack. `av_append` says those are the same environment.
+    av_append frames k (can_nothing ());
+    ws_congr cok (can_in_with frames (can_in k)) (can_in (frames @ k)) body
+
+// The `Var` specialisation, the transition `continue` takes. The body obligation
+// `pres_splice` discharges is about `Var value` and is vacuous, so nothing here
+// is re-derived.
 let pres_resumed (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
                  (captured: stack v cl) (value: v) (k: stack v cl)
-  : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (Resumed captured value) k))
-          (ensures wf_state cok (step apply (Step (Resumed captured value) k)))
-  = ws_resumed cok (can_in k) captured value;
-    wf_stack_append cok captured k (can_nothing ())
+  : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (resumed captured value) k))
+          (ensures wf_state cok (step apply (Step (resumed captured value) k)))
+  = pres_splice cok apply captured (Var value) k
 
 #push-options "--split_queries always"
 let pres_perform (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
@@ -529,7 +559,7 @@ let step_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
         | Op inner fn -> pres_op cok apply inner fn k
         | Var value -> pres_var cok apply value k
         | Handle hs ret body -> pres_handle cok apply hs ret body k
-        | Resumed captured value -> pres_resumed cok apply captured value k
+        | Splice frames body -> pres_splice cok apply frames body k
         | Perform eff op payload -> pres_perform cok apply eff op payload k
         | NewP l init body -> pres_newp cok apply l init body k
         | ReadP l -> pres_readp cok apply l k

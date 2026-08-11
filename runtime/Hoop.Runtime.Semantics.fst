@@ -130,15 +130,16 @@ let rec set_param (#v #cl: Type) (l: string) (x: v) (k: stack v cl)
           | Some rest' -> Some (f :: rest'))
 
 // The delimited continuation handed to a clause.
-// While `kont_of captured` is definitionally `fun x -> Resumed captured x`, 
-// it is worth defining it as a top-level named function due to the limitation 
+// While `kont_of captured` is definitionally `fun x -> resumed captured x`, that is,
+// `fun x -> Splice captured (Var x)`,
+// it is worth defining it as a top-level named function due to the limitation
 // described in the book:
 // https://fstar-lang.org/tutorial/book/part1/part1_quicksort.html#limitations-of-smt-based-proofs-at-higher-order
 let kont_of (#v #cl: Type)
     (captured: stack v cl)
     (x: v)
   : comp_tree v cl
-  = Resumed captured x
+  = resumed captured x
 
 // The small-step semantics of the machine.
 let step
@@ -169,7 +170,11 @@ let step
               | None -> Step (Var value) rest
             )
         )
-      | Resumed kont value -> Step (Var value) (kont @ k)
+      // Push the captured frames back, then run the body under them. At
+      // `body = Var x` -- which is `resumed fs x`, the only shape the machine
+      // builds today -- this reads `Step (Var x) (fs @ k)`: the resumption rule,
+      // unchanged and definitionally so.
+      | Splice fs c -> Step c (fs @ k)
       | NewP l init body -> Step body (ParamF l init :: k)
       | ReadP l ->
         (match find_param l k with

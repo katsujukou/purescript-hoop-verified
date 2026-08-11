@@ -167,20 +167,52 @@ val step_perform_stuck
           step apply (Step (Perform eff op payload) k) == Stuck eff op)
 
 (**
- * **Progress of `Resumed`**: the term becomes `Var v`, the value passed to
- * `continue`, and the captured continuation is appended back onto the stack.
- * Nearly trivial on its own, but combined with `find_prompt_last` it yields
- * deep handler semantics: the prompt is re-installed on every `continue`.
+ * **Progress of `Splice`**: the carried frames are appended back onto the stack
+ * and the body runs under them. Nearly trivial on its own, but combined with
+ * `find_prompt_last` it yields deep handler semantics: the prompt travels inside
+ * the captured segment, so it is re-installed on every `continue`.
+ *
+ * Stated of the constructor directly rather than through a recognizer, so that
+ * both this and `step_resumed` below are *definitional equalities* — each proved
+ * by `()`, and each therefore a regression test that fails the moment the rule
+ * is defined as anything other than `fs @ k`.
+ *)
+let step_splice
+    (#v #cl : Type)
+    (apply: apply_t v cl)
+    (fs : stack v cl)
+    (body : comp_tree v cl)
+    (cc : stack v cl)
+  : Lemma (step apply (Step (Splice fs body) cc) == Step body (fs @ cc))
+  = ()
+
+(**
+ * **Progress of a resumption**, the `Var` specialisation: the term becomes
+ * `Var x`, the value passed to `continue`, and the captured continuation is
+ * appended back onto the stack. This is the transition the machine actually
+ * takes today; it survives `Splice` unchanged, and by `()`.
  *)
 let step_resumed
     (#v #cl : Type)
     (apply: apply_t v cl)
-    (comp : comp_tree v cl)
+    (fs : stack v cl)
+    (x : v)
     (cc : stack v cl)
-  : Lemma
-      (Resumed? comp ==>
-        step apply (Step comp cc) ==
-          Step (Var (Resumed?.value comp)) ((Resumed?.frames comp) @ cc))
+  : Lemma (step apply (Step (resumed fs x) cc) == Step (Var x) (fs @ cc))
+  = ()
+
+(**
+ * **And what the continuation handed to a clause is.** `kont_of` is the only
+ * thing `step` ever builds a `Splice` with, so pinning its meaning pins the
+ * whole of what a clause can do with a continuation: resume it, at a value.
+ * A tautology as written, and deliberately -- it is what would break first if
+ * `kont_of` were ever redirected to a `Splice` with a non-`Var` body.
+ *)
+let kont_of_resumed
+    (#v #cl : Type)
+    (cap : stack v cl)
+    (x : v)
+  : Lemma (kont_of cap x == resumed cap x)
   = ()
 
 // The remaining transition rules -- the operational semantics of the machine.
@@ -372,16 +404,40 @@ val ws_handle
       (ws cok a (Handle hs ret body) <==>
         (ws cok (extend hs a) body /\ handler_ok cok a hs /\ ret_ws cok a ret))
 
-(** **A `Resumed` node is well scoped exactly when the continuation it carries
-    is well formed.** The node holds no computation of its own -- it splices a
-    captured stack segment back on -- so its obligation is that of a stack. *)
+(**
+ * **A `Splice` node is well scoped exactly when its two parts are**: the frames
+ * form a well-formed stack, and the body is well scoped in the environment
+ * *those frames offer*, which is where `step_splice` puts it.
+ *
+ * The asymmetry with `ws_handle` is worth noticing: a `Handle` extends the
+ * environment by its own table only, because its clauses run outside their
+ * prompt. A `Splice` extends it by everything in the segment, because the body
+ * genuinely runs with the whole segment installed beneath it -- the prompts in
+ * it included. That is the environment-level statement of deep-handler
+ * resumption, and `av_append` is what makes it agree with the stack the machine
+ * actually builds.
+ *)
+val ws_splice
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (frames: stack v cl)
+    (body: comp_tree v cl)
+  : Lemma (ws cok a (Splice frames body) <==>
+            (wf_stack cok a frames /\ ws cok (can_in_with frames a) body))
+
+(** **A resumption is well scoped exactly when the continuation it carries is
+    well formed.** The `Var` specialisation of `ws_splice`: a resumption holds no
+    computation of its own -- it splices a captured stack segment back on and
+    hands it a value -- so the body conjunct collapses to `True` by `ws_var` and
+    its obligation is that of a stack, exactly as it always was. *)
 val ws_resumed
     (#v #cl: Type)
     (cok: clause_ok_t cl)
     (a: can_perform)
     (frames: stack v cl)
     (x: v)
-  : Lemma (ws cok a (Resumed frames x) <==> wf_stack cok a frames)
+  : Lemma (ws cok a (resumed frames x) <==> wf_stack cok a frames)
 
 (** **The empty stack is well formed**: it suspends nothing. *)
 val wf_stack_nil
@@ -481,7 +537,9 @@ val av_prompt
 
 (** **Concatenation of stacks composes environments**: running on `k1` stacked on
     `k2` offers what `k1` offers on top of what `k2` does. Needed for the
-    `Resumed` transition, which splices a captured segment back on. *)
+    `Splice` transition, which splices a carried segment back on -- and needed
+    twice there, once for the resulting stack and once for the environment the
+    spliced body is judged in. *)
 val av_append
     (#v #cl: Type)
     (k1 k2: stack v cl)
@@ -497,7 +555,7 @@ val av_append
  * formed exactly when the lower part is, and the upper part is well formed in
  * the environment the lower part offers. The workhorse of the two transitions
  * that take a stack apart or put one back together — read left to right it
- * justifies `Perform`'s cut, right to left `Resumed`'s splice.
+ * justifies `Perform`'s cut, right to left `Splice`'s splice.
  *)
 val wf_stack_append
     (#v #cl: Type)
@@ -531,11 +589,16 @@ val wf_stack_split_prompt
 // ------------------------------------------------------------------ //
 
 (**
- * The five lemmas that follow are the five branches of `step`, each shown to
- * take a well-formed state to a well-formed state. They are kept apart rather
- * than inlined into `step_preserves_wf` -- they are of very different weights,
+ * The lemmas that follow are the branches of `step`, each shown to take a
+ * well-formed state to a well-formed state. They are kept apart rather than
+ * inlined into `step_preserves_wf` -- they are of very different weights,
  * `pres_var` being immediate and `pres_perform` the whole argument -- so that
  * each SMT query stays small.
+ *
+ * One of them, `pres_resumed`, is not a branch: it is `pres_splice` read at a
+ * `Var` body. It is stated because that is the shape the machine actually
+ * builds, and having it under its own name is what lets a reader check that the
+ * general rule really does say the old thing about resumption.
  *)
 
 (** **Op**: descending into the left of a bind, with the rest parked on the
@@ -579,8 +642,24 @@ val pres_var
       (requires wf_state cok (Step (Var value <: comp_tree v cl) k))
       (ensures wf_state cok (step apply (Step (Var value <: comp_tree v cl) k)))
 
-(** **Resumed**: the captured segment is spliced back on. Well-formedness of the
-    join follows from `wf_stack_append`, the environments matching by `av_append`. *)
+(** **Splice**: the carried segment is spliced back on and the body runs under
+    it. Well-formedness of the join follows from `wf_stack_append`, and the body
+    lands in the environment `ws_splice` recorded it against -- the two agree by
+    `av_append`, which is the whole content of the case. *)
+val pres_splice
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (apply: apply_t v cl)
+    (frames: stack v cl)
+    (body: comp_tree v cl)
+    (k: stack v cl)
+  : Lemma
+      (requires clause_ok_congr cok /\ wf_state cok (Step (Splice frames body) k))
+      (ensures wf_state cok (step apply (Step (Splice frames body) k)))
+
+(** **Resumed**: the `Var` specialisation, the transition the machine takes on
+    `continue`. The body obligation is vacuous, so what remains is the splice of
+    the captured segment, exactly as before. *)
 val pres_resumed
     (#v #cl: Type)
     (cok: clause_ok_t cl)
@@ -589,8 +668,8 @@ val pres_resumed
     (value: v)
     (k: stack v cl)
   : Lemma
-      (requires clause_ok_congr cok /\ wf_state cok (Step (Resumed captured value) k))
-      (ensures wf_state cok (step apply (Step (Resumed captured value) k)))
+      (requires clause_ok_congr cok /\ wf_state cok (Step (resumed captured value) k))
+      (ensures wf_state cok (step apply (Step (resumed captured value) k)))
 
 (**
  * **Perform**: the interesting one, and the only branch that could get stuck.

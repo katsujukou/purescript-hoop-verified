@@ -59,10 +59,18 @@ let ws_handle_bwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (hs: h
     | Some r -> assert (forall (x: v) (n: nat). ws_n n cok can (r x))
 #pop-options
 
+let ws_splice_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                  (frames: stack v cl) (body: comp_tree v cl)
+  : Lemma (requires ws cok can (Splice frames body))
+          (ensures wf_stack cok can frames /\ ws cok (can_in_with frames can) body)
+  = assert (forall (n: nat). ws_n (n + 1) cok can (Splice frames body))
+
+// The `Var` specialisation. Nothing is re-derived: the body conjunct the general
+// lemma delivers is about `Var x` and is simply dropped.
 let ws_resumed_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                    (frames: stack v cl) (x: v)
-  : Lemma (requires ws cok can (Resumed frames x)) (ensures wf_stack cok can frames)
-  = assert (forall (n: nat). ws_n (n + 1) cok can (Resumed frames x))
+  : Lemma (requires ws cok can (resumed frames x)) (ensures wf_stack cok can frames)
+  = ws_splice_fwd cok can frames (Var x)
 
 let wf_stack_bind_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                       (fn: v -> comp_tree v cl) (rest: stack v cl)
@@ -135,7 +143,13 @@ let rec ws_n_congr (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can
               introduce forall (x: v).
                 (ws_n (n - 1) cok can1 (r x) <==> ws_n (n - 1) cok can2 (r x))
               with ws_n_congr (n - 1) cok can1 can2 (r x))
-      | Resumed frames _ -> wf_stack_n_congr n cok can1 can2 frames
+      | Splice fs body ->
+          wf_stack_n_congr n cok can1 can2 fs;
+          // The body is judged under the frames, so the two environments it is
+          // compared at are the *extended* ones -- equivalent because
+          // `can_in_with` is pointwise in its second argument.
+          assert (equiv_can (can_in_with fs can1) (can_in_with fs can2));
+          ws_n_congr (n - 1) cok (can_in_with fs can1) (can_in_with fs can2) body
       | ReadP _ -> ()
       | WriteP _ _ -> ()
       | NewP l _ body ->

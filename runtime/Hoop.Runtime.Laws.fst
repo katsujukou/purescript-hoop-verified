@@ -478,7 +478,7 @@ let kont_found_beta
     (cls: cl)
     (bel: stack v cl)
   : Lemma (requires find_prompt eff op k == Some (cap, cls, bel))
-          (ensures forall (y: v). kont_found eff op k y == Resumed cap y)
+          (ensures forall (y: v). kont_found eff op k y == resumed cap y)
   = ()
 
 (**
@@ -563,10 +563,15 @@ let rec sim
       | Handle hs r b ->
           sim apply i j d1 d2 (n - 1) (PromptF hs r :: pre) post b x;
           converges_back apply (Step c k2) x
-      | Resumed cap y ->
+      // A `Splice` pushes its frames and continues with its body, so the block
+      // moves further down the stack and the induction goes on at the body. The
+      // frames land on `pre`, never between `d1`/`d2` and `post`, which is why
+      // the replacement is undisturbed; at a `Var` body this is the resumption
+      // case, and it was already this proof.
+      | Splice cap body ->
           append_assoc cap pre (d1 @ post);
           append_assoc cap pre (d2 @ post);
-          sim apply i j d1 d2 (n - 1) (cap @ pre) post (Var y) x;
+          sim apply i j d1 d2 (n - 1) (cap @ pre) post body x;
           converges_back apply (Step c k2) x
       | Var a ->
           (match pre with
@@ -675,7 +680,7 @@ let rec sim
  * **The case with content.** The action is handled below the block, so the
  * block is part of what `find_prompt` captures. The two sides therefore call
  * `apply` on continuations differing by exactly the same replacement, one level
- * down inside a `Resumed` node; `apply_obs_congr` turns that into a relation
+ * down inside a `Splice` node; `apply_obs_congr` turns that into a relation
  * between the clause bodies, and the induction hypothesis at `n - 2` supplies
  * the premise it needs.
  *)
@@ -694,8 +699,8 @@ and perform_below
   : Lemma
       (requires apply_obs_congr apply /\ no_prompt d1 /\ no_prompt d2 /\
                 redex apply i j d1 d2 /\ n >= 1 /\
-                (forall (y: v). kf1 y == Resumed ((pre @ d1) @ capP) y) /\
-                (forall (y: v). kf2 y == Resumed ((pre @ d2) @ capP) y) /\
+                (forall (y: v). kf1 y == resumed ((pre @ d1) @ capP) y) /\
+                (forall (y: v). kf2 y == resumed ((pre @ d2) @ capP) y) /\
                 steps apply (n - 1) (Step (apply cls payload kf1) bel) == Done x)
       (ensures converges apply (Step (apply cls payload kf2) bel) x)
       (decreases %[n; 0])

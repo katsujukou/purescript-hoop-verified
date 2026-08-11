@@ -14,7 +14,7 @@
  * chosen: the module is `prop`-valued throughout and its consumers reason by
  * unfolding. `Hoop.Runtime.Metatheory` proves the defining equations of `ws`
  * -- `ws_var`, `wf_stack_nil`, and the backward halves of `ws_op` and
- * `ws_resumed` -- by `()`, which is only possible while `ws` and `wf_stack`
+ * `ws_splice` -- by `()`, which is only possible while `ws` and `wf_stack`
  * unfold to their step-indexed definitions; the environment lemmas
  * `av_bind` / `av_prompt` / `av_append` need `extend`, `can_in_with`, `can_in`,
  * `can_nothing` and `equiv_can`; `handler_ok_congr` needs `clause_ok_congr` and
@@ -169,7 +169,17 @@ let rec ws_n
           (match ret with
             | None -> True
             | Some r -> forall (x: v). ws_n (n - 1) cok can (r x))
-      | Resumed frames _ -> wf_stack_n n cok can frames
+      // A `Splice` carries two obligations, one per part: the frames must be a
+      // well-formed stack, and the body must be well scoped in the environment
+      // *those frames offer* -- which is where it will run. At `body = Var x`
+      // the second is vacuous (`ws_n _ _ _ (Var _)` is `True`), leaving exactly
+      // the old obligation of a resumption.
+      //
+      // Both recursive calls fit the measure already in force: `wf_stack_n` is
+      // reached at the same `n` with the second component dropping 1 -> 0, and
+      // the body at `n - 1`.
+      | Splice fs body ->
+          wf_stack_n n cok can fs /\ ws_n (n - 1) cok (can_in_with fs can) body
       | NewP l _ body -> ws_n (n - 1) cok (extend_param l can) body
       | ReadP l -> can var_eff l
       | WriteP l _ -> can var_eff l
@@ -251,9 +261,16 @@ val ws_handle_bwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform) (hs: h
   : Lemma (requires ws cok (extend hs can) body /\ handler_ok cok can hs /\ ret_ws cok can ret)
           (ensures ws cok can (Handle hs ret body))
 
+val ws_splice_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                  (frames: stack v cl) (body: comp_tree v cl)
+  : Lemma (requires ws cok can (Splice frames body))
+          (ensures wf_stack cok can frames /\ ws cok (can_in_with frames can) body)
+
+(** The `Var` specialisation, kept under its own name: the second conjunct
+    collapses to `True`, so a resumption asks only what it always asked. *)
 val ws_resumed_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                    (frames: stack v cl) (x: v)
-  : Lemma (requires ws cok can (Resumed frames x)) (ensures wf_stack cok can frames)
+  : Lemma (requires ws cok can (resumed frames x)) (ensures wf_stack cok can frames)
 
 val wf_stack_bind_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                       (fn: v -> comp_tree v cl) (rest: stack v cl)

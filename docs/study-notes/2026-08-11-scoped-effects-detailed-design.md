@@ -99,14 +99,22 @@ stay writable, and the day one of them stops being writable is the alarm.
 
 6. **The FFI cannot name internal continuation or frame constructors.** Enforced
    as guard (e) of `scripts/build-runtime.sh`: after stripping comments, every
-   occurrence of `Hoop_Runtime_Syntax.` in `runtime/ml/hoop_ffi.ml` must be one
-   of a whitelist — currently `Var`, `Op`, `Perform`, `Handle`, `NewP`, `ReadP`,
-   `WriteP`. `Splice`, `resumed`, `BindF`, `ParamF`, `PromptF` therefore fail.
+   occurrence of `Hoop_Runtime_Syntax.` in `runtime/ml/melange/hoop_ffi.ml` must
+   be one of a whitelist — currently `Var`, `Op`, `Perform`, `Handle`, `NewP`,
+   `ReadP`, `WriteP`. `Splice`, `resumed`, `BindF`, `ParamF`, `PromptF`
+   therefore fail.
    The check is on identifiers, so it forbids *pattern matching* on frames as
    well as constructing them. References to other extracted modules
    (`Hoop_Runtime.{ct, clause, Full, Fast, MDone, MStuck, MStep, execute}`,
    `Hoop_Runtime_Handlers.mk_handlers`, `Hoop_Runtime_Semantics.var_eff`) are
    out of scope for this guard.
+
+   The whitelist reads *qualified* names, so an `open` of an extracted module
+   would make exactly what it is looking for invisible to it. The guard
+   therefore rejects one outright, as a separate error. It was checked to FIRE
+   and not merely to pass, on four violations — constructing `Splice`, matching
+   on `BindF`, constructing `PromptF`, and adding the `open` — and to stay
+   silent when the same names appear only in a comment.
 
 ### What condition 6 protects, and what it does not
 

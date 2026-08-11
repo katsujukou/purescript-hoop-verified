@@ -244,6 +244,62 @@ if ! grep -q 'type int = Stdlib\.Int\.t' "$ML_DIR/shim/Prims.ml"; then
   echo "ERROR: runtime/ml/shim/Prims.ml no longer realises Prims.int natively." >&2
   exit 1
 fi
+
+# (e) The boundary may name only the AST constructors the PureScript surface is
+#     entitled to build.
+#
+#     Some nodes are machine-internal. `Splice` carries a list of stack frames,
+#     and the frame constructors themselves carry handler tables and cell
+#     values; a computation built out of those is a continuation forged by hand.
+#     The FFI has no business constructing one, and this is what says so.
+#
+#     WHAT IT PROTECTS. Not the correspondence theorem: `Hoop.Runtime.execute`
+#     has no precondition, so even a forged node would satisfy it -- the machine
+#     would stop where the reference machine stops on that same program. What it
+#     protects is the *trusted* side of the boundary, the claim that PureScript's
+#     type system only produces well-scoped programs. Row types say nothing
+#     whatever about frame lists, so a surface that could fabricate an internal
+#     computation carrying an arbitrary segment would make that claim
+#     unbelievable. The guard is syntactic and lives inside the handwritten TCB,
+#     so it is not a proof; it is what makes an unintended widening of the
+#     exposed surface show up as a diff.
+#
+#     Identifier-based, so it forbids MATCHING on these constructors as well as
+#     building them -- destructuring a computation into frames is the same leak
+#     read backwards. Comments are stripped first, since the header of the
+#     boundary discusses the machine-internal nodes by name.
+#
+#     The whitelist is expected to grow by exactly one entry when a scoped
+#     perform node lands. That one-line diff is the review artifact.
+FFI_SRC="$ML_DIR/melange/hoop_ffi.ml"
+SYNTAX_ALLOWED="Var Op Perform Handle NewP ReadP WriteP"
+
+# The whole guard rests on the references being qualified; an `open` would make
+# them invisible to it.
+if strip_ocaml_comments "$FFI_SRC" | grep -qE '^[[:space:]]*open[[:space:]]+Hoop_Runtime'; then
+  echo "ERROR: $FFI_SRC opens an extracted module." >&2
+  echo "       The constructor whitelist below reads qualified names, so an" >&2
+  echo "       open would hide exactly what it is meant to see." >&2
+  exit 1
+fi
+
+SYNTAX_USED="$(strip_ocaml_comments "$FFI_SRC" \
+  | grep -oE 'Hoop_Runtime_Syntax\.[A-Za-z_][A-Za-z0-9_]*' \
+  | sed 's/^Hoop_Runtime_Syntax\.//' | sort -u || true)"
+SYNTAX_BAD=""
+for n in $SYNTAX_USED; do
+  case " $SYNTAX_ALLOWED " in
+    *" $n "*) ;;
+    *) SYNTAX_BAD="$SYNTAX_BAD $n" ;;
+  esac
+done
+if [ -n "$SYNTAX_BAD" ]; then
+  echo "ERROR: $FFI_SRC names machine-internal AST constructors:$SYNTAX_BAD" >&2
+  echo "       Only these may be reached from the boundary: $SYNTAX_ALLOWED" >&2
+  echo "       A node the PureScript surface cannot be trusted to build well" >&2
+  echo "       scoped must not be reachable from the FFI. See the note above." >&2
+  exit 1
+fi
 # --- 3m. Compile with Melange ----------------------------------------------
 # The repository does not become a dune project: the tree below is generated
 # into build/, used once, and removed by the `rm -rf "$BUILD"` at the top of the

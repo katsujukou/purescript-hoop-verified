@@ -56,12 +56,22 @@ type comp_tree (v: Type) (cl: Type) =
       pure:option (v -> comp_tree v cl) ->
       body:comp_tree v cl ->
       comp_tree v cl
-  // `Resumed` node is machine-internal and should never exported to the PS-world;
-  // it is inserted by the machine at the head of delimited continuation when it is loaded as
-  // the next instruction as the result of firing `continue k` in the handler clause.
-  | Resumed:
+  // `Splice` node is machine-internal and should never be exported to the PS-world;
+  // it is inserted by the machine at the head of a delimited continuation when the
+  // continuation is loaded as the next instruction — the result of firing `continue k`
+  // in a handler clause.
+  //
+  // It says: *push these frames, then run this body under them*. The frames are a
+  // captured stack segment and the body is what the machine is to run once they are
+  // back in place. The two parts are independent: the segment says WHERE control is
+  // to resume, the body says WITH WHAT.
+  //
+  // Splitting them apart is what leaves room for a scoped operation, whose body is a
+  // computation rather than a value; resumption, the only use today, is the special
+  // case where the body is already a value. See `resumed` below.
+  | Splice:
       frames: list (frame v cl) ->
-      value: v ->
+      body: comp_tree v cl ->
       comp_tree v cl
   // Prompt-local state. `NewP` installs a cell for the duration of `body`;
   // `ReadP` and `WriteP` reach the nearest enclosing cell of that label. The
@@ -104,6 +114,22 @@ and frame (v: Type) (cl: Type) =
       hs:handlers cl ->
       pure:option (v -> comp_tree v cl) ->
       frame v cl
+
+(**
+ * **Resumption is the `Var` specialisation of `Splice`.** Handing a value `x` to a
+ * captured continuation `fs` is splicing `fs` back on with nothing left to compute
+ * but `x` itself.
+ *
+ * It is kept under its own name because that name is the one the metatheory argues
+ * about: `Hoop.Runtime.Semantics.kont_of` builds exactly this, `apply_ok` constrains
+ * exactly this, and every theorem about resumption is stated of it. Making it
+ * `unfold` rather than a `val` is deliberate — `step`'s `Splice` rule then applies to
+ * it *definitionally*, so the old transition survives as a tautology rather than as a
+ * lemma with a proof that could rot (see `Hoop.Runtime.Metatheory.step_resumed`).
+ *)
+unfold
+let resumed (#v #cl: Type) (fs: list (frame v cl)) (x: v) : comp_tree v cl
+  = Splice fs (Var x)
 
 // The clause-monomorphized version of `apply`. This calls a handler clause by feeding
 // it the action's payload (`list v`) and the captured delimited continuation.  
