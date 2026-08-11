@@ -730,3 +730,138 @@ let _ = assert_norm (blocking_effects bh_one_full == ["Exc"])
 let _ = assert_norm (blocking_effects bh_fast_over_full == [])
 let _ = assert_norm (blocking_effects bh_full_over_fast == ["St"])
 #pop-options
+
+
+(*
+  ---- 35-39. `borrow` and `prepare_scope`, actually run ----
+
+  The two lemmas in `Hoop.Runtime.Metatheory` say what the prepared segment
+  OFFERS and that it is still WELL FORMED. Neither says what it IS: both are
+  stated through `can_in_with` and `wf_stack`, which see a stack only through
+  `find_prompt`, `param_in` and the obligations of the frames, and a
+  transformation that reversed the segment or duplicated a frame could satisfy
+  them. What follows pins the executable reading instead -- frame for frame, in
+  order.
+
+  Nothing calls `prepare_scope`: the scoped transition does not exist yet, so
+  these five `assert_norm`s are the only thing that has ever RUN it, exactly as
+  31-34 are for `blocking_effects`. Hence the same `--no_smt`, and for the same
+  reason: it is a STRENGTHENING, forbidding the solver to finish a job the
+  normaliser did not do, so the term must reduce to the literal on the right.
+  Without it an `assert_norm` over a definition the normaliser cannot see
+  through passes while normalising nothing.
+
+  Each was perturbed by hand -- one wrong label, one wrong cell value, one
+  return clause put back, one dropped, one pair of frames swapped -- and each
+  perturbation was confirmed to FAIL before the expected value was restored.
+
+  `owner` is refined (`PromptF? owner`), and that refinement is discharged where
+  `bw_owner` is defined, OUTSIDE the `--no_smt` block. Inside it there is
+  nothing left to prove but the reduction.
+*)
+
+(* Two distinguishable tables, so that "the table is kept" is observable and not
+   just "a table is there". *)
+let bw_hA : handlers tcl = mkh [("A", "op", CConst (VI 1))]
+let bw_hB : handlers tcl = mkh [("B", "op", CConst (VI 2))]
+let bw_hOwn : handlers tcl = mkh [("Own", "scope", CEcho)]
+
+(* Three distinguishable return clauses. The intermediates' are the ones that
+   must vanish; the owner's is the one that must not. *)
+let bw_retA : option (tv -> comp_tree tv tcl) = Some (fun x -> Var (vadd x (VI 10)))
+let bw_retB : option (tv -> comp_tree tv tcl) = Some (fun x -> Var (vadd x (VI 20)))
+let bw_retOwn : option (tv -> comp_tree tv tcl) = Some (fun x -> Var (vadd x (VI 30)))
+
+let bw_owner : (o: frame tv tcl { PromptF? o }) = PromptF bw_hOwn bw_retOwn
+
+
+(* 35. A `BindF` frame is removed. The perform site's own continuation is not
+   what a scope runs under. *)
+
+let bw_seg_bind : stack tv tcl = [BindF (fun x -> Var (vadd x (VI 1)))]
+
+#push-options "--no_smt"
+let _ = assert_norm (borrow bw_seg_bind == ([] <: stack tv tcl))
+#pop-options
+
+
+(* 36. A `ParamF` frame survives with BOTH its label and its value. Dropping
+   either would make `prepare_scope_can` false -- the cell is a capability, and
+   the value is what the scope reads. *)
+
+let bw_seg_param : stack tv tcl = [ParamF "c1" (VI 41)]
+
+#push-options "--no_smt"
+let _ = assert_norm (borrow bw_seg_param == [ParamF "c1" (VI 41)])
+#pop-options
+
+
+(* 37. An intermediate prompt keeps its table and LOSES its return clause: it is
+   available for dispatch, and is not an answer boundary. *)
+
+let bw_seg_prompt : stack tv tcl = [PromptF bw_hA bw_retA]
+
+#push-options "--no_smt"
+let _ = assert_norm (borrow bw_seg_prompt == [PromptF bw_hA None])
+#pop-options
+
+
+(* 38. The owner keeps its table AND its return clause. That clause is the
+   answer former the scoped handler reports its result through; this is the
+   fixture that would catch it being cleared along with the others. *)
+
+#push-options "--no_smt"
+let _ = assert_norm
+  (prepare_scope ([] <: stack tv tcl) bw_owner == [PromptF bw_hOwn bw_retOwn])
+#pop-options
+
+
+(* 39. All of it at once, on an interleaved segment, so that ORDER IS ACTUALLY
+   OBSERVED. Two `BindF` frames at different depths, two cells, two prompts with
+   distinct tables and distinct return clauses, and the owner last. Nothing here
+   would survive a `borrow` that reordered, deduplicated or reversed. *)
+
+let bw_mixed : stack tv tcl =
+  [ BindF (fun x -> Var (vadd x (VI 1)));
+    ParamF "c1" (VI 41);
+    PromptF bw_hA bw_retA;
+    BindF (fun x -> Var (vadd x (VI 2)));
+    ParamF "c2" (VI 42);
+    PromptF bw_hB bw_retB ]
+
+#push-options "--no_smt"
+let _ = assert_norm
+  (prepare_scope bw_mixed bw_owner ==
+    [ ParamF "c1" (VI 41);
+      PromptF bw_hA None;
+      ParamF "c2" (VI 42);
+      PromptF bw_hB None;
+      PromptF bw_hOwn bw_retOwn ])
+#pop-options
+
+
+(* 40. The same segment, through `prepare_scope_fast` -- the accumulating walk
+   plus one `rev` -- and the SAME expected list, spelled out again rather than
+   quoted from 39.
+
+   `Hoop.Runtime.Semantics.prepare_scope_fast_agrees` already proves the two
+   equal, so this adds nothing to the metatheory; what it adds is that the list
+   it normalises to has been read. 39 is the fixture that observes ORDER, and
+   `prepare_scope_fast` is the one that will actually RUN -- it accumulates
+   outside-in and reverses at the end, which is exactly the shape whose
+   off-by-one failure mode is a reversed or rotated segment. Normalising it
+   independently is what would catch an agreement lemma that had been proved
+   about something else.
+
+   Perturbed by hand -- the two prompts swapped -- and confirmed to FAIL before
+   the expected value was restored. *)
+
+#push-options "--no_smt"
+let _ = assert_norm
+  (prepare_scope_fast bw_mixed bw_owner ==
+    [ ParamF "c1" (VI 41);
+      PromptF bw_hA None;
+      ParamF "c2" (VI 42);
+      PromptF bw_hB None;
+      PromptF bw_hOwn bw_retOwn ])
+#pop-options

@@ -224,6 +224,215 @@ let rec set_param (#v #cl: Type) (l: string) (x: v) (k: stack v cl)
           | None -> None
           | Some rest' -> Some (f :: rest'))
 
+(* ------------------------------------------------------------------ *)
+(*  The context a scope runs under                                     *)
+(*                                                                     *)
+(*  A scoped operation does not resume its perform site: it runs an     *)
+(*  INNER COMPUTATION under the handlers that site could see. Which     *)
+(*  handlers those are, and on what terms they are offered, is the      *)
+(*  whole content of the two functions below.                          *)
+(*                                                                     *)
+(*  NOTHING CALLS THEM YET, and that is deliberate. A scoped perform    *)
+(*  node and the transition that dispatches it are one semantic slice   *)
+(*  together; this is the stack surgery that slice will rest on,        *)
+(*  landed on its own so that the two facts everything downstream       *)
+(*  needs -- `Hoop.Runtime.Metatheory.prepare_scope_can` and            *)
+(*  `prepare_scope_wf` -- are proved before anything depends on them.   *)
+(*                                                                     *)
+(*  See docs/study-notes/2026-08-11-scoped-effects-detailed-design.md,  *)
+(*  Decision 2.                                                        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **Borrowing a stack segment**: what is left of it once it is offered for
+ * DISPATCH but no longer as an ANSWER BOUNDARY.
+ *
+ * Three clauses, and each of them is a separate decision:
+ *
+ *   - `BindF` is DROPPED. A bind frame is the perform site's own continuation,
+ *     and a scope is not a resumption -- the inner computation runs *instead
+ *     of* the rest of the enclosing block, not before it. Dropping it is also
+ *     what keeps a masked prompt out: while a tail-resumptive clause body is in
+ *     flight, the erasure has already absorbed that clause's own prompt into a
+ *     `BindF (kont_of ...)`, so a handler the perform site could not see cannot
+ *     re-enter through the borrowed context either.
+ *
+ *   - `PromptF` KEEPS ITS TABLE AND LOSES ITS RETURN CLAUSE. The table is
+ *     exactly the capability the scope is being lent; the return clause is an
+ *     answer transformation, and a borrowed prompt is not where the scope's
+ *     answer is formed. `ret = None` says that with the option the frame
+ *     already carries -- no new constructor, and so no new case in the erasure,
+ *     the machine, or the FFI whitelist.
+ *
+ *   - `ParamF` is KEPT ENTIRE, label AND value. A cell is a capability under
+ *     `var_eff` in the very same environment that tables live in, so dropping
+ *     one would silently withdraw a capability the perform site had:
+ *     `Hoop.Runtime.Metatheory.prepare_scope_can` is FALSE without this clause,
+ *     because `param_in` would not be preserved. Keeping the cell where it
+ *     stood relative to its prompt is what makes the borrowing coherent -- a
+ *     borrowed clause still meets its own cell first, with no runtime label
+ *     minting. And because the frame holds the VALUE and not a pointer to one,
+ *     what a scope receives is a snapshot that branches; a cell stays live only
+ *     for a handler sitting outside the scoped one, which is the composition
+ *     order deciding it, not new machinery.
+ *
+ * Frame order is preserved throughout. This is a filter-and-rewrite, never a
+ * reordering, and every claim that the result is "the same context" rests on
+ * that.
+ *
+ * *This is the specification*, and it is `noextract` for that reason: what runs
+ * is `borrow_rev` below, which computes the same list with an accumulator. See
+ * `prepare_scope_fast` for why the difference is not a matter of taste.
+ *)
+noextract
+let rec borrow (#v #cl: Type) (k: stack v cl) : Tot (stack v cl) (decreases k)
+  = match k with
+    | [] -> []
+    | BindF _ :: r -> borrow r
+    | ParamF l x :: r -> ParamF l x :: borrow r
+    | PromptF hs _ :: r -> PromptF hs None :: borrow r
+
+(**
+ * **The segment a scope runs under**, assembled from the two parts a dispatch
+ * hands over. `Hoop.Runtime.Metatheory.find_prompt_partitions` and
+ * `find_prompt_last` between them give `captured == intermediates @ [owner]`
+ * with `PromptF? owner`, and the two parts play DIFFERENT ROLES.
+ *
+ * The intermediates are borrowed. The owner -- the prompt whose table holds the
+ * clause being dispatched to -- is NOT: it keeps its handler table *and* its
+ * return clause, unchanged. That return clause is the answer former the surface
+ * relies on to report a scope's result at the handler's own answer type;
+ * setting it to `None` would make handlers such as `once` inexpressible. With
+ * head = innermost the ordering works out on its own: a value leaving the scope
+ * passes the transparent borrowed frames and meets the owner LAST, so the
+ * answer transformation is applied exactly once.
+ *
+ * **The two roles are visible in this SIGNATURE rather than in a frame
+ * constructor.** `frame` gains nothing, so the erasure, the build guards and the
+ * FFI whitelist all stay as they are; the refinement on `owner` is what carries
+ * the distinction instead. Splitting a real `captured` into the two parts is the
+ * caller's job, and belongs with the transition that does the dispatch.
+ *
+ * **Borrowability is neither checked here nor assumed.** Whether the borrowed
+ * prompts may be borrowed at all is a different question, answered at the
+ * transition and reported as a rejection rather than as a stuck state. This
+ * function is the transformation and nothing else -- which is precisely what
+ * lets its two lemmas be proved with no premise about what kind of clause any
+ * table holds.
+ *
+ * *This is the specification.* What runs is `prepare_scope_fast` below, which
+ * `prepare_scope_fast_agrees` proves computes this very list. The two reasons
+ * this one is `noextract` -- the `@`, and the shape of the recursion in `borrow`
+ * -- are both recorded there.
+ *)
+noextract
+let prepare_scope
+    (#v #cl: Type)
+    (intermediates: stack v cl)
+    (owner: frame v cl { PromptF? owner })
+  : stack v cl
+  = borrow intermediates @ [owner]
+
+(**
+ * **`borrow`, as a loop.** Same three decisions, same frame order, taken from
+ * the outside in onto an accumulator -- so the result comes out reversed, and
+ * the one `rev` in `prepare_scope_fast` puts it back.
+ *
+ * `borrow_rev k acc == rev (borrow k) @ acc`, which is `borrow_rev_spec` below.
+ *)
+let rec borrow_rev (#v #cl: Type) (k: stack v cl) (acc: stack v cl)
+  : Tot (stack v cl) (decreases k)
+  = match k with
+    | [] -> acc
+    | BindF _ :: rest -> borrow_rev rest acc
+    | ParamF l x :: rest -> borrow_rev rest (ParamF l x :: acc)
+    | PromptF hs _ :: rest -> borrow_rev rest (PromptF hs None :: acc)
+
+(* Pushing one frame onto the accumulator prepends it to the reversed answer.
+   The only arithmetic of `rev` the induction below needs, stated once so that
+   the two frame-keeping branches cite it rather than re-derive it. *)
+private
+let rev_cons_append (#a: Type) (x: a) (acc l: list a)
+  : Lemma (rev (x :: acc) @ l == rev acc @ (x :: l))
+  = rev_rev' (x :: acc);
+    rev_rev' acc;
+    append_assoc (rev acc) [x] l
+
+private
+let rec borrow_rev_spec (#v #cl: Type) (k: stack v cl) (acc: stack v cl)
+  : Lemma (ensures borrow_rev k acc == rev (borrow k) @ acc) (decreases k)
+  = match k with
+    | [] -> ()
+    | BindF _ :: rest -> borrow_rev_spec rest acc
+    | ParamF l x :: rest ->
+        borrow_rev_spec rest (ParamF l x :: acc);
+        rev_cons_append (ParamF l x <: frame v cl) (borrow rest) acc
+    | PromptF hs _ :: rest ->
+        borrow_rev_spec rest (PromptF hs None :: acc);
+        rev_cons_append (PromptF hs (None #(v -> comp_tree v cl)) <: frame v cl)
+                        (borrow rest) acc
+
+(**
+ * **The segment a scope runs under, as the machine builds it.** An accumulating
+ * walk and one final `rev`; `prepare_scope_fast_agrees` says it is
+ * `prepare_scope`, frame for frame.
+ *
+ * *Why the specification is `noextract` and this is what ships.* Two reasons,
+ * and only one of them is about `@`.
+ *
+ *   - `prepare_scope` appends with `@`, which extracts to
+ *     `FStar_List_Tot_Base.op_At`. `runtime/ml/shim/FStar_List_Tot_Base.ml`
+ *     holds only what is live and deleted `op_At` once nothing called it, under
+ *     its own policy that dead trusted code is the kind that is still trusted
+ *     when someone makes it live again. Extracting the specification would put
+ *     that entry back, growing the TCB by one, for an append proportional to its
+ *     left argument.
+ *
+ *   - `borrow` conses on the way OUT of its recursion, so it is not tail
+ *     recursive: extracted, it holds one host frame per frame of the segment.
+ *     That is the whole argument the shim's header gives for writing `rev` and
+ *     `rev_append` tail-recursively there -- Melange compiles OCaml's stack onto
+ *     JavaScript's, where the frame limit is a few tens of thousands, so a
+ *     direct recursion over a user-sized list is a ceiling on how deeply a
+ *     user's program may nest, reported as an opaque `RangeError` rather than as
+ *     anything the program did. The segment here is exactly a run of the user's
+ *     handler nesting, so it is precisely the list that argument is about. The
+ *     accumulator is therefore not a micro-optimisation; it is what keeps the
+ *     shipped path flat.
+ *
+ * `borrow_rev` is a tail call in every branch, and `rev` is a loop in the shim,
+ * so nothing here recurses to the segment's depth. Both `borrow` and
+ * `prepare_scope` are `noextract`, which also buys a guard: a later transition
+ * that reaches for the specification instead of this fails at EXTRACTION rather
+ * than shipping a stack-hungry path.
+ *)
+let prepare_scope_fast
+    (#v #cl: Type)
+    (intermediates: stack v cl)
+    (owner: frame v cl { PromptF? owner })
+  : stack v cl
+  = rev (owner :: borrow_rev intermediates [])
+
+(**
+ * **The two agree.** Route: `borrow_rev_spec` at `acc = []` turns the walk into
+ * `rev (borrow intermediates)`; reversing `owner ::` that is
+ * `rev (rev (borrow intermediates)) @ [owner]`, and `rev_involutive` collapses
+ * the double reversal to `borrow intermediates @ [owner]`, which is
+ * `prepare_scope`.
+ *)
+let prepare_scope_fast_agrees
+    (#v #cl: Type)
+    (intermediates: stack v cl)
+    (owner: frame v cl { PromptF? owner })
+  : Lemma (prepare_scope_fast intermediates owner == prepare_scope intermediates owner)
+  = borrow_rev_spec intermediates [];
+    append_l_nil (rev (borrow intermediates));
+    // `borrow_rev intermediates [] == rev (borrow intermediates)`; call it `l`.
+    rev_cons_append owner (rev (borrow intermediates)) [];
+    append_l_nil (rev (owner :: rev (borrow intermediates)));
+    // `rev (owner :: l) == rev l @ [owner]`, and `rev l` is `borrow intermediates`.
+    rev_involutive (borrow intermediates)
+
 // The delimited continuation handed to a clause.
 // While `kont_of captured` is definitionally `fun x -> resumed captured x`, that is,
 // `fun x -> Splice captured (Var x)`,

@@ -370,6 +370,103 @@ let wf_stack_split_prompt (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
     wf_stack_prompt cok a hs ret k2
 
 (* ------------------------------------------------------------------ *)
+(* The segment a scope runs under                                      *)
+(* ------------------------------------------------------------------ *)
+
+(* `can_in_with` reads a stack through exactly two searches, so `borrow_can`
+   below is those two lemmas and nothing else. Both are stated through the
+   searches rather than through `handled_in` / `param_in`, whose existentials
+   over `memP` would have to be taken apart and rebuilt at every frame; the
+   refinements on `find_prompt` and `find_param` hand back the propositional
+   readings for free. Private: they say nothing a client wants that
+   `borrow_can` does not say better. *)
+
+private
+let rec borrow_handled (#v #cl: Type) (eff op: string) (k: stack v cl)
+  : Lemma (ensures Some? (find_prompt eff op (borrow k)) <==> Some? (find_prompt eff op k))
+          (decreases k)
+  = match k with
+    // A bind frame handles nothing, so removing it removes no answer.
+    | BindF _ :: r -> borrow_handled eff op r
+    | ParamF _ _ :: r -> borrow_handled eff op r
+    // The search branches on `lookup_handler hs`, which `borrow` leaves alone;
+    // it never looks at `ret`, which is the only thing `borrow` touches here.
+    | PromptF _ _ :: r -> borrow_handled eff op r
+    | [] -> ()
+
+private
+let rec borrow_param (#v #cl: Type) (l: string) (k: stack v cl)
+  : Lemma (ensures param_in l (borrow k) <==> param_in l k) (decreases k)
+  = match k with
+    | BindF _ :: r -> borrow_param l r
+    // The cell survives with its label AND its value, so the search takes the
+    // same branch on both sides -- and at a matching label both sides stop.
+    | ParamF l' _ :: r -> if l' = l then () else borrow_param l r
+    | PromptF _ _ :: r -> borrow_param l r
+    | [] -> ()
+
+let borrow_can (#v #cl: Type) (k: stack v cl) (a: can_perform)
+  : Lemma (equiv_can (can_in_with (borrow k) a) (can_in_with k a))
+  = introduce forall (eff op: string).
+      can_in_with (borrow k) a eff op <==> can_in_with k a eff op
+    with (borrow_handled eff op k; borrow_param op k)
+
+let prepare_scope_can (#v #cl: Type) (intermediates: stack v cl)
+                      (owner: frame v cl { PromptF? owner }) (can: can_perform)
+  : Lemma (equiv_can (can_in_with (prepare_scope intermediates owner) can)
+                     (can_in_with (intermediates @ [owner]) can))
+  = // Both sides split at the same place -- the owner is common to them -- so
+    // the whole difference is `borrow` on the part above it.
+    av_append (borrow intermediates) [owner] can;
+    av_append intermediates [owner] can;
+    borrow_can intermediates (can_in_with [owner] can)
+
+let rec borrow_wf (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (k: stack v cl)
+  : Lemma (requires clause_ok_congr cok /\ wf_stack cok a k)
+          (ensures wf_stack cok a (borrow k))
+          (decreases k)
+  = match k with
+    | [] -> wf_stack_nil #v #cl cok a
+    // The bind frame's own obligation is DISCHARGED BY BEING DROPPED: the
+    // suspended continuation is gone, so nothing is owed for it. Nothing below
+    // it changes, so the rest is the induction hypothesis verbatim.
+    | BindF fn :: r ->
+      wf_stack_bind cok a fn r;
+      borrow_wf cok a r
+    // A cell owes nothing either way -- it suspends no computation and installs
+    // no table -- so both sides reduce to the tail and the hypothesis is the
+    // whole case. (`wf_stack_param` says exactly this, but is declared further
+    // down the interface than this section sits; the definition unfolds here
+    // for the same reason its own proof is `()`.) The cell is carried across so
+    // that the CAPABILITY survives, which is `borrow_can`'s business, not this
+    // lemma's.
+    | ParamF _ _ :: r -> borrow_wf cok a r
+    | PromptF hs ret :: r ->
+      wf_stack_prompt cok a hs ret r;
+      borrow_wf cok a r;
+      // THE ONE PLACE ANY WORK HAPPENS. The table's obligation was recorded
+      // against `r` and must now hold against `borrow r`, which is a different
+      // stack whenever `r` held a `BindF`. `borrow_can` -- the statement one
+      // suffix down -- says the two offer the same capabilities, and
+      // `clause_ok_congr` is what turns that into the same judgement.
+      borrow_can r a;
+      handler_ok_congr cok (can_in_with r a) (can_in_with (borrow r) a) hs;
+      // `ret_ws _ _ None` is `True`, so the return clause's obligation is not
+      // transported: it is discarded with the clause.
+      wf_stack_prompt cok a hs (None #(v -> comp_tree v cl)) (borrow r)
+
+let prepare_scope_wf (#v #cl: Type) (cok: clause_ok_t cl) (intermediates: stack v cl)
+                     (owner: frame v cl { PromptF? owner }) (can: can_perform)
+  : Lemma (requires clause_ok_congr cok /\ wf_stack cok can (intermediates @ [owner]))
+          (ensures wf_stack cok can (prepare_scope intermediates owner))
+  = // Split at the owner, borrow above it, join back. The second conjunct
+    // `wf_stack cok can [owner]` is LITERALLY THE SAME PROPOSITION on both
+    // sides of the surgery -- it is not re-proved, transported, or weakened.
+    wf_stack_append cok intermediates [owner] can;
+    borrow_wf cok (can_in_with [owner] can) intermediates;
+    wf_stack_append cok (borrow intermediates) [owner] can
+
+(* ------------------------------------------------------------------ *)
 (* Preservation of the machine invariant, one transition at a time     *)
 (* ------------------------------------------------------------------ *)
 

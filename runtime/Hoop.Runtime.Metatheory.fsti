@@ -589,6 +589,129 @@ val wf_stack_split_prompt
       (ensures handler_ok cok (can_in_with k2 a) hs)
 
 // ------------------------------------------------------------------ //
+//  The segment a scope runs under                                     //
+//                                                                     //
+//  `Hoop.Runtime.Semantics.prepare_scope` rewrites the captured        //
+//  segment into the context a scoped operation's inner computation is  //
+//  to run in. The two lemmas below are what every use of it will rest  //
+//  on: the rewritten segment OFFERS THE SAME THINGS, and it is STILL   //
+//  WELL FORMED. Nothing calls `prepare_scope` yet; these are proved    //
+//  ahead of the transition so that the transition is the only new      //
+//  thing when it lands.                                                //
+//                                                                     //
+//  They sit here, with `av_append` and `wf_stack_append`, because that //
+//  is what they are made of: both are the corresponding statement      //
+//  about `borrow` alone, transported across the `@ [owner]` by those   //
+//  two.                                                                //
+//                                                                     //
+//  Neither mentions borrowABILITY -- whether the prompts in question   //
+//  are ones a scope is allowed to borrow. That is a separate question, //
+//  answered at the transition, and keeping it out of these statements  //
+//  is what makes them say something about the transformation itself.   //
+// ------------------------------------------------------------------ //
+
+(**
+ * **Borrowing changes no capability**: a borrowed segment offers exactly the
+ * operations and exactly the cells the original one did.
+ *
+ * The three clauses of `borrow` are each a reason this holds. Dropping `BindF`
+ * is safe because a bind frame contributes nothing to `can_in_with` -- it
+ * neither installs a table nor holds a cell. Clearing a `PromptF`'s return
+ * clause is safe because `ret` does not enter `can_in_with` either; only `hs`
+ * does, and that is kept.
+ *
+ * **The third is not free, and it is why the cells travel at all.** A `ParamF`
+ * frame IS a capability -- `can_in_with` reads `param_in` under the reserved
+ * effect name exactly as it reads `find_prompt` under an ordinary one -- so had
+ * `borrow` dropped the cells, or kept the labels while discarding the values,
+ * this lemma and `prepare_scope_can` below would simply be FALSE. Keeping
+ * `ParamF l x` entire is what makes the statement true, not a convenience laid
+ * on top of one that was already true.
+ *
+ * **This is the form in which "at every suffix" is read off.** It is stated of
+ * an arbitrary stack, and a suffix of a segment is a stack, so every suffix is
+ * an instance -- which is what `prepare_scope_wf` needs, since the environments
+ * have to agree at each borrowed prompt's own position and not merely at the top
+ * of the segment. The proof is the induction over the segment whose hypothesis
+ * those instances are; `prepare_scope_can` is its corollary, not the other way
+ * round.
+ *)
+val borrow_can
+    (#v #cl: Type)
+    (k: stack v cl)
+    (a: can_perform)
+  : Lemma (equiv_can (can_in_with (borrow k) a) (can_in_with k a))
+
+(** **The prepared segment offers exactly what the captured one did.**
+    `borrow_can` composed with `av_append` on either side of the owner, which is
+    common to both stacks and so cancels. Stated of an arbitrary
+    `intermediates`, hence -- again -- at every suffix of the segment. *)
+val prepare_scope_can
+    (#v #cl: Type)
+    (intermediates: stack v cl)
+    (owner: frame v cl { PromptF? owner })
+    (can: can_perform)
+  : Lemma
+      (equiv_can (can_in_with (prepare_scope intermediates owner) can)
+                 (can_in_with (intermediates @ [owner]) can))
+
+(**
+ * **Well-formedness survives borrowing**, and this is the induction that
+ * `prepare_scope_wf` is assembled from.
+ *
+ * **It introduces no new semantic premise.** Every obligation the borrowed
+ * segment carries is one the original already carried:
+ *
+ *   - a `BindF` frame's obligation is discharged by the frame being dropped --
+ *     the suspended continuation is gone, so nothing is owed for it;
+ *   - a borrowed prompt's return clause is gone too, so its `ret_ws` obligation
+ *     becomes `True` and is discarded rather than transported;
+ *   - what IS transported is each borrowed prompt's `handler_ok`, through
+ *     `borrow_can` at that prompt's suffix and `handler_ok_congr`.
+ *
+ * **The transport is nevertheless a real induction, not a rewriting.** Dropping
+ * the `BindF` frames changes what lies below every prompt that had one above it,
+ * so a borrowed table is judged against a tail that is not the tail it was
+ * judged against before. `clause_ok_congr` is required for exactly that reason
+ * and for no other: it is the hypothesis that lets a clause's well-scopedness be
+ * read in an equivalent environment.
+ *)
+val borrow_wf
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (k: stack v cl)
+  : Lemma
+      (requires clause_ok_congr cok /\ wf_stack cok a k)
+      (ensures wf_stack cok a (borrow k))
+
+(**
+ * **Well-formedness transports to the prepared segment.**
+ *
+ * `borrow_wf` at the environment the owner offers, split off and joined back on
+ * by `wf_stack_append`. What that split buys is the owner: **its tail is the
+ * SAME in both stacks** -- `[]` relative to the segment, whatever lies below it
+ * in the ambient `can` -- so `wf_stack cok can [owner]` is literally the same
+ * proposition on both sides, and the owner's `handler_ok` and `ret_ws`
+ * obligations are reused unchanged, with no congruence step and nothing to
+ * prove. That is the payoff of not borrowing the owner, and it is why keeping
+ * its `ret` is cheaper than dropping it would have been.
+ *
+ * So no new premise: see `borrow_wf` for the accounting of the intermediates,
+ * and note that neither this lemma nor that one asks anything about what KIND of
+ * clause any table holds.
+ *)
+val prepare_scope_wf
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (intermediates: stack v cl)
+    (owner: frame v cl { PromptF? owner })
+    (can: can_perform)
+  : Lemma
+      (requires clause_ok_congr cok /\ wf_stack cok can (intermediates @ [owner]))
+      (ensures wf_stack cok can (prepare_scope intermediates owner))
+
+// ------------------------------------------------------------------ //
 //  Preservation of the machine invariant, one transition at a time    //
 // ------------------------------------------------------------------ //
 
