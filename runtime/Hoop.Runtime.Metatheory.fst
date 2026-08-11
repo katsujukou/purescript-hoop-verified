@@ -92,13 +92,44 @@ let step_perform
     (eff op: string)
     (payload: list v)
     (k: stack v cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
   : Lemma
       (requires Some? (find_prompt eff op k))
-      (ensures 
+      (ensures
           (let Some (captured, found, below) = find_prompt eff op k in
-              (step apply (Step (Perform eff op payload) k) ==
-                  Step (apply found.body payload (kont_of captured)) below) /\
+              (match found.kind with
+                | KScoped ->
+                    step apply apply_s (Step (Perform eff op payload) k) ==
+                      Rejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped)
+                | _ ->
+                    step apply apply_s (Step (Perform eff op payload) k) ==
+                      Step (apply found.body payload (kont_of captured)) below) /\
+              captured @ below == k))
+  = find_prompt_partitions eff op k
+
+let step_performS
+    (#v #cl: Type)
+    (eff op: string)
+    (payload: list v)
+    (k: stack v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+  : Lemma
+      (requires Some? (find_prompt eff op k))
+      (ensures
+          (let Some (captured, found, below) = find_prompt eff op k in
+              (match found.kind with
+                | KScoped ->
+                    step apply apply_s (Step (PerformS eff op payload) k) ==
+                      Step (apply_s found.body payload
+                              (weave_of eff op (prepare_captured_fast captured))
+                              (kont_of captured))
+                           below
+                | KFull ->
+                    step apply apply_s (Step (PerformS eff op payload) k) ==
+                      Rejected (ClauseKindMismatch eff op KScopedOperation KFull)
+                | KFast ->
+                    step apply apply_s (Step (PerformS eff op payload) k) ==
+                      Rejected (ClauseKindMismatch eff op KScopedOperation KFast)) /\
               captured @ below == k))
   = find_prompt_partitions eff op k
 
@@ -107,78 +138,89 @@ let step_perform_stuck
     (eff op: string)
     (payload: list v)
     (k: stack v cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
   : Lemma
       (~(handled_in eff op k) <==>
-          step apply (Step (Perform eff op payload) k) == Stuck eff op)
+          step apply apply_s (Step (Perform eff op payload) k) == Stuck eff op)
+  = ()
+
+let step_performS_stuck
+    (#v #cl: Type)
+    (eff op: string)
+    (payload: list v)
+    (k: stack v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+  : Lemma
+      (~(handled_in eff op k) <==>
+          step apply apply_s (Step (PerformS eff op payload) k) == Stuck eff op)
   = ()
 
 (* ------------------------------------------------------------------ *)
 
 let steps_zero
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (s: state v cl)
-  : Lemma (steps apply 0 s == s)
+  : Lemma (steps apply apply_s 0 s == s)
   = ()
 
 let rec steps_terminal
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n: nat)
     (s: state v cl)
   : Lemma
       (requires Done? s \/ Stuck? s \/ Rejected? s)
-      (ensures steps apply n s == s)
+      (ensures steps apply apply_s n s == s)
       (decreases n)
-  = if n = 0 then () 
-    else steps_terminal apply (n - 1) s
+  = if n = 0 then ()
+    else steps_terminal apply apply_s (n - 1) s
 
 let rec steps_add
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n m: nat) (s: state v cl)
   : Lemma
-      (ensures steps apply (n + m) s == steps apply m (steps apply n s))
+      (ensures steps apply apply_s (n + m) s == steps apply apply_s m (steps apply apply_s n s))
       (decreases n)
   = if n = 0 then ()
     else
       match s with
       | Done _ ->
-          steps_terminal apply (n + m) s;
-          steps_terminal apply n s;
-          steps_terminal apply m s
+          steps_terminal apply apply_s (n + m) s;
+          steps_terminal apply apply_s n s;
+          steps_terminal apply apply_s m s
       | Stuck _ _ ->
-          steps_terminal apply (n + m) s;
-          steps_terminal apply n s;
-          steps_terminal apply m s
+          steps_terminal apply apply_s (n + m) s;
+          steps_terminal apply apply_s n s;
+          steps_terminal apply apply_s m s
       | Rejected _ ->
-          steps_terminal apply (n + m) s;
-          steps_terminal apply n s;
-          steps_terminal apply m s
+          steps_terminal apply apply_s (n + m) s;
+          steps_terminal apply apply_s n s;
+          steps_terminal apply apply_s m s
       | Step _ _ ->
-          steps_add apply (n - 1) m (step apply s)
+          steps_add apply apply_s (n - 1) m (step apply apply_s s)
 
 let steps_unfold
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n: nat)
     (s: state v cl)
   : Lemma
       (requires Step? s)
-      (ensures steps apply (n + 1) s == steps apply n (step apply s))
+      (ensures steps apply apply_s (n + 1) s == steps apply apply_s n (step apply apply_s s))
   = ()
 
 let steps_stable
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n m: nat)
     (s: state v cl)
   : Lemma
-      (requires Done? (steps apply n s))
-      (ensures steps apply (n + m) s == steps apply n s)
-  = steps_add apply n m s;
-    steps_terminal apply m (steps apply n s)
+      (requires Done? (steps apply apply_s n s))
+      (ensures steps apply apply_s (n + m) s == steps apply apply_s n s)
+  = steps_add apply apply_s n m s;
+    steps_terminal apply apply_s m (steps apply apply_s n s)
 (* ------------------------------------------------------------------ *)
 (* Well-scopedness: the defining equations                             *)
 (*                                                                     *)
@@ -197,6 +239,12 @@ let ws_perform (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
            (eff =!= var_eff /\ a eff op))
   = ws_perform_eq #v #cl cok a eff op payload
 
+let ws_performS (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
+                (eff op: string) (payload: list v)
+  : Lemma (ws cok a (PerformS eff op payload <: comp_tree v cl) <==>
+           (eff =!= var_eff /\ a eff op))
+  = ws_performS_eq #v #cl cok a eff op payload
+
 let ws_op (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform)
           (c: comp_tree v cl) (fn: v -> comp_tree v cl)
   : Lemma (ws cok a (Op c fn) <==> (ws cok a c /\ (forall (x: v). ws cok a (fn x))))
@@ -210,7 +258,7 @@ let ws_handle
     (cok: clause_ok_t cl)
     (a: can_perform)
     (hs: handlers cl)
-    (ret: option (v -> comp_tree v cl)) 
+    (ret: option (v -> comp_tree v cl))
     (body: comp_tree v cl)
   : Lemma
       (ws cok a (Handle hs ret body) <==>
@@ -239,6 +287,24 @@ let ws_splice
     // The backward direction goes through by unfolding `ws` and `wf_stack`: at
     // each index the two conjuncts are instances of the two hypotheses, one at
     // `n` and one at `n - 1`.
+    ()
+
+// The same equation at the other splicing node. Nothing about borrowability
+// appears in either direction, and nothing about the origin -- see the
+// interface.
+let ws_weave
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (oeff oop: string)
+    (prepared: stack v cl)
+    (body: comp_tree v cl)
+  : Lemma (ws cok a (Weave oeff oop prepared body) <==>
+            (wf_stack cok a prepared /\ ws cok (can_in_with prepared a) body))
+  = introduce
+      ws cok a (Weave oeff oop prepared body) ==>
+        (wf_stack cok a prepared /\ ws cok (can_in_with prepared a) body)
+    with ws_weave_fwd cok a oeff oop prepared body;
     ()
 
 // The `Var` specialisation. `ws cok _ (Var x)` is `True`, so the body conjunct
@@ -290,7 +356,7 @@ let wf_stack_prompt
         (handler_ok cok (can_in_with rest a) hs /\
           ret_ws cok (can_in_with rest a) ret /\ wf_stack cok a rest)
     with wf_stack_prompt_fwd cok a hs ret rest;
-    introduce 
+    introduce
       (handler_ok cok (can_in_with rest a) hs /\
         ret_ws cok (can_in_with rest a) ret /\ wf_stack cok a rest
       ) ==> wf_stack cok a (PromptF hs ret :: rest)
@@ -470,39 +536,39 @@ let prepare_scope_wf (#v #cl: Type) (cok: clause_ok_t cl) (intermediates: stack 
 (* Preservation of the machine invariant, one transition at a time     *)
 (* ------------------------------------------------------------------ *)
 
-let pres_op (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_op (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
             (inner: comp_tree v cl) (fn: v -> comp_tree v cl) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (Op inner fn) k))
-          (ensures wf_state cok (step apply (Step (Op inner fn) k)))
+          (ensures wf_state cok (step apply apply_s (Step (Op inner fn) k)))
   = ws_op cok (can_in k) inner fn;
     av_bind fn k (can_nothing ());
     ws_congr cok (can_in k) (can_in (BindF fn :: k)) inner;
     wf_stack_bind cok (can_nothing ()) fn k
 
-let pres_handle (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_handle (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                 (hs: handlers cl) (ret: option (v -> comp_tree v cl))
                 (body: comp_tree v cl) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (Handle hs ret body) k))
-          (ensures wf_state cok (step apply (Step (Handle hs ret body) k)))
+          (ensures wf_state cok (step apply apply_s (Step (Handle hs ret body) k)))
   = ws_handle cok (can_in k) hs ret body;
     av_prompt hs ret k (can_nothing ());
     ws_congr cok (extend hs (can_in k)) (can_in (PromptF hs ret :: k)) body;
     wf_stack_prompt cok (can_nothing ()) hs ret k
 
-let pres_var (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_var (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
              (value: v) (k: stack v cl)
   : Lemma (requires wf_state cok (Step (Var value <: comp_tree v cl) k))
-          (ensures wf_state cok (step apply (Step (Var value <: comp_tree v cl) k)))
+          (ensures wf_state cok (step apply apply_s (Step (Var value <: comp_tree v cl) k)))
   = match k with
     | [] -> ()
     | ParamF _ _ :: rest -> ()
     | BindF fn :: rest -> wf_stack_bind cok (can_nothing ()) fn rest
     | PromptF hs ret :: rest -> wf_stack_prompt cok (can_nothing ()) hs ret rest
 
-let pres_splice (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_splice (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                 (frames: stack v cl) (body: comp_tree v cl) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (Splice frames body) k))
-          (ensures wf_state cok (step apply (Step (Splice frames body) k)))
+          (ensures wf_state cok (step apply apply_s (Step (Splice frames body) k)))
   = ws_splice cok (can_in k) frames body;
     // The stack: `frames` is well formed over `k`, so the join is.
     wf_stack_append cok frames k (can_nothing ());
@@ -515,22 +581,22 @@ let pres_splice (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
 // The `Var` specialisation, the transition `continue` takes. The body obligation
 // `pres_splice` discharges is about `Var value` and is vacuous, so nothing here
 // is re-derived.
-let pres_resumed (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_resumed (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                  (captured: stack v cl) (value: v) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (resumed captured value) k))
-          (ensures wf_state cok (step apply (Step (resumed captured value) k)))
-  = pres_splice cok apply captured (Var value) k
+          (ensures wf_state cok (step apply apply_s (Step (resumed captured value) k)))
+  = pres_splice cok apply apply_s captured (Var value) k
 
 #push-options "--split_queries always"
-let pres_perform (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_perform (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                  (eff op: string) (payload: list v) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\
                     wf_state cok (Step (Perform eff op payload) k))
-          (ensures wf_state cok (step apply (Step (Perform eff op payload) k)))
+          (ensures wf_state cok (step apply apply_s (Step (Perform eff op payload) k)))
   = ws_perform #v #cl cok (can_in k) eff op payload;
     assert (Some? (find_prompt eff op k));
     let Some (captured, found, below) = find_prompt eff op k in
-    step_perform eff op payload k apply;
+    step_perform eff op payload k apply apply_s;
     find_prompt_partitions eff op k;
     find_prompt_last eff op k;
     assert (captured @ below == k);
@@ -557,6 +623,90 @@ let pres_perform (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
     with ws_resumed cok (can_in below) captured x;
     assert (ws cok (can_in below) (apply found.body payload kf))
 #pop-options
+
+#push-options "--split_queries always"
+let pres_performS (#v #cl: Type) (cok: clause_ok_t cl)
+                  (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+                  (eff op: string) (payload: list v) (k: stack v cl)
+  : Lemma (requires clause_ok_congr cok /\ apply_scoped_ok apply_s cok /\
+                    wf_state cok (Step (PerformS eff op payload) k))
+          (ensures wf_state cok (step apply apply_s (Step (PerformS eff op payload) k)))
+  = ws_performS #v #cl cok (can_in k) eff op payload;
+    assert (Some? (find_prompt eff op k));
+    let Some (captured, found, below) = find_prompt eff op k in
+    step_performS eff op payload k apply apply_s;
+    match found.kind with
+    // Refused at the boundary. `wf_state (Rejected _)` is `True`, and there is
+    // nothing here to prove -- which is the whole point of the outcome being
+    // separate from `Stuck`.
+    | KFull -> ()
+    | KFast -> ()
+    | KScoped ->
+      find_prompt_partitions eff op k;
+      find_prompt_last eff op k;
+      assert (captured @ below == k);
+      assert (Cons? captured);
+      (* the owner: the prompt holding `found`, and the last frame of the
+         captured segment *)
+      append_init_last captured;
+      append_assoc (init captured) [last captured] below;
+      assert (k == init captured @ (last captured :: below));
+      assert (PromptF? (last captured));
+      let PromptF phs pret = last captured in
+      assert (lookup_handler phs eff op == Some found);
+      lookup_handler_agrees phs eff op;
+      wf_stack_split_prompt cok (can_nothing ()) (init captured) phs pret below;
+      assert (cok (can_in below) found.body);
+      (* the captured segment is well formed on top of `below`, which is both the
+         continuation's obligation and the input to the weave's *)
+      wf_stack_append cok captured below (can_nothing ());
+      assert (wf_stack cok (can_in below) captured);
+      let kf : v -> comp_tree v cl = kont_of captured in
+      introduce forall (x: v). ws cok (can_in below) (kf x)
+      with ws_resumed cok (can_in below) captured x;
+      (* THE WEAVE. `can_clause` is the environment the clause runs in, and
+         `can_site` the one the perform site had; the machine owes the passage
+         from the second to the first, and pays it here. *)
+      let can_clause = can_in below in
+      let can_site = can_in_with captured can_clause in
+      let prepared = prepare_captured_fast captured in
+      prepare_captured_is_prepare_scope (init captured) (last captured);
+      assert (prepared == prepare_scope (init captured) (last captured));
+      // well formed: the borrowed intermediates carry no obligation the captured
+      // ones did not, and the owner's are reused unchanged.
+      prepare_scope_wf cok (init captured) (last captured) can_clause;
+      assert (wf_stack cok can_clause prepared);
+      // and it offers the same capabilities, so a computation well scoped at the
+      // perform site is well scoped under it.
+      prepare_scope_can (init captured) (last captured) can_clause;
+      introduce forall (d: comp_tree v cl).
+        ws cok can_site d ==> ws cok can_clause (weave_of eff op prepared d)
+      with introduce _ ==> _
+      with begin
+        ws_congr cok can_site (can_in_with prepared can_clause) d;
+        ws_weave cok can_clause eff op prepared d
+      end;
+      assert (weave_ok cok can_site can_clause (weave_of eff op prepared));
+      assert (ws cok can_clause (apply_s found.body payload (weave_of eff op prepared) kf))
+#pop-options
+
+let pres_weave (#v #cl: Type) (cok: clause_ok_t cl)
+               (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+               (oeff oop: string)
+               (prepared: stack v cl) (body: comp_tree v cl) (k: stack v cl)
+  : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (Weave oeff oop prepared body) k))
+          (ensures wf_state cok (step apply apply_s (Step (Weave oeff oop prepared body) k)))
+  = match scope_blockers prepared with
+    // The borrow is refused: terminal, and well formed by `wf_state`'s own arm.
+    // The origin travels into the rejection, where nothing is judged of it.
+    | _ :: _ -> ()
+    // The borrow is taken, and from here this is `pres_splice` verbatim at the
+    // prepared segment.
+    | [] ->
+      ws_weave cok (can_in k) oeff oop prepared body;
+      wf_stack_append cok prepared k (can_nothing ());
+      av_append prepared k (can_nothing ());
+      ws_congr cok (can_in_with prepared (can_in k)) (can_in (prepared @ k)) body
 
 (* ------------------------------------------------------------------ *)
 (* Preservation for prompt-local state                                 *)
@@ -637,34 +787,34 @@ let rec set_param_wf (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
             with ws_congr cok (can_in_with rest can) (can_in_with rest' can) (r y));
         wf_stack_prompt cok can hs ret rest'
 
-let pres_newp (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_newp (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
               (l: string) (init: v) (body: comp_tree v cl) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\ wf_state cok (Step (NewP l init body) k))
-          (ensures wf_state cok (step apply (Step (NewP l init body) k)))
+          (ensures wf_state cok (step apply apply_s (Step (NewP l init body) k)))
   = ws_newp_fwd cok (can_in k) l init body;
     assert (ws cok (extend_param l (can_in k)) body);
     assert (equiv_can (extend_param l (can_in k)) (can_in (ParamF l init :: k)));
     ws_congr_eq cok (extend_param l (can_in k)) (can_in (ParamF l init :: k)) body;
     wf_stack_param cok (can_nothing ()) l init k
 
-let pres_readp (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_readp (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                (l: string) (k: stack v cl)
   : Lemma (requires wf_state cok (Step (ReadP l <: comp_tree v cl) k))
-          (ensures wf_state cok (step apply (Step (ReadP l <: comp_tree v cl) k)))
+          (ensures wf_state cok (step apply apply_s (Step (ReadP l <: comp_tree v cl) k)))
   = ws_readp_eq #v #cl cok (can_in k) l
 
-let pres_writep (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let pres_writep (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                 (l: string) (x: v) (k: stack v cl)
   : Lemma (requires clause_ok_congr cok /\
                     wf_state cok (Step (WriteP l x <: comp_tree v cl) k))
-          (ensures wf_state cok (step apply (Step (WriteP l x <: comp_tree v cl) k)))
+          (ensures wf_state cok (step apply apply_s (Step (WriteP l x <: comp_tree v cl) k)))
   = ws_writep_eq #v #cl cok (can_in k) l x;
     let Some k' = set_param l x k in
     set_param_wf cok (can_nothing ()) l x k k'
 
-let step_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (s: state v cl)
-  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-          (ensures wf_state cok (step apply s))
+let step_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (s: state v cl)
+  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+          (ensures wf_state cok (step apply apply_s s))
   = match s with
     | Done _ -> ()
     | Stuck _ _ -> ()
@@ -674,28 +824,30 @@ let step_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
     | Rejected _ -> ()
     | Step c k ->
       (match c with
-        | Op inner fn -> pres_op cok apply inner fn k
-        | Var value -> pres_var cok apply value k
-        | Handle hs ret body -> pres_handle cok apply hs ret body k
-        | Splice frames body -> pres_splice cok apply frames body k
-        | Perform eff op payload -> pres_perform cok apply eff op payload k
-        | NewP l init body -> pres_newp cok apply l init body k
-        | ReadP l -> pres_readp cok apply l k
-        | WriteP l x -> pres_writep cok apply l x k)
+        | Op inner fn -> pres_op cok apply apply_s inner fn k
+        | Var value -> pres_var cok apply apply_s value k
+        | Handle hs ret body -> pres_handle cok apply apply_s hs ret body k
+        | Splice frames body -> pres_splice cok apply apply_s frames body k
+        | Perform eff op payload -> pres_perform cok apply apply_s eff op payload k
+        | PerformS eff op payload -> pres_performS cok apply apply_s eff op payload k
+        | Weave oeff oop prepared body -> pres_weave cok apply apply_s oeff oop prepared body k
+        | NewP l init body -> pres_newp cok apply apply_s l init body k
+        | ReadP l -> pres_readp cok apply apply_s l k
+        | WriteP l x -> pres_writep cok apply apply_s l x k)
 
-let step_progress (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (s: state v cl)
-  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-          (ensures ~(Stuck? (step apply s)))
-  = step_preserves_wf cok apply s
+let step_progress (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (s: state v cl)
+  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+          (ensures ~(Stuck? (step apply apply_s s)))
+  = step_preserves_wf cok apply apply_s s
 
 (* ------------------------------------------------------------------ *)
 (* Progress                                                            *)
 (* ------------------------------------------------------------------ *)
 
-let rec steps_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let rec steps_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                            (n: nat) (s: state v cl)
-  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-          (ensures wf_state cok (steps apply n s))
+  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+          (ensures wf_state cok (steps apply apply_s n s))
           (decreases n)
   = if n = 0 then ()
     else
@@ -704,13 +856,13 @@ let rec steps_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t 
       | Stuck _ _ -> ()
       | Rejected _ -> ()
       | Step _ _ ->
-        step_preserves_wf cok apply s;
-        steps_preserves_wf cok apply (n - 1) (step apply s)
+        step_preserves_wf cok apply apply_s s;
+        steps_preserves_wf cok apply apply_s (n - 1) (step apply apply_s s)
 
-let progress (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (n: nat) (s: state v cl)
-  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-          (ensures ~(Stuck? (steps apply n s)))
-  = steps_preserves_wf cok apply n s
+let progress (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (n: nat) (s: state v cl)
+  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+          (ensures ~(Stuck? (steps apply apply_s n s)))
+  = steps_preserves_wf cok apply apply_s n s
 
 let load_wf (#v #cl: Type) (cok: clause_ok_t cl) (c: comp_tree v cl)
   : Lemma (requires clause_ok_congr cok /\ ws cok (can_nothing ()) c)
@@ -718,29 +870,29 @@ let load_wf (#v #cl: Type) (cok: clause_ok_t cl) (c: comp_tree v cl)
   = wf_stack_nil #v #cl cok (can_nothing ());
     ws_congr cok (can_nothing ()) (can_in ([] <: stack v cl)) c
 
-let wf_never_stuck (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (s: state v cl)
-  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-          (ensures never_stuck apply s)
-  = introduce forall (n: nat). ~(Stuck? (steps apply n s))
-    with progress cok apply n s
+let wf_never_stuck (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (s: state v cl)
+  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+          (ensures never_stuck apply apply_s s)
+  = introduce forall (n: nat). ~(Stuck? (steps apply apply_s n s))
+    with progress cok apply apply_s n s
 
-let load_never_stuck (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
+let load_never_stuck (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
                      (c: comp_tree v cl)
-  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ ws cok (can_nothing ()) c)
-          (ensures never_stuck apply (load c))
+  : Lemma (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ ws cok (can_nothing ()) c)
+          (ensures never_stuck apply apply_s (load c))
   = load_wf cok c;
-    wf_never_stuck cok apply (load c)
+    wf_never_stuck cok apply apply_s (load c)
 
-let steps_done_unique 
+let steps_done_unique
     (#v #cl : Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n m : nat)
     (s : state v cl)
   : Lemma
-      (requires Done? (steps apply n s) /\ Done? (steps apply m s))
-      (ensures steps apply n s == steps apply m s)
-  = if n <= m then steps_stable apply n (m - n) s 
-    else steps_stable apply m (n - m) s
+      (requires Done? (steps apply apply_s n s) /\ Done? (steps apply apply_s m s))
+      (ensures steps apply apply_s n s == steps apply apply_s m s)
+  = if n <= m then steps_stable apply apply_s n (m - n) s
+    else steps_stable apply apply_s m (n - m) s
 
 (* ================================================================== *)
 (*  The var-semantics theorem -- see the interface for what it is for. *)

@@ -12,6 +12,7 @@
 
 export function call1(f, x) { return f(x) }
 export function call2(f, a, b) { return f(a, b) }
+export function call3(f, a, b, c) { return f(a, b, c) }
 
 export function isNullish(x) { return x == null }
 export function isFunction(x) { return typeof x === 'function' }
@@ -23,6 +24,16 @@ export function throwError(msg) { throw new Error(msg) }
 export function fastFun(x) {
   return (x !== null && typeof x === 'object' && typeof x.fun === 'function')
     ? x.fun
+    : null
+}
+
+// Returns the *inner* function of a scoped clause, or null if `x` is not one.
+// The discriminator is a different property from a fast clause's, so the three
+// clause shapes -- a bare function, `{ fun }` and `{ scoped }` -- are mutually
+// exclusive and `tag_clause` never has to guess.
+export function scopedFun(x) {
+  return (x !== null && typeof x === 'object' && typeof x.scoped === 'function')
+    ? x.scoped
     : null
 }
 
@@ -74,6 +85,24 @@ export function mkFullClause(f) {
 // tests -- the one shape a curried PureScript handler cannot be mistaken for.
 export function mkFastClause(f) {
   return { fun: function (payload) { return applyPayload(f, payload) } }
+}
+
+// A scoped clause from a curried PS handler
+// `a1 -> ... -> an -> weave -> Cont b r o -> Hoop r o`. Both the weave
+// capability and the resume function are the machine's own, so both are passed
+// on unwrapped. The object wrapper is the discriminator `scopedFun` tests --
+// `{ fun }` is taken by a fast clause, hence `{ scoped }`.
+//
+// It lives here for `mkFullClause`'s reason, which is the hazard PR #1 recorded:
+// it RETURNS a function, and Melange flattens `let f a = fun b c -> ...` into a
+// three-argument JS function, so an OCaml definition would export the wrong
+// arity and the clause would be called with its payload in the wrong place.
+export function mkScopedClause(f) {
+  return {
+    scoped: function (payload, weave, resume) {
+      return applyPayload(f, payload)(weave)(resume)
+    }
+  }
 }
 
 // The return clause is a *pure* function `a -> o` on the PS side; the machine

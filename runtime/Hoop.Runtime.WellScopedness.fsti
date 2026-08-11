@@ -161,6 +161,15 @@ let rec ws_n
       // The reserved effect name is NOT available to an ordinary `perform`:
       // see the note on `extend` above.
       | Perform eff op _ -> eff =!= var_eff /\ can eff op
+      // **A scoped operation asks exactly what an ordinary one asks**, and it is
+      // worth saying why that is not an omission. The obligation a scoped
+      // dispatch carries beyond an ordinary one concerns the INNER COMPUTATIONS,
+      // and those sit inside the opaque payload: F* cannot see them, so no
+      // clause of this judgement could constrain them. What takes their place is
+      // `apply_scoped_ok` below, an assumption at the boundary rather than a
+      // clause here -- exactly as `apply_ok` stands in for what a clause does
+      // with a continuation.
+      | PerformS eff op _ -> eff =!= var_eff /\ can eff op
       | Op inner fn ->
           ws_n (n - 1) cok can inner /\ (forall (x: v). ws_n (n - 1) cok can (fn x))
       | Handle hs ret body ->
@@ -180,6 +189,25 @@ let rec ws_n
       // the body at `n - 1`.
       | Splice fs body ->
           wf_stack_n n cok can fs /\ ws_n (n - 1) cok (can_in_with fs can) body
+      // **The same two obligations as `Splice`, AND NO THIRD ONE.** A `Weave`
+      // that is going to be rejected is still well scoped: borrowability is not
+      // a capability, and refusing to enter a scope is not firing an action one
+      // lacks. Putting the condition here would make `progress` -- a theorem
+      // about capabilities, proved from `clause_ok_congr` and `apply_ok` --
+      // silently depend on what kind of clause every crossed table holds, which
+      // is the conflation the dedicated `Rejected` outcome exists to avoid.
+      //
+      // It is also what makes `weave_ok` below dischargeable UNCONDITIONALLY,
+      // and with it the third premise of `apply_scoped_ok`: the machine has to
+      // prove that the weave it hands over maps a well-scoped computation to a
+      // well-scoped one, and it could not do that if well-scopedness of the
+      // result depended on a borrow succeeding.
+      //
+      // The node's ORIGIN is ignored outright. It is diagnostic provenance for
+      // the rejection and no part of what the node does, so a judgement about
+      // what actions may be fired has nothing to read in it.
+      | Weave _ _ prepared body ->
+          wf_stack_n n cok can prepared /\ ws_n (n - 1) cok (can_in_with prepared can) body
       | NewP l _ body -> ws_n (n - 1) cok (extend_param l can) body
       | ReadP l -> can var_eff l
       | WriteP l _ -> can var_eff l
@@ -246,6 +274,10 @@ val ws_perform_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                   (eff op: string) (payload: list v)
   : Lemma (ws cok can (Perform eff op payload) <==> (eff =!= var_eff /\ can eff op))
 
+val ws_performS_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                   (eff op: string) (payload: list v)
+  : Lemma (ws cok can (PerformS eff op payload) <==> (eff =!= var_eff /\ can eff op))
+
 val ws_op_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
               (c: comp_tree v cl) (fn: v -> comp_tree v cl)
   : Lemma (requires ws cok can (Op c fn))
@@ -265,6 +297,16 @@ val ws_splice_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
                   (frames: stack v cl) (body: comp_tree v cl)
   : Lemma (requires ws cok can (Splice frames body))
           (ensures wf_stack cok can frames /\ ws cok (can_in_with frames can) body)
+
+(** **The `Weave` node peels exactly as `Splice` does.** No borrowability
+    hypothesis appears, and none is available to use -- see the arm of `ws_n`
+    above for why that is the point rather than an omission. The origin is
+    universally quantified and does not occur in either side: it is carried, not
+    judged. *)
+val ws_weave_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                 (oeff oop: string) (prepared: stack v cl) (body: comp_tree v cl)
+  : Lemma (requires ws cok can (Weave oeff oop prepared body))
+          (ensures wf_stack cok can prepared /\ ws cok (can_in_with prepared can) body)
 
 (** The `Var` specialisation, kept under its own name: the second conjunct
     collapses to `True`, so a resumption asks only what it always asked. *)
@@ -367,6 +409,72 @@ let apply_ok
   : prop
   = forall (can: can_perform) (c: cl) (payload: list v) (kf: (v -> comp_tree v cl)).
       (cok can c /\ (forall (x: v). ws cok can (kf x))) ==> ws cok can (apply c payload kf)
+
+(**
+ * **What the machine promises about the weave capability it hands over**: a
+ * computation well scoped AT THE PERFORM SITE comes back well scoped IN THE
+ * CLAUSE'S CONTEXT.
+ *
+ * Unlike everything else on this page, this is a promise rather than a demand:
+ * it is the premise the machine DISCHARGES -- from
+ * `Hoop.Runtime.Metatheory.prepare_scope_can`, `prepare_scope_wf` and the
+ * `Weave` equation -- and hands to `apply_scoped_ok` below.
+ *
+ * **The two environments are ghost indices, quantified rather than computed.**
+ * Writing `can_site` as a function of `can_clause` would fix a particular
+ * dispatch's arithmetic into a predicate about an arbitrary clause, and the two
+ * are related by nothing this module knows: at the transition they come out as
+ * `can_clause = can_in_with below base` and
+ * `can_site = can_in_with captured can_clause`, which is a fact about
+ * `find_prompt` and belongs there.
+ *)
+let weave_ok
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (can_site can_clause: can_perform)
+    (weave: comp_tree v cl -> comp_tree v cl)
+  : prop
+  = forall (d: comp_tree v cl). ws cok can_site d ==> ws cok can_clause (weave d)
+
+(**
+ * **The condition imposed on the FFI parameter `apply_s`**, and the ONE new
+ * boundary assumption scoped dispatch introduces.
+ *
+ * It reads exactly as `apply_ok` does, with one premise more: a scoped clause is
+ * handed a payload, a weave capability and a continuation, and if the clause's
+ * own context permits it, if every branch of the continuation is well scoped
+ * there, and if the weave really does carry a computation from the perform
+ * site's context into the clause's, then what the clause builds is well scoped
+ * in the clause's context.
+ *
+ * **What is being assumed, and why it cannot be proved.** The inner computations
+ * a scoped clause weaves live inside the opaque payload -- a user-defined
+ * higher-order signature the runtime cannot traverse without the `HFunctor`
+ * obligation this design exists to remove (Decision 3). So `ws` cannot reach
+ * them, and this stands in for the property their types are supposed to
+ * guarantee: **a scoped clause applies the weave capability only to computations
+ * drawn from its rigid inner computation family**. That is the new line on the
+ * README's trusted list, and it is justified by the rank-2 quantifier on the
+ * PureScript side -- it must NOT be turned into a ghost predicate over the shape
+ * of the payload here, which would lose payload-shape genericity by the back
+ * door.
+ *
+ * `apply_ok` is untouched, and deliberately: it is an assumption about every
+ * program, including those that use no scoped operation, and conditioning it on
+ * a clause kind would make a new feature edit the hypothesis covering programs
+ * that do not use it.
+ *)
+let apply_scoped_ok
+    (#v #cl: Type)
+    (apply_s: scoped_apply_t v cl)
+    (cok: clause_ok_t cl)
+  : prop
+  = forall (can_site can_clause: can_perform) (c: cl) (payload: list v)
+           (weave: comp_tree v cl -> comp_tree v cl) (kf: (v -> comp_tree v cl)).
+      (cok can_clause c /\
+       (forall (x: v). ws cok can_clause (kf x)) /\
+       weave_ok cok can_site can_clause weave)
+      ==> ws cok can_clause (apply_s c payload weave kf)
 
 (* ------------------------------------------------------------------ *)
 (*  Peeling, for prompt-local state                                    *)

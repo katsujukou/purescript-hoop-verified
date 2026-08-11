@@ -87,6 +87,22 @@ noeq
 type clause (cl: Type u#a) : Type u#a =
   | Full : c:cl -> clause cl
   | Fast : c:cl -> clause cl
+  // A scoped clause: handed a weave capability in place of nothing (`Fast`) and
+  // beside the continuation (`Full`), and interpreted by a third FFI function.
+  // The tag is what keeps the shipped runtime total in the presence of a broken
+  // typed boundary -- see `classify_runtime_clause`.
+  | Scoped : c:cl -> clause cl
+
+(** **The handle inside a tagged clause**, whatever the tag. The three
+    interpreters all take the untagged `cl` the FFI handed over, so unwrapping is
+    a projection; it is named because both machines have to unwrap the same way
+    where they read an entry whose stored kind and whose constructor disagree,
+    and a projection is easier to keep in step than three duplicated arms. *)
+let clause_body (#cl: Type) (c: clause cl) : Tot cl =
+  match c with
+  | Full c0 -> c0
+  | Fast c0 -> c0
+  | Scoped c0 -> c0
 
 (**
  * **The classifier the shipping path uses.** `Hoop.Runtime.Handlers` is
@@ -94,14 +110,21 @@ type clause (cl: Type u#a) : Type u#a =
  * that owns the tags, and this is where the two meet. It is a *definition*, not
  * an assumption: nothing outside F* gets to say what kind a clause is.
  *
- * `KScoped` has no arm yet because `clause` has no `Scoped` constructor yet.
- * When it gains one this match stops being exhaustive and the build says so --
- * which is the point of classifying here rather than at the boundary.
+ * **This is the only place the two vocabularies meet, and it is a total
+ * function of the tag.** What it is NOT is a guarantee that a table's stored
+ * kinds agree with its clauses' constructors: `Handlers.mk_handlers` takes the
+ * classifier as an argument, so a table built with another one is a perfectly
+ * well-typed value, and `msim` is proved of every configuration whatever
+ * classifier built its tables. The transitions therefore read the STORED kind
+ * and never re-derive it, and the two machines agree on incoherent tables as
+ * well as coherent ones. What this function buys is that the tables the FFI can
+ * build are the coherent ones.
  *)
 let classify_runtime_clause (#cl: Type) (c: clause cl) : Tot clause_kind =
   match c with
   | Full _ -> KFull
   | Fast _ -> KFast
+  | Scoped _ -> KScoped
 
 (**
  * **The table constructor the FFI must call.**
@@ -121,16 +144,28 @@ let rframe (v cl: Type) = frame v (clause cl)
 let rstack (v cl: Type) = stack v (clause cl)
 let rstate (v cl: Type) = state v (clause cl)
 
-(** **The two FFI interpreters.** A full clause is handed the delimited
-    continuation; a fast clause is not, and cannot be. *)
+(** **The three FFI interpreters.** A full clause is handed the delimited
+    continuation; a fast clause is not, and cannot be; a scoped clause is handed
+    a weave capability *and* the continuation. *)
 let full_t (v cl: Type) = cl -> list v -> (v -> ct v cl) -> ct v cl
 let fast_t (v cl: Type) = cl -> list v -> ct v cl
+let scoped_t (v cl: Type) = cl -> list v -> (ct v cl -> ct v cl) -> (v -> ct v cl) -> ct v cl
 
 (**
  * **The desugaring**, i.e. the reference reading of a tagged clause. This is the
  * `apply` the reference machine is run with. A `Fast c` clause reads as the ctl
  * clause that binds the body to the continuation and resumes exactly once --
  * built here, in F*, not trusted from outside.
+ *
+ * **The `Scoped` arm reads exactly as `Full` does, and that choice is
+ * arbitrary.** It is unreachable for a coherent table: an ordinary `Perform`
+ * meeting a `KScoped` entry is REJECTED before `apply` is called at all. It is
+ * reachable for an incoherent one -- a table whose classifier gave a `Scoped`
+ * clause the kind `KFull` -- and for such a table the ONLY requirement is that
+ * this reading and `mstep`'s reading of the same entry AGREE, since `msim` is
+ * stated with no hypothesis about how tables were built. `mstep` unwraps with
+ * `clause_body` and calls `af`, so this does too; any other reading would serve
+ * equally, provided both were changed together.
  *
  * `noextract`: the machine never dispatches through this. It calls
  * `af` and `afast` directly, which is what makes the tag free at run time.
@@ -142,6 +177,26 @@ let desugar (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
       match c with
       | Full c0 -> af c0 payload k
       | Fast c0 -> Op (afast c0 payload) k
+      | Scoped c0 -> af c0 payload k
+
+(**
+ * **The scoped desugaring**: the reference reading of a tagged clause as a
+ * SCOPED one, which is the third interpreter applied to whatever handle the tag
+ * wraps.
+ *
+ * The tag is not consulted, and that is not laziness. On a coherent table this
+ * is reached only at a `Scoped` entry -- a `PerformS` meeting a `KFull` or
+ * `KFast` one is rejected before `apply_s` is called -- so what the other two
+ * cases decide is the reading of an INCOHERENT entry, where, exactly as with
+ * `desugar`, the whole requirement is that this and `mstep` unwrap the same way.
+ * Both use `clause_body`.
+ *
+ * `noextract`, for `desugar`'s reason: the machine calls `asc` directly.
+ *)
+noextract
+let desugar_scoped (#v #cl: Type) (asc: scoped_t v cl)
+  : scoped_apply_t v (clause cl)
+  = fun c payload weave kf -> asc (clause_body c) payload weave kf
 
 (* ------------------------------------------------------------------ *)
 (*  2.  The machine                                          *)
@@ -220,8 +275,10 @@ let mstack (v cl: Type) = list (mframe v cl)
     `MRejected` carries the reference machine's own `rejection` -- the type is
     flat and shared, so the erasure has nothing to translate. It is terminal in
     exactly the way `MDone` and `MStuck` are, and unreachable for a different
-    reason than `MStuck` is: see `Hoop.Runtime.Semantics.rejection`. Nothing in
-    this module produces one. *)
+    reason than `MStuck` is: see `Hoop.Runtime.Semantics.rejection`. `mstep`
+    produces one at a dispatch whose node and whose table entry disagree about
+    the kind of the operation, and at a `Weave` whose prepared segment crosses a
+    prompt that cannot be borrowed. *)
 noeq
 type mstate (v cl: Type) =
   | MDone : value:v -> mstate v cl
@@ -994,13 +1051,15 @@ let mstep
     (#v #cl: Type)
     (af: full_t v cl)
     (afast: fast_t v cl)
+    (asc: scoped_t v cl)
     (q: mstate v cl)
   : Tot (mstate v cl)
   = match q with
     | MDone _ -> q
     | MStuck _ _ -> q
-    // Terminal. No transition below produces one, so this arm is here to keep
-    // the function total over the state type, exactly as the two above it are.
+    // Terminal, exactly as the two above it are: a rejected configuration steps
+    // to itself. Two transitions below produce one -- a dispatch whose node and
+    // whose table entry disagree, and a `Weave` that may not borrow.
     | MRejected _ -> q
     | MStep c w kk ->
       match c with
@@ -1031,17 +1090,86 @@ let mstep
               (match ev.E.prompt with
                 | ParamF _ _ -> MStuck eff op
                 | PromptF hs _ ->
-                  (match lookup_clause hs eff op with
+                  // **The lookup that carries the kind, and the kind is what
+                  // decides admissibility.** `lookup_handler` returns the record
+                  // the table stored when it was built, so this is the same scan
+                  // `lookup_clause` was, plus a field read and a tag test; the
+                  // record is not built here and nothing is allocated per
+                  // perform that was not allocated before.
+                  //
+                  // It must be the STORED kind and not the constructor. Nothing
+                  // in F* forces the two to agree -- `mk_handlers` takes an
+                  // arbitrary classifier -- and `msim` is stated of every
+                  // configuration with no hypothesis about how tables were
+                  // built, so a machine deciding on the constructor while the
+                  // reference decided on the field would make the simulation
+                  // FALSE on a table pairing `Full c` with `KScoped`. The FFI
+                  // guard keeps such a table out of the shipping boundary, but
+                  // `msim` is not stated about the shipping boundary.
+                  (match lookup_handler hs eff op with
                     | None -> MStuck eff op
-                    | Some (Fast c0) ->
-                        MStep (afast c0 payload) ev.E.below (MEnvF eff op w :: kk)
-                    | Some (Full c0) ->
-                      (match msplit_fast eff op kk with
-                        | None -> MStuck eff op
-                        | Some (captured, b) ->
-                            MStep (af c0 payload (kont_of captured)) ev.E.below b))))
+                    | Some found ->
+                      (match found.kind with
+                        | KScoped ->
+                            MRejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped)
+                        // Which of the two ordinary readings applies is decided
+                        // by the CONSTRUCTOR, exactly as `desugar` decides it,
+                        // and that has not moved.
+                        | _ ->
+                          (match found.body with
+                            | Fast c0 ->
+                                MStep (afast c0 payload) ev.E.below (MEnvF eff op w :: kk)
+                            // `Full`, and -- on an incoherent table only -- a
+                            // `Scoped` clause under an ordinary kind, which
+                            // `desugar` reads the same way. See there.
+                            | _ ->
+                              (match msplit_fast eff op kk with
+                                | None -> MStuck eff op
+                                | Some (captured, b) ->
+                                    MStep (af (clause_body found.body) payload
+                                             (kont_of captured))
+                                          ev.E.below b))))))
+      // The scoped dispatch. The capture is what a full clause's is -- a scoped
+      // clause receives a continuation too -- and the segment the scope will run
+      // under is prepared from it: `msplit_fast` already produces the ERASED
+      // view, which is the one this must be built from, since a prompt masked by
+      // a tail-resumptive body in flight is absent from it and must not re-enter
+      // through the borrowed context.
+      | PerformS eff op payload ->
+          (match E.lookup w (OpKey eff op) with
+            | None -> MStuck eff op
+            | Some ev ->
+              (match ev.E.prompt with
+                | ParamF _ _ -> MStuck eff op
+                | PromptF hs _ ->
+                  (match lookup_handler hs eff op with
+                    | None -> MStuck eff op
+                    | Some found ->
+                      (match found.kind with
+                        | KFull ->
+                            MRejected (ClauseKindMismatch eff op KScopedOperation KFull)
+                        | KFast ->
+                            MRejected (ClauseKindMismatch eff op KScopedOperation KFast)
+                        | KScoped ->
+                          (match msplit_fast eff op kk with
+                            | None -> MStuck eff op
+                            | Some (captured, b) ->
+                                MStep (asc (clause_body found.body) payload
+                                         (weave_of eff op (prepare_captured_fast captured))
+                                         (kont_of captured))
+                                      ev.E.below b)))))
       | Splice fs body ->
           MStep body (mreinstall_fast w fs) (inj_append fs kk)
+      // Entering a scope: `Splice`'s transition at the prepared segment, behind
+      // the borrowability check -- which runs HERE, at the point the borrow is
+      // actually taken, and not at the dispatch that built the node. The origin
+      // the node carries is read on the refusal only; the check and the success
+      // branch are functions of the normalized segment, exactly as in the
+      // reference machine.
+      | Weave oeff oop prepared body ->
+          (match scope_blockers prepared with
+            | [] -> MStep body (mreinstall_fast w prepared) (inj_append prepared kk)
+            | bs -> MRejected (UnborrowableScope oeff oop bs))
       // A cell binds a name to a value, so it extends the environment -- one
       // level, exactly as a `Handle` does, and popped again by the `Var` rule
       // above when its frame is left.
@@ -1642,7 +1770,7 @@ and mset_param_agrees_envf
  * so F* gives the two the same SMT symbol.
  *)
 let ref_perform_shape
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (eff op: string) (payload: list v) (k: rstack v cl)
   : Lemma
       (requires handled_in eff op k)
@@ -1650,56 +1778,136 @@ let ref_perform_shape
         (match find_prompt eff op k with
           | None -> True
           | Some (captured, found, below) ->
-            step (desugar af afast) (Step (Perform eff op payload) k)
-              == Step (desugar af afast found.body payload (kont_of captured)) below))
-  = MT.step_perform eff op payload k (desugar af afast)
+            found.kind =!= KScoped ==>
+              (step (desugar af afast) (desugar_scoped asc) (Step (Perform eff op payload) k)
+                 == Step (desugar af afast found.body payload (kont_of captured)) below)))
+  = MT.step_perform eff op payload k (desugar af afast) (desugar_scoped asc)
 
 (** **A full clause runs in one reference step**, with the desugaring resolved
     here rather than at the call site. *)
 let ref_full_one
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (eff op: string) (payload: list v) (k: rstack v cl)
   : Lemma
       (ensures
         (match find_prompt eff op k with
           | None -> True
           | Some (captured, found, below) ->
-            steps (desugar af afast) 1 (Step (Perform eff op payload) k)
-              == Step (desugar af afast found.body payload (kont_of captured)) below))
+            found.kind =!= KScoped ==>
+              (steps (desugar af afast) (desugar_scoped asc) 1 (Step (Perform eff op payload) k)
+                 == Step (desugar af afast found.body payload (kont_of captured)) below)))
   = match find_prompt eff op k with
     | None -> ()
     | Some (captured, found, below) ->
       assert (handled_in eff op k);
-      assert (steps (desugar af afast) 1 (Step (Perform eff op payload) k)
-              == step (desugar af afast) (Step (Perform eff op payload) k));
-      MT.step_perform eff op payload k (desugar af afast)
+      assert (steps (desugar af afast) (desugar_scoped asc) 1 (Step (Perform eff op payload) k)
+              == step (desugar af afast) (desugar_scoped asc) (Step (Perform eff op payload) k));
+      MT.step_perform eff op payload k (desugar af afast) (desugar_scoped asc)
 
 (** **Entering a fast clause body.** `Perform` then `Op`. *)
 let ref_fast_two
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (eff op: string) (payload: list v) (k: rstack v cl)
   : Lemma
       (ensures
         (match find_prompt eff op k with
           | None -> True
           | Some (captured, found, below) ->
-            (match found.body with
-              | Full _ -> True
-              | Fast c0 ->
-                steps (desugar af afast) 2 (Step (Perform eff op payload) k)
-                  == Step (afast c0 payload) (BindF (kont_of captured) :: below))))
+            found.kind =!= KScoped ==>
+              (match found.body with
+                | Fast c0 ->
+                  steps (desugar af afast) (desugar_scoped asc) 2 (Step (Perform eff op payload) k)
+                    == Step (afast c0 payload) (BindF (kont_of captured) :: below)
+                | _ -> True)))
   = match find_prompt eff op k with
     | None -> ()
     | Some (captured, found, below) ->
       assert (handled_in eff op k);
-      ref_perform_shape af afast eff op payload k
+      ref_perform_shape af afast asc eff op payload k
+
+(**
+ * **A scoped clause runs in one reference step too**, with both desugarings
+ * resolved here rather than at the call site.
+ *
+ * The two machines build the same weave, and not merely two weaves that agree:
+ * `msplit_agrees` says the captured segments are EQUAL, `prepare_captured_fast`
+ * is a function of that segment alone, the origin is this dispatch's own `eff`
+ * and `op` in both, and `weave_of` is a named partial application. So the terms
+ * handed to `asc` are literally the same term.
+ *)
+let ref_scoped_one
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
+    (eff op: string) (payload: list v) (k: rstack v cl)
+  : Lemma
+      (ensures
+        (match find_prompt eff op k with
+          | None -> True
+          | Some (captured, found, below) ->
+            found.kind == KScoped ==>
+              (steps (desugar af afast) (desugar_scoped asc) 1
+                     (Step (PerformS eff op payload) k)
+                 == Step (asc (clause_body found.body) payload
+                            (weave_of eff op (prepare_captured_fast captured))
+                            (kont_of captured))
+                         below)))
+  = match find_prompt eff op k with
+    | None -> ()
+    | Some (captured, found, below) ->
+      assert (handled_in eff op k);
+      MT.step_performS eff op payload k (desugar af afast) (desugar_scoped asc)
+
+(** **A dispatch refused at the boundary is one reference step too**, and it is
+    the SAME rejection: both machines read the kind off the entry the lookup
+    returned, so there is nothing to relate beyond `lookup_find`. *)
+let ref_mismatch_one
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
+    (eff op: string) (payload: list v) (k: rstack v cl)
+  : Lemma
+      (ensures
+        (match find_prompt eff op k with
+          | None -> True
+          | Some (captured, found, below) ->
+            found.kind == KScoped ==>
+              (steps (desugar af afast) (desugar_scoped asc) 1
+                     (Step (Perform eff op payload) k)
+                 == Rejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped))))
+  = match find_prompt eff op k with
+    | None -> ()
+    | Some (captured, found, below) ->
+      assert (handled_in eff op k);
+      MT.step_perform eff op payload k (desugar af afast) (desugar_scoped asc)
+
+(** ... and the mirror image, a `PerformS` meeting an ordinary entry. *)
+let ref_mismatchS_one
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
+    (eff op: string) (payload: list v) (k: rstack v cl)
+  : Lemma
+      (ensures
+        (match find_prompt eff op k with
+          | None -> True
+          | Some (captured, found, below) ->
+            (match found.kind with
+              | KFull ->
+                steps (desugar af afast) (desugar_scoped asc) 1
+                      (Step (PerformS eff op payload) k)
+                  == Rejected (ClauseKindMismatch eff op KScopedOperation KFull)
+              | KFast ->
+                steps (desugar af afast) (desugar_scoped asc) 1
+                      (Step (PerformS eff op payload) k)
+                  == Rejected (ClauseKindMismatch eff op KScopedOperation KFast)
+              | KScoped -> True)))
+  = match find_prompt eff op k with
+    | None -> ()
+    | Some (captured, found, below) ->
+      assert (handled_in eff op k);
+      MT.step_performS eff op payload k (desugar af afast) (desugar_scoped asc)
 
 (** **Leaving a fast clause body.** The reference applies the ctl clause's
     continuation, which is a `Splice` node at a `Var` body, and then splices the
     segment back on
     -- landing on exactly the stack the machine never took apart. *)
 let ref_envf_two
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (eff op: string) (value: v) (k: rstack v cl)
   : Lemma
       (requires handled_in eff op k)
@@ -1707,7 +1915,7 @@ let ref_envf_two
         (match find_prompt eff op k with
           | None -> True
           | Some (captured, found, below) ->
-            steps (desugar af afast) 2
+            steps (desugar af afast) (desugar_scoped asc) 2
               (Step (Var value) (BindF (kont_of captured) :: below))
               == Step (Var value) k))
   = MT.find_prompt_partitions eff op k
@@ -1732,108 +1940,195 @@ let ref_envf_two
  * under a `match` on `find_prompt eff op k`. Naming it in the statement would
  * close it over a fresh local binder instead, making it an unrelated SMT symbol.
  *)
-let sim_ok (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl) : GTot prop =
+let sim_ok (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl) (q: mstate v cl) : GTot prop =
   Some? (erase_st q) /\
-  config_ok (mstep af afast q) /\
+  config_ok (mstep af afast asc q) /\
   (exists (n: nat).
     (n == 1 \/ n == 2) /\
-    erase_st (mstep af afast q)
-      == Some (steps (desugar af afast) n (Some?.v (erase_st q))))
+    erase_st (mstep af afast asc q)
+      == Some (steps (desugar af afast) (desugar_scoped asc) n (Some?.v (erase_st q))))
 
 (**
- * **The simulation at a `Perform`**, split out so that each of the three
+ * **The simulation at a `Perform`**, split out so that each of the four
  * dispatch outcomes is proved in a context holding nothing but this transition.
  *
  *   - unhandled: the environment misses exactly when `find_prompt` misses, so
  *     both machines stop. One reference step.
+ *   - `KScoped`: both machines refuse, with the same rejection. One reference
+ *     step. **Both read the kind off the entry the lookup returned**, which is
+ *     what makes this case a matter of `lookup_find` and nothing else; a machine
+ *     deciding on the clause's constructor instead would disagree here on any
+ *     table whose classifier was not `classify_runtime_clause`.
  *   - `Fast`: the body starts running in place under the handler's own
  *     environment, with an `MEnvF` recording the perform site's. Nothing is
  *     captured and the stack is not cut. The reference needs two steps to reach
  *     the same configuration, and the new machine stack erases to exactly what
  *     the reference then has -- which is the point of the whole design.
- *   - `Full`: the existing path, one reference step, exact agreement.
+ *   - `Full`: the existing path, one reference step, exact agreement. A `Scoped`
+ *     clause stored under an ordinary kind lands here too, and both machines
+ *     read it as `Full` -- see `desugar`.
  *)
 let msim_perform
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (eff op: string) (payload: list v) (w: menv v cl) (kk: mstack v cl)
   : Lemma
       (requires config_ok (MStep (Perform eff op payload) w kk))
-      (ensures sim_ok af afast (MStep (Perform eff op payload) w kk))
+      (ensures sim_ok af afast asc (MStep (Perform eff op payload) w kk))
   = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
     let q : mstate v cl = MStep (Perform eff op payload) w kk in
     let Some k = erase_k kk in
     lookup_find eff op k;
     E.lookup_equiv w (env_of_stack k) (OpKey eff op);
     match E.lookup w (OpKey eff op) with
     | None ->
-        MT.step_perform_stuck eff op payload k apply;
+        MT.step_perform_stuck eff op payload k apply apply_s;
         introduce exists (n: nat).
           (n == 1 \/ n == 2) /\
-          erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+          erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
         with 1 and ()
     | Some ev ->
       assert (handled_in eff op k);
       // `lookup_find` says the payload is a prompt -- a cell binds a `VarKey`
       // and this is an `OpKey` -- so `mstep`'s `ParamF` branch is dead.
       assert (PromptF? ev.E.prompt);
-      // `mstep` dispatches on `lookup_clause`; `lookup_find` reports what the
-      // reference search carries, which is the `found_clause`. Same clause.
-      lookup_handler_agrees (PromptF?.hs ev.E.prompt) eff op;
-      (match lookup_clause (PromptF?.hs ev.E.prompt) eff op with
+      // `mstep` looks the entry up with `lookup_handler`, and `lookup_find`
+      // reports that the reference search carries that very record: same clause,
+      // same kind.
+      (match lookup_handler (PromptF?.hs ev.E.prompt) eff op with
         | None -> ()
-        | Some (Fast c0) ->
-            ref_fast_two af afast eff op payload k;
-            introduce exists (n: nat).
-              (n == 1 \/ n == 2) /\
-              erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
-            with 2 and ()
-        | Some (Full c0) ->
-            ref_full_one af afast eff op payload k;
-            msplit_agrees eff op kk k;
-            introduce exists (n: nat).
-              (n == 1 \/ n == 2) /\
-              erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
-            with 1 and ())
+        | Some found ->
+          (match found.kind with
+            | KScoped ->
+                ref_mismatch_one af afast asc eff op payload k;
+                introduce exists (n: nat).
+                  (n == 1 \/ n == 2) /\
+                  erase_st (mstep af afast asc q)
+                    == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                with 1 and ()
+            | _ ->
+              (match found.body with
+                | Fast c0 ->
+                    ref_fast_two af afast asc eff op payload k;
+                    introduce exists (n: nat).
+                      (n == 1 \/ n == 2) /\
+                      erase_st (mstep af afast asc q)
+                        == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                    with 2 and ()
+                | Full c0 ->
+                    ref_full_one af afast asc eff op payload k;
+                    msplit_agrees eff op kk k;
+                    introduce exists (n: nat).
+                      (n == 1 \/ n == 2) /\
+                      erase_st (mstep af afast asc q)
+                        == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                    with 1 and ()
+                // Incoherent table: a scoped clause stored under `KFull` or
+                // `KFast`. Both machines read it as `Full` -- `desugar`'s arm and
+                // `mstep`'s catch-all -- so this is the branch above, verbatim.
+                | Scoped c0 ->
+                    ref_full_one af afast asc eff op payload k;
+                    msplit_agrees eff op kk k;
+                    introduce exists (n: nat).
+                      (n == 1 \/ n == 2) /\
+                      erase_st (mstep af afast asc q)
+                        == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                    with 1 and ())))
+
+(**
+ * **The simulation at a `PerformS`.** Three outcomes and no two-step case: a
+ * scoped clause captures its continuation exactly as a full one does, so the
+ * machine does what the reference does in one transition.
+ *
+ * The weave is where the two machines could have come apart and do not:
+ * `msplit_agrees` gives EQUALITY of the captured segments, `prepare_captured_fast`
+ * is a function of that segment, the origin is read off the node being dispatched
+ * and so is the same in both, and `weave_of` is a named partial application, so
+ * the argument handed to `asc` is one term rather than two that agree.
+ *)
+let msim_performS
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
+    (eff op: string) (payload: list v) (w: menv v cl) (kk: mstack v cl)
+  : Lemma
+      (requires config_ok (MStep (PerformS eff op payload) w kk))
+      (ensures sim_ok af afast asc (MStep (PerformS eff op payload) w kk))
+  = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
+    let q : mstate v cl = MStep (PerformS eff op payload) w kk in
+    let Some k = erase_k kk in
+    lookup_find eff op k;
+    E.lookup_equiv w (env_of_stack k) (OpKey eff op);
+    match E.lookup w (OpKey eff op) with
+    | None ->
+        MT.step_performS_stuck eff op payload k apply apply_s;
+        introduce exists (n: nat).
+          (n == 1 \/ n == 2) /\
+          erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
+        with 1 and ()
+    | Some ev ->
+      assert (handled_in eff op k);
+      assert (PromptF? ev.E.prompt);
+      (match lookup_handler (PromptF?.hs ev.E.prompt) eff op with
+        | None -> ()
+        | Some found ->
+          (match found.kind with
+            | KScoped ->
+                ref_scoped_one af afast asc eff op payload k;
+                msplit_agrees eff op kk k;
+                introduce exists (n: nat).
+                  (n == 1 \/ n == 2) /\
+                  erase_st (mstep af afast asc q)
+                    == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                with 1 and ()
+            | _ ->
+                ref_mismatchS_one af afast asc eff op payload k;
+                introduce exists (n: nat).
+                  (n == 1 \/ n == 2) /\
+                  erase_st (mstep af afast asc q)
+                    == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                with 1 and ()))
 
 (** **The simulation, one transition.** The main theorem. *)
-let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
-  : Lemma (requires config_ok q) (ensures sim_ok af afast q)
+let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl) (q: mstate v cl)
+  : Lemma (requires config_ok q) (ensures sim_ok af afast asc q)
   = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
     match q with
     | MDone x ->
-        MT.steps_terminal apply 1 (Done x <: rstate v cl);
+        MT.steps_terminal apply apply_s 1 (Done x <: rstate v cl);
         introduce exists (n: nat).
           (n == 1 \/ n == 2) /\
-          erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+          erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
         with 1 and ()
     | MStuck e o ->
-        MT.steps_terminal apply 1 (Stuck e o <: rstate v cl);
+        MT.steps_terminal apply apply_s 1 (Stuck e o <: rstate v cl);
         introduce exists (n: nat).
           (n == 1 \/ n == 2) /\
-          erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+          erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
         with 1 and ()
     | MRejected r ->
-        MT.steps_terminal apply 1 (Rejected r <: rstate v cl);
+        MT.steps_terminal apply apply_s 1 (Rejected r <: rstate v cl);
         introduce exists (n: nat).
           (n == 1 \/ n == 2) /\
-          erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+          erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
         with 1 and ()
     | MStep c w kk ->
       let Some k = erase_k kk in
       let s : rstate v cl = Step c k in
-      assert (steps apply 1 s == step apply s);
+      assert (steps apply apply_s 1 s == step apply apply_s s);
       match c with
-      | Perform eff op payload -> msim_perform af afast eff op payload w kk
+      | Perform eff op payload -> msim_perform af afast asc eff op payload w kk
+      | PerformS eff op payload -> msim_performS af afast asc eff op payload w kk
       | Op comp fn ->
           introduce exists (n: nat).
             (n == 1 \/ n == 2) /\
-            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with 1 and ()
       | Handle hs ret body ->
           extend_equiv w (env_of_stack k) (keys hs) (PromptF hs ret <: pd v cl);
           introduce exists (n: nat).
             (n == 1 \/ n == 2) /\
-            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with 1 and ()
       // The body travels through untouched -- `erase_st` does not look at the
       // control component -- so this case is about the STACK and the ENVIRONMENT
@@ -1846,59 +2141,83 @@ let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
           mreinstall_equiv w (env_of_stack k) fs;
           introduce exists (n: nat).
             (n == 1 \/ n == 2) /\
-            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with 1 and ()
+      // The borrowability check is a function of the node's own segment, which
+      // both machines hold, so the two take the same branch by construction --
+      // no lemma of the `msplit_agrees` family, and nothing about the stack. On
+      // the branch that proceeds this is the `Splice` case above, verbatim; on
+      // the one that refuses, both stop in the same rejection, whose payload is
+      // read off that same segment.
+      | Weave _ _ prepared body ->
+          (match scope_blockers prepared with
+            | _ :: _ ->
+                introduce exists (n: nat).
+                  (n == 1 \/ n == 2) /\
+                  erase_st (mstep af afast asc q)
+                    == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                with 1 and ()
+            | [] ->
+                erase_inj_append prepared kk;
+                stack_ok_inj_append prepared kk;
+                mreinstall_agrees prepared k;
+                mreinstall_equiv w (env_of_stack k) prepared;
+                introduce exists (n: nat).
+                  (n == 1 \/ n == 2) /\
+                  erase_st (mstep af afast asc q)
+                    == Some (steps apply apply_s n (Some?.v (erase_st q)))
+                with 1 and ())
       | NewP l init body ->
           extend_equiv w (env_of_stack k) (var_keyset l) (ParamF l init <: pd v cl);
           introduce exists (n: nat).
             (n == 1 \/ n == 2) /\
-            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with 1 and ()
       | ReadP l ->
           lookup_param_find l k;
           E.lookup_equiv w (env_of_stack k) (VarKey l);
           introduce exists (n: nat).
             (n == 1 \/ n == 2) /\
-            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with 1 and ()
       | WriteP l y ->
           mset_param_agrees l y w kk k;
           introduce exists (n: nat).
             (n == 1 \/ n == 2) /\
-            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with 1 and ()
       | Var value ->
           (match kk with
             | [] ->
                 introduce exists (n: nat).
                   (n == 1 \/ n == 2) /\
-                  erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+                  erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
                 with 1 and ()
             | MBindF fn :: r ->
                 introduce exists (n: nat).
                   (n == 1 \/ n == 2) /\
-                  erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+                  erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
                 with 1 and ()
             | MParamF l x :: r ->
                 let Some kr = erase_k r in
                 pop_env_agrees_param w l x kr;
                 introduce exists (n: nat).
                   (n == 1 \/ n == 2) /\
-                  erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+                  erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
                 with 1 and ()
             | MPromptF hs ret :: r ->
                 let Some kr = erase_k r in
                 pop_env_agrees w hs ret kr;
                 introduce exists (n: nat).
                   (n == 1 \/ n == 2) /\
-                  erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+                  erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
                 with 1 and ()
             | MEnvF eff op sv :: r ->
                 let Some kr = erase_k r in
-                ref_envf_two af afast eff op value kr;
+                ref_envf_two af afast asc eff op value kr;
                 introduce exists (n: nat).
                   (n == 1 \/ n == 2) /\
-                  erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+                  erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
                 with 2 and ())
 
 (* ------------------------------------------------------------------ *)
@@ -1912,7 +2231,7 @@ let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
  * and this is the equation that makes the two readings agree.
  *)
 let full_branch_is_af
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (c0: cl) (payload: list v) (kf: v -> ct v cl)
   : Lemma (desugar af afast (Full c0) payload kf == af c0 payload kf)
   = ()
@@ -1936,6 +2255,7 @@ let rec msteps
     (#v #cl: Type)
     (af: full_t v cl)
     (afast: fast_t v cl)
+    (asc: scoped_t v cl)
     (fuel: nat)
     (q: mstate v cl)
   : Tot (mstate v cl) (decreases fuel)
@@ -1946,61 +2266,62 @@ let rec msteps
       | MDone _ -> q
       | MStuck _ _ -> q
       | MRejected _ -> q
-      | MStep _ _ _ -> msteps af afast (fuel - 1) (mstep af afast q)
+      | MStep _ _ _ -> msteps af afast asc (fuel - 1) (mstep af afast asc q)
 
 (** **Convergence of the reference machine**, restated here because
     `Hoop.Runtime.Laws` deliberately has an empty interface. Identical to
     `Hoop.Runtime.Laws.converges`. *)
-let rconverges (#v #cl: Type) (apply: apply_t v cl) (s: state v cl) (x: v) : GTot prop =
-  exists (n: nat). steps apply n s == Done x
+let rconverges (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (s: state v cl) (x: v) : GTot prop =
+  exists (n: nat). steps apply apply_s n s == Done x
 
 (** **Convergence of the machine.** *)
 let mconverges
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl) (x: v)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl) (q: mstate v cl) (x: v)
   : GTot prop
-  = exists (n: nat). msteps af afast n q == MDone x
+  = exists (n: nat). msteps af afast asc n q == MDone x
 
 (** **The invariant is preserved by any number of transitions**, and the erased
     run is a run of the reference machine. *)
 let rec msteps_agrees
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (fuel: nat) (q: mstate v cl)
   : Lemma
       (requires config_ok q)
       (ensures
-        config_ok (msteps af afast fuel q) /\
+        config_ok (msteps af afast asc fuel q) /\
         Some? (erase_st q) /\
         (exists (n: nat).
-          erase_st (msteps af afast fuel q)
-            == Some (steps (desugar af afast) n (Some?.v (erase_st q)))))
+          erase_st (msteps af afast asc fuel q)
+            == Some (steps (desugar af afast) (desugar_scoped asc) n (Some?.v (erase_st q)))))
       (decreases fuel)
   = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
     if fuel = 0
     then
       introduce exists (n: nat).
-        erase_st q == Some (steps apply n (Some?.v (erase_st q)))
+        erase_st q == Some (steps apply apply_s n (Some?.v (erase_st q)))
       with 0 and ()
     else
       match q with
       | MDone _ | MStuck _ _ | MRejected _ ->
           introduce exists (n: nat).
-            erase_st q == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st q == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with 0 and ()
       | MStep _ _ _ ->
-          msim af afast q;
-          msteps_agrees af afast (fuel - 1) (mstep af afast q);
+          msim af afast asc q;
+          msteps_agrees af afast asc (fuel - 1) (mstep af afast asc q);
           eliminate exists (n: nat).
             (n == 1 \/ n == 2) /\
-            erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+            erase_st (mstep af afast asc q) == Some (steps apply apply_s n (Some?.v (erase_st q)))
           with
             eliminate exists (m: nat).
-              erase_st (msteps af afast (fuel - 1) (mstep af afast q))
-                == Some (steps apply m (Some?.v (erase_st (mstep af afast q))))
+              erase_st (msteps af afast asc (fuel - 1) (mstep af afast asc q))
+                == Some (steps apply apply_s m (Some?.v (erase_st (mstep af afast asc q))))
             with
-              (MT.steps_add apply n m (Some?.v (erase_st q));
+              (MT.steps_add apply apply_s n m (Some?.v (erase_st q));
                introduce exists (j: nat).
-                 erase_st (msteps af afast fuel q)
-                   == Some (steps apply j (Some?.v (erase_st q)))
+                 erase_st (msteps af afast asc fuel q)
+                   == Some (steps apply apply_s j (Some?.v (erase_st q)))
                with (n + m) and ())
 
 (* ------------------------------------------------------------------ *)
@@ -2010,18 +2331,19 @@ let rec msteps_agrees
 (** **Soundness**: whatever the machine returns, the reference machine
     returns. *)
 let converges_transfer
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl) (x: v)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl) (q: mstate v cl) (x: v)
   : Lemma
-      (requires config_ok q /\ mconverges af afast q x)
-      (ensures rconverges (desugar af afast) (Some?.v (erase_st q)) x)
+      (requires config_ok q /\ mconverges af afast asc q x)
+      (ensures rconverges (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q)) x)
   = let apply = desugar af afast in
-    eliminate exists (n: nat). msteps af afast n q == MDone x
+    let apply_s = desugar_scoped asc in
+    eliminate exists (n: nat). msteps af afast asc n q == MDone x
     with
-      (msteps_agrees af afast n q;
+      (msteps_agrees af afast asc n q;
        eliminate exists (m: nat).
-         erase_st (msteps af afast n q) == Some (steps apply m (Some?.v (erase_st q)))
+         erase_st (msteps af afast asc n q) == Some (steps apply apply_s m (Some?.v (erase_st q)))
        with
-         (introduce exists (j: nat). steps apply j (Some?.v (erase_st q)) == Done x
+         (introduce exists (j: nat). steps apply apply_s j (Some?.v (erase_st q)) == Done x
           with m and ()))
 
 (**
@@ -2035,64 +2357,65 @@ let converges_transfer
  * configurations is needed, because the machine never stutters.
  *)
 let rec converges_reflect
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (fuel: nat) (q: mstate v cl) (x: v)
   : Lemma
       (requires
         config_ok q /\
-        steps (desugar af afast) fuel (Some?.v (erase_st q)) == Done x)
-      (ensures mconverges af afast q x)
+        steps (desugar af afast) (desugar_scoped asc) fuel (Some?.v (erase_st q)) == Done x)
+      (ensures mconverges af afast asc q x)
       (decreases fuel)
   = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
     let s = Some?.v (erase_st q) in
     match q with
     | MDone y ->
-        MT.steps_terminal apply fuel s;
-        introduce exists (n: nat). msteps af afast n q == MDone x with 0 and ()
-    | MStuck e o -> MT.steps_terminal apply fuel s
+        MT.steps_terminal apply apply_s fuel s;
+        introduce exists (n: nat). msteps af afast asc n q == MDone x with 0 and ()
+    | MStuck e o -> MT.steps_terminal apply apply_s fuel s
     // Same argument as the line above: a terminal machine state erases to a
     // terminal reference state, which the hypothesis says reaches `Done x` --
     // so this configuration does not arise.
-    | MRejected r -> MT.steps_terminal apply fuel s
+    | MRejected r -> MT.steps_terminal apply apply_s fuel s
     | MStep _ _ _ ->
-        msim af afast q;
+        msim af afast asc q;
         eliminate exists (n: nat).
-          (n == 1 \/ n == 2) /\ erase_st (mstep af afast q) == Some (steps apply n s)
+          (n == 1 \/ n == 2) /\ erase_st (mstep af afast asc q) == Some (steps apply apply_s n s)
         with
           (if fuel <= n
            then
-             (MT.steps_stable apply fuel (n - fuel) s;
-              introduce exists (j: nat). msteps af afast j q == MDone x with 1 and ())
+             (MT.steps_stable apply apply_s fuel (n - fuel) s;
+              introduce exists (j: nat). msteps af afast asc j q == MDone x with 1 and ())
            else
-             (MT.steps_add apply n (fuel - n) s;
-              converges_reflect af afast (fuel - n) (mstep af afast q) x;
-              eliminate exists (m: nat). msteps af afast m (mstep af afast q) == MDone x
+             (MT.steps_add apply apply_s n (fuel - n) s;
+              converges_reflect af afast asc (fuel - n) (mstep af afast asc q) x;
+              eliminate exists (m: nat). msteps af afast asc m (mstep af afast asc q) == MDone x
               with
-                (introduce exists (j: nat). msteps af afast j q == MDone x
+                (introduce exists (j: nat). msteps af afast asc j q == MDone x
                  with (m + 1) and ())))
 
 (** **The theorem**: the machine and the reference machine agree on
     every program, in both directions. *)
 let execute_agrees
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (p: ct v cl) (x: v)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl) (p: ct v cl) (x: v)
   : Lemma
-      (mconverges af afast (mload p) x <==> rconverges (desugar af afast) (load p) x)
-  = introduce mconverges af afast (mload p) x ==> rconverges (desugar af afast) (load p) x
-    with converges_transfer af afast (mload p) x;
-    introduce rconverges (desugar af afast) (load p) x ==> mconverges af afast (mload p) x
+      (mconverges af afast asc (mload p) x <==> rconverges (desugar af afast) (desugar_scoped asc) (load p) x)
+  = introduce mconverges af afast asc (mload p) x ==> rconverges (desugar af afast) (desugar_scoped asc) (load p) x
+    with converges_transfer af afast asc (mload p) x;
+    introduce rconverges (desugar af afast) (desugar_scoped asc) (load p) x ==> mconverges af afast asc (mload p) x
     with
-      (eliminate exists (n: nat). steps (desugar af afast) n (load p) == Done x
-       with converges_reflect af afast n (mload p) x)
+      (eliminate exists (n: nat). steps (desugar af afast) (desugar_scoped asc) n (load p) == Done x
+       with converges_reflect af afast asc n (mload p) x)
 
 (* ------------------------------------------------------------------ *)
 (*  15.  Progress                                                       *)
 (* ------------------------------------------------------------------ *)
 
 (** **Stuck-freedom survives any number of reference transitions.** *)
-let never_stuck_steps (#v #cl: Type) (apply: apply_t v cl) (n: nat) (s: state v cl)
-  : Lemma (requires never_stuck apply s) (ensures never_stuck apply (steps apply n s))
-  = introduce forall (m: nat). ~(Stuck? (steps apply m (steps apply n s)))
-    with MT.steps_add apply n m s
+let never_stuck_steps (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (n: nat) (s: state v cl)
+  : Lemma (requires never_stuck apply apply_s s) (ensures never_stuck apply apply_s (steps apply apply_s n s))
+  = introduce forall (m: nat). ~(Stuck? (steps apply apply_s m (steps apply apply_s n s)))
+    with MT.steps_add apply apply_s n m s
 
 (**
  * **Progress transports**: a machine configuration whose erasure the
@@ -2102,31 +2425,32 @@ let never_stuck_steps (#v #cl: Type) (apply: apply_t v cl) (n: nat) (s: state v 
  * development -- across to the machine unchanged.
  *)
 let mprogress
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl) (q: mstate v cl)
   : Lemma
-      (requires config_ok q /\ never_stuck (desugar af afast) (Some?.v (erase_st q)))
+      (requires config_ok q /\ never_stuck (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q)))
       (ensures
         ~(MStuck? q) /\
-        ~(MStuck? (mstep af afast q)) /\
-        config_ok (mstep af afast q) /\
-        Some? (erase_st (mstep af afast q)) /\
-        never_stuck (desugar af afast)
-          (Some?.v (erase_st (mstep af afast q))))
+        ~(MStuck? (mstep af afast asc q)) /\
+        config_ok (mstep af afast asc q) /\
+        Some? (erase_st (mstep af afast asc q)) /\
+        never_stuck (desugar af afast) (desugar_scoped asc)
+          (Some?.v (erase_st (mstep af afast asc q))))
   = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
     let s = Some?.v (erase_st q) in
-    never_stuck_now apply s;
-    msim af afast q;
+    never_stuck_now apply apply_s s;
+    msim af afast asc q;
     eliminate exists (n: nat).
-      (n == 1 \/ n == 2) /\ erase_st (mstep af afast q) == Some (steps apply n s)
+      (n == 1 \/ n == 2) /\ erase_st (mstep af afast asc q) == Some (steps apply apply_s n s)
     with
-      (never_stuck_steps apply n s;
-       assert (~(Stuck? (steps apply n s))))
+      (never_stuck_steps apply apply_s n s;
+       assert (~(Stuck? (steps apply apply_s n s))))
 
 (** **Rejection-freedom survives any number of reference transitions.** *)
-let never_rejected_steps (#v #cl: Type) (apply: apply_t v cl) (n: nat) (s: state v cl)
-  : Lemma (requires never_rejected apply s) (ensures never_rejected apply (steps apply n s))
-  = introduce forall (m: nat). ~(Rejected? (steps apply m (steps apply n s)))
-    with MT.steps_add apply n m s
+let never_rejected_steps (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (n: nat) (s: state v cl)
+  : Lemma (requires never_rejected apply apply_s s) (ensures never_rejected apply apply_s (steps apply apply_s n s))
+  = introduce forall (m: nat). ~(Rejected? (steps apply apply_s m (steps apply apply_s n s)))
+    with MT.steps_add apply apply_s n m s
 
 (**
  * **The rejection axis transports**, and it is a SEPARATE lemma rather than two
@@ -2145,25 +2469,26 @@ let never_rejected_steps (#v #cl: Type) (apply: apply_t v cl) (n: nat) (s: state
  * and the hypothesis rules `Rejected` out of every one of them.
  *)
 let mreject_progress
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl) (q: mstate v cl)
   : Lemma
-      (requires config_ok q /\ never_rejected (desugar af afast) (Some?.v (erase_st q)))
+      (requires config_ok q /\ never_rejected (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q)))
       (ensures
         ~(MRejected? q) /\
-        ~(MRejected? (mstep af afast q)) /\
-        config_ok (mstep af afast q) /\
-        Some? (erase_st (mstep af afast q)) /\
-        never_rejected (desugar af afast)
-          (Some?.v (erase_st (mstep af afast q))))
+        ~(MRejected? (mstep af afast asc q)) /\
+        config_ok (mstep af afast asc q) /\
+        Some? (erase_st (mstep af afast asc q)) /\
+        never_rejected (desugar af afast) (desugar_scoped asc)
+          (Some?.v (erase_st (mstep af afast asc q))))
   = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
     let s = Some?.v (erase_st q) in
-    never_rejected_now apply s;
-    msim af afast q;
+    never_rejected_now apply apply_s s;
+    msim af afast asc q;
     eliminate exists (n: nat).
-      (n == 1 \/ n == 2) /\ erase_st (mstep af afast q) == Some (steps apply n s)
+      (n == 1 \/ n == 2) /\ erase_st (mstep af afast asc q) == Some (steps apply apply_s n s)
     with
-      (never_rejected_steps apply n s;
-       assert (~(Rejected? (steps apply n s))))
+      (never_rejected_steps apply apply_s n s;
+       assert (~(Rejected? (steps apply apply_s n s))))
 
 (* ------------------------------------------------------------------ *)
 (*  16.  The entry point                                                *)
@@ -2175,29 +2500,30 @@ let mreject_progress
    of the `Div` body below so that the driver reads as the loop it is. *)
 private
 let one_more_mstep
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (q: mstate v cl) (r: mstate v cl)
   : Lemma
       (requires
         config_ok q /\
-        Some? (erase_st (mstep af afast q)) /\
+        Some? (erase_st (mstep af afast asc q)) /\
         (exists (m: nat).
           erase_st r
-            == Some (steps (desugar af afast) m (Some?.v (erase_st (mstep af afast q))))))
+            == Some (steps (desugar af afast) (desugar_scoped asc) m (Some?.v (erase_st (mstep af afast asc q))))))
       (ensures
         exists (j: nat).
-          erase_st r == Some (steps (desugar af afast) j (Some?.v (erase_st q))))
+          erase_st r == Some (steps (desugar af afast) (desugar_scoped asc) j (Some?.v (erase_st q))))
   = let apply = desugar af afast in
+    let apply_s = desugar_scoped asc in
     let s = Some?.v (erase_st q) in
-    msim af afast q;
+    msim af afast asc q;
     eliminate exists (n: nat).
-      (n == 1 \/ n == 2) /\ erase_st (mstep af afast q) == Some (steps apply n s)
+      (n == 1 \/ n == 2) /\ erase_st (mstep af afast asc q) == Some (steps apply apply_s n s)
     with
       eliminate exists (m: nat).
-        erase_st r == Some (steps apply m (Some?.v (erase_st (mstep af afast q))))
+        erase_st r == Some (steps apply apply_s m (Some?.v (erase_st (mstep af afast asc q))))
       with
-        (MT.steps_add apply n m s;
-         introduce exists (j: nat). erase_st r == Some (steps apply j s)
+        (MT.steps_add apply apply_s n m s;
+         introduce exists (j: nat). erase_st r == Some (steps apply apply_s j s)
          with (n + m) and ())
 
 (**
@@ -2227,9 +2553,10 @@ let one_more_mstep
  * agreement at the typed boundary delivers, and neither implies the other. A
  * single condition covering both would have to be one or the other weakened,
  * and `Hoop.Runtime.Metatheory` proves the first of them about a judgement that
- * says nothing about the second. Nothing in this repository produces an
- * `MRejected`, so `never_rejected` holds vacuously today and the guarded
- * conjunct is exactly as strong as it was when it read `never_stuck` alone.
+ * says nothing about the second. Two transitions produce an `MRejected` -- a
+ * dispatch whose node and whose table entry disagree about the kind of the
+ * operation, and a `Weave` that may not borrow -- and neither is a missing
+ * capability, so neither is covered by `never_stuck`.
  *
  * Keeping the guarded and unguarded halves apart is what lets `mrun` be called
  * on a configuration nothing is known about and still say something true about
@@ -2245,34 +2572,35 @@ let rec mrun
     (#v #cl: Type)
     (af: full_t v cl)
     (afast: fast_t v cl)
+    (asc: scoped_t v cl)
     (q: mstate v cl { config_ok q })
   : Div
       (mstate v cl)
       (requires True)
       (ensures fun r ->
         (exists (n: nat).
-          erase_st r == Some (steps (desugar af afast) n (Some?.v (erase_st q)))) /\
-        ((never_stuck (desugar af afast) (Some?.v (erase_st q)) /\
-          never_rejected (desugar af afast) (Some?.v (erase_st q))) ==> MDone? r))
+          erase_st r == Some (steps (desugar af afast) (desugar_scoped asc) n (Some?.v (erase_st q)))) /\
+        ((never_stuck (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q)) /\
+          never_rejected (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q))) ==> MDone? r))
   = match q with
     | MStep _ _ _ ->
-        msim af afast q;
-        let r = mrun af afast (mstep af afast q) in
-        one_more_mstep af afast q r;
+        msim af afast asc q;
+        let r = mrun af afast asc (mstep af afast asc q) in
+        one_more_mstep af afast asc q r;
         introduce
-          (never_stuck (desugar af afast) (Some?.v (erase_st q)) /\
-           never_rejected (desugar af afast) (Some?.v (erase_st q))) ==> MDone? r
-        with (mprogress af afast q; mreject_progress af afast q);
+          (never_stuck (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q)) /\
+           never_rejected (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q))) ==> MDone? r
+        with (mprogress af afast asc q; mreject_progress af afast asc q);
         r
     | _ ->
         introduce exists (n: nat).
-          erase_st q == Some (steps (desugar af afast) n (Some?.v (erase_st q)))
+          erase_st q == Some (steps (desugar af afast) (desugar_scoped asc) n (Some?.v (erase_st q)))
         with 0 and ();
         introduce
-          (never_stuck (desugar af afast) (Some?.v (erase_st q)) /\
-           never_rejected (desugar af afast) (Some?.v (erase_st q))) ==> MDone? q
-        with (never_stuck_now (desugar af afast) (Some?.v (erase_st q));
-              never_rejected_now (desugar af afast) (Some?.v (erase_st q)));
+          (never_stuck (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q)) /\
+           never_rejected (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q))) ==> MDone? q
+        with (never_stuck_now (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q));
+              never_rejected_now (desugar af afast) (desugar_scoped asc) (Some?.v (erase_st q)));
         q
 
 (**
@@ -2297,8 +2625,8 @@ let rec mrun
  * holds of `MRejected`.
  *
  * `MDone? r` is what genuinely needs the two freedom conditions, and it appears
- * guarded by both: given `never_stuck (desugar af afast) (load p)` and
- * `never_rejected (desugar af afast) (load p)`, the guard discharges and the
+ * guarded by both: given `never_stuck (desugar af afast) (desugar_scoped asc) (load p)` and
+ * `never_rejected (desugar af afast) (desugar_scoped asc) (load p)`, the guard discharges and the
  * result is a value. The standing assumption has moved from "the answer is
  * correct only if PureScript's row types guarantee well-scopedness" to "the
  * answer always agrees with the reference semantics, and PureScript's types are
@@ -2317,17 +2645,19 @@ let rec mrun
  * was; folding it into `never_stuck` would have made `progress` a theorem about
  * something other than capabilities.
  *
- * No transition in this repository produces a `Rejected`, so `never_rejected`
- * is satisfied vacuously by every program that can currently be built, and this
- * postcondition is today the one it replaced. It is written in its final form
- * now because the outcome type is public: a caller who matches on the result
- * already has the constructor to handle, and restating the guarantee twice
- * would be a second break of the same API for no gain.
+ * `never_rejected` is no longer vacuous: a `Perform` reaching a scoped entry, a
+ * `PerformS` reaching an ordinary one, and a `Weave` across a prompt that cannot
+ * be borrowed all produce a `Rejected`. What discharges it is the PureScript
+ * surface -- one operation signature deriving both the perform site and the
+ * clause -- together with a handler stack whose intervening prompts are
+ * borrowable, and neither is visible from inside F*.
  *
- * The two FFI interpreters are the only trusted inputs. `af` is a fully
+ * The three FFI interpreters are the only trusted inputs. `af` is a fully
  * controllable clause, handed the delimited continuation; `afast` is a
- * tail-resumptive one, which is not handed it and cannot be. Which of the two
- * applies is decided by the `clause` tag on the *table entry*, which
+ * tail-resumptive one, which is not handed it and cannot be; `asc` is a scoped
+ * one, handed a weave capability beside the continuation. Which of the three
+ * applies is decided by the `clause` tag and the stored kind on the *table
+ * entry*, which
  * `handlers_of_js` sets once per `Handle` -- so nothing is assumed of the
  * boundary that F* cannot see.
  *)
@@ -2335,15 +2665,16 @@ let execute
     (#v #cl: Type)
     (af: full_t v cl)
     (afast: fast_t v cl)
+    (asc: scoped_t v cl)
     (p: ct v cl)
   : Div
       (mstate v cl)
       (requires True)
       (ensures fun r ->
-        (exists (n: nat). erase_st r == Some (steps (desugar af afast) n (load p))) /\
-        ((never_stuck (desugar af afast) (load p) /\
-          never_rejected (desugar af afast) (load p)) ==> MDone? r))
-  = mrun af afast (mload p)
+        (exists (n: nat). erase_st r == Some (steps (desugar af afast) (desugar_scoped asc) n (load p))) /\
+        ((never_stuck (desugar af afast) (desugar_scoped asc) (load p) /\
+          never_rejected (desugar af afast) (desugar_scoped asc) (load p)) ==> MDone? r))
+  = mrun af afast asc (mload p)
 
 (* ------------------------------------------------------------------ *)
 (*  17.  Non-vacuity: the three scenarios really occur                  *)
@@ -2372,13 +2703,18 @@ let execute
  *     `BindF (kont_of ...)` frame it becomes.
  *)
 let scenarios_reachable
-    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl)
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (asc: scoped_t v cl)
     (hsf hsg: handlers (clause cl))
     (retf retg: option (v -> ct v cl))
     (ef opf eg opg: string) (payload: list v) (cf cg: cl)
   : Lemma
       (requires
-        lookup_clause hsf ef opf == Some (Fast cf) /\
+        // The inner table's entry is named through `lookup_handler`, i.e. with
+        // its stored KIND, because that is what the dispatch now reads: a table
+        // pairing `Fast cf` with `KScoped` would be refused rather than run, and
+        // the scenario this lemma exhibits would not arise. `lookup_handler_agrees`
+        // recovers the `lookup_clause` reading the searches below want.
+        lookup_handler hsf ef opf == Some ({ body = Fast cf; kind = KFast }) /\
         lookup_clause hsf eg opg == None /\
         lookup_clause hsg eg opg == Some (Full cg))
       (ensures
@@ -2386,7 +2722,7 @@ let scenarios_reachable
          let kk0 : mstack v cl = [MPromptF hsf retf; MPromptF hsg retg] in
          let q0 : mstate v cl = MStep (Perform ef opf payload) (env_of_stack k0) kk0 in
          config_ok q0 /\
-         (let q1 = mstep af afast q0 in
+         (let q1 = mstep af afast asc q0 in
           MStep? q1 /\
           Cons? (MStep?.k q1) /\ MEnvF? (hd (MStep?.k q1)) /\
           config_ok q1 /\
@@ -2399,7 +2735,8 @@ let scenarios_reachable
     let kk0 : mstack v cl = [MPromptF hsf retf; MPromptF hsg retg] in
     let q0 : mstate v cl = MStep (Perform ef opf payload) (env_of_stack k0) kk0 in
     assert (erase_k kk0 == Some k0);
+    lookup_handler_agrees hsf ef opf;
     lookup_find ef opf k0;
     fp_prompt_hit ef opf hsf retf [PromptF hsg retg];
     assert (config_ok q0);
-    msim af afast q0
+    msim af afast asc q0

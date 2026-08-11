@@ -756,7 +756,8 @@ type state v cl =
   | Stuck    : string -> string -> state v cl
   | Rejected : rejection -> state v cl
 
-| Weave : prepared:stack v cl -> body:comp_tree v cl -> comp_tree v cl
+| Weave : origin_eff:string -> origin_op:string
+       -> prepared:stack v cl -> body:comp_tree v cl -> comp_tree v cl
 ```
 
 ```text
@@ -826,7 +827,7 @@ rules:
 And the two rejections stay unmixed: kind/tag mismatch arises at the perform
 transition, borrowability at the `Weave` transition.
 
-### The plan must be normalized, not raw
+### The *execution-relevant* component must be normalized, not raw
 
 `Weave` must **not** carry the raw captured segment. The two sides of a monad
 law differ by the extra `BindF` frames of the law's redex block; `prepare_scope`
@@ -843,6 +844,27 @@ prepared (pre @ d1 @ rest) owner  ==  prepared (pre @ d2 @ rest) owner
 for `no_prompt d1`, `no_prompt d2` — hence the same prepared stack, the same
 borrowability verdict, the same rejection payload, and therefore *the same weave
 function*. The congruence obligation stays confined to the resume continuation.
+
+**But "normalized" is a condition on the stack, and it was wrongly read as a
+reason to carry nothing else.** That cost the diagnostic: `UnborrowableScope`'s
+`eff` / `op` came out as `""`, because by the time a `Weave` is evaluated there
+is no operation left to name — and a node that may be evaluated far from the
+dispatch that built it is exactly the node that has to remember its origin.
+
+```fstar
+| Weave : origin_eff:string -> origin_op:string
+       -> prepared:stack v cl -> body:comp_tree v cl -> comp_tree v cl
+```
+
+The provenance is inert: `ws` ignores it, `prepare_blind` is about the segment,
+and on both sides of a law the origin is the same pair of strings — the redex
+block a law replaces is `no_prompt` and contributes to none of the three fields.
+So the weave function depends on the origin *and* the prepared segment, and both
+are identical across a law. No new hypothesis.
+
+The lesson generalises: **normalize what execution depends on; keep what
+diagnosis depends on.** Conflating the two is what produced an error message
+that could not name its own operation.
 
 `borrowed` was considered as a second field and left out: `prepared` is
 `borrow intermediates @ [owner]`, so the borrowed prompts are exactly

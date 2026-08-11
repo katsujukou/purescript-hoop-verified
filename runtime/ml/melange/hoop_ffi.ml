@@ -63,10 +63,12 @@ external js_get : any -> any -> any = "" [@@mel.get_index]
 
 external call1 : any -> any -> any = "call1" [@@mel.module "./hoop_prim.js"]
 external call2 : any -> any -> any -> any = "call2" [@@mel.module "./hoop_prim.js"]
+external call3 : any -> any -> any -> any -> any = "call3" [@@mel.module "./hoop_prim.js"]
 external is_nullish : any -> bool = "isNullish" [@@mel.module "./hoop_prim.js"]
 external is_function : any -> bool = "isFunction" [@@mel.module "./hoop_prim.js"]
 external throw_error : string -> 'a = "throwError" [@@mel.module "./hoop_prim.js"]
 external fast_fun : any -> any = "fastFun" [@@mel.module "./hoop_prim.js"]
+external scoped_fun : any -> any = "scopedFun" [@@mel.module "./hoop_prim.js"]
 external object_keys : any -> any array = "objectKeys" [@@mel.module "./hoop_prim.js"]
 external apply_payload : any -> any -> any = "applyPayload" [@@mel.module "./hoop_prim.js"]
 external empty_record : any -> any = "emptyRecord" [@@mel.module "./hoop_prim.js"]
@@ -76,6 +78,7 @@ external insert : any -> any -> any -> any = "insert" [@@mel.module "./hoop_prim
    definition that returns a function -- see `hoop_prim.js`. *)
 external mk_full_clause : any -> any = "mkFullClause" [@@mel.module "./hoop_prim.js"]
 external mk_fast_clause : any -> any = "mkFastClause" [@@mel.module "./hoop_prim.js"]
+external mk_scoped_clause : any -> any = "mkScopedClause" [@@mel.module "./hoop_prim.js"]
 external mk_return : any -> any -> any = "mkReturn" [@@mel.module "./hoop_prim.js"]
 
 (* --- Utilities ------------------------------------------------------------ *)
@@ -102,20 +105,52 @@ let apply_full (clause : any) (payload : any list) (k : any -> comp) : comp =
 let apply_fast (clause : any) (payload : any list) : comp =
   magic (call1 clause (array_to_js (Array.of_list payload)))
 
-(* The discriminator between the two clause shapes, and the only place either is
-   inspected. `mkFullClauseImpl` produces a JS function; `mkFastClauseImpl`
-   produces the object `{ fun }`. Anything else is a malformed clause and is
-   reported here, by name, rather than left to fail as an opaque "is not a
-   function" from inside the machine. *)
+(* A scoped clause: `(payload[], weave, resume) => comp`. It is handed the weave
+   capability AND the continuation -- the first is what lets it run an inner
+   computation under the handlers the perform site could see, the second is what
+   lets it resume that site with a value.
+
+   Both cross as OCaml closures of arity one, which under Melange are already
+   one-argument JS functions. `weave` is a function ARGUMENT rather than a
+   returned function, so PR #1's arity hazard does not apply to it -- that hazard
+   is about a boundary function that returns one, which is why
+   `mkScopedClauseImpl` is written in JS and this is not.
+
+   THE TRUSTED ITEM LIVES HERE. Nothing on this side can check that the clause
+   applies `weave` only to computations drawn from its own rigid inner family;
+   that is what the rank-2 quantifier on the PureScript side is for, and what
+   `Hoop.Runtime.WellScopedness.apply_scoped_ok` assumes. *)
+let apply_scoped (clause : any) (payload : any list) (weave : comp -> comp)
+    (k : any -> comp) : comp =
+  let arr = array_to_js (Array.of_list payload) in
+  let jw = inject (fun (d : any) -> inject (weave (magic d))) in
+  let jk = inject (fun (x : any) -> inject (k x)) in
+  magic (call3 clause arr jw jk)
+
+(* The discriminator between the three clause shapes, and the only place any of
+   them is inspected. `mkFullClauseImpl` produces a JS function;
+   `mkFastClauseImpl` produces the object `{ fun }`; `mkScopedClauseImpl`
+   produces `{ scoped }`. The three are mutually exclusive, so nothing here has
+   to guess. Anything else is a malformed clause and is reported here, by name,
+   rather than left to fail as an opaque "is not a function" from inside the
+   machine.
+
+   The tag this attaches is what `Hoop_Runtime.classify_runtime_clause` reads,
+   and the kind it derives is what the transitions compare the AST node against.
+   So "this clause is scoped" is a reading of the shape the surface built, never
+   an assertion by this file. *)
 let tag_clause (eff : string) (op : string) (c : any) : any Hoop_Runtime.clause =
   if is_function c then Hoop_Runtime.Full c
   else
     let f = fast_fun c in
     if is_nullish f then
-      fail
-        ("hoop: the clause for '" ^ eff ^ "." ^ op
-         ^ "' is neither a fully controllable (ctl) clause nor a tail-resumptive \
-            (fast) one")
+      let s = scoped_fun c in
+      if is_nullish s then
+        fail
+          ("hoop: the clause for '" ^ eff ^ "." ^ op
+           ^ "' is neither a fully controllable (ctl) clause, a tail-resumptive \
+              (fast) one, nor a scoped one")
+      else Hoop_Runtime.Scoped s
     else Hoop_Runtime.Fast f
 
 (* Flatten the nested handler table { [eff]: { [op]: clause } } that PureScript
@@ -191,6 +226,16 @@ let writeCellImpl (label : any) (value : any) : any =
    optimisation and export the wrong shape. *)
 let mkFullClauseImpl (f : any) : any = mk_full_clause f
 let mkFastClauseImpl (f : any) : any = mk_fast_clause f
+
+(* NOT YET REACHABLE FROM PURESCRIPT, and deliberately so: the export list in
+   scripts/build-runtime.sh does not carry this name, and the AST node a scoped
+   perform needs -- `Hoop_Runtime_Syntax.PerformS` -- is not on guard (e)'s
+   whitelist either. Both are one-line additions to that script, and they are the
+   review artifact for widening the exposed surface; until they are made, the
+   scoped path is complete on the verified side and unreachable from the
+   surface. *)
+let mkScopedClauseImpl (f : any) : any = mk_scoped_clause f
+
 let mkReturnImpl (f : any) : any = mk_return (inject pureImpl) f
 
 (* The identity return clause. `withImpl` tests it with `x == null`. *)
@@ -217,12 +262,17 @@ let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key 
    between a scope and its owner rearranged. Reporting both as "unhandled
    operation" would send the reader to the wrong place.
 
-   Nothing produces an `MRejected` today: no transition in `Hoop.Runtime`
-   returns one, so this code is unreachable in the shipped runtime. It is
-   written all the same, because the build compiles with `-w -a` and a
-   non-exhaustive match therefore compiles silently and fails at run time with
-   `Match_failure`. See docs/study-notes/2026-08-11-scoped-effects-detailed-design.md
-   (Decision 8). *)
+   `Hoop.Runtime.mstep` produces one at a dispatch whose node and whose table
+   entry disagree about the kind of the operation, and at a `Weave` whose
+   prepared segment crosses a prompt that cannot be borrowed. No program the
+   PureScript surface can currently build reaches either -- a scoped perform node
+   is not exposed -- but the code is live rather than dead, and the messages are
+   what a user will read when it is.
+
+   Note that the build compiles with `-w -a`, so a non-exhaustive match compiles
+   silently and fails at run time with `Match_failure`: a constructor added to
+   `rejection` must be carried into `rejection_message` by hand. See
+   docs/study-notes/2026-08-11-scoped-effects-detailed-design.md (Decision 8). *)
 
 (* `String.concat` would pull the stdlib's `Bytes` machinery into the bundle for
    a message nothing prints. Three lines of `^`, which Melange compiles to JS
@@ -255,9 +305,18 @@ let rejection_message (r : Hoop_Runtime_Semantics.rejection) : string =
          operation's signature is the single source of truth the perform site \
          and the clause are both derived from, so a mismatch means one of them \
          was built by hand or against a stale signature."
+  (* Both halves are printed. The operation comes from the `Weave` node's own
+     origin fields: the node carries the NORMALIZED scope plan -- normalization
+     being a condition on the segment the machine is to install -- and beside it
+     the operation whose dispatch built it, precisely because it may be evaluated
+     arbitrarily far from that dispatch, a clause being free to build a woven
+     computation and run it later or not at all. So the message can say which
+     scope was refused as well as what stood in its way, and both are what the
+     reader has to act on. *)
   | Hoop_Runtime_Semantics.UnborrowableScope (eff, op, blocking) ->
-      "hoop: cannot enter the scope of '" ^ eff ^ "." ^ op
-      ^ "' across non-borrowable handlers: " ^ join_labels blocking
+      "hoop: the scope of '" ^ eff ^ "." ^ op
+      ^ "' could not be entered across non-borrowable handlers: "
+      ^ join_labels blocking
       ^ ".\n\
          This is NOT an unhandled operation -- the handler was found. The \
          current implementation can reinstall an intervening prompt only when \
@@ -315,10 +374,14 @@ let rejection_message (r : Hoop_Runtime_Semantics.rejection) : string =
     see the note on `rejection_message` above -- and it is ruled out by a
     different condition: `never_rejected` rather than `never_stuck`.
 
-    UNREACHABLE TODAY. No transition in `Hoop.Runtime` returns an `MRejected`,
-    so `never_rejected` holds vacuously of every program that can currently be
-    built and this branch cannot fire. It is written because `-w -a` means the
-    compiler will not say that `mstate` gained a constructor.
+    Three transitions produce one: a `Perform` whose entry holds a scoped
+    clause, a `PerformS` whose entry holds an ordinary one, and a `Weave` whose
+    prepared segment crosses a prompt that cannot be borrowed. The first two are
+    ruled out by the PureScript surface -- one operation signature derives both
+    the perform site and the clause -- and the third by the handler stack a
+    program actually installs, which no static discipline in this design decides.
+    NEITHER IS VISIBLE FROM INSIDE F*, which is why they are `never_rejected`
+    rather than a theorem.
 
   - `MStep _`. Unreachable, and not by an appeal to well-scopedness: `mrun`
     returns only from its own catch-all, which it enters only on a state that is
@@ -341,7 +404,7 @@ let rejection_message (r : Hoop_Runtime_Semantics.rejection) : string =
   None of this reasoning is backend-specific.
 *)
 let runImpl (c : any) : any =
-  match Hoop_Runtime.execute apply_full apply_fast (magic c : comp) with
+  match Hoop_Runtime.execute apply_full apply_fast apply_scoped (magic c : comp) with
   | Hoop_Runtime.MDone value -> value
   | Hoop_Runtime.MStuck (eff, op) when eff = Hoop_Runtime_Semantics.var_eff ->
       fail

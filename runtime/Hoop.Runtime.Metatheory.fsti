@@ -17,7 +17,7 @@ let find_prompt_partitions_correctness
       (let Some (cap, _, below) = find_prompt eff op k in
           cap @ below == k
       )
-      
+
 val find_prompt_partitions
     (#v #cl: Type)
     (eff op: string)
@@ -51,7 +51,7 @@ val find_prompt_last
     (#v #cl: Type)
     (eff op: string)
     (k: stack v cl)
-  : Lemma 
+  : Lemma
     (find_prompt_last_correctness eff op k)
 
 (**
@@ -109,7 +109,7 @@ val lookup_clause_memP
 
 (**
  * **Completeness of `lookup_clause`**: a `None` means the table really has no
- * entry for `(eff, op)`. The frame-layer counterpart of `find_prompt`'s 
+ * entry for `(eff, op)`. The frame-layer counterpart of `find_prompt`'s
  * refinement: a `handles` check fails because the prompt truly lacks the operation,
  * not because the search missed it. Only with this can `find_prompt_innermost`
  * validly claim that no handler is ever bypassed.
@@ -136,20 +136,77 @@ val lookup_clause_none
  * **Perform progress**: performing `(eff, op)` inside a context that handles it
  * makes the next computation the clause fed with the payload and the captured
  * continuation, and the stack whatever remains below the target prompt.
+ *
+ * **Unless the entry it reaches holds a SCOPED clause**, in which case the
+ * dispatch is refused. That case is not a hypothesis of this lemma but an arm of
+ * its conclusion: the statement says strictly more than it did, and no caller
+ * has anything new to discharge -- what a caller must do is decide the arm, and
+ * every caller was going to look at the clause anyway.
+ *
+ * **The stored kind is the sole authority.** Not the constructor the clause
+ * happens to carry: `Hoop.Runtime.Handlers.mk_handlers` takes an arbitrary
+ * classifier, so nothing in F* forces the two to agree, and
+ * `Hoop.Runtime.msim` is stated of EVERY configuration with no hypothesis about
+ * how tables were built. Were the reference to decide on the stored kind and the
+ * machine on the constructor, a table pairing `Full c` with `KScoped` would send
+ * the two down different transitions and the simulation would be false. So both
+ * machines read this field, and only this field.
  *)
  val step_perform
     (#v #cl: Type)
     (eff op: string)
     (payload: list v)
     (k: stack v cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
   : Lemma
       (requires handled_in eff op k)
       (ensures
           (let Some (captured, found, below) = find_prompt eff op k in
-              (step apply (Step (Perform eff op payload) k) ==
-                  Step (apply found.body payload (kont_of captured)) below) /\
+              (match found.kind with
+                | KScoped ->
+                    step apply apply_s (Step (Perform eff op payload) k) ==
+                      Rejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped)
+                | _ ->
+                    step apply apply_s (Step (Perform eff op payload) k) ==
+                      Step (apply found.body payload (kont_of captured)) below) /\
               // The stack is preserved -- a consequence of `find_prompt_partitions`.
+              captured @ below == k))
+
+(**
+ * **Scoped perform progress**, the same statement read on the other node: the
+ * clause is fed the payload, a WEAVE CAPABILITY and the continuation, and an
+ * entry that is not scoped is refused.
+ *
+ * The weave carries `prepare_captured_fast captured` -- the intermediates
+ * borrowed, the owner entire -- together with the ORIGIN of this very dispatch,
+ * and it carries both as the partial application of a named function, so that
+ * two dispatches of the same operation building the same segment build the same
+ * weave and not merely two closures that agree. Nothing here asks whether that
+ * segment may in fact be borrowed: see `step_weave_ok` / `step_weave_rejected`.
+ *)
+val step_performS
+    (#v #cl: Type)
+    (eff op: string)
+    (payload: list v)
+    (k: stack v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+  : Lemma
+      (requires handled_in eff op k)
+      (ensures
+          (let Some (captured, found, below) = find_prompt eff op k in
+              (match found.kind with
+                | KScoped ->
+                    step apply apply_s (Step (PerformS eff op payload) k) ==
+                      Step (apply_s found.body payload
+                              (weave_of eff op (prepare_captured_fast captured))
+                              (kont_of captured))
+                           below
+                | KFull ->
+                    step apply apply_s (Step (PerformS eff op payload) k) ==
+                      Rejected (ClauseKindMismatch eff op KScopedOperation KFull)
+                | KFast ->
+                    step apply apply_s (Step (PerformS eff op payload) k) ==
+                      Rejected (ClauseKindMismatch eff op KScopedOperation KFast)) /\
               captured @ below == k))
 
 (**
@@ -162,10 +219,24 @@ val step_perform_stuck
     (eff op: string)
     (payload: list v)
     (k: stack v cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
   : Lemma
       (~(handled_in eff op k) <==>
-          step apply (Step (Perform eff op payload) k) == Stuck eff op)
+          step apply apply_s (Step (Perform eff op payload) k) == Stuck eff op)
+
+(** **The same, for a scoped perform.** The `<==>` survives the new rejection
+    arm: a refused dispatch is `Rejected` and not `Stuck`, so it does not make
+    the right-hand side true, which is precisely the separation the two outcomes
+    exist for. *)
+val step_performS_stuck
+    (#v #cl: Type)
+    (eff op: string)
+    (payload: list v)
+    (k: stack v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+  : Lemma
+      (~(handled_in eff op k) <==>
+          step apply apply_s (Step (PerformS eff op payload) k) == Stuck eff op)
 
 (**
  * **Progress of `Splice`**: the carried frames are appended back onto the stack
@@ -180,11 +251,54 @@ val step_perform_stuck
  *)
 let step_splice
     (#v #cl : Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (fs : stack v cl)
     (body : comp_tree v cl)
     (cc : stack v cl)
-  : Lemma (step apply (Step (Splice fs body) cc) == Step body (fs @ cc))
+  : Lemma (step apply apply_s (Step (Splice fs body) cc) == Step body (fs @ cc))
+  = ()
+
+(**
+ * **Progress of `Weave`**: `Splice`'s rule, behind one guard.
+ *
+ * Stated as the two definitional equalities rather than as one match, so that
+ * each half is a regression test of its own: the success branch fails the moment
+ * the prepared segment stops being installed exactly as a splice installs a
+ * captured one, and the rejection branch fails the moment the check moves.
+ *
+ * **The check is here and nowhere else.** Not at the dispatch of the scoped
+ * operation: a clause that discards an inner computation never builds one of
+ * these, and never runs the check -- which is what makes "a non-borrowable
+ * prompt in a context that is never woven is no reason to reject anything" a
+ * property of the transition system rather than a remark. Decision 5.
+ *
+ * **The guard and the success branch do not read the origin**; the rejection
+ * does, and reports it verbatim. That split is the whole of what the two extra
+ * fields buy: the transition stays a function of the normalized segment, and the
+ * refusal can still name the scope it refused.
+ *)
+let step_weave_ok
+    (#v #cl : Type)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+    (oeff oop : string)
+    (prepared : stack v cl)
+    (body : comp_tree v cl)
+    (cc : stack v cl)
+  : Lemma (requires scope_blockers prepared == [])
+          (ensures step apply apply_s (Step (Weave oeff oop prepared body) cc)
+                     == Step body (prepared @ cc))
+  = ()
+
+let step_weave_rejected
+    (#v #cl : Type)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+    (oeff oop : string)
+    (prepared : stack v cl)
+    (body : comp_tree v cl)
+    (cc : stack v cl)
+  : Lemma (requires Cons? (scope_blockers prepared))
+          (ensures step apply apply_s (Step (Weave oeff oop prepared body) cc)
+                     == Rejected (UnborrowableScope oeff oop (scope_blockers prepared)))
   = ()
 
 (**
@@ -195,11 +309,11 @@ let step_splice
  *)
 let step_resumed
     (#v #cl : Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (fs : stack v cl)
     (x : v)
     (cc : stack v cl)
-  : Lemma (step apply (Step (resumed fs x) cc) == Step (Var x) (fs @ cc))
+  : Lemma (step apply apply_s (Step (resumed fs x) cc) == Step (Var x) (fs @ cc))
   = ()
 
 (**
@@ -220,48 +334,48 @@ let kont_of_resumed
 
 let step_op
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (c: comp_tree v cl)
     (fn: v -> comp_tree v cl)
     (k: stack v cl)
-  : Lemma (step apply (Step (Op c fn) k) == Step c (BindF fn :: k))
+  : Lemma (step apply apply_s (Step (Op c fn) k) == Step c (BindF fn :: k))
   = ()
 
 let step_handle
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (hs: handlers cl)
     (ret: option (v -> comp_tree v cl))
     (body: comp_tree v cl)
     (k: stack v cl)
-  : Lemma (step apply (Step (Handle hs ret body) k) == Step body (PromptF hs ret :: k))
+  : Lemma (step apply apply_s (Step (Handle hs ret body) k) == Step body (PromptF hs ret :: k))
   = ()
 
 let step_var_done
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (value: v)
-  : Lemma (step apply (Step (Var value) ([] <: stack v cl)) == Done value)
+  : Lemma (step apply apply_s (Step (Var value) ([] <: stack v cl)) == Done value)
   = ()
 
 let step_var_bind
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (value: v)
     (fn: v -> comp_tree v cl)
     (rest: stack v cl)
-  : Lemma (step apply (Step (Var value) (BindF fn :: rest)) == Step (fn value) rest)
+  : Lemma (step apply apply_s (Step (Var value) (BindF fn :: rest)) == Step (fn value) rest)
   = ()
 
 let step_var_prompt
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (value: v)
     (hs: handlers cl)
     (ret: option (v -> comp_tree v cl))
     (rest: stack v cl)
   : Lemma
-      (step apply (Step (Var value) (PromptF hs ret :: rest)) ==
+      (step apply apply_s (Step (Var value) (PromptF hs ret :: rest)) ==
         (match ret with
           | Some r -> Step (r value) rest
           | None -> Step (Var value) rest))
@@ -269,11 +383,11 @@ let step_var_prompt
 
 let step_var_prompt_identity
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (value: v)
     (hs: handlers cl)
     (rest: stack v cl)
-  : Lemma (step apply (Step (Var value) (PromptF hs None :: rest)) == Step (Var value) rest)
+  : Lemma (step apply apply_s (Step (Var value) (PromptF hs None :: rest)) == Step (Var value) rest)
   = ()
 
 let handle_installs
@@ -305,31 +419,31 @@ let stack_weakening
     reason than it is unreachable; see `Hoop.Runtime.Semantics.rejection`. *)
 val steps_terminal
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n: nat)
     (s: state v cl)
   : Lemma
       (requires Done? s \/ Stuck? s \/ Rejected? s)
-      (ensures steps apply n s == s)
+      (ensures steps apply apply_s n s == s)
 
 (** Step additivity. *)
 val steps_add
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n m: nat)
     (s: state v cl)
   : Lemma
-      (ensures steps apply (n + m) s == steps apply m (steps apply n s))
+      (ensures steps apply apply_s (n + m) s == steps apply apply_s m (steps apply apply_s n s))
 
 (** Corollary: once a run is `Done`, extra fuel changes nothing. *)
 val steps_stable
     (#v #cl: Type)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n m: nat)
     (s: state v cl)
   : Lemma
-      (requires Done? (steps apply n s))
-      (ensures steps apply (n + m) s == steps apply n s)
+      (requires Done? (steps apply apply_s n s))
+      (ensures steps apply apply_s (n + m) s == steps apply apply_s n s)
 
 // ------------------------------------------------------------------ //
 //  Well-scopedness: the defining equations                            //
@@ -372,6 +486,19 @@ val ws_perform
     (eff op: string)
     (payload: list v)
   : Lemma (ws cok a (Perform eff op payload <: comp_tree v cl) <==>
+           (eff =!= var_eff /\ a eff op))
+
+(** **A scoped `Perform` asks exactly what an ordinary one asks.** What a scoped
+    operation additionally owes concerns its inner computations, which live in
+    the opaque payload where no clause of `ws` can reach them; that obligation is
+    `Hoop.Runtime.WellScopedness.apply_scoped_ok`, at the boundary. *)
+val ws_performS
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (eff op: string)
+    (payload: list v)
+  : Lemma (ws cok a (PerformS eff op payload <: comp_tree v cl) <==>
            (eff =!= var_eff /\ a eff op))
 
 (** **`Op` distributes**: `c >>= fn` is well scoped exactly when `c` is and
@@ -429,6 +556,33 @@ val ws_splice
     (body: comp_tree v cl)
   : Lemma (ws cok a (Splice frames body) <==>
             (wf_stack cok a frames /\ ws cok (can_in_with frames a) body))
+
+(**
+ * **A `Weave` node is well scoped exactly when its two parts are** -- the same
+ * equation as `ws_splice`, at the prepared segment, and **with no borrowability
+ * condition on either side of the `<==>`**.
+ *
+ * That absence is the load-bearing part. It says a `Weave` that is going to be
+ * rejected is still well scoped, which is what makes `weave_ok` -- and with it
+ * the third premise of `apply_scoped_ok` -- dischargeable by the machine
+ * unconditionally, with nothing known about what kind of clause any crossed
+ * table holds. Fold borrowability in here and the dispatch of a scoped operation
+ * would stop being provable well scoped, and `progress` would acquire a
+ * hypothesis about clause kinds. Decision 5 and Decision 7.
+ *
+ * The origin does not appear on the right-hand side at all: it is diagnostic
+ * provenance, and well-scopedness is a judgement about what actions may be
+ * fired.
+ *)
+val ws_weave
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (a: can_perform)
+    (oeff oop: string)
+    (prepared: stack v cl)
+    (body: comp_tree v cl)
+  : Lemma (ws cok a (Weave oeff oop prepared body) <==>
+            (wf_stack cok a prepared /\ ws cok (can_in_with prepared a) body))
 
 (** **A resumption is well scoped exactly when the continuation it carries is
     well formed.** The `Var` specialisation of `ws_splice`: a resumption holds no
@@ -593,11 +747,12 @@ val wf_stack_split_prompt
 //                                                                     //
 //  `Hoop.Runtime.Semantics.prepare_scope` rewrites the captured        //
 //  segment into the context a scoped operation's inner computation is  //
-//  to run in. The two lemmas below are what every use of it will rest  //
-//  on: the rewritten segment OFFERS THE SAME THINGS, and it is STILL   //
-//  WELL FORMED. Nothing calls `prepare_scope` yet; these are proved    //
-//  ahead of the transition so that the transition is the only new      //
-//  thing when it lands.                                                //
+//  to run in. The two lemmas below are what `pres_performS` rests on:  //
+//  the rewritten segment OFFERS THE SAME THINGS, and it is STILL WELL  //
+//  FORMED -- which are, in that order, the two conjuncts of `ws_weave` //
+//  and hence the whole of `weave_ok`. The transition reaches them      //
+//  through `prepare_captured_is_prepare_scope`, which reads the ONE    //
+//  segment a dispatch holds as the two parts these are stated of.      //
 //                                                                     //
 //  They sit here, with `av_append` and `wf_stack_append`, because that //
 //  is what they are made of: both are the corresponding statement      //
@@ -734,27 +889,27 @@ val prepare_scope_wf
 val pres_op
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (inner: comp_tree v cl)
     (fn: v -> comp_tree v cl)
     (k: stack v cl)
   : Lemma
       (requires clause_ok_congr cok /\ wf_state cok (Step (Op inner fn) k))
-      (ensures wf_state cok (step apply (Step (Op inner fn) k)))
+      (ensures wf_state cok (step apply apply_s (Step (Op inner fn) k)))
 
 (** **Handle**: the extension `ws_handle` grants the body is exactly the one
     `av_prompt` says the pushed frame provides. *)
 val pres_handle
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (hs: handlers cl)
     (ret: option (v -> comp_tree v cl))
     (body: comp_tree v cl)
     (k: stack v cl)
   : Lemma
       (requires clause_ok_congr cok /\ wf_state cok (Step (Handle hs ret body) k))
-      (ensures wf_state cok (step apply (Step (Handle hs ret body) k)))
+      (ensures wf_state cok (step apply apply_s (Step (Handle hs ret body) k)))
 
 (** **Var**: a value meets the top frame. Whichever frame it is, its obligation
     was recorded against the environment of the frames below, which is precisely
@@ -762,12 +917,12 @@ val pres_handle
 val pres_var
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (value: v)
     (k: stack v cl)
   : Lemma
       (requires wf_state cok (Step (Var value <: comp_tree v cl) k))
-      (ensures wf_state cok (step apply (Step (Var value <: comp_tree v cl) k)))
+      (ensures wf_state cok (step apply apply_s (Step (Var value <: comp_tree v cl) k)))
 
 (** **Splice**: the carried segment is spliced back on and the body runs under
     it. Well-formedness of the join follows from `wf_stack_append`, and the body
@@ -776,13 +931,13 @@ val pres_var
 val pres_splice
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (frames: stack v cl)
     (body: comp_tree v cl)
     (k: stack v cl)
   : Lemma
       (requires clause_ok_congr cok /\ wf_state cok (Step (Splice frames body) k))
-      (ensures wf_state cok (step apply (Step (Splice frames body) k)))
+      (ensures wf_state cok (step apply apply_s (Step (Splice frames body) k)))
 
 (** **Resumed**: the `Var` specialisation, the transition the machine takes on
     `continue`. The body obligation is vacuous, so what remains is the splice of
@@ -790,13 +945,13 @@ val pres_splice
 val pres_resumed
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (captured: stack v cl)
     (value: v)
     (k: stack v cl)
   : Lemma
       (requires clause_ok_congr cok /\ wf_state cok (Step (resumed captured value) k))
-      (ensures wf_state cok (step apply (Step (resumed captured value) k)))
+      (ensures wf_state cok (step apply apply_s (Step (resumed captured value) k)))
 
 (**
  * **Perform**: the interesting one, and the only branch that could get stuck.
@@ -814,14 +969,67 @@ val pres_resumed
 val pres_perform
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (eff op: string)
     (payload: list v)
     (k: stack v cl)
   : Lemma
       (requires clause_ok_congr cok /\ apply_ok apply cok /\
                 wf_state cok (Step (Perform eff op payload) k))
-      (ensures wf_state cok (step apply (Step (Perform eff op payload) k)))
+      (ensures wf_state cok (step apply apply_s (Step (Perform eff op payload) k)))
+
+(**
+ * **PerformS**: the scoped counterpart of `pres_perform`, and the one place the
+ * machine's half of the scoped bargain is paid.
+ *
+ * Two of the three premises `apply_scoped_ok` demands are `pres_perform`'s
+ * verbatim -- the clause is well scoped below its prompt
+ * (`wf_stack_split_prompt` at the prompt `find_prompt_last` locates), and every
+ * branch of the continuation is well scoped there (`ws_resumed` on the captured
+ * segment). The third, `weave_ok`, is PROVED HERE and assumed nowhere:
+ *
+ *   - `find_prompt_partitions` and `find_prompt_last` split the captured segment
+ *     as `intermediates @ [owner]` with `PromptF? owner`, which is what
+ *     `prepare_captured_is_prepare_scope` needs to read the transition's segment
+ *     as `prepare_scope`;
+ *   - `prepare_scope_wf` carries `wf_stack` from the captured segment to the
+ *     prepared one, which is the first conjunct of `ws_weave`;
+ *   - `prepare_scope_can` says the two offer the same capabilities, so a
+ *     computation well scoped at the perform site is well scoped under the
+ *     prepared segment -- the second conjunct, through `ws_congr`.
+ *
+ * None of the three mentions borrowability, and none could: this is a theorem
+ * about a `Weave` node that may well go on to be rejected.
+ *
+ * A dispatch that is refused lands in `Rejected`, where `wf_state` is `True`, so
+ * that arm is unconditional.
+ *)
+val pres_performS
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+    (eff op: string)
+    (payload: list v)
+    (k: stack v cl)
+  : Lemma
+      (requires clause_ok_congr cok /\ apply_scoped_ok apply_s cok /\
+                wf_state cok (Step (PerformS eff op payload) k))
+      (ensures wf_state cok (step apply apply_s (Step (PerformS eff op payload) k)))
+
+(** **Weave**: `pres_splice` at the prepared segment on the success branch, and
+    `wf_state (Rejected _) = True` on the other. Unconditional on both, which is
+    what the absence of a borrowability clause in `ws_weave` buys. *)
+val pres_weave
+    (#v #cl: Type)
+    (cok: clause_ok_t cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+    (oeff oop: string)
+    (prepared: stack v cl)
+    (body: comp_tree v cl)
+    (k: stack v cl)
+  : Lemma
+      (requires clause_ok_congr cok /\ wf_state cok (Step (Weave oeff oop prepared body) k))
+      (ensures wf_state cok (step apply apply_s (Step (Weave oeff oop prepared body) k)))
 
 (* ------------------------------------------------------------------ *)
 (*  Preservation for prompt-local state                                *)
@@ -893,26 +1101,26 @@ val set_param_wf
 val pres_newp
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (l: string)
     (init: v)
     (body: comp_tree v cl)
     (k: stack v cl)
   : Lemma
       (requires clause_ok_congr cok /\ wf_state cok (Step (NewP l init body) k))
-      (ensures wf_state cok (step apply (Step (NewP l init body) k)))
+      (ensures wf_state cok (step apply apply_s (Step (NewP l init body) k)))
 
 (** **ReadP**: well-scopedness says the cell is available on `k`, hence
     `find_param` succeeds and the `Stuck` branch is out. *)
 val pres_readp
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (l: string)
     (k: stack v cl)
   : Lemma
       (requires wf_state cok (Step (ReadP l <: comp_tree v cl) k))
-      (ensures wf_state cok (step apply (Step (ReadP l <: comp_tree v cl) k)))
+      (ensures wf_state cok (step apply apply_s (Step (ReadP l <: comp_tree v cl) k)))
 
 (** **WriteP**: likewise, and the rebuilt stack is well formed by
     `set_param_wf`, in an environment `set_param_equiv_can` says has not
@@ -920,25 +1128,25 @@ val pres_readp
 val pres_writep
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (l: string)
     (x: v)
     (k: stack v cl)
   : Lemma
       (requires clause_ok_congr cok /\
                 wf_state cok (Step (WriteP l x <: comp_tree v cl) k))
-      (ensures wf_state cok (step apply (Step (WriteP l x <: comp_tree v cl) k)))
+      (ensures wf_state cok (step apply apply_s (Step (WriteP l x <: comp_tree v cl) k)))
 
 (** **Preservation**: one transition of a well-formed machine leaves it well
     formed. The eight branches above, assembled. *)
 val step_preserves_wf
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : Lemma
-      (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-      (ensures wf_state cok (step apply s))
+      (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+      (ensures wf_state cok (step apply apply_s s))
 
 (**
  * **Progress, one step**: a well-formed machine does not wedge — preservation
@@ -951,11 +1159,11 @@ val step_preserves_wf
 val step_progress
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : Lemma
-      (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-      (ensures ~(Stuck? (step apply s)))
+      (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+      (ensures ~(Stuck? (step apply apply_s s)))
 
 // ------------------------------------------------------------------ //
 //  Progress                                                           //
@@ -966,12 +1174,12 @@ val step_progress
 val steps_preserves_wf
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n: nat)
     (s: state v cl)
   : Lemma
-      (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-      (ensures wf_state cok (steps apply n s))
+      (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+      (ensures wf_state cok (steps apply apply_s n s))
 
 (**
  * **Progress**: a well-formed machine never gets stuck, however long it runs.
@@ -983,12 +1191,12 @@ val steps_preserves_wf
 val progress
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (n: nat)
     (s: state v cl)
   : Lemma
-      (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-      (ensures ~(Stuck? (steps apply n s)))
+      (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+      (ensures ~(Stuck? (steps apply apply_s n s)))
 
 (** **Loading a well-scoped program yields a well-formed state**: the empty stack
     is well formed and offers exactly the empty environment. *)
@@ -1011,11 +1219,11 @@ val load_wf
 val wf_never_stuck
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : Lemma
-      (requires clause_ok_congr cok /\ apply_ok apply cok /\ wf_state cok s)
-      (ensures never_stuck apply s)
+      (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ wf_state cok s)
+      (ensures never_stuck apply apply_s s)
 
 (**
  * **The entry point**: a well-scoped program may be handed to `run`, and comes
@@ -1028,11 +1236,11 @@ val wf_never_stuck
 val load_never_stuck
     (#v #cl: Type)
     (cok: clause_ok_t cl)
-    (apply: apply_t v cl)
+    (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
     (c: comp_tree v cl)
   : Lemma
-      (requires clause_ok_congr cok /\ apply_ok apply cok /\ ws cok (can_nothing ()) c)
-      (ensures never_stuck apply (load c))
+      (requires clause_ok_congr cok /\ apply_ok apply cok /\ apply_scoped_ok apply_s cok /\ ws cok (can_nothing ()) c)
+      (ensures never_stuck apply apply_s (load c))
 
 (* ================================================================== *)
 (*  The var-semantics theorem                                         *)

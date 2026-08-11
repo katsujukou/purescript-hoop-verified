@@ -100,13 +100,11 @@ let entry (cl: Type u#a) : Type u#a = string & string & cl
  * between the two is a classifier taken once, at `mk_handlers`, in the layer
  * that owns the tags.
  *
- * **`KScoped` is declared now and inhabited later.** `Hoop.Runtime.clause` has
- * no `Scoped` constructor yet, so no table this repository can build today
- * classifies an entry as `KScoped`; a later commit adds the constructor and
- * `Hoop.Runtime.classify_runtime_clause` gains its arm. It is declared here
- * rather than with that commit so that `blocking_effects` below -- whose
- * condition is "not `KFast`", not "is `KFull`" -- means the same thing before
- * and after, and so that adding the constructor does not reopen this type.
+ * **`blocking_effects` below tests "not `KFast`", never "is `KFull`".** A scoped
+ * clause blocks a borrow for the reason a full one does -- its canonical type
+ * mentions the answer type, so the stored representation cannot be reused at the
+ * scope's -- and stating the test negatively is what lets it say so without a
+ * second arm to keep in step with this type.
  *)
 type clause_kind =
   | KFull

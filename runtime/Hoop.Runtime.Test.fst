@@ -82,7 +82,18 @@ let tapply (c: tcl) (payload: list tv) (k: (tv -> comp_tree tv tcl)) : comp_tree
    ghost position. Helpers that merely build the program under test, such as
    `reader`, may stay in Tot. *)
 
-let exec (c: comp_tree tv tcl) : GTot (state tv tcl) = steps tapply 1000 (load c)
+(* The scoped interpreter these first fixtures run with, and the reason it is a
+   constant: 1-12 exercise the reference machine on ordinary operations only, and
+   `step` takes both interpreters whether or not a program uses the second. The
+   scoped fixtures are 41-47, in the `fcl` family, where they can be compared
+   against the machine that ships as well as against the reference. *)
+let tapply_s (c: tcl) (payload: list tv)
+             (weave: comp_tree tv tcl -> comp_tree tv tcl)
+             (kf: tv -> comp_tree tv tcl)
+  : comp_tree tv tcl
+  = Var VU
+
+let exec (c: comp_tree tv tcl) : GTot (state tv tcl) = steps tapply tapply_s 1000 (load c)
 
 let result (s: state tv tcl) : option tv =
   match s with
@@ -269,12 +280,17 @@ let taf (c: tcl) (payload: list tv) (k: tv -> tct) : tct =
    is decided by the tag on the entry rather than by the handle. *)
 let tafast (c: tcl) (payload: list tv) : tct = Var VU
 
+(* Nor does any table here tag an entry `Scoped`, so this is never reached
+   either. Both machines take all three interpreters; which one applies is
+   decided by the entry, not by the run. *)
+let tasc (c: tcl) (payload: list tv) (weave: tct -> tct) (kf: tv -> tct) : tct = Var VU
+
 (* The reference machine, at the desugared reading of the table. *)
 let texec (p: tct) : GTot (state tv (M.clause tcl)) =
-  steps (M.desugar taf tafast) 1000 (load p)
+  steps (M.desugar taf tafast) (M.desugar_scoped tasc) 1000 (load p)
 
 (* The machine that ships. *)
-let texec_m (p: tct) : M.mstate tv tcl = M.msteps taf tafast 1000 (M.mload p)
+let texec_m (p: tct) : M.mstate tv tcl = M.msteps taf tafast tasc 1000 (M.mload p)
 
 let mresult (#cl: Type) (q: M.mstate tv cl) : option tv =
   match q with
@@ -407,6 +423,12 @@ type fcl =
   | XRet : tv -> fcl (* full: resume with a constant *)
   | XTwice : fcl (* full: resume twice -- multi-shot *)
   | XAbort : tv -> fcl (* full: drop the continuation *)
+  (* scoped: weaves an inner computation -- one that performs `Reader.ask` -- and
+     resumes the perform site with its value. See `fasc`. *)
+  | SWeaveAsk : fcl
+  (* scoped, and the clause that never weaves: it resumes with a constant and
+     drops the scope entirely, as `once` drops a pruned candidate. *)
+  | SDiscard : tv -> fcl
 
 let fct = M.ct tv fcl
 
@@ -421,6 +443,8 @@ let faf (c: fcl) (payload: list tv) (k: tv -> fct) : fct =
   | FAsk v -> Op (Perform "Reader" "ask" []) (fun r -> k (vadd r v))
   | FFlip v -> Op (Perform "Amb" "flip" []) (fun r -> k (vadd r v))
   | FBump s -> Op (ReadP s) (fun n -> Op (WriteP s (vadd n (VI 1))) (fun _ -> k n))
+  | SWeaveAsk -> Var VU
+  | SDiscard v -> k v
 
 (* The FFI's fast interpreter: not handed the continuation, and cannot be. The
    body's value *is* the operation's result. *)
@@ -434,13 +458,47 @@ let fafast (c: fcl) (payload: list tv) : fct =
   | XRet v -> Var v
   | XTwice -> Var (VI 1)
   | XAbort v -> Var v
+  | SWeaveAsk -> Var VU
+  | SDiscard v -> Var v
+
+(**
+ * **The FFI's scoped interpreter**: handed the payload, a WEAVE capability and
+ * the continuation.
+ *
+ * The two scoped clauses are the two halves of Decision 5, and they are written
+ * to differ in exactly one respect -- whether `weave` is applied at all.
+ *
+ *   - `SWeaveAsk` weaves an inner computation and resumes with its value. In a
+ *     real program the inner computation would be dug out of the payload by the
+ *     clause; `tv` holds no computations, so this one is built here, which
+ *     changes nothing about the transition being exercised.
+ *   - `SDiscard` never touches `weave`. It resumes with a constant, exactly as
+ *     `once` prunes a candidate or `catch` drops the branch it did not take --
+ *     and, borrowable context or not, it can never be rejected, because no
+ *     `Weave` node is ever built and so no check is ever run.
+ *
+ * The remaining clauses are unreachable here -- no table tags them `Scoped` --
+ * and are written out because this is a total function.
+ *)
+let fasc (c: fcl) (payload: list tv) (weave: fct -> fct) (kf: tv -> fct) : fct =
+  match c with
+  | SWeaveAsk -> Op (weave (Perform "Reader" "ask" [])) kf
+  | SDiscard v -> kf v
+  | FRet v -> kf v
+  | FEcho -> (match payload with x :: _ -> kf x | [] -> Var VU)
+  | FAsk v -> kf v
+  | FFlip v -> kf v
+  | FBump _ -> kf VU
+  | XRet v -> kf v
+  | XTwice -> kf (VI 1)
+  | XAbort v -> Var v
 
 (* The reference machine, run at the desugared reading of the table. *)
 let fexec (p: fct) : GTot (state tv (M.clause fcl)) =
-  steps (M.desugar faf fafast) 1000 (load p)
+  steps (M.desugar faf fafast) (M.desugar_scoped fasc) 1000 (load p)
 
 (* The machine that ships. *)
-let fexec_m (p: fct) : M.mstate tv fcl = M.msteps faf fafast 1000 (M.mload p)
+let fexec_m (p: fct) : M.mstate tv fcl = M.msteps faf fafast fasc 1000 (M.mload p)
 
 
 
@@ -670,13 +728,11 @@ let _ = assert_norm (mresult (fexec_m fprog_cell_masked) == Some (VP (VI 10) (VI
   character of the realisation -- which is what the `--no_smt` below forbids it
   from doing.
 
-  What they buy is that the *executable* form reduces at all. Nothing calls
-  `blocking_effects`: the borrowability check belongs to the `Weave` transition,
-  which does not exist yet, so esbuild's tree shaking drops it and it is absent
-  from `src/Hoop/Engine.js` entirely. Every other definition the runtime
-  extracts is exercised by the smoke tests against the shipped bundle; this one
-  has no bundle to be exercised in, and until `Weave` lands these four
-  `assert_norm`s are the only thing that has ever *run* it.
+  What they buy is that the *executable* form reduces at all, on tables whose
+  answer has been read by hand. `scope_blockers` -- the one pass the `Weave`
+  transition makes over a prepared segment -- is what calls this in anger, and
+  45 and 47 below are where that call is made; these four fix what it is being
+  handed at each prompt.
 
   Hence `--no_smt`, which fails unless the term reduces to the literal on the
   right, and hence the `friend Hoop.Runtime.Handlers` at the top of this file.
@@ -743,9 +799,11 @@ let _ = assert_norm (blocking_effects bh_full_over_fast == ["St"])
   them. What follows pins the executable reading instead -- frame for frame, in
   order.
 
-  Nothing calls `prepare_scope`: the scoped transition does not exist yet, so
-  these five `assert_norm`s are the only thing that has ever RUN it, exactly as
-  31-34 are for `blocking_effects`. Hence the same `--no_smt`, and for the same
+  Nothing calls `prepare_scope` itself: the transitions run
+  `prepare_captured_fast`, whose answer `prepare_captured_is_prepare_scope` says
+  is this one. So these five `assert_norm`s are the only thing that RUNS the
+  specification, and 41 and 47 below are what run the walk that ships -- the two
+  readings, checked from both ends. Hence the same `--no_smt`, and for the same
   reason: it is a STRENGTHENING, forbidding the solver to finish a job the
   normaliser did not do, so the term must reduce to the literal on the right.
   Without it an `assert_norm` over a definition the normaliser cannot see
@@ -864,4 +922,210 @@ let _ = assert_norm
       ParamF "c2" (VI 42);
       PromptF bw_hB None;
       PromptF bw_hOwn bw_retOwn ])
+#pop-options
+
+
+(*
+  ---- 41-47. Scoped dispatch, the `Weave` node, and the two rejections ----
+
+  These are the first fixtures that RUN a scoped operation, and each is checked
+  on BOTH machines: `M.erase_st (fexec_m p) == Some (fexec p)` says the shipped
+  machine stops where the reference machine stops, and a second `assert_norm`
+  says where that is. `msim` proves the first of the two for every program, so
+  neither can fail while that proof stands; what they add is that the *executable*
+  forms reduce -- `prepare_captured_fast`'s accumulating walk, `scope_blockers`,
+  and the two `MRejected` payloads -- on programs whose answer has been read.
+
+  `--no_smt` throughout, for the reason 31-40 give: it is a STRENGTHENING that
+  forbids the solver to finish a job the normaliser did not do, so each term must
+  reduce to the literal on the right rather than merely be provable equal to it.
+
+  Each was perturbed by hand and confirmed to FAIL before the expected value was
+  restored; the perturbations are recorded fixture by fixture below.
+
+  The handler stacks are built from three pieces, so that the ONLY difference
+  between 46 and 47 -- the pair that pins Decision 5 -- is which scoped clause the
+  owner holds.
+*)
+
+(* The owner: the handler whose table holds the scoped clause. *)
+let sc_h (c: fcl) (body: fct) : fct =
+  Handle (M.mk_runtime_handlers [("Sc", "scope", M.Scoped c)]) None body
+
+(* A BORROWABLE intermediate: every clause of its table is tail-resumptive. *)
+let sc_hReader : handlers (M.clause fcl) =
+  M.mk_runtime_handlers [("Reader", "ask", M.Fast (FRet (VI 5)))]
+
+let reader_fast (body: fct) : fct = Handle sc_hReader None body
+
+(* A NON-BORROWABLE one: a fully controllable clause, whose canonical type
+   mentions the answer type and so cannot be reused at the scope's. *)
+let sc_hExc : handlers (M.clause fcl) =
+  M.mk_runtime_handlers [("Exc", "throw", M.Full (XAbort (VS "boom")))]
+
+let exc_full (body: fct) : fct = Handle sc_hExc None body
+
+
+(* 41. A scoped dispatch that weaves and resumes.
+
+   The scope is opened under a borrowable intermediate, so the borrow is taken:
+   the woven `Reader.ask` is answered by the BORROWED prompt -- the same table,
+   its return clause dropped -- and its value reaches the perform site through
+   the continuation the clause was handed. `VI 5` is that table's answer.
+
+   Perturbed to `VI 6` and confirmed to fail. *)
+
+let sprog_weave : fct = sc_h SWeaveAsk (reader_fast (PerformS "Sc" "scope" []))
+
+#push-options "--no_smt"
+let _ = assert_norm (M.erase_st (fexec_m sprog_weave) == Some (fexec sprog_weave))
+let _ = assert_norm (mresult (fexec_m sprog_weave) == Some (VI 5))
+#pop-options
+
+
+(* 42. An ordinary `Perform` meeting a `Scoped` entry.
+
+   The handler is FOUND -- this is not an unhandled operation -- and the dispatch
+   is refused because the node asks for one kind of operation and the table holds
+   another. Both machines read the kind off the entry the lookup returned.
+
+   Perturbed to `KFull` in the `actual` field and confirmed to fail. *)
+
+let sprog_kind_ordinary : fct = sc_h (SDiscard (VI 1)) (Perform "Sc" "scope" [])
+
+#push-options "--no_smt"
+let _ = assert_norm
+  (M.erase_st (fexec_m sprog_kind_ordinary) == Some (fexec sprog_kind_ordinary))
+let _ = assert_norm
+  (fexec sprog_kind_ordinary
+    == Rejected (ClauseKindMismatch "Sc" "scope" KOrdinaryOperation KScoped))
+#pop-options
+
+
+(* 43. The mirror image: a `PerformS` meeting a `Full` entry.
+
+   Perturbed to `KScopedOperation`/`KFast` and confirmed to fail. *)
+
+let sprog_kind_scoped : fct =
+  Handle (M.mk_runtime_handlers [("Sc", "scope", M.Full (XRet (VI 1)))]) None
+         (PerformS "Sc" "scope" [])
+
+#push-options "--no_smt"
+let _ = assert_norm
+  (M.erase_st (fexec_m sprog_kind_scoped) == Some (fexec sprog_kind_scoped))
+let _ = assert_norm
+  (fexec sprog_kind_scoped
+    == Rejected (ClauseKindMismatch "Sc" "scope" KScopedOperation KFull))
+#pop-options
+
+
+(* 44. A `Weave` whose prepared segment is all-fast: it proceeds.
+
+   The node is built by hand, which is what makes this a test OF THE TRANSITION
+   rather than of a dispatch that happens to reach it. The segment is what a
+   dispatch would have prepared -- a borrowed intermediate, the owner last -- and
+   the two assertions are the two halves: nothing blocks, and the body runs under
+   the segment and comes back out through it.
+
+   Perturbed by swapping the two frames, which puts the `Full` table in the
+   owner's position; confirmed to fail.
+
+   The origin is the operation a dispatch reaching this segment would have been
+   dispatching -- `Sc.scope`, the owner's own entry. Nothing on this branch reads
+   it: the guard and the success transition are functions of the segment. It is
+   45 that reads it, and 47 that pins it end to end. *)
+
+let sw_owner : M.rframe tv fcl =
+  PromptF (M.mk_runtime_handlers [("Sc", "scope", M.Scoped (SDiscard (VI 0)))]) None
+
+let sw_prepared_ok : M.rstack tv fcl = [PromptF sc_hReader None; sw_owner]
+
+let sprog_weave_ok : fct = Weave "Sc" "scope" sw_prepared_ok (Var (VI 7))
+
+#push-options "--no_smt"
+let _ = assert_norm (scope_blockers sw_prepared_ok == [])
+let _ = assert_norm (M.erase_st (fexec_m sprog_weave_ok) == Some (fexec sprog_weave_ok))
+let _ = assert_norm (mresult (fexec_m sprog_weave_ok) == Some (VI 7))
+#pop-options
+
+
+(* 45. The same, across a `Full` intermediate: refused, and the offender is
+   NAMED.
+
+   `scope_blockers` inspects every `PromptF` of the segment but the last -- the
+   owner is not borrowed, and is not checked -- and reports the effect labels of
+   the first table that blocks. The origin is the node's own: normalization is a
+   condition on the segment, not a reason to lose the operation the scope belongs
+   to, so the refusal names `Sc.scope` as well as the blocker.
+
+   Perturbed to `["Sc"]` -- the owner's effect, which must NOT be reported -- and
+   confirmed to fail. *)
+
+let sw_prepared_bad : M.rstack tv fcl = [PromptF sc_hExc None; sw_owner]
+
+let sprog_weave_bad : fct = Weave "Sc" "scope" sw_prepared_bad (Var (VI 7))
+
+#push-options "--no_smt"
+let _ = assert_norm (scope_blockers sw_prepared_bad == ["Exc"])
+let _ = assert_norm (M.erase_st (fexec_m sprog_weave_bad) == Some (fexec sprog_weave_bad))
+let _ = assert_norm
+  (fexec sprog_weave_bad == Rejected (UnborrowableScope "Sc" "scope" ["Exc"]))
+#pop-options
+
+
+(*
+  46-47. THE PAIR THAT PINS DECISION 5: borrowability is checked at the `Weave`,
+  not at the dispatch.
+
+  Same handler stack in both -- the scope is opened under a NON-BORROWABLE `Full`
+  intermediate -- and the same operation. The only difference is which scoped
+  clause the owner's table holds:
+
+    46  `SDiscard`  never applies the weave, so no `Weave` node is ever built,
+                    so the check never runs and the program answers normally;
+    47  `SWeaveAsk` applies it, and is refused.
+
+  Were the check at dispatch, 46 would be rejected too -- and `once` pruning a
+  candidate, or `catch` dropping the branch it did not take, would be
+  unwritable under a full handler.
+*)
+
+
+(* 46. The clause discards the scope: NOT rejected.
+
+   Perturbed to expect `Rejected (UnborrowableScope "Sc" "scope" ["Exc"])` -- the
+   answer a check at dispatch would give -- and confirmed to fail. *)
+
+let sprog_discard : fct = sc_h (SDiscard (VI 3)) (exc_full (PerformS "Sc" "scope" []))
+
+#push-options "--no_smt"
+let _ = assert_norm (M.erase_st (fexec_m sprog_discard) == Some (fexec sprog_discard))
+let _ = assert_norm (mresult (fexec_m sprog_discard) == Some (VI 3))
+#pop-options
+
+
+(* 47. The clause weaves: refused, at the `Weave` and not before -- and the
+   refusal NAMES THE SCOPE.
+
+   This is the fixture that pins origin propagation END TO END, and it is the
+   only one that can: the `Weave` node here is not written down, it is built by
+   the dispatch of `PerformS "Sc" "scope"` at 1130, carried inside `SWeaveAsk`'s
+   application of its weave capability, and read again only when the borrow is
+   refused, several transitions later. Nothing between those two points could
+   have reconstructed `"Sc"` and `"scope"`; they are in the rejection because the
+   node carried them there.
+
+   Perturbed to `Some (VI 5)` -- what it would answer if the borrow were allowed
+   -- and confirmed to fail. Perturbed AGAIN in the origin alone, `"Sc"` to
+   `"Sd"` with the blocker list left as it is, and confirmed to fail under
+   `--no_smt` with "assertion failed": the origin is checked because it is
+   propagated, and not merely because it is present. *)
+
+let sprog_weave_blocked : fct = sc_h SWeaveAsk (exc_full (PerformS "Sc" "scope" []))
+
+#push-options "--no_smt"
+let _ = assert_norm
+  (M.erase_st (fexec_m sprog_weave_blocked) == Some (fexec sprog_weave_blocked))
+let _ = assert_norm
+  (fexec sprog_weave_blocked == Rejected (UnborrowableScope "Sc" "scope" ["Exc"]))
 #pop-options

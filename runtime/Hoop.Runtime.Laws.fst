@@ -60,27 +60,28 @@ open FStar.List.Tot
  * `steps` is fuel-indexed, so "eventually" is an existential over the fuel;
  * `steps_stable` makes the choice of fuel immaterial.
  *)
-let converges (#v #cl: Type) (apply: apply_t v cl) (s: state v cl) (x: v) : GTot prop =
-  exists (n: nat). steps apply n s == Done x
+let converges (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (s: state v cl) (x: v) : GTot prop =
+  exists (n: nat). steps apply apply_s n s == Done x
 
 (** **A machine run has at most one result**: the longer of two stopping runs is
     the shorter one continued, and `Done` is a fixed point of `step`. *)
 let converges_det
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl)
     (x y: v)
-  : Lemma (requires converges apply s x /\ converges apply s y) (ensures x == y)
-  = eliminate exists (n: nat). steps apply n s == Done x
+  : Lemma (requires converges apply apply_s s x /\ converges apply apply_s s y) (ensures x == y)
+  = eliminate exists (n: nat). steps apply apply_s n s == Done x
     with
-      eliminate exists (m: nat). steps apply m s == Done y
+      eliminate exists (m: nat). steps apply apply_s m s == Done y
       with
-        if n <= m then steps_stable apply n (m - n) s
-        else steps_stable apply m (n - m) s
+        if n <= m then steps_stable apply apply_s n (m - n) s
+        else steps_stable apply apply_s m (n - m) s
 
 (**
  * **Observational approximation, at a fixed observation depth.**
- * `obs_le_n apply n c1 c2` reads: whenever `c1`, in any continuation, reaches a
+ * `obs_le_n apply apply_s n c1 c2` reads: whenever `c1`, in any continuation, reaches a
  * value within `n` transitions, `c2` reaches the same value in that same
  * continuation -- eventually, with no bound.
  *
@@ -95,43 +96,46 @@ let converges_det
 let obs_le_n
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (n: nat)
     (c1 c2: comp_tree v cl)
   : GTot prop
   = forall (k: stack v cl) (x: v).
-      steps apply n (Step c1 k) == Done x ==> converges apply (Step c2 k) x
+      steps apply apply_s n (Step c1 k) == Done x ==> converges apply apply_s (Step c2 k) x
 
 (** **Observational approximation**: `c2` does everything `c1` does. *)
-let obs_le (#v #cl: Type) (apply: apply_t v cl) (c1 c2: comp_tree v cl) : GTot prop =
-  forall (k: stack v cl) (x: v). converges apply (Step c1 k) x ==> converges apply (Step c2 k) x
+let obs_le (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (c1 c2: comp_tree v cl) : GTot prop =
+  forall (k: stack v cl) (x: v). converges apply apply_s (Step c1 k) x ==> converges apply apply_s (Step c2 k) x
 
 (** **Observational equivalence**, written `c1 ~ c2` in the comments below. *)
-let obs_eq (#v #cl: Type) (apply: apply_t v cl) (c1 c2: comp_tree v cl) : GTot prop =
-  obs_le apply c1 c2 /\ obs_le apply c2 c1
+let obs_eq (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (c1 c2: comp_tree v cl) : GTot prop =
+  obs_le apply apply_s c1 c2 /\ obs_le apply apply_s c2 c1
 
 (** Approximation at every depth is approximation. *)
 let obs_le_of_n
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (c1 c2: comp_tree v cl)
-  : Lemma (requires forall (n: nat). obs_le_n apply n c1 c2) (ensures obs_le apply c1 c2)
+  : Lemma (requires forall (n: nat). obs_le_n apply apply_s n c1 c2) (ensures obs_le apply apply_s c1 c2)
   = ()
 
 (** ... and conversely, so the indexed notion is a genuine stratification. *)
 let obs_le_n_of
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (n: nat)
     (c1 c2: comp_tree v cl)
-  : Lemma (requires obs_le apply c1 c2) (ensures obs_le_n apply n c1 c2)
+  : Lemma (requires obs_le apply apply_s c1 c2) (ensures obs_le_n apply apply_s n c1 c2)
   = ()
 
-let obs_le_refl (#v #cl: Type) (apply: apply_t v cl) (c: comp_tree v cl)
-  : Lemma (obs_le apply c c)
+let obs_le_refl (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (c: comp_tree v cl)
+  : Lemma (obs_le apply apply_s c c)
   = ()
 
-let obs_eq_refl (#v #cl: Type) (apply: apply_t v cl) (c: comp_tree v cl)
-  : Lemma (obs_eq apply c c)
+let obs_eq_refl (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl) (c: comp_tree v cl)
+  : Lemma (obs_eq apply apply_s c c)
   = ()
 
 (**
@@ -143,13 +147,14 @@ let obs_eq_refl (#v #cl: Type) (apply: apply_t v cl) (c: comp_tree v cl)
 let obs_le_n_mono
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (n m: nat)
     (c1 c2: comp_tree v cl)
-  : Lemma (requires obs_le_n apply n c1 c2 /\ m <= n) (ensures obs_le_n apply m c1 c2)
+  : Lemma (requires obs_le_n apply apply_s n c1 c2 /\ m <= n) (ensures obs_le_n apply apply_s m c1 c2)
   = introduce forall (k: stack v cl) (x: v).
-      (steps apply m (Step c1 k) == Done x ==> converges apply (Step c2 k) x)
+      (steps apply apply_s m (Step c1 k) == Done x ==> converges apply apply_s (Step c2 k) x)
     with introduce _ ==> _
-    with steps_stable apply m (n - m) (Step c1 k)
+    with steps_stable apply apply_s m (n - m) (Step c1 k)
 
 // ------------------------------------------------------------------ //
 //  The condition imposed on the FFI parameter `apply`                 //
@@ -191,10 +196,48 @@ let obs_le_n_mono
  * Note finally that `obs_le_n`, hence this condition, is directional: the two
  * directions of each law are proved separately.
  *)
-let apply_obs_congr (#v #cl: Type) (apply: apply_t v cl) : GTot prop =
-  forall (n: nat) (c: cl) (payload: list v) (kf1 kf2: v -> comp_tree v cl).
-    (forall (x: v). obs_le_n apply n (kf1 x) (kf2 x)) ==>
-    obs_le_n apply n (apply c payload kf1) (apply c payload kf2)
+let apply_obs_congr (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+  : GTot prop
+  = forall (n: nat) (c: cl) (payload: list v) (kf1 kf2: v -> comp_tree v cl).
+      (forall (x: v). obs_le_n apply apply_s n (kf1 x) (kf2 x)) ==>
+      obs_le_n apply apply_s n (apply c payload kf1) (apply c payload kf2)
+
+(**
+ * **The same condition on the scoped interpreter, and NOT ONE MORE.**
+ *
+ * Congruence in the RESUME argument only, at a FIXED weave. That restriction is
+ * what the design predicted would suffice, and the reason it does is a fact
+ * about the transition rather than an assumption: the two sides of a law differ
+ * by a prompt-free block of frames, `borrow` drops every frame of such a block,
+ * and the node carries the BORROWED segment -- so the two sides build
+ * syntactically the same weave, and there is nothing for a congruence in that
+ * argument to relate. `prepare_blind` below is where that is proved; carrying a
+ * raw captured segment in the node instead would have made this hypothesis
+ * insufficient and forced an observational condition on `weave` itself.
+ *
+ * The weave is a function of the ORIGIN and the prepared segment, and both are
+ * identical on the two sides. The block a law replaces is `no_prompt`, so it
+ * contributes nothing to the prepared segment; and it is not the dispatch, so it
+ * contributes nothing to the origin -- the `eff` and `op` fields come off the
+ * `PerformS` node, which is the same node on both sides. So the origin adds
+ * nothing to relate, and this statement is unchanged by its arrival.
+ *
+ * *Why it is needed at all* is `apply_obs_congr`'s reason, verbatim: the extra
+ * `BindF` frame of the left-hand side sits inside the delimited continuation the
+ * clause is handed, so the two sides call `apply_s` on continuations that really
+ * are different, and `apply_s` is a black box.
+ *
+ * **This is a second condition on the boundary, and it is new.** It is not a
+ * weakening of anything: `apply_obs_congr` says what it always said, about the
+ * interpreter it always said it about, and a program with no scoped operation
+ * never reaches this one. Decision 6 anticipates exactly this shape.
+ *)
+let apply_scoped_obs_congr (#v #cl: Type) (apply: apply_t v cl) (apply_s: scoped_apply_t v cl)
+  : GTot prop
+  = forall (n: nat) (c: cl) (payload: list v)
+           (weave: comp_tree v cl -> comp_tree v cl) (kf1 kf2: v -> comp_tree v cl).
+      (forall (x: v). obs_le_n apply apply_s n (kf1 x) (kf2 x)) ==>
+      obs_le_n apply apply_s n (apply_s c payload weave kf1) (apply_s c payload weave kf2)
 
 // ------------------------------------------------------------------ //
 //  Convergence is closed under stepping, in both directions           //
@@ -204,24 +247,26 @@ let apply_obs_congr (#v #cl: Type) (apply: apply_t v cl) : GTot prop =
 let converges_back
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl {Step? s})
     (x: v)
-  : Lemma (requires converges apply (step apply s) x) (ensures converges apply s x)
-  = eliminate exists (n: nat). steps apply n (step apply s) == Done x
+  : Lemma (requires converges apply apply_s (step apply apply_s s) x) (ensures converges apply apply_s s x)
+  = eliminate exists (n: nat). steps apply apply_s n (step apply apply_s s) == Done x
     with
-      assert (steps apply (n + 1) s == steps apply n (step apply s))
+      assert (steps apply apply_s (n + 1) s == steps apply apply_s n (step apply apply_s s))
 
 (** ... and forwards. *)
 let converges_fwd
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl {Step? s})
     (x: v)
-  : Lemma (requires converges apply s x) (ensures converges apply (step apply s) x)
-  = eliminate exists (n: nat). steps apply n s == Done x
+  : Lemma (requires converges apply apply_s s x) (ensures converges apply apply_s (step apply apply_s s) x)
+  = eliminate exists (n: nat). steps apply apply_s n s == Done x
     with
       if n = 0 then ()
-      else assert (steps apply n s == steps apply (n - 1) (step apply s))
+      else assert (steps apply apply_s n s == steps apply apply_s (n - 1) (step apply apply_s s))
 
 (**
  * **Approximation is a congruence for the left argument of a bind**, with the
@@ -237,18 +282,19 @@ let converges_fwd
 let op_congr_head
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (n: nat)
     (c1 c2: comp_tree v cl)
     (g: v -> comp_tree v cl)
-  : Lemma (requires obs_le_n apply n c1 c2)
-          (ensures obs_le_n apply n (Op c1 g) (Op c2 g))
+  : Lemma (requires obs_le_n apply apply_s n c1 c2)
+          (ensures obs_le_n apply apply_s n (Op c1 g) (Op c2 g))
   = introduce forall (k: stack v cl) (x: v).
-      (steps apply n (Step (Op c1 g) k) == Done x ==> converges apply (Step (Op c2 g) k) x)
+      (steps apply apply_s n (Step (Op c1 g) k) == Done x ==> converges apply apply_s (Step (Op c2 g) k) x)
     with introduce _ ==> _
     with begin
-      obs_le_n_mono apply n (n - 1) c1 c2;
-      assert (steps apply (n - 1) (Step c1 (BindF g :: k)) == Done x);
-      converges_back apply (Step (Op c2 g) k) x
+      obs_le_n_mono apply apply_s n (n - 1) c1 c2;
+      assert (steps apply apply_s (n - 1) (Step c1 (BindF g :: k)) == Done x);
+      converges_back apply apply_s (Step (Op c2 g) k) x
     end
 
 // ------------------------------------------------------------------ //
@@ -422,32 +468,34 @@ let rec find_param_pre
 let redex
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (i j: nat)
     (d1 d2: stack v cl)
   : GTot prop
   = forall (a: v) (post: stack v cl).
-      steps apply i (Step (Var a) (d1 @ post)) == steps apply j (Step (Var a) (d2 @ post))
+      steps apply apply_s i (Step (Var a) (d1 @ post)) == steps apply apply_s j (Step (Var a) (d2 @ post))
 
 (** The redex equation is what settles the case where the block is finally met. *)
 let redex_converges
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (i j: nat)
     (d1 d2: stack v cl)
     (n: nat)
     (post: stack v cl)
     (a x: v)
   : Lemma
-      (requires redex apply i j d1 d2 /\
-                steps apply n (Step (Var a) (d1 @ post)) == Done x)
-      (ensures converges apply (Step (Var a) (d2 @ post)) x)
+      (requires redex apply apply_s i j d1 d2 /\
+                steps apply apply_s n (Step (Var a) (d1 @ post)) == Done x)
+      (ensures converges apply apply_s (Step (Var a) (d2 @ post)) x)
   = let s1 = Step (Var a) (d1 @ post) in
     let s2 = Step (Var a) (d2 @ post) in
-    steps_stable apply n i s1;
-    steps_add apply i n s1;
-    steps_add apply j n s2;
-    assert (steps apply (j + n) s2 == Done x);
-    introduce exists (m: nat). steps apply m s2 == Done x
+    steps_stable apply apply_s n i s1;
+    steps_add apply apply_s i n s1;
+    steps_add apply apply_s j n s2;
+    assert (steps apply apply_s (j + n) s2 == Done x);
+    introduce exists (m: nat). steps apply apply_s m s2 == Done x
     with (j + n) and ()
 
 // ------------------------------------------------------------------ //
@@ -498,27 +546,148 @@ let kont_found_beta
 let apply_pointwise
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (cls: cl)
     (payload: list v)
     (kf1 kf2: v -> comp_tree v cl)
-  : Lemma (requires apply_obs_congr apply /\ (forall (y: v). kf1 y == kf2 y))
-          (ensures obs_le apply (apply cls payload kf1) (apply cls payload kf2))
-  = introduce forall (n: nat). obs_le_n apply n (apply cls payload kf1) (apply cls payload kf2)
-    with assert (forall (y: v). obs_le_n apply n (kf1 y) (kf2 y))
+  : Lemma (requires apply_obs_congr apply apply_s /\ (forall (y: v). kf1 y == kf2 y))
+          (ensures obs_le apply apply_s (apply cls payload kf1) (apply cls payload kf2))
+  = introduce forall (n: nat). obs_le_n apply apply_s n (apply cls payload kf1) (apply cls payload kf2)
+    with assert (forall (y: v). obs_le_n apply apply_s n (kf1 y) (kf2 y))
 
-(** `step` at a `Perform`, read off a known outcome of the search. *)
+(** **The same, at a scoped clause and a fixed weave.** The situation is the one
+    above: two runs differing only below the handling prompt reach the same
+    clause with the same captured segment and from the same operation -- hence
+    the same origin, the same prepared segment and the same weave -- but `step`
+    builds the continuation as a closure over the whole search result, and those
+    results differ in their third component. *)
+let apply_scoped_pointwise
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
+    (cls: cl)
+    (payload: list v)
+    (weave: comp_tree v cl -> comp_tree v cl)
+    (kf1 kf2: v -> comp_tree v cl)
+  : Lemma (requires apply_scoped_obs_congr apply apply_s /\ (forall (y: v). kf1 y == kf2 y))
+          (ensures obs_le apply apply_s
+                     (apply_s cls payload weave kf1) (apply_s cls payload weave kf2))
+  = introduce forall (n: nat).
+      obs_le_n apply apply_s n (apply_s cls payload weave kf1) (apply_s cls payload weave kf2)
+    with assert (forall (y: v). obs_le_n apply apply_s n (kf1 y) (kf2 y))
+
+(** `step` at a `Perform`, read off a known outcome of the search -- and of the
+    kind the entry stored, which is what decides whether the dispatch happens at
+    all. *)
 let step_perform_found
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (eff op: string)
     (payload: list v)
     (k cap: stack v cl)
     (cls: found_clause cl)
     (bel: stack v cl)
-  : Lemma (requires find_prompt eff op k == Some (cap, cls, bel))
-          (ensures step apply (Step (Perform eff op payload) k) ==
+  : Lemma (requires find_prompt eff op k == Some (cap, cls, bel) /\ cls.kind =!= KScoped)
+          (ensures step apply apply_s (Step (Perform eff op payload) k) ==
                    Step (apply cls.body payload (kont_found eff op k)) bel)
   = ()
+
+(**
+ * `step` at a `PerformS`, likewise -- and the weave it builds is a function of
+ * the OPERATION BEING DISPATCHED and the CAPTURED SEGMENT. The first is read off
+ * the node, so it is the same on the two sides of a law by inspection; the
+ * second is what `prepare_blind` below then shows the two sides agree on.
+ *)
+let step_performS_found
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
+    (eff op: string)
+    (payload: list v)
+    (k cap: stack v cl)
+    (cls: found_clause cl)
+    (bel: stack v cl)
+  : Lemma (requires find_prompt eff op k == Some (cap, cls, bel) /\ cls.kind == KScoped)
+          (ensures step apply apply_s (Step (PerformS eff op payload) k) ==
+                   Step (apply_s cls.body payload
+                           (weave_of eff op (prepare_captured_fast cap))
+                           (kont_found eff op k))
+                        bel)
+  = ()
+
+(**
+ * **And the two refusals.** Only that they ARE refusals is needed: `converges`
+ * observes reaching a value, `Rejected` is terminal, and a terminal state that
+ * is not `Done` is not one -- so a law whose left-hand run is refused has
+ * nothing to prove. That is the pre-existing coarseness of this observation
+ * (mutual `Stuck` already does it), with one more inhabitant.
+ *)
+let step_perform_mismatch
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
+    (eff op: string)
+    (payload: list v)
+    (k cap: stack v cl)
+    (cls: found_clause cl)
+    (bel: stack v cl)
+  : Lemma (requires find_prompt eff op k == Some (cap, cls, bel) /\ cls.kind == KScoped)
+          (ensures Rejected? (step apply apply_s (Step (Perform eff op payload) k)))
+  = ()
+
+let step_performS_mismatch
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
+    (eff op: string)
+    (payload: list v)
+    (k cap: stack v cl)
+    (cls: found_clause cl)
+    (bel: stack v cl)
+  : Lemma (requires find_prompt eff op k == Some (cap, cls, bel) /\ cls.kind =!= KScoped)
+          (ensures Rejected? (step apply apply_s (Step (PerformS eff op payload) k)))
+  = ()
+
+(* ------------------------------------------------------------------ *)
+(*  The blindness lemma                                                *)
+(*                                                                     *)
+(*  Why a scoped operation does not need a congruence in the weave.     *)
+(* ------------------------------------------------------------------ *)
+
+(** **A prompt-free block borrows to nothing.** `no_prompt` says every frame of
+    the replaced block is a `BindF`, and `borrow` drops exactly those. *)
+let rec borrow_no_prompt (#v #cl: Type) (d: stack v cl)
+  : Lemma (requires no_prompt d) (ensures borrow d == ([] <: stack v cl)) (decreases d)
+  = match d with
+    | [] -> ()
+    | _ :: r -> borrow_no_prompt r
+
+(**
+ * **Hence the two sides of a law prepare the same scope.**
+ *
+ * The captured segment of a perform handled below the block is
+ * `(pre @ di) @ capP`; `prepare_captured` borrows everything above the owner,
+ * `borrow` distributes over the concatenation, and the block contributes
+ * nothing. So the segment stored in the `Weave` node -- and with it the
+ * borrowability verdict, the blocker list and **the weave function itself** --
+ * is literally the same term on both sides. The node's other two fields, its
+ * origin, are read off the `PerformS` node and are the same on both sides for
+ * the more elementary reason that it is the same node.
+ *
+ * This is what confines the congruence obligation to the resume continuation,
+ * and it is the reason the node carries the NORMALIZED segment rather than the
+ * raw captured one: `borrow` is what erases the difference, and a raw segment
+ * would have kept it.
+ *)
+let prepare_blind (#v #cl: Type) (pre d capP: stack v cl)
+  : Lemma (requires no_prompt d /\ Cons? capP)
+          (ensures prepare_captured ((pre @ d) @ capP) == borrow pre @ prepare_captured capP)
+  = append_assoc pre d capP;
+    assert (Cons? (d @ capP));
+    prepare_captured_append pre (d @ capP);
+    prepare_captured_append d capP;
+    borrow_no_prompt d
 
 (**
  * **Replacing `d1` by `d2` anywhere in the stack preserves convergence.**
@@ -539,6 +708,7 @@ let step_perform_found
 let rec sim
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (i j: nat)
     (d1 d2: stack v cl)
     (n: nat)
@@ -546,23 +716,24 @@ let rec sim
     (c: comp_tree v cl)
     (x: v)
   : Lemma
-      (requires apply_obs_congr apply /\ no_prompt d1 /\ no_prompt d2 /\
-                redex apply i j d1 d2 /\
-                steps apply n (Step c (pre @ (d1 @ post))) == Done x)
-      (ensures converges apply (Step c (pre @ (d2 @ post))) x)
+      (requires apply_obs_congr apply apply_s /\ apply_scoped_obs_congr apply apply_s /\
+                no_prompt d1 /\ no_prompt d2 /\
+                redex apply apply_s i j d1 d2 /\
+                steps apply apply_s n (Step c (pre @ (d1 @ post))) == Done x)
+      (ensures converges apply apply_s (Step c (pre @ (d2 @ post))) x)
       (decreases %[n; 1])
   = let k1 = pre @ (d1 @ post) in
     let k2 = pre @ (d2 @ post) in
     if n = 0 then ()
     else begin
-      assert (steps apply n (Step c k1) == steps apply (n - 1) (step apply (Step c k1)));
+      assert (steps apply apply_s n (Step c k1) == steps apply apply_s (n - 1) (step apply apply_s (Step c k1)));
       match c with
       | Op c' fn ->
-          sim apply i j d1 d2 (n - 1) (BindF fn :: pre) post c' x;
-          converges_back apply (Step c k2) x
+          sim apply apply_s i j d1 d2 (n - 1) (BindF fn :: pre) post c' x;
+          converges_back apply apply_s (Step c k2) x
       | Handle hs r b ->
-          sim apply i j d1 d2 (n - 1) (PromptF hs r :: pre) post b x;
-          converges_back apply (Step c k2) x
+          sim apply apply_s i j d1 d2 (n - 1) (PromptF hs r :: pre) post b x;
+          converges_back apply apply_s (Step c k2) x
       // A `Splice` pushes its frames and continues with its body, so the block
       // moves further down the stack and the induction goes on at the body. The
       // frames land on `pre`, never between `d1`/`d2` and `post`, which is why
@@ -571,23 +742,23 @@ let rec sim
       | Splice cap body ->
           append_assoc cap pre (d1 @ post);
           append_assoc cap pre (d2 @ post);
-          sim apply i j d1 d2 (n - 1) (cap @ pre) post body x;
-          converges_back apply (Step c k2) x
+          sim apply apply_s i j d1 d2 (n - 1) (cap @ pre) post body x;
+          converges_back apply apply_s (Step c k2) x
       | Var a ->
           (match pre with
-            | [] -> redex_converges apply i j d1 d2 n post a x
+            | [] -> redex_converges apply apply_s i j d1 d2 n post a x
             | BindF fn :: pre' ->
-                sim apply i j d1 d2 (n - 1) pre' post (fn a) x;
-                converges_back apply (Step c k2) x
+                sim apply apply_s i j d1 d2 (n - 1) pre' post (fn a) x;
+                converges_back apply apply_s (Step c k2) x
             | ParamF _ _ :: pre' ->
-                sim apply i j d1 d2 (n - 1) pre' post (Var a) x;
-                converges_back apply (Step c k2) x
+                sim apply apply_s i j d1 d2 (n - 1) pre' post (Var a) x;
+                converges_back apply apply_s (Step c k2) x
             | PromptF hs (Some r) :: pre' ->
-                sim apply i j d1 d2 (n - 1) pre' post (r a) x;
-                converges_back apply (Step c k2) x
+                sim apply apply_s i j d1 d2 (n - 1) pre' post (r a) x;
+                converges_back apply apply_s (Step c k2) x
             | PromptF hs None :: pre' ->
-                sim apply i j d1 d2 (n - 1) pre' post (Var a) x;
-                converges_back apply (Step c k2) x)
+                sim apply apply_s i j d1 d2 (n - 1) pre' post (Var a) x;
+                converges_back apply apply_s (Step c k2) x)
       | Perform eff op payload ->
           no_prompt_unhandled eff op d1;
           no_prompt_unhandled eff op d2;
@@ -599,14 +770,25 @@ let rec sim
                 // differing search results; `apply_pointwise` bridges the gap.
                 fp_append_in eff op pre (d1 @ post);
                 fp_append_in eff op pre (d2 @ post);
-                step_perform_found apply eff op payload k1 cap cls (bel @ (d1 @ post));
-                step_perform_found apply eff op payload k2 cap cls (bel @ (d2 @ post));
-                kont_found_beta eff op k1 cap cls (bel @ (d1 @ post));
-                kont_found_beta eff op k2 cap cls (bel @ (d2 @ post));
-                sim apply i j d1 d2 (n - 1) bel post
-                    (apply cls.body payload (kont_found eff op k1)) x;
-                apply_pointwise apply cls.body payload (kont_found eff op k1) (kont_found eff op k2);
-                converges_back apply (Step c k2) x
+                (match cls.kind with
+                  // The entry holds a scoped clause, so an ordinary dispatch is
+                  // refused -- on BOTH sides, at the same entry. A refused run
+                  // does not converge, so the hypothesis is contradictory and
+                  // there is nothing to relate.
+                  | KScoped ->
+                      step_perform_mismatch apply apply_s eff op payload k1 cap cls
+                                            (bel @ (d1 @ post));
+                      steps_terminal apply apply_s (n - 1) (step apply apply_s (Step c k1))
+                  | _ ->
+                      step_perform_found apply apply_s eff op payload k1 cap cls (bel @ (d1 @ post));
+                      step_perform_found apply apply_s eff op payload k2 cap cls (bel @ (d2 @ post));
+                      kont_found_beta eff op k1 cap cls (bel @ (d1 @ post));
+                      kont_found_beta eff op k2 cap cls (bel @ (d2 @ post));
+                      sim apply apply_s i j d1 d2 (n - 1) bel post
+                          (apply cls.body payload (kont_found eff op k1)) x;
+                      apply_pointwise apply apply_s cls.body payload
+                                      (kont_found eff op k1) (kont_found eff op k2);
+                      converges_back apply apply_s (Step c k2) x)
             | None ->
                 fp_append_out eff op pre (d1 @ post);
                 fp_append_out eff op pre (d2 @ post);
@@ -615,7 +797,7 @@ let rec sim
                 fp_shift_comp pre d1 (find_prompt eff op post);
                 fp_shift_comp pre d2 (find_prompt eff op post);
                 (match find_prompt eff op post with
-                  | None -> steps_terminal apply (n - 1) (Stuck eff op <: state v cl)
+                  | None -> steps_terminal apply apply_s (n - 1) (Stuck eff op <: state v cl)
                   | Some (capP, cls, bel) ->
                       append_assoc pre d1 capP;
                       append_assoc pre d2 capP;
@@ -626,21 +808,123 @@ let rec sim
                       assert (find_prompt eff op k1 == Some (pre @ (d1 @ capP), cls, bel));
                       assert (find_prompt eff op k1 == Some ((pre @ d1) @ capP, cls, bel));
                       assert (find_prompt eff op k2 == Some ((pre @ d2) @ capP, cls, bel));
-                      step_perform_found apply eff op payload k1 ((pre @ d1) @ capP) cls bel;
-                      step_perform_found apply eff op payload k2 ((pre @ d2) @ capP) cls bel;
-                      kont_found_beta eff op k1 ((pre @ d1) @ capP) cls bel;
-                      kont_found_beta eff op k2 ((pre @ d2) @ capP) cls bel;
-                      // `perform_below` only ever feeds its clause to `apply`,
-                      // so it takes the clause and not the search result.
-                      perform_below apply i j d1 d2 n pre post capP cls.body bel
-                                    (kont_found eff op k1) (kont_found eff op k2) payload x;
-                      converges_back apply (Step c k2) x))
+                      (match cls.kind with
+                        | KScoped ->
+                            step_perform_mismatch apply apply_s eff op payload k1
+                                                  ((pre @ d1) @ capP) cls bel;
+                            steps_terminal apply apply_s (n - 1) (step apply apply_s (Step c k1))
+                        | _ ->
+                            step_perform_found apply apply_s eff op payload k1
+                                               ((pre @ d1) @ capP) cls bel;
+                            step_perform_found apply apply_s eff op payload k2
+                                               ((pre @ d2) @ capP) cls bel;
+                            kont_found_beta eff op k1 ((pre @ d1) @ capP) cls bel;
+                            kont_found_beta eff op k2 ((pre @ d2) @ capP) cls bel;
+                            // `perform_below` only ever feeds its clause to `apply`,
+                            // so it takes the clause and not the search result.
+                            perform_below apply apply_s i j d1 d2 n pre post capP cls.body bel
+                                          (kont_found eff op k1) (kont_found eff op k2) payload x;
+                            converges_back apply apply_s (Step c k2) x)))
+      // **A scoped perform.** The same two positions of the handling prompt, and
+      // the same argument in each -- with one addition, which is the weave.
+      //
+      // Above the block, both sides capture the SAME segment, so both build the
+      // same prepared segment and the same weave outright. Below it, the two
+      // captured segments genuinely differ, and what makes the weaves agree
+      // anyway is `prepare_blind`: `borrow` drops the replaced block entirely.
+      // The origin is `eff` and `op` from this very node in both positions and
+      // on both sides, so it never differs to begin with. So in both positions
+      // the weave is one term rather than two, and the only thing left differing
+      // is the resume continuation.
+      | PerformS eff op payload ->
+          no_prompt_unhandled eff op d1;
+          no_prompt_unhandled eff op d2;
+          (match find_prompt eff op pre with
+            | Some (cap, cls, bel) ->
+                fp_append_in eff op pre (d1 @ post);
+                fp_append_in eff op pre (d2 @ post);
+                (match cls.kind with
+                  | KScoped ->
+                      step_performS_found apply apply_s eff op payload k1 cap cls
+                                          (bel @ (d1 @ post));
+                      step_performS_found apply apply_s eff op payload k2 cap cls
+                                          (bel @ (d2 @ post));
+                      kont_found_beta eff op k1 cap cls (bel @ (d1 @ post));
+                      kont_found_beta eff op k2 cap cls (bel @ (d2 @ post));
+                      sim apply apply_s i j d1 d2 (n - 1) bel post
+                          (apply_s cls.body payload
+                                   (weave_of eff op (prepare_captured_fast cap))
+                                   (kont_found eff op k1)) x;
+                      apply_scoped_pointwise apply apply_s cls.body payload
+                                             (weave_of eff op (prepare_captured_fast cap))
+                                             (kont_found eff op k1) (kont_found eff op k2);
+                      converges_back apply apply_s (Step c k2) x
+                  // The entry is not scoped: refused on both sides.
+                  | _ ->
+                      step_performS_mismatch apply apply_s eff op payload k1 cap cls
+                                             (bel @ (d1 @ post));
+                      steps_terminal apply apply_s (n - 1) (step apply apply_s (Step c k1)))
+            | None ->
+                fp_append_out eff op pre (d1 @ post);
+                fp_append_out eff op pre (d2 @ post);
+                fp_append_out eff op d1 post;
+                fp_append_out eff op d2 post;
+                fp_shift_comp pre d1 (find_prompt eff op post);
+                fp_shift_comp pre d2 (find_prompt eff op post);
+                (match find_prompt eff op post with
+                  | None -> steps_terminal apply apply_s (n - 1) (Stuck eff op <: state v cl)
+                  | Some (capP, cls, bel) ->
+                      append_assoc pre d1 capP;
+                      append_assoc pre d2 capP;
+                      assert (find_prompt eff op (d1 @ post) == Some (d1 @ capP, cls, bel));
+                      assert (find_prompt eff op (d2 @ post) == Some (d2 @ capP, cls, bel));
+                      assert (find_prompt eff op k1 == Some ((pre @ d1) @ capP, cls, bel));
+                      assert (find_prompt eff op k2 == Some ((pre @ d2) @ capP, cls, bel));
+                      (match cls.kind with
+                        | KScoped ->
+                            step_performS_found apply apply_s eff op payload k1
+                                                ((pre @ d1) @ capP) cls bel;
+                            step_performS_found apply apply_s eff op payload k2
+                                                ((pre @ d2) @ capP) cls bel;
+                            kont_found_beta eff op k1 ((pre @ d1) @ capP) cls bel;
+                            kont_found_beta eff op k2 ((pre @ d2) @ capP) cls bel;
+                            // The captured segment ends at the handling prompt,
+                            // so it is non-empty -- which is what lets the
+                            // blindness lemma peel the block off the front.
+                            find_prompt_last eff op post;
+                            prepare_blind pre d1 capP;
+                            prepare_blind pre d2 capP;
+                            performS_below apply apply_s i j d1 d2 n pre post capP cls.body
+                                           (weave_of eff op
+                                              (prepare_captured_fast ((pre @ d1) @ capP)))
+                                           bel
+                                           (kont_found eff op k1) (kont_found eff op k2) payload x;
+                            converges_back apply apply_s (Step c k2) x
+                        | _ ->
+                            step_performS_mismatch apply apply_s eff op payload k1
+                                                   ((pre @ d1) @ capP) cls bel;
+                            steps_terminal apply apply_s (n - 1)
+                                           (step apply apply_s (Step c k1)))))
+      // **A `Weave`.** The prepared segment is part of the node, so both sides
+      // hold the same one and take the same branch: the borrowability verdict
+      // cannot differ. On the branch that proceeds this is the `Splice` case
+      // above at that segment; on the branch that refuses, neither side
+      // converges. The origin is part of the node too, so it is the same on both
+      // sides for the same reason -- and nothing here reads it.
+      | Weave _ _ prepared body ->
+          (match scope_blockers prepared with
+            | _ :: _ -> steps_terminal apply apply_s (n - 1) (step apply apply_s (Step c k1))
+            | [] ->
+                append_assoc prepared pre (d1 @ post);
+                append_assoc prepared pre (d2 @ post);
+                sim apply apply_s i j d1 d2 (n - 1) (prepared @ pre) post body x;
+                converges_back apply apply_s (Step c k2) x)
       // Prompt-local state. `no_prompt` forbids a `ParamF` in the replaced
       // block, so the cell a read or a write reaches is in `pre` or in `post`,
       // never in `d1` or `d2` -- and the same one on both sides.
       | NewP l init body ->
-          sim apply i j d1 d2 (n - 1) (ParamF l init :: pre) post body x;
-          converges_back apply (Step c k2) x
+          sim apply apply_s i j d1 d2 (n - 1) (ParamF l init :: pre) post body x;
+          converges_back apply apply_s (Step c k2) x
       | ReadP l ->
           no_prompt_no_param l d1;
           no_prompt_no_param l d2;
@@ -648,10 +932,10 @@ let rec sim
           find_param_append_miss l d2 post;
           find_param_pre l pre (d1 @ post) (d2 @ post);
           (match find_param l k1 with
-            | None -> steps_terminal apply (n - 1) (Stuck var_eff l <: state v cl)
+            | None -> steps_terminal apply apply_s (n - 1) (Stuck var_eff l <: state v cl)
             | Some y ->
-                sim apply i j d1 d2 (n - 1) pre post (Var y) x;
-                converges_back apply (Step c k2) x)
+                sim apply apply_s i j d1 d2 (n - 1) pre post (Var y) x;
+                converges_back apply apply_s (Step c k2) x)
       | WriteP l y ->
           no_prompt_no_param l d1;
           no_prompt_no_param l d2;
@@ -662,8 +946,8 @@ let rec sim
                 set_param_captured l y pre (d1 @ post);
                 set_param_captured l y pre (d2 @ post);
                 let Some pre' = set_param l y pre in
-                sim apply i j d1 d2 (n - 1) pre' post (Var y) x;
-                converges_back apply (Step c k2) x
+                sim apply apply_s i j d1 d2 (n - 1) pre' post (Var y) x;
+                converges_back apply apply_s (Step c k2) x
             | None ->
                 // The cell is below the block: the write passes through it,
                 // twice, and lands in `post`.
@@ -672,10 +956,10 @@ let rec sim
                 set_param_splice l y d1 post;
                 set_param_splice l y d2 post;
                 (match set_param l y post with
-                  | None -> steps_terminal apply (n - 1) (Stuck var_eff l <: state v cl)
+                  | None -> steps_terminal apply apply_s (n - 1) (Stuck var_eff l <: state v cl)
                   | Some post' ->
-                      sim apply i j d1 d2 (n - 1) pre post' (Var y) x;
-                      converges_back apply (Step c k2) x))
+                      sim apply apply_s i j d1 d2 (n - 1) pre post' (Var y) x;
+                      converges_back apply apply_s (Step c k2) x))
     end
 
 (**
@@ -689,6 +973,7 @@ let rec sim
 and perform_below
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (i j: nat)
     (d1 d2: stack v cl)
     (n: nat)
@@ -699,29 +984,83 @@ and perform_below
     (payload: list v)
     (x: v)
   : Lemma
-      (requires apply_obs_congr apply /\ no_prompt d1 /\ no_prompt d2 /\
-                redex apply i j d1 d2 /\ n >= 1 /\
+      (requires apply_obs_congr apply apply_s /\ apply_scoped_obs_congr apply apply_s /\
+                no_prompt d1 /\ no_prompt d2 /\
+                redex apply apply_s i j d1 d2 /\ n >= 1 /\
                 (forall (y: v). kf1 y == resumed ((pre @ d1) @ capP) y) /\
                 (forall (y: v). kf2 y == resumed ((pre @ d2) @ capP) y) /\
-                steps apply (n - 1) (Step (apply cls payload kf1) bel) == Done x)
-      (ensures converges apply (Step (apply cls payload kf2) bel) x)
+                steps apply apply_s (n - 1) (Step (apply cls payload kf1) bel) == Done x)
+      (ensures converges apply apply_s (Step (apply cls payload kf2) bel) x)
       (decreases %[n; 0])
-  = introduce forall (y: v). obs_le_n apply (n - 1) (kf1 y) (kf2 y)
+  = introduce forall (y: v). obs_le_n apply apply_s (n - 1) (kf1 y) (kf2 y)
     with introduce forall (k: stack v cl) (z: v).
-           (steps apply (n - 1) (Step (kf1 y) k) == Done z ==>
-            converges apply (Step (kf2 y) k) z)
+           (steps apply apply_s (n - 1) (Step (kf1 y) k) == Done z ==>
+            converges apply apply_s (Step (kf2 y) k) z)
     with introduce _ ==> _
     with begin
       append_assoc (pre @ d1) capP k;
       append_assoc pre d1 (capP @ k);
       append_assoc (pre @ d2) capP k;
       append_assoc pre d2 (capP @ k);
-      assert (steps apply (n - 1) (Step (kf1 y) k) ==
-              steps apply (n - 2) (Step (Var y) (pre @ (d1 @ (capP @ k)))));
-      sim apply i j d1 d2 (n - 2) pre (capP @ k) (Var y) z;
-      converges_back apply (Step (kf2 y) k) z
+      assert (steps apply apply_s (n - 1) (Step (kf1 y) k) ==
+              steps apply apply_s (n - 2) (Step (Var y) (pre @ (d1 @ (capP @ k)))));
+      sim apply apply_s i j d1 d2 (n - 2) pre (capP @ k) (Var y) z;
+      converges_back apply apply_s (Step (kf2 y) k) z
     end;
-    assert (obs_le_n apply (n - 1) (apply cls payload kf1) (apply cls payload kf2))
+    assert (obs_le_n apply apply_s (n - 1) (apply cls payload kf1) (apply cls payload kf2))
+
+(**
+ * **The scoped case with content**, and it is `perform_below` with one word
+ * changed.
+ *
+ * The weave is a PARAMETER, not two: `prepare_blind` has already established
+ * that the two sides build the same one, and this lemma is stated of that single
+ * term. What is left differing is the resume continuation, exactly as in
+ * `perform_below`, and `apply_scoped_obs_congr` -- congruence in the resume
+ * argument at a fixed weave -- is what bridges it. That the minimal condition
+ * suffices is not an assumption but a consequence of the node carrying the
+ * normalized segment; see `prepare_blind`.
+ *)
+and performS_below
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
+    (i j: nat)
+    (d1 d2: stack v cl)
+    (n: nat)
+    (pre post capP: stack v cl)
+    (cls: cl)
+    (weave: comp_tree v cl -> comp_tree v cl)
+    (bel: stack v cl)
+    (kf1 kf2: v -> comp_tree v cl)
+    (payload: list v)
+    (x: v)
+  : Lemma
+      (requires apply_obs_congr apply apply_s /\ apply_scoped_obs_congr apply apply_s /\
+                no_prompt d1 /\ no_prompt d2 /\
+                redex apply apply_s i j d1 d2 /\ n >= 1 /\
+                (forall (y: v). kf1 y == resumed ((pre @ d1) @ capP) y) /\
+                (forall (y: v). kf2 y == resumed ((pre @ d2) @ capP) y) /\
+                steps apply apply_s (n - 1) (Step (apply_s cls payload weave kf1) bel) == Done x)
+      (ensures converges apply apply_s (Step (apply_s cls payload weave kf2) bel) x)
+      (decreases %[n; 0])
+  = introduce forall (y: v). obs_le_n apply apply_s (n - 1) (kf1 y) (kf2 y)
+    with introduce forall (k: stack v cl) (z: v).
+           (steps apply apply_s (n - 1) (Step (kf1 y) k) == Done z ==>
+            converges apply apply_s (Step (kf2 y) k) z)
+    with introduce _ ==> _
+    with begin
+      append_assoc (pre @ d1) capP k;
+      append_assoc pre d1 (capP @ k);
+      append_assoc (pre @ d2) capP k;
+      append_assoc pre d2 (capP @ k);
+      assert (steps apply apply_s (n - 1) (Step (kf1 y) k) ==
+              steps apply apply_s (n - 2) (Step (Var y) (pre @ (d1 @ (capP @ k)))));
+      sim apply apply_s i j d1 d2 (n - 2) pre (capP @ k) (Var y) z;
+      converges_back apply apply_s (Step (kf2 y) k) z
+    end;
+    assert (obs_le_n apply apply_s (n - 1)
+              (apply_s cls payload weave kf1) (apply_s cls payload weave kf2))
 
 // ------------------------------------------------------------------ //
 //  The monad laws                                                      //
@@ -739,22 +1078,23 @@ and perform_below
 let left_identity
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (a: v)
     (fn: v -> comp_tree v cl)
-  : Lemma (obs_eq apply (Op (Var a) fn) (fn a))
+  : Lemma (obs_eq apply apply_s (Op (Var a) fn) (fn a))
   = introduce forall (k: stack v cl) (x: v).
-      (converges apply (Step (Op (Var a) fn) k) x ==> converges apply (Step (fn a) k) x)
+      (converges apply apply_s (Step (Op (Var a) fn) k) x ==> converges apply apply_s (Step (fn a) k) x)
     with introduce _ ==> _
     with begin
-      converges_fwd apply (Step (Op (Var a) fn) k) x;
-      converges_fwd apply (Step (Var a) (BindF fn :: k)) x
+      converges_fwd apply apply_s (Step (Op (Var a) fn) k) x;
+      converges_fwd apply apply_s (Step (Var a) (BindF fn :: k)) x
     end;
     introduce forall (k: stack v cl) (x: v).
-      (converges apply (Step (fn a) k) x ==> converges apply (Step (Op (Var a) fn) k) x)
+      (converges apply apply_s (Step (fn a) k) x ==> converges apply apply_s (Step (Op (Var a) fn) k) x)
     with introduce _ ==> _
     with begin
-      converges_back apply (Step (Var a) (BindF fn :: k)) x;
-      converges_back apply (Step (Op (Var a) fn) k) x
+      converges_back apply apply_s (Step (Var a) (BindF fn :: k)) x;
+      converges_back apply apply_s (Step (Op (Var a) fn) k) x
     end
 
 (**
@@ -767,10 +1107,11 @@ let left_identity
 let redex_right
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (r: v -> comp_tree v cl)
   : Lemma (requires forall (x: v). r x == Var x)
-          (ensures redex apply 1 0 [BindF r] ([] <: stack v cl) /\
-                   redex apply 0 1 ([] <: stack v cl) [BindF r])
+          (ensures redex apply apply_s 1 0 [BindF r] ([] <: stack v cl) /\
+                   redex apply apply_s 0 1 ([] <: stack v cl) [BindF r])
   = ()
 
 (**
@@ -786,27 +1127,28 @@ let redex_right
 let right_identity
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (m: comp_tree v cl)
-  : Lemma (requires apply_obs_congr apply)
-          (ensures obs_eq apply (Op m (Var #v #cl)) m)
+  : Lemma (requires apply_obs_congr apply apply_s /\ apply_scoped_obs_congr apply apply_s)
+          (ensures obs_eq apply apply_s (Op m (Var #v #cl)) m)
   = let d = [BindF (Var #v #cl)] in
-    redex_right apply (Var #v #cl);
+    redex_right apply apply_s (Var #v #cl);
     introduce forall (k: stack v cl) (x: v).
-      (converges apply (Step (Op m (Var #v #cl)) k) x ==> converges apply (Step m k) x)
+      (converges apply apply_s (Step (Op m (Var #v #cl)) k) x ==> converges apply apply_s (Step m k) x)
     with introduce _ ==> _
     with begin
-      converges_fwd apply (Step (Op m (Var #v #cl)) k) x;
-      eliminate exists (n: nat). steps apply n (Step m (d @ k)) == Done x
-      with sim apply 1 0 d [] n [] k m x
+      converges_fwd apply apply_s (Step (Op m (Var #v #cl)) k) x;
+      eliminate exists (n: nat). steps apply apply_s n (Step m (d @ k)) == Done x
+      with sim apply apply_s 1 0 d [] n [] k m x
     end;
     introduce forall (k: stack v cl) (x: v).
-      (converges apply (Step m k) x ==> converges apply (Step (Op m (Var #v #cl)) k) x)
+      (converges apply apply_s (Step m k) x ==> converges apply apply_s (Step (Op m (Var #v #cl)) k) x)
     with introduce _ ==> _
     with begin
-      eliminate exists (n: nat). steps apply n (Step m k) == Done x
+      eliminate exists (n: nat). steps apply apply_s n (Step m k) == Done x
       with
-        (sim apply 0 1 [] d n [] k m x;
-         converges_back apply (Step (Op m (Var #v #cl)) k) x)
+        (sim apply apply_s 0 1 [] d n [] k m x;
+         converges_back apply apply_s (Step (Op m (Var #v #cl)) k) x)
     end
 
 (**
@@ -817,12 +1159,13 @@ let right_identity
 let redex_assoc
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (f: v -> comp_tree v cl)
     (g: v -> comp_tree v cl)
     (h: v -> comp_tree v cl)
   : Lemma (requires forall (x: v). h x == Op (f x) g)
-          (ensures redex apply 1 2 [BindF f; BindF g] [BindF h] /\
-                   redex apply 2 1 [BindF h] [BindF f; BindF g])
+          (ensures redex apply apply_s 1 2 [BindF f; BindF g] [BindF h] /\
+                   redex apply apply_s 2 1 [BindF h] [BindF f; BindF g])
   = ()
 
 (**
@@ -835,35 +1178,36 @@ let redex_assoc
 let associativity
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (m: comp_tree v cl)
     (f g: v -> comp_tree v cl)
-  : Lemma (requires apply_obs_congr apply)
-          (ensures obs_eq apply (Op (Op m f) g) (Op m (fun x -> Op (f x) g)))
+  : Lemma (requires apply_obs_congr apply apply_s /\ apply_scoped_obs_congr apply apply_s)
+          (ensures obs_eq apply apply_s (Op (Op m f) g) (Op m (fun x -> Op (f x) g)))
   = let h : v -> comp_tree v cl = fun x -> Op (f x) g in
     let d1 = [BindF f; BindF g] in
     let d2 = [BindF h] in
-    redex_assoc apply f g h;
+    redex_assoc apply apply_s f g h;
     introduce forall (k: stack v cl) (x: v).
-      (converges apply (Step (Op (Op m f) g) k) x ==> converges apply (Step (Op m h) k) x)
+      (converges apply apply_s (Step (Op (Op m f) g) k) x ==> converges apply apply_s (Step (Op m h) k) x)
     with introduce _ ==> _
     with begin
-      converges_fwd apply (Step (Op (Op m f) g) k) x;
-      converges_fwd apply (Step (Op m f) (BindF g :: k)) x;
-      eliminate exists (n: nat). steps apply n (Step m (d1 @ k)) == Done x
+      converges_fwd apply apply_s (Step (Op (Op m f) g) k) x;
+      converges_fwd apply apply_s (Step (Op m f) (BindF g :: k)) x;
+      eliminate exists (n: nat). steps apply apply_s n (Step m (d1 @ k)) == Done x
       with
-        (sim apply 1 2 d1 d2 n [] k m x;
-         converges_back apply (Step (Op m h) k) x)
+        (sim apply apply_s 1 2 d1 d2 n [] k m x;
+         converges_back apply apply_s (Step (Op m h) k) x)
     end;
     introduce forall (k: stack v cl) (x: v).
-      (converges apply (Step (Op m h) k) x ==> converges apply (Step (Op (Op m f) g) k) x)
+      (converges apply apply_s (Step (Op m h) k) x ==> converges apply apply_s (Step (Op (Op m f) g) k) x)
     with introduce _ ==> _
     with begin
-      converges_fwd apply (Step (Op m h) k) x;
-      eliminate exists (n: nat). steps apply n (Step m (d2 @ k)) == Done x
+      converges_fwd apply apply_s (Step (Op m h) k) x;
+      eliminate exists (n: nat). steps apply apply_s n (Step m (d2 @ k)) == Done x
       with
-        (sim apply 2 1 d2 d1 n [] k m x;
-         converges_back apply (Step (Op m f) (BindF g :: k)) x;
-         converges_back apply (Step (Op (Op m f) g) k) x)
+        (sim apply apply_s 2 1 d2 d1 n [] k m x;
+         converges_back apply apply_s (Step (Op m f) (BindF g :: k)) x;
+         converges_back apply apply_s (Step (Op (Op m f) g) k) x)
     end
 
 // ------------------------------------------------------------------ //
@@ -892,14 +1236,15 @@ let associativity
 let perform_algebraic
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (eff op: string)
     (payload: list v)
     (cont k: v -> comp_tree v cl)
-  : Lemma (requires apply_obs_congr apply)
-          (ensures obs_eq apply
+  : Lemma (requires apply_obs_congr apply apply_s /\ apply_scoped_obs_congr apply apply_s)
+          (ensures obs_eq apply apply_s
                      (Op (Op (Perform eff op payload) cont) k)
                      (Op (Perform eff op payload) (fun x -> Op (cont x) k)))
-  = associativity apply (Perform eff op payload) cont k
+  = associativity apply apply_s (Perform eff op payload) cont k
 
 // ------------------------------------------------------------------ //
 //  `Handle` is not algebraic                                          //
@@ -941,6 +1286,25 @@ let lapply (c: lcl) (payload: list int) (kf: int -> comp_tree int lcl)
     | LAddAfter n -> Op (kf 0) (fun r -> Var (r + n))
 
 (**
+ * **The demonstration's scoped interpreter**: the same four clauses, with the
+ * weave capability ignored.
+ *
+ * A clause that never weaves is not a degenerate one -- it is `once` pruning a
+ * candidate, or `catch` dropping the branch it did not take, and Decision 5
+ * exists because such a clause must not be rejected for a borrow it never takes.
+ * What is being checked here is congruence in the RESUME argument at a fixed
+ * weave, and the four shapes above are exactly the four ways a clause can treat
+ * its continuation, so ignoring the weave costs the check nothing. It also makes
+ * the scoped condition an instance of the ordinary one, which is why the lemma
+ * below is one line.
+ *)
+let lapply_s (c: lcl) (payload: list int)
+             (weave: comp_tree int lcl -> comp_tree int lcl)
+             (kf: int -> comp_tree int lcl)
+  : comp_tree int lcl
+  = lapply c payload kf
+
+(**
  * **The instance is legitimate**: `lapply` satisfies the very hypothesis the
  * three laws are stated under, so the failure below cannot be blamed on a
  * pathological `apply`.
@@ -963,11 +1327,11 @@ let lapply (c: lcl) (payload: list int) (kf: int -> comp_tree int lcl)
  * no index survives for a second use of the hypothesis. A limitation of the
  * demonstration, not of the condition.
  *)
-let lapply_obs_congr () : Lemma (apply_obs_congr lapply)
+let lapply_obs_congr () : Lemma (apply_obs_congr lapply lapply_s)
   = introduce forall (n: nat) (c: lcl) (payload: list int)
                      (kf1 kf2: int -> comp_tree int lcl).
-      ((forall (x: int). obs_le_n lapply n (kf1 x) (kf2 x)) ==>
-       obs_le_n lapply n (lapply c payload kf1) (lapply c payload kf2))
+      ((forall (x: int). obs_le_n lapply lapply_s n (kf1 x) (kf2 x)) ==>
+       obs_le_n lapply lapply_s n (lapply c payload kf1) (lapply c payload kf2))
     with introduce _ ==> _
     with
       (match c with
@@ -983,8 +1347,20 @@ let lapply_obs_congr () : Lemma (apply_obs_congr lapply)
             assert (Op?.fn t1 == Op?.fn t2);
             assert (t1 == Op (kf1 0) (Op?.fn t1));
             assert (t2 == Op (kf2 0) (Op?.fn t1));
-            op_congr_head lapply n (kf1 0) (kf2 0) (Op?.fn t1)
+            op_congr_head lapply lapply_s n (kf1 0) (kf2 0) (Op?.fn t1)
         | _ -> ())
+
+(**
+ * **And the scoped condition is satisfiable too**, by the same instance -- which
+ * is the point of exhibiting it: the two laws are stated under both hypotheses,
+ * so a refutation of algebraicity below would be worthless if either were
+ * unsatisfiable.
+ *
+ * One line, because `lapply_s` ignores its weave: the scoped condition at a
+ * fixed weave then IS the ordinary condition, instantiated.
+ *)
+let lapply_scoped_obs_congr () : Lemma (apply_scoped_obs_congr lapply lapply_s)
+  = lapply_obs_congr ()
 
 (** The handler: one clause, which aborts with `-1`, and no return clause.
     `lcl` is the demonstration's own clause type and carries no tag, so the
@@ -1004,11 +1380,11 @@ let then_handle : comp_tree int lcl = Handle lexc None (Op lperform lcont)
 (** The two runs, in the empty continuation, give different answers: `-2` where
     the bind survived, `-1` where it was discarded with the captured
     continuation. *)
-let handle_then_runs () : Lemma (steps lapply 8 (load handle_then) == Done (-2))
-  = assert_norm (steps lapply 8 (load handle_then) == Done (-2))
+let handle_then_runs () : Lemma (steps lapply lapply_s 8 (load handle_then) == Done (-2))
+  = assert_norm (steps lapply lapply_s 8 (load handle_then) == Done (-2))
 
-let then_handle_runs () : Lemma (steps lapply 8 (load then_handle) == Done (-1))
-  = assert_norm (steps lapply 8 (load then_handle) == Done (-1))
+let then_handle_runs () : Lemma (steps lapply lapply_s 8 (load then_handle) == Done (-1))
+  = assert_norm (steps lapply lapply_s 8 (load then_handle) == Done (-1))
 
 (**
  * **`Handle` is not algebraic.** The two programs converge, in the same (empty)
@@ -1019,19 +1395,19 @@ let then_handle_runs () : Lemma (steps lapply 8 (load then_handle) == Done (-1))
  * algebraic. The point is about this runtime, and it is the expected one --
  * `handle` is a handler-forming construct, not an operation.
  *)
-let handle_not_algebraic () : Lemma (~(obs_eq lapply handle_then then_handle))
+let handle_not_algebraic () : Lemma (~(obs_eq lapply lapply_s handle_then then_handle))
   = handle_then_runs ();
     then_handle_runs ();
     let k0 : stack int lcl = [] in
-    introduce exists (n: nat). steps lapply n (Step handle_then k0) == Done (-2)
+    introduce exists (n: nat). steps lapply lapply_s n (Step handle_then k0) == Done (-2)
     with 8 and ();
-    introduce exists (n: nat). steps lapply n (Step then_handle k0) == Done (-1)
+    introduce exists (n: nat). steps lapply lapply_s n (Step then_handle k0) == Done (-1)
     with 8 and ();
-    introduce obs_eq lapply handle_then then_handle ==> False
+    introduce obs_eq lapply lapply_s handle_then then_handle ==> False
     with begin
-      assert (converges lapply (Step handle_then k0) (-2));
-      assert (converges lapply (Step then_handle k0) (-2));
-      converges_det lapply (Step then_handle k0) (-2) (-1)
+      assert (converges lapply lapply_s (Step handle_then k0) (-2));
+      assert (converges lapply lapply_s (Step then_handle k0) (-2));
+      converges_det lapply lapply_s (Step then_handle k0) (-2) (-1)
     end
 
 (**
@@ -1043,5 +1419,5 @@ let handle_not_algebraic_exists ()
   : Lemma
       (exists (hs: handlers lcl) (ret: option (int -> comp_tree int lcl))
               (m: comp_tree int lcl) (k: int -> comp_tree int lcl).
-          ~(obs_eq lapply (Op (Handle hs ret m) k) (Handle hs ret (Op m k))))
+          ~(obs_eq lapply lapply_s (Op (Handle hs ret m) k) (Handle hs ret (Op m k))))
   = handle_not_algebraic ()

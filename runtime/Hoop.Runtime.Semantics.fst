@@ -1,16 +1,16 @@
 (**
- * The operational semantics of the Hoop runtime machine. This is a CEK-like 
- * stack machine where 'C' represents a computation tree and 'K' represents 
- * an explicit stack of defunctionalized continuation frames. The machine 
- * executes a program by repeatedly transitioning between states of the form 
+ * The operational semantics of the Hoop runtime machine. This is a CEK-like
+ * stack machine where 'C' represents a computation tree and 'K' represents
+ * an explicit stack of defunctionalized continuation frames. The machine
+ * executes a program by repeatedly transitioning between states of the form
  * `Step c k`.
- * 
- * This module serves as a reference implementation of the specification, where 
- * handler dispatch is performed via a linear search of the stack. Although this 
- * is the most straightforward implementation of deep-handler semantics, walking 
- * the K-stack on every operation execution is inefficient. Therefore, the actual 
- * runtime engine called from PureScript (`Hoop.Runtime`) employs a more performant 
- * evidence-passing mechanism, where the E-part serves as an evidence environment. 
+ *
+ * This module serves as a reference implementation of the specification, where
+ * handler dispatch is performed via a linear search of the stack. Although this
+ * is the most straightforward implementation of deep-handler semantics, walking
+ * the K-stack on every operation execution is inefficient. Therefore, the actual
+ * runtime engine called from PureScript (`Hoop.Runtime`) employs a more performant
+ * evidence-passing mechanism, where the E-part serves as an evidence environment.
  * The equivalence of these two machines is proved under appropriate assumptions.
  *)
 module Hoop.Runtime.Semantics
@@ -54,13 +54,11 @@ type stack (v: Type) (cl: Type) = list (frame v cl)
  * -- the counterpart, on the perform side, of
  * `Hoop.Runtime.Handlers.clause_kind` on the table side.
  *
- * **Inhabited meaningfully only once a scoped perform node exists.** The AST has
- * a single perform constructor today, so every node this repository can build
- * reads as `KOrdinaryOperation`; `KScopedOperation` is what a dedicated scoped
- * perform will read as. It is declared here rather than with that node so that
- * `ClauseKindMismatch` below -- which has to name the kind the node ASKED for
- * beside the kind the table ACTUALLY held -- means the same thing before and
- * after, and so that adding the node does not reopen this type.
+ * `Perform` reads as `KOrdinaryOperation` and `PerformS` as `KScopedOperation`,
+ * and that reading is the whole of what distinguishes the two dispatch rules
+ * below. `ClauseKindMismatch` names the kind the NODE asked for beside the kind
+ * the TABLE actually held, so both sides of the comparison have a type of their
+ * own.
  *)
 type operation_kind =
   | KOrdinaryOperation
@@ -82,16 +80,18 @@ type operation_kind =
  *     the runtime cannot assume it, and a wrong answer is worse than a refusal.
  *
  *   - `UnborrowableScope`: a scope could not be entered because prompts between
- *     it and its owner hold clauses that cannot be borrowed. `blocking_effects`
- *     names the effect labels responsible, which is the only thing that makes
- *     the failure actionable to whoever wrote the handler stack.
+ *     it and its owner hold clauses that cannot be borrowed. `eff` and `op` name
+ *     the scoped operation the scope belongs to -- carried on the `Weave` node
+ *     from the dispatch that built it, since by the time the borrow is refused
+ *     that dispatch may be arbitrarily far away -- and `blocking_effects` names
+ *     the effect labels responsible. Both halves are what make the failure
+ *     actionable to whoever wrote the handler stack: the first says which scope,
+ *     the second says what stands in its way.
  *
- * **Nothing in this repository builds one yet.** No transition returns
- * `Rejected`, so `never_rejected` below is trivially satisfiable and the
- * guarded half of `Hoop.Runtime.execute` is exactly as strong as it was. The
- * outcome is introduced ahead of its producers because it is a terminal state
- * -- its meaning is complete without them -- and because the alternative is to
- * change the same public signature twice.
+ * **Both are produced by the transitions below**, and by different ones: a kind
+ * mismatch arises at the dispatch of a `Perform` or a `PerformS`, borrowability
+ * at the evaluation of a `Weave`. Keeping them unmixed is what lets each be read
+ * as the one thing it is.
  *)
 type rejection =
   | ClauseKindMismatch : eff:string -> op:string
@@ -433,6 +433,202 @@ let prepare_scope_fast_agrees
     // `rev (owner :: l) == rev l @ [owner]`, and `rev l` is `borrow intermediates`.
     rev_involutive (borrow intermediates)
 
+(* ------------------------------------------------------------------ *)
+(*  The same segment, from the ONE list a dispatch actually holds      *)
+(*                                                                     *)
+(*  `prepare_scope` takes the two parts separately, which is how the   *)
+(*  design states the two roles. A transition does not hold them       *)
+(*  separately: `find_prompt` -- and `Hoop.Runtime.msplit_fast` -- hand *)
+(*  back ONE captured segment, and that it splits as                   *)
+(*  `intermediates @ [owner]` with `PromptF? owner` is                 *)
+(*  `Hoop.Runtime.Metatheory.find_prompt_last`, a LEMMA ABOUT THE       *)
+(*  GENERATION PATH rather than a refinement anything carries.          *)
+(*                                                                     *)
+(*  Splitting it at the transition is therefore not available: `mstep`  *)
+(*  is total on an arbitrary configuration and has no precondition to   *)
+(*  spend, and a split that walked the segment to find its last frame   *)
+(*  would put back exactly the recursion proportional to the user's     *)
+(*  handler nesting that `prepare_scope_fast` exists to keep off the    *)
+(*  host stack. So the transition takes the segment whole, and this is  *)
+(*  the same transformation read off it: BORROW EVERY FRAME BUT THE     *)
+(*  LAST, AND KEEP THE LAST ENTIRE.                                    *)
+(*                                                                     *)
+(*  `prepare_captured_is_prepare_scope` below is what says the two are  *)
+(*  one function seen from two sides; every fact proved about           *)
+(*  `prepare_scope` -- `prepare_scope_can`, `prepare_scope_wf` -- is    *)
+(*  reached through it, and nothing is restated.                        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The segment a scope runs under, from the captured segment alone.** The
+ * specification; `prepare_captured_fast` below is what runs.
+ *
+ * The `[owner]` arm is what makes this the owner's clause: a one-frame segment
+ * is kept exactly as it stands, table and return clause both, and every frame
+ * reached before that arm is borrowed by the three rules of `borrow`. On a
+ * segment that does not end in a prompt -- which no dispatch produces -- it is
+ * still total, and simply keeps whatever the last frame is.
+ *)
+noextract
+let rec prepare_captured (#v #cl: Type) (captured: stack v cl)
+  : Tot (stack v cl) (decreases captured)
+  = match captured with
+    | [] -> []
+    // The owner. NOT borrowed: it keeps its handler table *and* its return
+    // clause, which is the answer former the surface reports a scope's result
+    // through. See `prepare_scope`.
+    | [owner] -> [owner]
+    | BindF _ :: r -> prepare_captured r
+    | ParamF l x :: r -> ParamF l x :: prepare_captured r
+    | PromptF hs _ :: r -> PromptF hs None :: prepare_captured r
+
+(**
+ * **Everything above a non-empty tail is simply borrowed.** The form the monad
+ * laws want: they replace a prompt-free block of frames inside a captured
+ * segment, and `borrow` drops every frame of such a block, so both sides of a
+ * law build the SAME prepared segment. `Hoop.Runtime.Laws` reads the blindness
+ * off this together with `borrow_append` there.
+ *)
+let rec prepare_captured_append (#v #cl: Type) (a: stack v cl) (c: stack v cl)
+  : Lemma (requires Cons? c)
+          (ensures prepare_captured (a @ c) == borrow a @ prepare_captured c)
+          (decreases a)
+  = match a with
+    | [] -> ()
+    // `a @ c` has at least two frames, so the `[owner]` arm cannot fire and both
+    // sides peel the same head.
+    | _ :: r -> prepare_captured_append r c
+
+(** **The two readings agree.** `prepare_captured` of a segment that really does
+    split as `intermediates @ [owner]` is `prepare_scope` of its two parts --
+    which is how every lemma proved about the latter is reached from the
+    transition, with nothing restated. *)
+let prepare_captured_is_prepare_scope
+    (#v #cl: Type)
+    (intermediates: stack v cl)
+    (owner: frame v cl { PromptF? owner })
+  : Lemma (prepare_captured (intermediates @ [owner]) == prepare_scope intermediates owner)
+  = prepare_captured_append intermediates [owner]
+
+(** **`prepare_captured`, as a loop**: the accumulating walk of `borrow_rev`,
+    with the last frame kept entire. Reversed on the way out, exactly as
+    `borrow_rev` is, and for the reason recorded at `prepare_scope_fast`: this
+    runs over the user's own handler nesting, and Melange compiles OCaml's stack
+    onto JavaScript's. *)
+let rec prepare_captured_rev (#v #cl: Type) (captured: stack v cl) (acc: stack v cl)
+  : Tot (stack v cl) (decreases captured)
+  = match captured with
+    | [] -> acc
+    | [owner] -> owner :: acc
+    | BindF _ :: r -> prepare_captured_rev r acc
+    | ParamF l x :: r -> prepare_captured_rev r (ParamF l x :: acc)
+    | PromptF hs _ :: r -> prepare_captured_rev r (PromptF hs None :: acc)
+
+private
+let rec prepare_captured_rev_spec (#v #cl: Type) (captured: stack v cl) (acc: stack v cl)
+  : Lemma (ensures prepare_captured_rev captured acc == rev (prepare_captured captured) @ acc)
+          (decreases captured)
+  = match captured with
+    | [] -> ()
+    | [owner] ->
+        rev_cons_append owner ([] <: stack v cl) acc;
+        append_l_nil (rev ([] <: stack v cl))
+    | BindF _ :: r -> prepare_captured_rev_spec r acc
+    | ParamF l x :: r ->
+        prepare_captured_rev_spec r (ParamF l x :: acc);
+        rev_cons_append (ParamF l x <: frame v cl) (prepare_captured r) acc
+    | PromptF hs _ :: r ->
+        prepare_captured_rev_spec r (PromptF hs None :: acc);
+        rev_cons_append (PromptF hs (None #(v -> comp_tree v cl)) <: frame v cl)
+                        (prepare_captured r) acc
+
+(**
+ * **What the transitions run.** The answer is the specification's, and the
+ * equality is in the type, so every statement about `prepare_captured` -- and
+ * hence, through `prepare_captured_is_prepare_scope`, about `prepare_scope` --
+ * is a statement about what runs.
+ *
+ * `prepare_scope` and `borrow` stay `noextract`, so a transition that reached
+ * for the specification instead would fail at EXTRACTION rather than ship a
+ * stack-hungry path with an `@` on it. That guard is the reason for the pairing.
+ *)
+let prepare_captured_fast (#v #cl: Type) (captured: stack v cl)
+  : Tot (o: stack v cl { o == prepare_captured captured })
+  = prepare_captured_rev_spec captured [];
+    append_l_nil (rev (prepare_captured captured));
+    rev_involutive (prepare_captured captured);
+    rev (prepare_captured_rev captured [])
+
+(** **And on a real captured segment it is `prepare_scope_fast`**, frame for
+    frame: the accumulating walk this runs is the accumulating walk that one
+    runs, with the owner pushed by the `[owner]` arm instead of by hand. Stated
+    so that the claim "the shipped path computes the fast preparation and never
+    the specification" is a proposition and not a reading of two definitions. *)
+let prepare_captured_fast_is_prepare_scope_fast
+    (#v #cl: Type)
+    (intermediates: stack v cl)
+    (owner: frame v cl { PromptF? owner })
+  : Lemma (prepare_captured_fast (intermediates @ [owner])
+             == prepare_scope_fast intermediates owner)
+  = prepare_captured_is_prepare_scope intermediates owner;
+    prepare_scope_fast_agrees intermediates owner
+
+(* ------------------------------------------------------------------ *)
+(*  Borrowability, checked where the borrow is taken                   *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The effects that stand in the way of this scope**, or `[]` if none do.
+ *
+ * Every `PromptF` of the prepared segment BUT THE LAST is inspected: the last
+ * one is the owner, which is not borrowed and so has nothing to be borrowable
+ * for. `BindF` cannot occur in a prepared segment and `ParamF` does not bear on
+ * borrowability; both are simply walked past, and neither branch asserts that it
+ * is unreachable -- this is **total on an arbitrary segment**, and that a real
+ * one is `borrow intermediates @ [owner]` is a lemma about the generation path
+ * rather than a refinement on the constructor.
+ *
+ * `Hoop.Runtime.Handlers.blocking_effects` is what judges a table, and it is
+ * stated through `lookup_handler`, so it judges only the entry that would
+ * actually be DISPATCHED: a `Full` clause shadowed by a `Fast` one blocks
+ * nothing, exactly as it is invisible to `handler_ok`.
+ *
+ * **The first blocker wins.** What the report needs is a handler stack the user
+ * can act on, and the innermost offender is the one to name; accumulating every
+ * blocker would mean appending lists on a path that must not call `@` -- see the
+ * note on `prepare_scope_fast` -- for a longer message about the same fault.
+ *)
+let rec scope_blockers (#v #cl: Type) (prepared: stack v cl)
+  : Tot (list string) (decreases prepared)
+  = match prepared with
+    | [] -> []
+    // The owner. Not borrowed, so not checked.
+    | [_] -> []
+    | PromptF hs _ :: rest ->
+        (match blocking_effects hs with
+          | [] -> scope_blockers rest
+          | bs -> bs)
+    | _ :: rest -> scope_blockers rest
+
+(**
+ * **Applying the weave capability.** A named top-level function for the same
+ * reason `kont_of` is one: what a clause receives is the partial application
+ * `weave_of eff op prepared`, whose SMT symbol depends on the ORIGIN and the
+ * PREPARED SEGMENT alone, rather than a lambda closing over whatever the
+ * transition happened to have in scope. The monad laws are proved by showing the
+ * two sides build the same three, and that argument is worth nothing if the two
+ * weaves are unrelated symbols anyway.
+ *
+ * All three are identical on the two sides of a law: the redex block a law
+ * replaces is `no_prompt`, so it contributes nothing to the prepared segment
+ * (`prepare_blind`) and it is not the dispatch, so it contributes nothing to the
+ * origin either. The origin therefore adds no obligation to
+ * `apply_scoped_obs_congr`, which still speaks of a single fixed weave.
+ *)
+let weave_of (#v #cl: Type) (eff op: string) (prepared: stack v cl) (d: comp_tree v cl)
+  : comp_tree v cl
+  = Weave eff op prepared d
+
 // The delimited continuation handed to a clause.
 // While `kont_of captured` is definitionally `fun x -> resumed captured x`, that is,
 // `fun x -> Splice captured (Var x)`,
@@ -446,9 +642,17 @@ let kont_of (#v #cl: Type)
   = resumed captured x
 
 // The small-step semantics of the machine.
+//
+// **Two interpreters, and they stay apart.** `apply` reads an ordinary clause,
+// `apply_s` a scoped one; which of the two a dispatch reaches is decided by the
+// AST node, and the KIND STORED ON THE TABLE ENTRY is what decides whether that
+// dispatch happens at all. Keeping the two interpreters separate is what keeps
+// `Hoop.Runtime.WellScopedness.apply_ok` -- an assumption about every program,
+// scoped or not -- from having to be conditioned on a clause kind.
 let step
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : GTot (state v cl)
   = match s with
@@ -459,11 +663,64 @@ let step
       match c with
       | Op comp fn -> Step comp (BindF fn :: k)
       | Handle hs pure body -> Step body (PromptF hs pure :: k)
+      // An ordinary operation. The clause is unwrapped by whatever `apply`
+      // makes of it -- the tag on the clause VALUE, which is this module's
+      // business only through the abstract `cl` -- but whether an ordinary
+      // dispatch is admissible at all is decided HERE, by the kind the table
+      // stored beside the clause. A `KScoped` entry reached from a `Perform` is
+      // a broken typed boundary, and refusing it is what keeps the machine from
+      // handing a scoped clause a continuation where it expects a weave.
       | Perform eff op payload ->
         (match find_prompt eff op k with
           | None -> Stuck eff op
           | Some (captured, found, below) ->
-            Step (apply found.body payload (kont_of captured)) below)
+            (match found.kind with
+              | KScoped -> Rejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped)
+              | _ -> Step (apply found.body payload (kont_of captured)) below))
+      // A scoped operation. The clause is handed the payload, a WEAVE
+      // CAPABILITY and the continuation, in that order.
+      //
+      // The weave carries the segment the scope is to run under, prepared from
+      // the captured one: the intermediates borrowed -- available for dispatch,
+      // no longer an answer boundary -- and the owner kept entire. Nothing about
+      // BORROWABILITY is asked here, and that is Decision 5: a scoped clause is
+      // entitled to discard an inner computation, so a prompt that could not be
+      // borrowed is no reason to refuse a dispatch whose weave may never be
+      // applied. The question is asked at the `Weave` node, and only if one is
+      // ever evaluated.
+      | PerformS eff op payload ->
+        (match find_prompt eff op k with
+          | None -> Stuck eff op
+          | Some (captured, found, below) ->
+            (match found.kind with
+              | KScoped ->
+                Step (apply_s found.body payload
+                        (weave_of eff op (prepare_captured_fast captured))
+                        (kont_of captured))
+                     below
+              | KFull -> Rejected (ClauseKindMismatch eff op KScopedOperation KFull)
+              | KFast -> Rejected (ClauseKindMismatch eff op KScopedOperation KFast)))
+      // Entering a scope. On success this is `Splice`'s rule at the prepared
+      // segment -- push the frames, run the body under them -- and the whole of
+      // the difference is the guard in front of it.
+      //
+      // **The rejection names the operation the scope belongs to.** The node
+      // carries its origin beside the normalized plan, for exactly the reason it
+      // could not be recovered here otherwise: a `Weave` may be evaluated
+      // arbitrarily far from the dispatch that produced it -- a clause is free
+      // to build a woven computation and run it later, or not at all -- so by
+      // this point the dispatch is long gone. Normalization (Decision 7) is a
+      // condition on `prepared`, the execution-relevant component, and the
+      // guard and the transition below read only that; the origin travels
+      // beside it and is read only by the rejection.
+      //
+      // The other actionable half is the list of handlers that blocked, which is
+      // what `scope_blockers` returns. `runtime/ml/melange/hoop_ffi.ml` prints
+      // both.
+      | Weave oeff oop prepared body ->
+        (match scope_blockers prepared with
+          | [] -> Step body (prepared @ k)
+          | bs -> Rejected (UnborrowableScope oeff oop bs))
       | Var value ->
         (match k with
           | [] -> Done value
@@ -495,6 +752,7 @@ let step
 let rec steps
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (fuel: nat)
     (s: state v cl)
   : GTot (state v cl)
@@ -504,57 +762,62 @@ let rec steps
       | Done _ -> s
       | Stuck _ _ -> s
       | Rejected _ -> s
-      | Step _ _ -> steps apply (fuel - 1) (step apply s)
+      | Step _ _ -> steps apply apply_s (fuel - 1) (step apply apply_s s)
 
 let one_more_step
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl { Step? s })
     (r: state v cl)
   : Lemma
-      (requires exists (n:nat). r == steps apply n (step apply s))
-      (ensures (exists (m:nat). r == steps apply m s))
-  = eliminate exists (n:nat). r == steps apply n (step apply s)
+      (requires exists (n:nat). r == steps apply apply_s n (step apply apply_s s))
+      (ensures (exists (m:nat). r == steps apply apply_s m s))
+  = eliminate exists (n:nat). r == steps apply apply_s n (step apply apply_s s)
     with
-      introduce exists (m:nat). r == steps apply m s
+      introduce exists (m:nat). r == steps apply apply_s m s
       with (n + 1) and ()
 
 let no_more_steps
     (#v #cl : Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : Lemma
       (requires Done? s \/ Stuck? s \/ Rejected? s)
-      (ensures exists (n:nat). s == steps apply n s)
-  = introduce exists (n:nat). s == steps apply n s
+      (ensures exists (n:nat). s == steps apply apply_s n s)
+  = introduce exists (n:nat). s == steps apply apply_s n s
     with 0
     and ()
 
 let never_stuck
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : GTot prop
-  = forall (n: nat). ~(Stuck? (steps apply n s))
+  = forall (n: nat). ~(Stuck? (steps apply apply_s n s))
 
 let never_stuck_now
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : Lemma
-      (requires never_stuck apply s)
+      (requires never_stuck apply apply_s s)
       (ensures ~(Stuck? s))
-  = assert (steps apply 0 s == s)
+  = assert (steps apply apply_s 0 s == s)
 
 let never_stuck_step
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl { Step? s })
   : Lemma
-      (requires never_stuck apply s)
-      (ensures never_stuck apply (step apply s))
-  = introduce forall (n: nat). ~(Stuck? (steps apply n (step apply s)))
-    with assert (steps apply (n + 1) s == steps apply n (step apply s))
+      (requires never_stuck apply apply_s s)
+      (ensures never_stuck apply apply_s (step apply apply_s s))
+  = introduce forall (n: nat). ~(Stuck? (steps apply apply_s n (step apply apply_s s)))
+    with assert (steps apply apply_s (n + 1) s == steps apply apply_s n (step apply apply_s s))
 
 (**
  * **The rejection axis**, stated separately from `never_stuck` and proved from
@@ -562,38 +825,41 @@ let never_stuck_step
  * `never_stuck` and still be rejected, and conversely, so neither predicate
  * implies the other and neither may be weakened into the other.
  *
- * It holds *vacuously* of every program this repository can build, since no
- * transition returns `Rejected`. That is the point of introducing it now: the
- * statement it strengthens -- `Hoop.Runtime.execute`'s guarded conjunct -- is
- * written once, in the form it will keep.
+ * Two transitions can now refuse: a dispatch whose node and whose table entry
+ * disagree about the kind of the operation, and a `Weave` whose prepared segment
+ * crosses a prompt that cannot be borrowed. Neither is a missing capability, so
+ * neither is `Stuck`, and this is the condition that rules them out.
  *)
 let never_rejected
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : GTot prop
-  = forall (n: nat). ~(Rejected? (steps apply n s))
+  = forall (n: nat). ~(Rejected? (steps apply apply_s n s))
 
 let never_rejected_now
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl)
   : Lemma
-      (requires never_rejected apply s)
+      (requires never_rejected apply apply_s s)
       (ensures ~(Rejected? s))
-  = assert (steps apply 0 s == s)
+  = assert (steps apply apply_s 0 s == s)
 
 let never_rejected_step
     (#v #cl: Type)
     (apply: apply_t v cl)
+    (apply_s: scoped_apply_t v cl)
     (s: state v cl { Step? s })
   : Lemma
-      (requires never_rejected apply s)
-      (ensures never_rejected apply (step apply s))
-  = introduce forall (n: nat). ~(Rejected? (steps apply n (step apply s)))
-    with assert (steps apply (n + 1) s == steps apply n (step apply s))
+      (requires never_rejected apply apply_s s)
+      (ensures never_rejected apply apply_s (step apply apply_s s))
+  = introduce forall (n: nat). ~(Rejected? (steps apply apply_s n (step apply apply_s s)))
+    with assert (steps apply apply_s (n + 1) s == steps apply apply_s n (step apply apply_s s))
 
 (** **Loading a program**: the state a run starts from. Every theorem about a
     whole run is indexed by this, and `Hoop.Runtime.execute`'s postcondition
-    reads `steps apply n (load c)`. *)
+    reads `steps apply apply_s n (load c)`. *)
 let load (#v #cl: Type) (c: comp_tree v cl) : GTot (state v cl) = Step c []

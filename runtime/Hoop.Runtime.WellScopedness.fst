@@ -33,6 +33,11 @@ let ws_perform_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
   : Lemma (ws cok can (Perform eff op payload) <==> (eff =!= var_eff /\ can eff op))
   = assert (ws_n 1 cok can (Perform eff op payload) <==> (eff =!= var_eff /\ can eff op))
 
+let ws_performS_eq (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                   (eff op: string) (payload: list v)
+  : Lemma (ws cok can (PerformS eff op payload) <==> (eff =!= var_eff /\ can eff op))
+  = assert (ws_n 1 cok can (PerformS eff op payload) <==> (eff =!= var_eff /\ can eff op))
+
 let ws_op_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
               (c: comp_tree v cl) (fn: v -> comp_tree v cl)
   : Lemma (requires ws cok can (Op c fn))
@@ -64,6 +69,12 @@ let ws_splice_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
   : Lemma (requires ws cok can (Splice frames body))
           (ensures wf_stack cok can frames /\ ws cok (can_in_with frames can) body)
   = assert (forall (n: nat). ws_n (n + 1) cok can (Splice frames body))
+
+let ws_weave_fwd (#v #cl: Type) (cok: clause_ok_t cl) (can: can_perform)
+                 (oeff oop: string) (prepared: stack v cl) (body: comp_tree v cl)
+  : Lemma (requires ws cok can (Weave oeff oop prepared body))
+          (ensures wf_stack cok can prepared /\ ws cok (can_in_with prepared can) body)
+  = assert (forall (n: nat). ws_n (n + 1) cok can (Weave oeff oop prepared body))
 
 // The `Var` specialisation. Nothing is re-derived: the body conjunct the general
 // lemma delivers is about `Var x` and is simply dropped.
@@ -128,6 +139,7 @@ let rec ws_n_congr (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can
       match c with
       | Var _ -> ()
       | Perform _ _ _ -> ()
+      | PerformS _ _ _ -> ()
       | Op inner fn ->
           ws_n_congr (n - 1) cok can1 can2 inner;
           introduce forall (x: v).
@@ -150,6 +162,13 @@ let rec ws_n_congr (#v #cl: Type) (n: nat) (cok: clause_ok_t cl) (can1 can2: can
           // `can_in_with` is pointwise in its second argument.
           assert (equiv_can (can_in_with fs can1) (can_in_with fs can2));
           ws_n_congr (n - 1) cok (can_in_with fs can1) (can_in_with fs can2) body
+      // The same shape as `Splice`, and for the same reason: the body is judged
+      // under the segment, so the two environments it is compared at are the
+      // extended ones. The origin is not judged, so it is not matched on.
+      | Weave _ _ prepared body ->
+          wf_stack_n_congr n cok can1 can2 prepared;
+          assert (equiv_can (can_in_with prepared can1) (can_in_with prepared can2));
+          ws_n_congr (n - 1) cok (can_in_with prepared can1) (can_in_with prepared can2) body
       | ReadP _ -> ()
       | WriteP _ _ -> ()
       | NewP l _ body ->
