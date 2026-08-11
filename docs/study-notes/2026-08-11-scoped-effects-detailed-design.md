@@ -1134,7 +1134,7 @@ does not repeat it.
 | **Flix** | Deep, dynamically scoped, multi-shot algebraic handlers with effect polymorphism. ([docs](https://doc.flix.dev/effects-and-handlers.html)) | No positive precedent for general higher-order operations was found. Not usable as support either way. |
 | **Hefty Algebras** | Modular *elaboration* of higher-order effect trees into first-order algebraic effects — but it requires higher-order signatures together with elaboration algebras. ([TU Delft](https://research.tudelft.nl/en/publications/hefty-algebras-modular-elaboration-of-higher-order-effects/)) | The structural obligation is not removed, it is relocated into the elaborator. The contrast with `2026-08-06`'s hypothesis is real, but it is *where* the structure lives, not whether it exists. |
 | **Heftia** | Does **not** eliminate `HFunctor`: new higher-order effects need `HFunctor`, `OrderOf` and friends, higher-order and first-order effect lists are kept apart, and delimited continuations carry restrictions. ([README](https://github.com/sayo-hs/heftia), [write-up](https://sayo-hs.github.io/jekyll/update/2024/09/04/how-the-heftia-extensible-effects-library-works.html)) | Same correction as above, in a shipping library. |
-| **Polysemy `Tactical`** | The closest precedent for a context capability. Crucially the context functor is **not** a type argument the handler chooses — it is hidden under `forall f. Functor f => ...` and reached only through `runT` / `bindT` / `pureT` / `Inspector`. ([hackage](https://hackage.haskell.org/package/polysemy-1.9.2.0/docs/Polysemy.html)) | This is the shape the general level has to take here, and it is why a `ctx` *type parameter* on `ScopedClause` is the wrong preparation. |
+| **Polysemy `Tactical`** | The closest precedent for a context capability. Crucially the context functor is **not** a type argument the handler chooses — it is hidden under `forall f. Functor f => ...` and reached only through `runT` / `bindT` / `pureT` / `Inspector`. Note also what it is *not*: Polysemy's interpreters are answer-preserving, so there is one hidden functor and no separate owner layer; the hidden one threads the state other effects hold. ([hackage](https://hackage.haskell.org/package/polysemy-1.9.2.0/docs/Polysemy.html)) | This is the shape the general level has to take here, and it is why a `ctx` *type parameter* on `ScopedClause` is the wrong preparation. Hoop needs *two* layers, and conditions 1–3 show why. |
 
 ## Open — the general level: weaving an arbitrary prompt
 
@@ -1259,6 +1259,116 @@ Without the negative half, a shape that happens to compile because something was
 coerced would read as success. The pair is what identifies *what* supplies the
 re-instantiation capability, rather than merely that something did.
 
+### Condition 4: run, and answered
+
+The sketch is `purescript-hoop/test/Test/ScopedGeneral.purs`. It typechecks and
+runs nothing.
+
+**Negative half.** `ndAllAtInt : Handler Nd1 r Int (Array Int)` is what a prompt
+actually holds: the nondeterminism table built at one answer type. Reusing it at
+a rigid `x` is rejected —
+
+```text
+[ERROR 1/1 TypesDoNotUnify]
+  reinstateFromTable h comp = with h comp
+  Could not match type  x2  with type  Int
+  where x2 is a rigid type variable
+```
+
+**Positive half.** The same handler reached through `HandlerF` answers at that
+same rigid `x`, and so does the concrete `ndAll` the suite already builds:
+
+```purescript
+reinstateFromFactory :: forall r x. HandlerF Nd1 r Array -> Hoop (ND r) x -> Hoop r (Array x)
+reinstateFromFactory hf comp = withF hf comp        -- compiles
+```
+
+> **Re-instantiation is supplied by the rank-2 quantifier inside `HandlerF`, and
+> by nothing else in the current design.**
+
+It is already there for the *owning* handler of a scoped operation — that is
+what `handlerScoped : (forall b. Handler effh r b (f b)) -> HandlerF effh r f`
+is for, and its own doc comment says so: the whole clause table, return clause
+included, has to be valid at every `b`. The general level needs the same thing
+for the *intervening* prompts, which today hold tables.
+
+**What this does not settle.** All three candidates of "Withdrawn: keep `ret`"
+— factory, tactics, generalized forwarding — need a re-instantiation capability;
+what the gate has shown is that such a capability must exist and that rank-2 is
+how this design can express one. Whether the **prompt itself carries it**, or it
+is derived from a separate context algebra, depends on conditions 1–3. Reading
+this as "a `PromptF` holds a `HandlerF`" would be fixing the representation on
+the strength of a question that has not been asked yet.
+
+### An unasked finding: nothing forces a scoped handler through `handlerScoped`
+
+Turned up by the negative half and worth recording separately, because it is
+about the surface as it stands rather than about the generalisation.
+
+`ndAllAtInt` carries a `scoped` clause and is a plain `Handler` — that
+typechecks, since `ScopedSignature` decomposes `o ~ f b` as
+`Array Int ~ Array Int`. It can also be **installed with ordinary `with`**, and
+a scope may then run under it at a result type the table was never built for.
+Both of these compile:
+
+```purescript
+probeInstall          :: forall r. Hoop (ND r) Int    -> Hoop r (Array Int)
+probeInstall           = with ndAllAtInt
+
+probeScopeAtOtherType :: forall r. Hoop (ND r) String -> Hoop r (Array Int)
+probeScopeAtOtherType p = with ndAllAtInt (once p *> pure 1)
+```
+
+In the second, `weave` receives a `Hoop inner String` and its type promises
+`Hoop r (Array String)`; the runtime honours that by reinstalling *this* table,
+whose return clause is `Int -> Array Int`. Nothing is checked at run time,
+because by then there are no types.
+
+So `handlerScoped` is what makes a scoped-clause handler sound, and nothing
+*requires* going through it.
+
+### The counterexample, run
+
+Built and executed rather than argued. The table's return clause is made
+type-specific and the scope is made to produce a *function*:
+
+```purescript
+ndDoubleAtInt :: forall r. Handler Nd1 r Int (Array Int)   -- pure: \n -> [ n * 2 ]
+
+demoBroken :: Unit -> Array Int
+demoBroken _ = run $ with ndDoubleAtInt do
+  f <- once (pure (\n -> n + 1))     -- f :: Int -> Int, says the type
+  pure (f 41)
+```
+
+```text
+THREW: TypeError: f is not a function
+```
+
+`weave` reinstalls `ndDoubleAtInt`'s table, so the scope's value leaves through
+`\n -> [n * 2]` applied to a closure; `f` is bound to the result. **No
+`unsafeCoerce`, no `Partial`, no FFI anywhere in the program** — every line is
+ordinary well-typed user code, and the representation of a typed value is
+broken.
+
+What this establishes, and what it does not:
+
+- it **is** a type-soundness defect of the *surface API*;
+- it is **not** a defect of the runtime semantics or of anything on the F\* side
+  — the machine did exactly what it is specified to do;
+- the cause is that `handler` admits a `scoped` clause at all.
+
+**Confirmed requirement: ordinary handler construction must not admit scoped
+clauses.** A `scoped` clause may only be reachable through the path that builds
+a rank-2 family. The fix itself waits until conditions 1–3 fix the final shape
+of `ScopedClause`, since that is what decides what the admitting path looks
+like.
+
+The fixture is `purescript-hoop/test/Test/ScopedGeneral.purs`, wired into the
+suite. It asserts a **defect**, not a behaviour: when the surface is fixed,
+`ndDoubleAtInt` stops compiling and the fixture has to be rewritten as a
+should-not-typecheck comment. That is the intended way for it to fail.
+
 ### The three type-level roles, named
 
 `h` has been written inline as `(Type -> Type) -> Type -> Type` throughout this
@@ -1304,6 +1414,94 @@ positioning table below already freezes "`Scoped h` in an operation signature" �
 and may be fixed as public API now. What remains open is the final
 `ScopedClause` type that *consumes* an `h`, and the tactics that handle `ctx`.
 What was missing here was a name, not a piece of the design.
+
+### Conditions 1–3: the context capability, derived rather than ported
+
+The sketch is `purescript-hoop/test/Test/ScopedTactics.purs`. Derived by
+rewriting the clause bodies that already exist — `catch`'s and `once`'s — against
+an opaque context, and taking what they demanded. Nothing was ported from
+Polysemy.
+
+```purescript
+type ScopeTactics f ctx inner r o =
+  { runScope    :: forall x. Hoop inner x -> Hoop r (f (ctx x))
+  , resumeScope :: forall x. ctx x -> Cont x r o -> Hoop r o
+  }
+
+newtype GeneralScopedClause h f r o = GeneralScopedClause
+  ( forall b inner ctx
+     . h (Hoop inner) b -> ScopeTactics f ctx inner r o -> Cont b r o -> Hoop r o )
+```
+
+`ctx` is bound by the clause's own `forall`: unnameable, uninspectable,
+unchooseable — the status the dynamic handler context actually has. `f` stays a
+parameter, so the clause can match on it.
+
+Both clauses typecheck against exactly these two operations. `catch` keeps its
+shape: `Left`/`Right` are still matched, the recovery is still woven, and
+non-recapture is still the clause returning `Left e'`. The one change is the
+success branch, `continue k a` becoming `resumeScope cx k`.
+
+**Checked to fail, twice.** A shape that compiles proves nothing alone:
+
+| probe | result |
+|---|---|
+| replace `resumeScope` with `continue k cx` | `Could not match type ctx2 b0 with type b0` — `ctx` really is opaque and `resumeScope` really is load-bearing |
+| identify `f` with the hidden context (one functor, `runScope :: Hoop inner x -> Hoop r (ctx x)`) | `Could not match type Either t2 with type ctx4` — `catch` loses the ability to tell failure from success |
+
+The second is the justification for the asymmetry, and it is worth stating
+against Polysemy precisely. **Polysemy does not fold two layers into one; it has
+only the hidden context functor.** Its interpreters are answer-preserving, so
+there is no owner layer to keep apart, and the hidden functor is there to thread
+the state *other* effects hold
+([Tactical](https://hackage.haskell.org/package/polysemy/docs/Polysemy.html)).
+The claim here is therefore not that Polysemy conflates something, but that
+*Hoop must not*: identify the owner's answer former `f` with the hidden context
+and `catch` stops being expressible. `f (ctx x)` — outer concrete and matchable,
+inner opaque and only passable — is what keeps the operation writable.
+
+**Why two operations and not four.** `pureT` was not demanded: neither clause
+injects a value into a context. A general `bindT` was not demanded: the only
+sequencing either clause performs on a context is handing it to the
+continuation, which is `resumeScope`. An `Inspector` was not demanded and would
+be actively wrong — it exists to look inside the hidden functor, and the whole
+argument for `f (ctx x)` is that what a clause may look inside is `f`, which it
+already can.
+
+**Scope of this conclusion.** "Two operations suffice" is fixed as *the minimal
+capability necessary and sufficient for the `catch` / `once` fragment*, and is
+not a claim about scoped operations in general. The bind gate below may add a
+third; it must not be read as overturning this one.
+
+### The next gate: dependent sequencing, before `bracket`
+
+`bracket alloc use release` is the shape that would force a general
+`bindScope`, but it carries release guarantees, failure paths and continuation
+capture along with it. Isolating the sequencing first keeps a failure
+attributable:
+
+```purescript
+newtype ThenScope a m b = ThenScope { first :: m a, next :: a -> m b }
+```
+
+against the candidate
+
+```purescript
+bindScope :: forall x y. ctx x -> (x -> Hoop inner y) -> Hoop r (f (ctx y))
+```
+
+Acceptance criteria:
+
+1. `runScope` + `resumeScope` alone **fail** — a `ctx x` cannot be handed to
+   `x -> Hoop inner y`;
+2. adding `bindScope` makes it typecheck;
+3. no operation that *observes* `ctx` is required;
+4. no `pureScope` is required;
+5. the difference shows in the types: `runScope` starts from the initial
+   context, `bindScope` continues from the one a preceding computation produced.
+
+Only then `bracket`, where anything that goes wrong is attributable to release
+semantics rather than to a missing bind.
 
 ### Positioning
 
