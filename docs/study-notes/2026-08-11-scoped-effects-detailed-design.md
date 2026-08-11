@@ -1567,3 +1567,12 @@ and how the surface is typed — not the splice primitive underneath.
    Decision 3 physically lives.
 5. Latent/deferred operations, which `2026-08-06` puts next and which will test
    whether a snapshot segment can outlive the dispatch that produced it.
+6. Suspension and `Aff`, which is a separate milestone and has its own note:
+   `2026-08-11-async-suspend-roadmap.md`. It is ordered *after* the borrowable
+   scoped milestone on purpose — a suspension inside a scope saves a
+   configuration containing borrowed prompts, cells and the evidence
+   environment, so fixing what those mean first decides which handler view a
+   callback resumes into. Note also that `Suspended` and Decision 7's
+   `Rejected` land in the same match sites and are different in kind (one
+   resumable, one terminal); they should be looked at together even if they do
+   not share a type.
