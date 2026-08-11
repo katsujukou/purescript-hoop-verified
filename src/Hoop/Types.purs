@@ -13,6 +13,8 @@
 
 module Hoop.Types
   ( Action
+  , AlgOnly
+  , AllowScoped
   , AnyPayload
   , Clause
   , Computation
@@ -21,9 +23,12 @@ module Hoop.Types
   , EvKey(..)
   , Fast
   , Full
+  , HCapability
+  , HSig
   , Local
   , Region
   , Scalar(..)
+  , Scoped
   , asAnyPayload
   , class EffNewtype
   , class MkAction
@@ -54,6 +59,72 @@ foreign import data Computation :: Type -> Type -> Type
 
 infix 0 type Computation as ->*
 
+-- | **The kind of a higher-order operation's payload shape.**
+-- |
+-- | A scoped operation's argument is not a tuple of values but a
+-- | *container of computations* the clause will choose between: `catch`'s
+-- | `{ try, recover }`, `once`'s single body. The container is written by
+-- | whoever declares the operation, parameterised by the computation
+-- | constructor so that the same shape reads as `Hoop inner` at a perform
+-- | site and as something the clause may run under `weave` inside a clause.
+-- |
+-- | ```purs
+-- | newtype OnceScope :: HSig
+-- | newtype OnceScope m a = OnceScope (m a)
+-- |
+-- | newtype CatchScope :: Type -> HSig
+-- | newtype CatchScope e m a = CatchScope { try :: m a, recover :: e -> m a }
+-- | ```
+-- |
+-- | The runtime never looks inside one. That is the point: locating the
+-- | embedded computations generically is exactly the `HFunctor` traversal
+-- | this design exists to avoid, so the clause — which knows the shape it
+-- | declared — destructures it and the machine only supplies the capability
+-- | to run what the clause picked.
+type HSig = (Type -> Type) -> Type -> Type
+
+-- | **The marker for a scoped operation in an effect's signature row**,
+-- | standing where `a ->* b` stands for an ordinary one.
+-- |
+-- | ```purs
+-- | type Nd' =
+-- |   ( choice :: Unit ->* Boolean
+-- |   , once   :: Scoped OnceScope
+-- |   )
+-- | ```
+-- |
+-- | It is the single source of truth from which both sides are derived: the
+-- | perform helper becomes `h (Hoop eff) b -> Hoop eff b`, and the clause is
+-- | required to be a `Hoop.Engine.ScopedClause`. Nothing else distinguishes
+-- | the two kinds of operation, which is why they cannot drift apart.
+foreign import data Scoped :: HSig -> Type
+
+-- | **What kind of clause a handler is being built to admit.** An index on
+-- | `Hoop.Engine.HHandler`, and the mechanism that keeps a scoped clause out of
+-- | the ordinary construction path.
+-- |
+-- | It is a permission, not a description: the same clause record may be
+-- | admissible under one capability and rejected under another, and which one
+-- | applies is decided by what the handler is eventually *used* by — `with`
+-- | fixes it to `AlgOnly`, `handlerScoped` to `AllowScoped`.
+-- |
+-- | Why this is a dedicated kind rather than a `Boolean`: a reader meeting
+-- | `HHandler True ...` has to go looking for what the flag means, and there is
+-- | no room to add a third alternative when general higher-order operations or
+-- | latent ones arrive. A nominal kind names each permission and stays open.
+data HCapability
+
+-- | Ordinary algebraic operations only. A `scoped` clause under this capability
+-- | is a type error, and that is what makes the ordinary `Handler` safe: a
+-- | scoped clause needs its handler re-instantiated at the scope's result type,
+-- | which a single `Handler` cannot supply.
+foreign import data AlgOnly :: HCapability
+
+-- | Scoped clauses admitted. Reachable only as the argument of
+-- | `Hoop.Engine.handlerScoped`, which quantifies the answer type so that the
+-- | whole clause table is checked at *every* result type rather than at one.
+foreign import data AllowScoped :: HCapability
+
 data Controllability
 
 foreign import data Full :: Controllability
@@ -63,13 +134,25 @@ foreign import data Fast :: Controllability
 -- | handler function type, kept whole: the Engine unifies it with the
 -- | canonical type computed from the operation signature, so the marker
 -- | itself carries no constraints and never blocks inference.
-foreign import data Clause :: Controllability -> Type -> Type
+-- |
+-- | A `newtype`, not a `foreign import data`: the marker really is just `f`
+-- | carrying a type-level tag, so `full` / `fast` / `unClause` are the
+-- | constructor and its inverse rather than three coercions. The constructor
+-- | is not exported, so the tag can only be attached by `full` or `fast`.
+newtype Clause :: Controllability -> Type -> Type
+newtype Clause c f = Clause f
+
+-- `c` is phantom in the representation, which would let `coerce` retag a
+-- `fast` clause as `full` -- exactly the confusion the tag exists to prevent.
+-- The Engine picks the runtime clause constructor off this tag, so a retag is
+-- a calling-convention error, not a harmless one. Pinned nominal.
+type role Clause nominal representational
 
 -- | Mark a clause as fully controllable: it receives the delimited
 -- | continuation as its last argument and may resume it any number of
 -- | times, including none.
 full :: forall f. f -> Clause Full f
-full = unsafeCoerce
+full = Clause
 
 -- | Mark a clause as tail-resumptive: the body computes the operation's
 -- | result (performing effects of the outer context if needed) and
@@ -80,10 +163,10 @@ full = unsafeCoerce
 -- | place, under the handler's own evidence environment (its effects
 -- | reach the outer context without touching the stack).
 fast :: forall f. f -> Clause Fast f
-fast = unsafeCoerce
+fast = Clause
 
 unClause :: forall c f. Clause c f -> f
-unClause = unsafeCoerce
+unClause (Clause f) = f
 
 -- | **The open-region token.** A computation whose row carries
 -- | `"%hoop.var" :: Local s inits` runs with the cells `inits` installed,

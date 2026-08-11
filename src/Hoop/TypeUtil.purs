@@ -22,15 +22,6 @@ class NonEmpty xs
 
 instance NonEmpty (Cons x xs)
 
--- The standard type-equality trick: the fundeps improve either side to
--- the other at the use site, and `proof` converts under any context.
-class TypeEquals :: forall k. k -> k -> Constraint
-class TypeEquals a b | a -> b, b -> a where
-  proof :: forall p. p a -> p b
-
-instance TypeEquals a a where
-  proof = \x -> x
-
 class HasLabel :: forall k. RowList k -> Symbol -> Boolean -> Constraint
 class HasLabel rl l b | rl l -> b
 

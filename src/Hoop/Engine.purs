@@ -52,6 +52,7 @@
 -- @inline export mkParamHandlerClausesCons(..).mkParamHandlerClauses always
 module Hoop.Engine
   ( Cont
+  , HHandler
   , Handler
   , Hoop
   , RuntimeClause
@@ -77,6 +78,8 @@ module Hoop.Engine
   , class MkHandlers
   , class MkHandlersList
   , class Perform
+  , class PermitsClauses
+  , class PermitsOps
   , class PerformEffect
   , class PerformList
   , class UnexpectedFieldsGuard
@@ -104,8 +107,8 @@ import Prelude
 
 import Data.Function.Uncurried (Fn1, Fn2, Fn3, Fn4, runFn2, runFn3)
 import Data.Symbol (class IsSymbol, reflectSymbol)
-import Hoop.TypeUtil (class HasLabel, class RowListLength, class TypeEquals, proof, type (++), type (:), type (|>), List, Nil)
-import Hoop.Types (class EffNewtype, class MkAction, type (->*), AnyPayload, Clause, EffType, Fast, Full, Local, Region, Scalar(..), evKey, mkAction, mkRegion, unClause)
+import Hoop.TypeUtil (class HasLabel, class RowListLength, type (++), type (:), type (|>), List, Nil)
+import Hoop.Types (class EffNewtype, class MkAction, type (->*), AlgOnly, AllowScoped, AnyPayload, Clause, EffType, Fast, Full, HCapability, Local, Region, Scalar(..), Scoped, evKey, mkAction, mkRegion, unClause)
 import Partial.Unsafe (unsafeCrashWith)
 import Prim.Boolean (False, True)
 import Prim.Row as Row
@@ -114,6 +117,7 @@ import Prim.RowList as RL
 import Prim.TypeError (class Fail, QuoteLabel, Text)
 import Record as Record
 import Record.Unsafe as RU
+import Type.Equality (class TypeEquals, proof)
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -243,8 +247,38 @@ else instance
 
 {------------ Typed `handler` API ------------}
 
-newtype Handler :: Row EffType -> Row EffType -> Type -> Type -> Type
-newtype Handler effh r a o = Handler (forall effa. Hoop effa a -> Hoop r o)
+-- | **A handler instance at one answer type, indexed by what it is permitted
+-- | to admit.** The `H` is for higher-order: this is the type that tracks
+-- | whether a higher-order clause may appear, and it is the counterpart of
+-- | `Hoop.Types.HSig` on the handler side.
+-- |
+-- | The capability is decided by the *consumer*, not by the builder. `handler`
+-- | leaves it open; `with` fixes it to `AlgOnly` and `handlerScoped` to
+-- | `AllowScoped`, so the very same clause record is admitted or refused
+-- | according to what it is eventually used by. That is what makes one builder
+-- | serve both paths without either being able to borrow the other's
+-- | permission.
+-- |
+-- | Ordinary users never write this type: `Handler` below is the synonym at
+-- | `AlgOnly`, and existing annotations keep working unchanged.
+-- |
+-- | The constructor is not exported. Nothing outside this module may claim a
+-- | capability it was not given.
+newtype HHandler :: HCapability -> Row EffType -> Row EffType -> Type -> Type -> Type
+newtype HHandler capability effh r a o = HHandler (forall effa. Hoop effa a -> Hoop r o)
+
+-- `capability` and `effh` are both phantom in the representation -- the
+-- installer's type mentions neither -- so role inference would make them
+-- coercible. Neither may be: one is the permission, the other is the claim
+-- about which effects get discharged. `handler` re-indexes the capability by
+-- unwrapping and rewrapping the constructor, which roles do not govern, so
+-- pinning everything nominal costs nothing and leaves `coerce` no way in.
+type role HHandler nominal nominal nominal nominal nominal
+
+-- | A handler over ordinary algebraic operations — what `with` installs, and
+-- | what almost every handler is.
+type Handler :: Row EffType -> Row EffType -> Type -> Type -> Type
+type Handler effh r a o = HHandler AlgOnly effh r a o
 
 -- | The delimited continuation passed to a full clause. `b` is the
 -- | operation's result, `r` the row the handler performs into, `o` the
@@ -264,7 +298,7 @@ with
   => Handler effh effb a o
   -> Hoop effa a
   -> Hoop effb o
-with (Handler install) comp = install comp
+with (HHandler install) comp = install comp
 
 -- | Build a handler from a record of clauses. The record may use the
 -- | canonical form `{ eff: { op: clause } }`, or a bare clause
@@ -286,17 +320,111 @@ with (Handler install) comp = install comp
 -- | operation's signature, so mismatches surface as type errors at the
 -- | `handler` call site.
 handler
-  :: forall effh effhL pureEff hs' hsRow hsL hasPure r a o
+  :: forall effh effhL pureEff hs' hsRow hsL hasPure r a o capability
    . RowToList effh effhL
   => HasLabel effhL "pure" pureEff
+  => PermitsClauses capability effhL
   => CanonicalizeHandlers effh hs' (Record hsRow)
   => RowToList hsRow hsL
   => HasLabel hsL "pure" hasPure
   => BuildHandler pureEff hasPure hsRow effh r a o
   => Proxy effh
   -> hs'
-  -> Handler effh r a o
-handler p hs' = buildHandler @pureEff @hasPure (canonicalizeHandlers p hs' :: Record hsRow)
+  -> HHandler capability effh r a o
+handler p hs' =
+  coerceCapability (buildHandler @pureEff @hasPure (canonicalizeHandlers p hs' :: Record hsRow))
+  where
+  -- `BuildHandler` produces the `AlgOnly` synonym; the capability is a
+  -- *permission*, decided by `PermitsClauses` above and carried in the type
+  -- only. It indexes nothing at run time -- both capabilities install the same
+  -- installer -- so unwrapping and rewrapping the newtype is the whole
+  -- conversion. Total, checked, and free once the newtype is erased.
+  coerceCapability :: Handler effh r a o -> HHandler capability effh r a o
+  coerceCapability (HHandler install) = HHandler install
+
+-- | **What a handler built at this capability is allowed to contain.**
+-- |
+-- | A `Scoped` operation needs its handler re-instantiated at the scope's
+-- | result type, and a single `HHandler` cannot supply that -- only the
+-- | `forall`-quantified family `handlerScoped` takes can. So a scoped clause
+-- | under `AlgOnly` is refused here, at the point the handler is built, rather
+-- | than left to misbehave at run time.
+-- |
+-- | *Why this is a predicate and not another parameter of `MkHandlers`.*
+-- | Threading the capability through the classes that BUILD the table was tried
+-- | and does not work: their methods (`mkHandlers`, `toRuntimeClause`) do not
+-- | mention it, so nothing at a use site determines it and the instance chain
+-- | stalls on an unknown, reporting a partial overlap instead of the intended
+-- | `Fail`. Carrying no method is not by itself what saves this class -- a
+-- | method-less class stalls just the same when its index is undetermined.
+-- | What saves it is that `capability` occurs in `handler`'s RESULT type, so it
+-- | is fixed at the point the handler is consumed: `with` demands `AlgOnly`,
+-- | `handlerScoped` demands `AllowScoped`. The predicate is then discharged
+-- | against a known capability, never against an unknown.
+-- |
+-- | *Why walking the row is safe here.* `effh` is closed by construction --
+-- | `handler` already demands `RowToList effh effhL` to find its clauses, and
+-- | each effect's `repr` is a closed row supplied by `EffNewtype`. This walks
+-- | exactly the structure `MkHandlersList` already walks; it adds no
+-- | requirement that a row be closed which was not there before.
+class PermitsClauses :: HCapability -> RowList EffType -> Constraint
+class PermitsClauses capability effhL
+
+instance permitsClausesNil :: PermitsClauses capability RL.Nil
+
+instance permitsClausesCons ::
+  ( EffNewtype efftyp repr
+  , RowToList repr reprL
+  , PermitsOps capability efflbl reprL
+  , PermitsClauses capability tail
+  ) =>
+  PermitsClauses capability (RL.Cons efflbl efftyp tail)
+
+-- | The same, one effect's operations at a time. Split out so the failure can
+-- | name the effect and the operation rather than the whole row.
+class PermitsOps :: HCapability -> Symbol -> RowList Type -> Constraint
+class PermitsOps capability efflbl reprL
+
+instance permitsOpsNil :: PermitsOps capability efflbl RL.Nil
+
+-- A scoped operation is permitted by exactly one capability, and it is named
+-- here. Everything else is denied by the arm below, so a capability added later
+-- starts out with no scoped permission and has to be granted one deliberately.
+instance permitsOpsScopedAllowed ::
+  ( PermitsOps AllowScoped efflbl tail
+  ) =>
+  PermitsOps AllowScoped efflbl (RL.Cons op (Scoped h) tail)
+
+-- A scoped operation reached through the ordinary path. This is the fixture of
+-- the whole capability index: without it, a monomorphic table carrying a scoped
+-- clause installs happily and misrepresents the scope's value at run time.
+else instance permitsOpsScopedRefused ::
+  ( Fail
+      ( Text "A scoped operation cannot be handled by an ordinary `handler`."
+          |> (Text "  offending operation: " ++ QuoteLabel efflbl ++ Text "." ++ QuoteLabel op)
+          |> Text "  Its clause runs inner computations at a result type this handler does not have,"
+          |> Text "  so the handler must be built as a family: use `handlerScoped` and install with `withF`."
+      )
+  ) =>
+  PermitsOps AlgOnly efflbl (RL.Cons op (Scoped h) tail)
+
+-- Any other capability. No other capability is provided by this library today,
+-- but `HCapability` is an open kind: a user can declare their own inhabitant
+-- and pin a handler's result to it, which reaches this arm. So this is not a
+-- placeholder for a future extension -- it is the arm that keeps a capability
+-- nobody vetted from being scoped-permissive by default.
+else instance permitsOpsScopedDenied ::
+  ( Fail
+      ( Text "A scoped operation is not permitted by this handler capability."
+          |> (Text "  offending operation: " ++ QuoteLabel efflbl ++ Text "." ++ QuoteLabel op)
+      )
+  ) =>
+  PermitsOps capability efflbl (RL.Cons op (Scoped h) tail)
+
+else instance permitsOpsCons ::
+  ( PermitsOps capability efflbl tail
+  ) =>
+  PermitsOps capability efflbl (RL.Cons op comp tail)
 
 class CanonicalizeHandlers :: Row EffType -> Type -> Type -> Constraint
 class CanonicalizeHandlers effh from to | effh from -> to where
@@ -403,7 +531,7 @@ else instance buildHandlerReturnClause ::
       ret = mkReturnImpl (RU.unsafeGet "pure" hs) :: RuntimeReturn r a o
       table = mkHandlers @effh (coerceRest hs)
     in
-      Handler \comp -> runFn3 withImpl ret table comp
+      HHandler \comp -> runFn3 withImpl ret table comp
     where
     coerceRest :: Record hs -> Record rest
     coerceRest = unsafeCoerce
@@ -418,7 +546,7 @@ else instance buildHandlerIdentity ::
       ret = proof (undefinedReturnImpl :: RuntimeReturn r a a)
       table = mkHandlers @effh hs
     in
-      Handler \comp -> runFn3 withImpl ret table comp
+      HHandler \comp -> runFn3 withImpl ret table comp
 
 -- Runtime handler table in the machine's calling convention:
 -- `{ eff: { op: clause } }`. `r` is the row the clauses may perform
@@ -789,7 +917,7 @@ var init k =
     inner = k mkRegion
   in
     case inner of
-      Handler install -> Handler \comp -> installCells init (install comp)
+      HHandler install -> HHandler \comp -> installCells init (install comp)
 
 -- | Read a cell of the open region. The `Row.Cons` constraint is the
 -- | cell's membership in it: a label the region does not declare, or one
