@@ -29,12 +29,12 @@ CACHE="$ROOT/.fstar-cache"
 #   WellScopedness  the judgement that rules `Stuck` out
 #   Metatheory      preservation and progress, proved of `Semantics`
 #   Env             the evidence environment, behind an interface
-#   Hoop.Runtime    THE MACHINE, and the only module the FFI touches:
+#   Machine         THE MACHINE, reached from the boundary only through Api:
 #                   `Semantics` with the stack search replaced by an evidence
 #                   lookup and with tail-resumptive (`fast`) clauses, linked to
 #                   `Semantics` by a weak simulation through `erase_st`.
 #   Test, Laws      leaves -- `assert_norm` fixtures and the monad laws
-VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime Hoop.Runtime.Api Hoop.Runtime.Test Hoop.Runtime.Laws)
+VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime.Machine Hoop.Runtime.Api Hoop.Runtime.Test Hoop.Runtime.Laws)
 
 # Modules to extract to OCaml, in dependency order. The four omitted are
 # proof-only: `WellScopedness`,
@@ -46,7 +46,7 @@ VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics
 # it now has an interface, and a module whose implementation is behind one is
 # not offered, so nothing omitted here reaches build/ml. Give one of them an
 # implementation-only module again and its .ml will reappear.
-EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime Hoop.Runtime.Api)
+EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime.Machine Hoop.Runtime.Api)
 
 # Names the generated JS exposes. Must match the top-level values
 # runtime/ml/melange/hoop_ffi.ml defines under these names.
@@ -337,7 +337,7 @@ ALLOWED_Hoop_Runtime_Syntax=''
 ALLOWED_Hoop_Runtime_Env=''
 ALLOWED_Hoop_Runtime_Handlers='clause_kind KFull KFast KScoped'
 ALLOWED_Hoop_Runtime_Semantics='var_eff rejection ClauseKindMismatch UnborrowableScope operation_kind KOrdinaryOperation KScopedOperation'
-ALLOWED_Hoop_Runtime='ct clause Full Fast Scoped MDone MStuck MStep MRejected execute mk_runtime_handlers'
+ALLOWED_Hoop_Runtime_Machine='ct clause Full Fast Scoped MDone MStuck MStep MRejected execute mk_runtime_handlers'
 ALLOWED_Hoop_Runtime_Api='*'
 
 #     Every extracted module must have a list, empty or not. Without this an

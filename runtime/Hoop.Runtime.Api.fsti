@@ -45,7 +45,7 @@
  *
  * ### Why refusing matters
  *
- * Not for the correspondence theorem. `Hoop.Runtime.execute` has no
+ * Not for the correspondence theorem. `Hoop.Runtime.Machine.execute` has no
  * precondition, so a forged `Splice` arriving from the boundary would satisfy
  * it perfectly well: the machine would stop where the reference machine stops
  * on that same program. Nothing here is load-bearing for the answer being
@@ -74,7 +74,7 @@
  * Three groups, and the reason is the same for all three: this module is about
  * what the boundary may **build**, and none of them is that.
  *
- *   - **`Hoop.Runtime.{ct, clause, Full, Fast, Scoped, mk_runtime_handlers}`.**
+ *   - **`Hoop.Runtime.Machine.{ct, clause, Full, Fast, Scoped, mk_runtime_handlers}`.**
  *     A tagged clause has three constructors and the boundary is entitled to
  *     build all three -- there is no internal one to hide, so a wrapper would be
  *     indirection with nothing behind it. `mk_runtime_handlers` is *already* the
@@ -85,7 +85,7 @@
  *     `Hoop_Runtime_Handlers.mk_handlers`, which no interface elsewhere can make
  *     unreachable.
  *
- *   - **`Hoop.Runtime.{execute, mstate}` and `Hoop.Runtime.Semantics.rejection`.**
+ *   - **`Hoop.Runtime.Machine.{execute, mstate}` and `Hoop.Runtime.Semantics.rejection`.**
  *     These are *outputs*. `execute` is the machine, and `MDone` / `MStuck` /
  *     `MRejected` / `MStep` and the `rejection` constructors are destructured to
  *     produce an error message. Reading a result the machine produced forges
@@ -116,11 +116,11 @@
 module Hoop.Runtime.Api
 
 (* The AST, and the runtime's clause tagging. Everything below is stated at
-   `Hoop.Runtime.ct`, i.e. `comp_tree v (clause cl)`, which is the type the
+   `Hoop.Runtime.Machine.ct`, i.e. `comp_tree v (clause cl)`, which is the type the
    machine runs and the type the boundary's `comp` abbreviates -- so the
    boundary never has to name `comp_tree` even in a type annotation. *)
 open Hoop.Runtime.Syntax
-open Hoop.Runtime
+open Hoop.Runtime.Machine
 
 (** **A value.** The `pure` of the `Hoop` monad: the computation that is already
     finished and whose result is `value`. *)
@@ -171,7 +171,7 @@ val performS (#v #cl: Type) (eff: string) (op: string) (payload: list v)
 
 (**
  * **A handler installation.** `hs` is the table -- which the boundary must have
- * built through `Hoop.Runtime.mk_runtime_handlers`, so that the *kind* of each
+ * built through `Hoop.Runtime.Machine.mk_runtime_handlers`, so that the *kind* of each
  * clause is a reading of the tag the boundary attached rather than an assertion
  * the boundary made -- `pure` is the optional return clause, and `body` is the
  * computation run under the prompt.

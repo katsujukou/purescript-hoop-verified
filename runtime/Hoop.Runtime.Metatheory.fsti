@@ -146,7 +146,7 @@ val lookup_clause_none
  * **The stored kind is the sole authority.** Not the constructor the clause
  * happens to carry: `Hoop.Runtime.Handlers.mk_handlers` takes an arbitrary
  * classifier, so nothing in F* forces the two to agree, and
- * `Hoop.Runtime.msim` is stated of EVERY configuration with no hypothesis about
+ * `Hoop.Runtime.Machine.msim` is stated of EVERY configuration with no hypothesis about
  * how tables were built. Were the reference to decide on the stored kind and the
  * machine on the constructor, a table pairing `Full c` with `KScoped` would send
  * the two down different transitions and the simulation would be false. So both
@@ -1183,7 +1183,7 @@ val steps_preserves_wf
 
 (**
  * **Progress**: a well-formed machine never gets stuck, however long it runs.
- * `Hoop.Runtime` says of the `Stuck` constructor that it *should never occur as
+ * `Hoop.Runtime.Machine` says of the `Stuck` constructor that it *should never occur as
  * long as the runtime is sound*; here that is discharged, against a precise
  * reading of *sound* — the program is well scoped, and the FFI's `apply`
  * respects well-scopedness.
@@ -1210,10 +1210,10 @@ val load_wf
 
 (**
  * **From the invariant to the precondition of `run`.** `run` cannot take
- * `wf_state cok s` directly: it lives in `Hoop.Runtime` and would then need
+ * `wf_state cok s` directly: it lives in `Hoop.Runtime.Machine` and would then need
  * `step_preserves_wf`, which lives here. Phrasing its precondition as *this run
  * never reaches `Stuck`* breaks the knot — that property is closed under `step`
- * by inspection, so `Hoop.Runtime` stays self-contained while the substance of
+ * by inspection, so `Hoop.Runtime.Machine` stays self-contained while the substance of
  * the argument is supplied by these two lemmas.
  *)
 val wf_never_stuck
@@ -1247,9 +1247,9 @@ val load_never_stuck
 (*                                                                    *)
 (*  A characterisation of the REFERENCE SEMANTICS itself, and not a   *)
 (*  machine-versus-reference property: as the latter it would add     *)
-(*  nothing over `Hoop.Runtime.execute_agrees`, which already says    *)
-(*  the shipping machine agrees with `Hoop.Runtime.Semantics.step` on *)
-(*  every program, cells included.                                    *)
+(*  nothing over `Hoop.Runtime.Machine.execute_agrees`, which already *)
+(*  says the shipping machine agrees with                             *)
+(*  `Hoop.Runtime.Semantics.step` on every program, cells included.   *)
 (*                                                                    *)
 (*  What it is instead is the human-auditable statement that          *)
 (*  `set_param` changes EXACTLY the target cell and nothing else --   *)

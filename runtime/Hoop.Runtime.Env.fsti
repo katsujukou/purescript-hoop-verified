@@ -14,7 +14,7 @@
  * roles: `Hoop.Runtime.Handlers.key` has a constructor for each, so a level
  * binding operations and a level binding a label are told apart by the keys they
  * hold, and this module goes on routing keys to payloads without knowing which
- * sort it is routing. See `Hoop.Runtime.pd` for why a cell belongs in an
+ * sort it is routing. See `Hoop.Runtime.Machine.pd` for why a cell belongs in an
  * environment, which is captured and restored with a continuation, rather than
  * in a store, which is not.
  *
@@ -60,7 +60,7 @@ open Hoop.Runtime.Handlers
  * Were it to carry a keyset, `equiv` would compare keysets by `==` and so
  * distinguish two environments that bind the same keys through differently
  * built keysets -- an equality strictly stronger than the one intended, which
- * `Hoop.Runtime.mreinstall_equiv` and everything resting on it would silently
+ * `Hoop.Runtime.Machine.mreinstall_equiv` and everything resting on it would silently
  * be asking for. Keeping the *view* here leaves `equiv` exactly as
  * weak as it was and confines the keyset to the realisation, which is where the
  * speed of `contains` is wanted and where nothing is compared.
@@ -95,7 +95,7 @@ let equiv (#a: Type) (w1 w2: env a) : GTot prop = levels w1 == levels w2
 
 (** **The number of levels**. Concrete rather than ghost: the machine uses it to
     turn an evidence into a count of prompts, which is how the stack split is
-    recovered without an identity test (see `Hoop.Runtime.msplit`). *)
+    recovered without an identity test (see `Hoop.Runtime.Machine.msplit`). *)
 val depth (#a: Type) (w: env a) : Tot (n: nat { n == length (levels w) })
 
 (**
@@ -206,7 +206,7 @@ val outer_extend (#a: Type) (w: env a) (ks: keyset) (x: a)
 
 (** **The hot path**: the evidence for `k`, or `None` if no level binds it. This
     replaces the linear scan of `Hoop.Runtime.Semantics.find_prompt`; that it
-    answers the same question is `Hoop.Runtime.lookup_find`. *)
+    answers the same question is `Hoop.Runtime.Machine.lookup_find`. *)
 val lookup (#a: Type) (w: env a) (k: key)
   : Tot (o: option (evidence a) { lookup_agrees w k o })
 

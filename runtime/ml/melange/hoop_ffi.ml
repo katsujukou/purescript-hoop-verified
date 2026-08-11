@@ -85,7 +85,7 @@ external mk_return : any -> any -> any = "mkReturn" [@@mel.module "./hoop_prim.j
 
 (* The machine runs the AST at the TAGGED clause type: an entry of a handler
    table is `Full c` or `Fast c`, never a bare handle. *)
-type comp = (any, any) Hoop_Runtime.ct
+type comp = (any, any) Hoop_Runtime_Machine.ct
 
 let fail (msg : string) : 'a = throw_error msg
 
@@ -135,12 +135,12 @@ let apply_scoped (clause : any) (payload : any list) (weave : comp -> comp)
    rather than left to fail as an opaque "is not a function" from inside the
    machine.
 
-   The tag this attaches is what `Hoop_Runtime.classify_runtime_clause` reads,
+   The tag this attaches is what `Hoop_Runtime_Machine.classify_runtime_clause` reads,
    and the kind it derives is what the transitions compare the AST node against.
    So "this clause is scoped" is a reading of the shape the surface built, never
    an assertion by this file. *)
-let tag_clause (eff : string) (op : string) (c : any) : any Hoop_Runtime.clause =
-  if is_function c then Hoop_Runtime.Full c
+let tag_clause (eff : string) (op : string) (c : any) : any Hoop_Runtime_Machine.clause =
+  if is_function c then Hoop_Runtime_Machine.Full c
   else
     let f = fast_fun c in
     if is_nullish f then
@@ -150,8 +150,8 @@ let tag_clause (eff : string) (op : string) (c : any) : any Hoop_Runtime.clause 
           ("hoop: the clause for '" ^ eff ^ "." ^ op
            ^ "' is neither a fully controllable (ctl) clause, a tail-resumptive \
               (fast) one, nor a scoped one")
-      else Hoop_Runtime.Scoped s
-    else Hoop_Runtime.Fast f
+      else Hoop_Runtime_Machine.Scoped s
+    else Hoop_Runtime_Machine.Fast f
 
 (* Flatten the nested handler table { [eff]: { [op]: clause } } that PureScript
    hands over into the association list Hoop_Runtime_Handlers works with,
@@ -159,14 +159,14 @@ let tag_clause (eff : string) (op : string) (c : any) : any Hoop_Runtime.clause 
    result never contains a duplicate (eff, op) pair. The conversion happens once
    per Handle, not once per perform.
 
-   The table itself is built by Hoop_Runtime.mk_runtime_handlers rather than by
+   The table itself is built by Hoop_Runtime_Machine.mk_runtime_handlers rather than by
    Hoop_Runtime_Handlers.mk_handlers, which takes a classifier: this boundary
    must not get to say what kind a clause is, or "every clause here is fast"
    would be an assertion rather than a reading of the tag it just attached.
 
    This is the loop the jsoo build paid `caml_string_of_jsstring` for, once per
    key: here `string_of_jsstring` is `%identity`. *)
-let handlers_of_js (o : any) : (string * string * any Hoop_Runtime.clause) list =
+let handlers_of_js (o : any) : (string * string * any Hoop_Runtime_Machine.clause) list =
   Array.fold_right
     (fun (eff_key : any) acc ->
        let eff = string_of_jsstring eff_key in
@@ -202,7 +202,7 @@ let handlers_of_js (o : any) : (string * string * any Hoop_Runtime.clause) list 
    only produces well-scoped programs: row types say nothing whatever about
    frame lists, so a boundary able to fabricate a computation carrying an
    arbitrary captured segment would make that claim unbelievable at exactly the
-   point `Hoop_Runtime.execute`'s `never_stuck` hypothesis leans on it. See the
+   point `Hoop_Runtime_Machine.execute`'s `never_stuck` hypothesis leans on it. See the
    header of runtime/Hoop.Runtime.Api.fsti. *)
 
 let pureImpl (value : any) : any = inject (Hoop_Runtime_Api.var value : comp)
@@ -248,7 +248,7 @@ let withImpl (ret : any) (handlers : any) (body : any) : any =
     else Some (fun (x : any) -> (magic (call1 ret x) : comp))
   in
   inject
-    (Hoop_Runtime_Api.handle (Hoop_Runtime.mk_runtime_handlers hs) r (magic body)
+    (Hoop_Runtime_Api.handle (Hoop_Runtime_Machine.mk_runtime_handlers hs) r (magic body)
       : comp)
 
 (* --- Prompt-local cells --------------------------------------------------- *)
@@ -295,7 +295,7 @@ let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key 
 
 (* --- Reporting a boundary rejection ---------------------------------------- *)
 
-(* `Hoop_Runtime.MRejected` is a DIFFERENT failure from `MStuck`, and the two
+(* `Hoop_Runtime_Machine.MRejected` is a DIFFERENT failure from `MStuck`, and the two
    messages below exist so that it reads as one.
 
    `MStuck` says a required dynamic capability is absent: no prompt on the stack
@@ -308,7 +308,7 @@ let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key 
    between a scope and its owner rearranged. Reporting both as "unhandled
    operation" would send the reader to the wrong place.
 
-   `Hoop.Runtime.mstep` produces one at a dispatch whose node and whose table
+   `Hoop.Runtime.Machine.mstep` produces one at a dispatch whose node and whose table
    entry disagree about the kind of the operation, and at a `Weave` whose
    prepared segment crosses a prompt that cannot be borrowed. Both are now
    reachable: `performScopedImpl` and `mkScopedClauseImpl` are exported, so a
@@ -376,14 +376,14 @@ let rejection_message (r : Hoop_Runtime_Semantics.rejection) : string =
 (* --- Running -------------------------------------------------------------- *)
 
 (*
-  `Hoop_Runtime.execute` is the whole machine, and the only entry point this
+  `Hoop_Runtime_Machine.execute` is the whole machine, and the only entry point this
   file calls: the reference transitions with the stack walk replaced by an
   evidence lookup and with tail-resumptive clauses run in place, proved in F* to
   stop at a state whose erasure `Hoop.Runtime.Semantics.steps` -- the
   stack-walking specification -- reaches on the same program, under the
-  reference reading `Hoop.Runtime.desugar` gives this very pair of interpreters.
+  reference reading `Hoop.Runtime.Machine.desugar` gives this very pair of interpreters.
   Nothing of that specification is extracted; it is ghost throughout, so the
-  only thing crossing back is `Hoop_Runtime.mstate`.
+  only thing crossing back is `Hoop_Runtime_Machine.mstate`.
 
   That much holds *unconditionally*: `execute` has no precondition, which
   matters here because `c` arrives through `magic` and this file could not
@@ -451,9 +451,9 @@ let rejection_message (r : Hoop_Runtime_Semantics.rejection) : string =
   None of this reasoning is backend-specific.
 *)
 let runImpl (c : any) : any =
-  match Hoop_Runtime.execute apply_full apply_fast apply_scoped (magic c : comp) with
-  | Hoop_Runtime.MDone value -> value
-  | Hoop_Runtime.MStuck (eff, op) when eff = Hoop_Runtime_Semantics.var_eff ->
+  match Hoop_Runtime_Machine.execute apply_full apply_fast apply_scoped (magic c : comp) with
+  | Hoop_Runtime_Machine.MDone value -> value
+  | Hoop_Runtime_Machine.MStuck (eff, op) when eff = Hoop_Runtime_Semantics.var_eff ->
       fail
         ("hoop: the prompt-local cell '" ^ op
          ^ "' was read or written outside the scope that created it.\n\
@@ -461,11 +461,11 @@ let runImpl (c : any) : any =
             computation its `new` wraps: a handle that outlives that frame -- \
             returned out of the body, or carried by a continuation resumed \
             below the `new` -- names no cell at all.\n\
-            The blame is the program's, not the runtime's: `Hoop.Runtime.execute` \
+            The blame is the program's, not the runtime's: `Hoop.Runtime.Machine.execute` \
             has no precondition, and it is proved to stop where the reference \
             machine stops, so this is a real escape rather than a lost frame.")
-  | Hoop_Runtime.MStuck (eff, op) ->
+  | Hoop_Runtime_Machine.MStuck (eff, op) ->
       fail ("hoop: Unhandled effect operation '" ^ eff ^ "." ^ op ^ "'")
-  | Hoop_Runtime.MRejected r -> fail (rejection_message r)
-  | Hoop_Runtime.MStep (_, _, _) ->
+  | Hoop_Runtime_Machine.MRejected r -> fail (rejection_message r)
+  | Hoop_Runtime_Machine.MStep (_, _, _) ->
       fail "hoop: internal error - the machine stopped in a running state"

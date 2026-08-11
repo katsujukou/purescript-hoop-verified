@@ -374,7 +374,7 @@ check('the innermost cell of a repeated label wins, and shadowing is total', () 
 // `%hoop.var`, which the generic branch of run_impl would spell as
 // "Unhandled effect operation '%hoop.var.c'" -- accurate and useless.
 // the boundary special-cases it. The message may assert whose fault it is:
-// `Hoop.Runtime.execute`'s postcondition is unconditional, so an MStuck means
+// `Hoop.Runtime.Machine.execute`'s postcondition is unconditional, so an MStuck means
 // the reference machine is stuck on the same program.
 
 const escaped = /prompt-local cell '(.*)' was read or written outside the scope/

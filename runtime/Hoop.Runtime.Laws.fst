@@ -163,7 +163,7 @@ let obs_le_n_mono
 (**
  * **`apply` respects the continuation, level by level.**
  *
- * Like `apply_ok` in `Hoop.Runtime`, this is a condition on the FFI boundary,
+ * Like `apply_ok` in `Hoop.Runtime.Machine`, this is a condition on the FFI boundary,
  * not a theorem: `apply` hands the payload and the captured continuation to an
  * opaque PureScript closure whose body F* never sees. It appears only as a
  * hypothesis of the laws below.

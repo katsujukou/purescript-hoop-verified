@@ -9,7 +9,7 @@ open Hoop.Runtime.Syntax
 open Hoop.Runtime.Semantics
 open Hoop.Runtime.Metatheory
 
-module M = Hoop.Runtime
+module M = Hoop.Runtime.Machine
 
 
 
@@ -236,7 +236,7 @@ let _ =
 (*
   ---- 13-19. The machine that ships, differentially, over full clauses ----
 
-  `Hoop.Runtime.msim` proves that one machine transition is one or two reference
+  `Hoop.Runtime.Machine.msim` proves that one machine transition is one or two reference
   transitions, so none of this can fail while that proof stands. It is here
   because it exercises what the proof deliberately does not: the evidence
   realisation actually running -- `lookup`, `extend`, `outer` -- on programs
@@ -399,7 +399,7 @@ let _ =
 (*
   The clause language of these tests, kept separate from `tcl` so that the
   fixtures above are untouched. Each constructor is read by *both* interpreters
-  -- which is exactly what the `Hoop.Runtime.clause` tag is for: the tag on
+  -- which is exactly what the `Hoop.Runtime.Machine.clause` tag is for: the tag on
   the table entry, not the clause handle, decides which reading applies. The
   names say which reading each was written for.
 *)

@@ -9,7 +9,7 @@
  * handler dispatch is performed via a linear search of the stack. Although this
  * is the most straightforward implementation of deep-handler semantics, walking
  * the K-stack on every operation execution is inefficient. Therefore, the actual
- * runtime engine called from PureScript (`Hoop.Runtime`) employs a more performant
+ * runtime engine called from PureScript (`Hoop.Runtime.Machine`) employs a more performant
  * evidence-passing mechanism, where the E-part serves as an evidence environment.
  * The equivalence of these two machines is proved under appropriate assumptions.
  *)
@@ -70,7 +70,7 @@ type operation_kind =
  * Flat, and deliberately independent of `v` and `cl`: `clause_kind` is flat for
  * the reason its own comment gives, so a rejection can be named in this
  * `cl`-polymorphic module and BOTH machines can share the one type --
- * `Hoop.Runtime.erase_st` maps `MRejected r` to `Rejected r` with nothing to
+ * `Hoop.Runtime.Machine.erase_st` maps `MRejected r` to `Rejected r` with nothing to
  * translate.
  *
  *   - `ClauseKindMismatch`: the node asked for one kind of operation and the
@@ -438,8 +438,8 @@ let prepare_scope_fast_agrees
 (*                                                                     *)
 (*  `prepare_scope` takes the two parts separately, which is how the   *)
 (*  design states the two roles. A transition does not hold them       *)
-(*  separately: `find_prompt` -- and `Hoop.Runtime.msplit_fast` -- hand *)
-(*  back ONE captured segment, and that it splits as                   *)
+(*  separately: `find_prompt` -- and `Hoop.Runtime.Machine.msplit_fast` *)
+(*  -- hand back ONE captured segment, and that it splits as           *)
 (*  `intermediates @ [owner]` with `PromptF? owner` is                 *)
 (*  `Hoop.Runtime.Metatheory.find_prompt_last`, a LEMMA ABOUT THE       *)
 (*  GENERATION PATH rather than a refinement anything carries.          *)
@@ -860,6 +860,6 @@ let never_rejected_step
     with assert (steps apply apply_s (n + 1) s == steps apply apply_s n (step apply apply_s s))
 
 (** **Loading a program**: the state a run starts from. Every theorem about a
-    whole run is indexed by this, and `Hoop.Runtime.execute`'s postcondition
+    whole run is indexed by this, and `Hoop.Runtime.Machine.execute`'s postcondition
     reads `steps apply apply_s n (load c)`. *)
 let load (#v #cl: Type) (c: comp_tree v cl) : GTot (state v cl) = Step c []

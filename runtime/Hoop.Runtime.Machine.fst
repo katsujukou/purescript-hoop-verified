@@ -63,7 +63,7 @@
  * ever a means to. The module consequently keeps its own `env_of_stack`, at a
  * payload that is a prompt frame and nothing else.
  *)
-module Hoop.Runtime
+module Hoop.Runtime.Machine
 
 open FStar.List.Tot
 open Hoop.Runtime.Syntax
@@ -1005,7 +1005,7 @@ let mset_param_fast (#v #cl: Type) (l: string) (x: v) (w: menv v cl) (kk: mstack
 (**
  * **One transition of the machine.**
  *
- *   - `Op`, `Handle`, `Var`  behave as in `Hoop.Runtime`.
+ *   - `Op`, `Handle`, `Var`  behave as in `Hoop.Runtime.Semantics`.
  *   - `Var` over an `MEnvF`  is the *return* from a tail-resumptive body: the
  *                            perform site's environment comes back and the value
  *                            flows on as the operation's result. Nothing is

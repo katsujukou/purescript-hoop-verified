@@ -17,7 +17,7 @@
 module Hoop.Runtime.Api
 
 open Hoop.Runtime.Syntax
-open Hoop.Runtime
+open Hoop.Runtime.Machine
 
 let var #v #cl value = Var value
 

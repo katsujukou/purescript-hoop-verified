@@ -12,7 +12,7 @@
  * This module holds C and the frames K is built from -- `comp_tree` and
  * `frame`, which are mutually recursive and so cannot be separated. What a
  * machine *does* with them is `Hoop.Runtime.Semantics` (the specification) and
- * `Hoop.Runtime` (the implementation that ships); E belongs to the latter.
+ * `Hoop.Runtime.Machine` (the implementation that ships); E belongs to the latter.
  *)
 module Hoop.Runtime.Syntax
 

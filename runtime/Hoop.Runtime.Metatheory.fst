@@ -225,8 +225,8 @@ let steps_stable
 (* Well-scopedness: the defining equations                             *)
 (*                                                                     *)
 (* Each equation is proved in two halves. The half that peels the step  *)
-(* index lives in `Hoop.Runtime`, since `ws_n` and `wf_stack_n` are     *)
-(* private there; what is left here is the assembly into an `<==>`.     *)
+(* index lives in `Hoop.Runtime.Machine`, since `ws_n` and `wf_stack_n` *)
+(* are private there; what is left here is the assembly into an `<==>`. *)
 (* ------------------------------------------------------------------ *)
 
 let ws_var (#v #cl: Type) (cok: clause_ok_t cl) (a: can_perform) (x: v)

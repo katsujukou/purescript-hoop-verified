@@ -62,7 +62,7 @@ open FStar.List.Tot
  * `(var_eff, l)` such a table would shadow the cell -- or be shadowed by it --
  * and the environment would stop answering what the reference machine's stack
  * search answers. `Hoop.Runtime.WellScopedness` rules that program out, but
- * `Hoop.Runtime.msim` is proved of *every* configuration and may not appeal to
+ * `Hoop.Runtime.Machine.msim` is proved of *every* configuration and may not appeal to
  * it. Making the two sorts disjoint constructors settles it in the type: a
  * `VarKey` is unreachable from any `mk_handlers`, which is `keys_no_var`.
  *
@@ -92,8 +92,8 @@ let entry (cl: Type u#a) : Type u#a = string & string & cl
  * `cl`.
  *
  * A table is polymorphic in the clause type and therefore cannot see a tag:
- * `Hoop.Runtime.clause`'s `Full` / `Fast` constructors typecheck only where `cl`
- * is `clause cl0`, which is `Hoop.Runtime` and nowhere else. Anything that has
+ * `Hoop.Runtime.Machine.clause`'s `Full` / `Fast` constructors typecheck only where `cl`
+ * is `clause cl0`, which is `Hoop.Runtime.Machine` and nowhere else. Anything that has
  * to *name* a kind while staying `cl`-polymorphic -- scoped dispatch deciding
  * which interpreter to unwrap to, a boundary rejection reporting the kind it
  * actually found -- needs a type it can mention, and this is it. The bridge
@@ -234,7 +234,7 @@ val table (#cl: Type) (hs: handlers cl) : GTot (list (entry cl))
  * *This is a primitive of the interface, and it must stay one.* Reading it as
  * `map_opt (fun f -> f.body) (lookup_handler hs eff op)` would be shorter by a
  * `val`, by a realisation and by the coherence lemma below -- and it would put
- * an allocation back on the hot loop. `Hoop.Runtime.mstep`'s ordinary `Perform`
+ * an allocation back on the hot loop. `Hoop.Runtime.Machine.mstep`'s ordinary `Perform`
  * rule reaches its clause through this function and dispatches a `Fast` clause
  * without ever building a `found_clause`; that record is what the scoped path
  * pays for, and the scoped path walks the stack anyway. Removing one
@@ -296,7 +296,7 @@ let clause_memP (#cl: Type) (c:cl) (hs: handlers cl)
  * association list it was built from. That is what makes a prompt level
  * transparent to a cell lookup, and it is stated as a refinement rather than
  * only as `keys_no_var` for the same reason as the others -- `keys` occurs
- * under `Hoop.Runtime.env_of_stack`, which the solver unfolds constantly.
+ * under `Hoop.Runtime.Machine.env_of_stack`, which the solver unfolds constantly.
  *)
 val keys (#cl: Type) (hs: handlers cl)
   : Tot (ks: keyset {
@@ -319,7 +319,7 @@ val keys (#cl: Type) (hs: handlers cl)
  * the FFI's choosing is a trusted input in functional form -- `fun _ -> KFast`
  * would declare every table borrowable, silently. So the classifier is taken
  * here, pinned by the refinement below rather than believed, and fixed on the
- * shipping path by `Hoop.Runtime.mk_runtime_handlers`, which is the only
+ * shipping path by `Hoop.Runtime.Machine.mk_runtime_handlers`, which is the only
  * `mk_handlers` caller the boundary is allowed to name.
  *
  * The refinement fixes all three views of the result: the ghost view, the hot
@@ -408,7 +408,7 @@ val keys_correct (#cl: Type) (hs: handlers cl) (eff op: string)
  * sorts of name, in the form a caller wants it: a prompt level is transparent to
  * the lookup of a cell, whatever operations its table happens to declare.
  *
- * This is what `Hoop.Runtime.lookup_param_find` spends at every `PromptF` frame,
+ * This is what `Hoop.Runtime.Machine.lookup_param_find` spends at every `PromptF` frame,
  * and it is the reason the machine's `ReadP` is a single `Env.lookup` rather
  * than a walk that has to step over levels of the wrong sort.
  *)
