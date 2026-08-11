@@ -327,11 +327,24 @@ val wf_stack_congr_eq (#v #cl: Type) (cok: clause_ok_t cl) (can1 can2: can_perfo
  * `Stuck` is ruled out outright. `Hoop.Runtime.Metatheory` shows the predicate
  * is preserved by `step` (`step_preserves_wf`), whence a well-formed state
  * never reaches `Stuck` however long it runs (`progress`).
+ *
+ * **`Rejected` is `True`, and that is the honest arm.** This judgement is about
+ * one thing -- whether every action a computation fires is one its stack offers
+ * the capability for -- and a boundary rejection is not a failure of that kind:
+ * the operation is handled, the transition is defined, and what is refused is
+ * the answer-type agreement the PureScript surface assumes. Setting that arm to
+ * `False` would silently make borrowability and clause-kind agreement into
+ * premises of `progress`, a theorem which says something else and whose
+ * hypotheses (`clause_ok_congr`, `apply_ok`) establish nothing of the sort. So
+ * a rejected state is well formed, preservation across it is unconditional, and
+ * the second axis is carried by `Hoop.Runtime.Semantics.never_rejected`
+ * instead. See `rejection` there.
  *)
 let wf_state (#v #cl: Type) (cok: clause_ok_t cl) (s: state v cl) : GTot prop =
   match s with
   | Done _ -> True
   | Stuck _ _ -> False
+  | Rejected _ -> True
   | Step c k -> ws cok (can_in k) c /\ wf_stack cok (can_nothing ()) k
 
 (**

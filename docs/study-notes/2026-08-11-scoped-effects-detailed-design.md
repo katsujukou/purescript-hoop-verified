@@ -1003,6 +1003,24 @@ and `steps_terminal`, `no_more_steps`, the `never_*` predicates, `erase_st` and
 where it becomes the message naming the blocking handlers. Plus the
 `found_clause` retyping listed above.
 
+**+1,299 bytes of provisional rejection diagnostics** in the shipped bundle
+(13,023 → 14,322), for an outcome nothing produces yet. The FFI *arm* is
+unavoidable — under `-w -a` an incomplete match compiles and raises
+`Match_failure` at run time — but the length of the two messages is not.
+**Revisit at the slice that makes rejection reachable**, together with the
+diagnostic fixtures: that is when it is known which parts of the explanation a
+user actually needs at the point of failure, and which belong here and in the
+surface docs instead. The 60 KB budget is comfortable, which is a reason not to
+hurry and not a reason to keep prose in the runtime.
+
+One wording correction was made straight away, because it was wrong rather than
+merely long. The message said borrowing is *"only sound when every clause is
+tail-resumptive"*, which reads as a general impossibility; re-instantiating a
+full prompt across a scope is precisely the research goal. It now says the
+**current implementation** can reinstall a prompt only when its clauses are
+independent of the answer type, and that a full one would need re-instantiation
+at the scope's result type, which is not supported yet.
+
 ### Confirmed form
 
 - `Rejected rejection` is a fourth terminal state, distinct from `Stuck`.

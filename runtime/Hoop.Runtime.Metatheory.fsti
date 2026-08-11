@@ -299,14 +299,17 @@ let stack_weakening
 
 //------------------------//
 
-(** A terminal state is a fixed point of `steps`. *)
+(** A terminal state is a fixed point of `steps`. There are three of them:
+    `Done`, `Stuck` and `Rejected`. The last is terminal for the same reason the
+    other two are -- `steps` has nothing to do from it -- and for a DIFFERENT
+    reason than it is unreachable; see `Hoop.Runtime.Semantics.rejection`. *)
 val steps_terminal
     (#v #cl: Type)
     (apply: apply_t v cl)
     (n: nat)
     (s: state v cl)
   : Lemma
-      (requires Done? s \/ Stuck? s)
+      (requires Done? s \/ Stuck? s \/ Rejected? s)
       (ensures steps apply n s == s)
 
 (** Step additivity. *)

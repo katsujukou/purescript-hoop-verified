@@ -347,6 +347,43 @@ let never_stuck_step
   = introduce forall (n: nat). ~(Stuck? (steps apply n (step apply s)))
     with assert (steps apply (n + 1) s == steps apply n (step apply s))
 
+(**
+ * **The rejection axis**, stated separately from `never_stuck` and proved from
+ * a different condition. See the note above `rejection`: a run may be
+ * `never_stuck` and still be rejected, and conversely, so neither predicate
+ * implies the other and neither may be weakened into the other.
+ *
+ * It holds *vacuously* of every program this repository can build, since no
+ * transition returns `Rejected`. That is the point of introducing it now: the
+ * statement it strengthens -- `Hoop.Runtime.execute`'s guarded conjunct -- is
+ * written once, in the form it will keep.
+ *)
+let never_rejected
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (s: state v cl)
+  : GTot prop
+  = forall (n: nat). ~(Rejected? (steps apply n s))
+
+let never_rejected_now
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (s: state v cl)
+  : Lemma
+      (requires never_rejected apply s)
+      (ensures ~(Rejected? s))
+  = assert (steps apply 0 s == s)
+
+let never_rejected_step
+    (#v #cl: Type)
+    (apply: apply_t v cl)
+    (s: state v cl { Step? s })
+  : Lemma
+      (requires never_rejected apply s)
+      (ensures never_rejected apply (step apply s))
+  = introduce forall (n: nat). ~(Rejected? (steps apply n (step apply s)))
+    with assert (steps apply (n + 1) s == steps apply n (step apply s))
+
 (** **Loading a program**: the state a run starts from. Every theorem about a
     whole run is indexed by this, and `Hoop.Runtime.execute`'s postcondition
     reads `steps apply n (load c)`. *)

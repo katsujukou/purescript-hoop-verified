@@ -128,7 +128,7 @@ let rec steps_terminal
     (n: nat)
     (s: state v cl)
   : Lemma
-      (requires Done? s \/ Stuck? s)
+      (requires Done? s \/ Stuck? s \/ Rejected? s)
       (ensures steps apply n s == s)
       (decreases n)
   = if n = 0 then () 
@@ -149,6 +149,10 @@ let rec steps_add
           steps_terminal apply n s;
           steps_terminal apply m s
       | Stuck _ _ ->
+          steps_terminal apply (n + m) s;
+          steps_terminal apply n s;
+          steps_terminal apply m s
+      | Rejected _ ->
           steps_terminal apply (n + m) s;
           steps_terminal apply n s;
           steps_terminal apply m s
@@ -567,6 +571,10 @@ let step_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t v cl)
   = match s with
     | Done _ -> ()
     | Stuck _ _ -> ()
+    // A terminal state steps to itself, and `wf_state (Rejected _)` is `True`,
+    // so preservation here is unconditional -- no borrowability hypothesis, and
+    // none available to use.
+    | Rejected _ -> ()
     | Step c k ->
       (match c with
         | Op inner fn -> pres_op cok apply inner fn k
@@ -597,6 +605,7 @@ let rec steps_preserves_wf (#v #cl: Type) (cok: clause_ok_t cl) (apply: apply_t 
       match s with
       | Done _ -> ()
       | Stuck _ _ -> ()
+      | Rejected _ -> ()
       | Step _ _ ->
         step_preserves_wf cok apply s;
         steps_preserves_wf cok apply (n - 1) (step apply s)

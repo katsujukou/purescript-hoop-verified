@@ -215,12 +215,19 @@ type mframe (v cl: Type) =
 let mstack (v cl: Type) = list (mframe v cl)
 
 (** **The machine state.** `MStep` carries the environment; the
-    reference `state` does not, and does not need to. *)
+    reference `state` does not, and does not need to.
+
+    `MRejected` carries the reference machine's own `rejection` -- the type is
+    flat and shared, so the erasure has nothing to translate. It is terminal in
+    exactly the way `MDone` and `MStuck` are, and unreachable for a different
+    reason than `MStuck` is: see `Hoop.Runtime.Semantics.rejection`. Nothing in
+    this module produces one. *)
 noeq
 type mstate (v cl: Type) =
   | MDone : value:v -> mstate v cl
   | MStep : c:ct v cl -> w:menv v cl -> k:mstack v cl -> mstate v cl
   | MStuck : eff:string -> op:string -> mstate v cl
+  | MRejected : rejection -> mstate v cl
 
 (* ------------------------------------------------------------------ *)
 (*  3.  The erasure                                                    *)
@@ -267,6 +274,7 @@ let erase_st (#v #cl: Type) (q: mstate v cl) : GTot (option (rstate v cl)) =
   match q with
   | MDone x -> Some (Done x)
   | MStuck e o -> Some (Stuck e o)
+  | MRejected r -> Some (Rejected r)
   | MStep c w kk -> (match erase_k kk with None -> None | Some k -> Some (Step c k))
 
 (* ------------------------------------------------------------------ *)
@@ -303,6 +311,7 @@ let config_ok (#v #cl: Type) (q: mstate v cl) : GTot prop =
   match q with
   | MDone _ -> True
   | MStuck _ _ -> True
+  | MRejected _ -> True
   | MStep _ w kk ->
       stack_ok kk /\
       (match erase_k kk with
@@ -990,6 +999,9 @@ let mstep
   = match q with
     | MDone _ -> q
     | MStuck _ _ -> q
+    // Terminal. No transition below produces one, so this arm is here to keep
+    // the function total over the state type, exactly as the two above it are.
+    | MRejected _ -> q
     | MStep c w kk ->
       match c with
       | Op comp fn -> MStep comp w (MBindF fn :: kk)
@@ -1800,6 +1812,12 @@ let msim (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
           (n == 1 \/ n == 2) /\
           erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
         with 1 and ()
+    | MRejected r ->
+        MT.steps_terminal apply 1 (Rejected r <: rstate v cl);
+        introduce exists (n: nat).
+          (n == 1 \/ n == 2) /\
+          erase_st (mstep af afast q) == Some (steps apply n (Some?.v (erase_st q)))
+        with 1 and ()
     | MStep c w kk ->
       let Some k = erase_k kk in
       let s : rstate v cl = Step c k in
@@ -1927,6 +1945,7 @@ let rec msteps
       match q with
       | MDone _ -> q
       | MStuck _ _ -> q
+      | MRejected _ -> q
       | MStep _ _ _ -> msteps af afast (fuel - 1) (mstep af afast q)
 
 (** **Convergence of the reference machine**, restated here because
@@ -1963,7 +1982,7 @@ let rec msteps_agrees
       with 0 and ()
     else
       match q with
-      | MDone _ | MStuck _ _ ->
+      | MDone _ | MStuck _ _ | MRejected _ ->
           introduce exists (n: nat).
             erase_st q == Some (steps apply n (Some?.v (erase_st q)))
           with 0 and ()
@@ -2031,6 +2050,10 @@ let rec converges_reflect
         MT.steps_terminal apply fuel s;
         introduce exists (n: nat). msteps af afast n q == MDone x with 0 and ()
     | MStuck e o -> MT.steps_terminal apply fuel s
+    // Same argument as the line above: a terminal machine state erases to a
+    // terminal reference state, which the hypothesis says reaches `Done x` --
+    // so this configuration does not arise.
+    | MRejected r -> MT.steps_terminal apply fuel s
     | MStep _ _ _ ->
         msim af afast q;
         eliminate exists (n: nat).
@@ -2099,6 +2122,49 @@ let mprogress
       (never_stuck_steps apply n s;
        assert (~(Stuck? (steps apply n s))))
 
+(** **Rejection-freedom survives any number of reference transitions.** *)
+let never_rejected_steps (#v #cl: Type) (apply: apply_t v cl) (n: nat) (s: state v cl)
+  : Lemma (requires never_rejected apply s) (ensures never_rejected apply (steps apply n s))
+  = introduce forall (m: nat). ~(Rejected? (steps apply m (steps apply n s)))
+    with MT.steps_add apply n m s
+
+(**
+ * **The rejection axis transports**, and it is a SEPARATE lemma rather than two
+ * more conjuncts on `mprogress`.
+ *
+ * They are separate because the conditions are: `mprogress` is what carries
+ * `Hoop.Runtime.Metatheory.progress`, whose hypotheses are well-scopedness and
+ * `apply_ok` and which establishes nothing whatever about clause kinds or
+ * borrowability. Bolting `never_rejected` onto it would put a boundary
+ * condition into the statement of a theorem about capabilities, which is
+ * precisely the conflation the dedicated outcome exists to avoid. `mrun` uses
+ * the two together; nothing else has to.
+ *
+ * The proof is `mprogress`'s, read on the other discriminator: `msim` places
+ * the successor's erasure at a reference state one or two transitions along,
+ * and the hypothesis rules `Rejected` out of every one of them.
+ *)
+let mreject_progress
+    (#v #cl: Type) (af: full_t v cl) (afast: fast_t v cl) (q: mstate v cl)
+  : Lemma
+      (requires config_ok q /\ never_rejected (desugar af afast) (Some?.v (erase_st q)))
+      (ensures
+        ~(MRejected? q) /\
+        ~(MRejected? (mstep af afast q)) /\
+        config_ok (mstep af afast q) /\
+        Some? (erase_st (mstep af afast q)) /\
+        never_rejected (desugar af afast)
+          (Some?.v (erase_st (mstep af afast q))))
+  = let apply = desugar af afast in
+    let s = Some?.v (erase_st q) in
+    never_rejected_now apply s;
+    msim af afast q;
+    eliminate exists (n: nat).
+      (n == 1 \/ n == 2) /\ erase_st (mstep af afast q) == Some (steps apply n s)
+    with
+      (never_rejected_steps apply n s;
+       assert (~(Rejected? (steps apply n s))))
+
 (* ------------------------------------------------------------------ *)
 (*  16.  The entry point                                                *)
 (* ------------------------------------------------------------------ *)
@@ -2147,22 +2213,33 @@ let one_more_mstep
  *     whatever state the machine stops in, the reference machine reaches that
  *     same state on the same input. Stopping in `MStuck` is covered by it, and
  *     says that the reference machine gets stuck there too -- so a stuck run is
- *     a genuinely unhandled operation and not a defect of this machine.
+ *     a genuinely unhandled operation and not a defect of this machine. So is
+ *     stopping in `MRejected`, on the same terms.
  *
- *   - *Termination in a value* -- `MDone? r` -- is what actually needs
- *     `never_stuck`, and appears guarded by it. `mprogress` is what carries it
- *     from one iteration to the next, and it is invoked only under the guard.
+ *   - *Termination in a value* -- `MDone? r` -- is what actually needs the two
+ *     freedom conditions, and appears guarded by both. `mprogress` carries
+ *     `never_stuck` from one iteration to the next and `mreject_progress`
+ *     carries `never_rejected`; each is invoked only under the guard.
  *
- * Keeping the two apart is what lets `mrun` be called on a configuration
- * nothing is known about and still say something true about the answer. Under
- * `never_stuck` the guard discharges and the conjunction is exactly the older,
- * unconditional-`MDone?` reading.
+ * **Why two guards and not one.** The machine now has three terminal states
+ * that are not a value, and they are ruled out by different things:
+ * `never_stuck` is what well-scopedness delivers, `never_rejected` is what
+ * agreement at the typed boundary delivers, and neither implies the other. A
+ * single condition covering both would have to be one or the other weakened,
+ * and `Hoop.Runtime.Metatheory` proves the first of them about a judgement that
+ * says nothing about the second. Nothing in this repository produces an
+ * `MRejected`, so `never_rejected` holds vacuously today and the guarded
+ * conjunct is exactly as strong as it was when it read `never_stuck` alone.
  *
- * No branch names `MStuck`: it is folded into the catch-all, which is also
- * where `MDone` is returned. `runtime/ml/melange/hoop_ffi.ml` sits outside the type
- * system and hands in a state whose well-scopedness it cannot establish; the
- * catch-all returns whatever it stops at to the FFI -- which reports the
- * unhandled operation -- where an incomplete match would raise `Match_failure`.
+ * Keeping the guarded and unguarded halves apart is what lets `mrun` be called
+ * on a configuration nothing is known about and still say something true about
+ * the answer.
+ *
+ * No branch names `MStuck` or `MRejected`: both are folded into the catch-all,
+ * which is also where `MDone` is returned. `runtime/ml/melange/hoop_ffi.ml` sits
+ * outside the type system and hands in a state whose well-scopedness it cannot
+ * establish; the catch-all returns whatever it stops at to the FFI -- which
+ * reports it -- where an incomplete match would raise `Match_failure`.
  *)
 let rec mrun
     (#v #cl: Type)
@@ -2175,23 +2252,27 @@ let rec mrun
       (ensures fun r ->
         (exists (n: nat).
           erase_st r == Some (steps (desugar af afast) n (Some?.v (erase_st q)))) /\
-        (never_stuck (desugar af afast) (Some?.v (erase_st q)) ==> MDone? r))
+        ((never_stuck (desugar af afast) (Some?.v (erase_st q)) /\
+          never_rejected (desugar af afast) (Some?.v (erase_st q))) ==> MDone? r))
   = match q with
     | MStep _ _ _ ->
         msim af afast q;
         let r = mrun af afast (mstep af afast q) in
         one_more_mstep af afast q r;
         introduce
-          never_stuck (desugar af afast) (Some?.v (erase_st q)) ==> MDone? r
-        with mprogress af afast q;
+          (never_stuck (desugar af afast) (Some?.v (erase_st q)) /\
+           never_rejected (desugar af afast) (Some?.v (erase_st q))) ==> MDone? r
+        with (mprogress af afast q; mreject_progress af afast q);
         r
     | _ ->
         introduce exists (n: nat).
           erase_st q == Some (steps (desugar af afast) n (Some?.v (erase_st q)))
         with 0 and ();
         introduce
-          never_stuck (desugar af afast) (Some?.v (erase_st q)) ==> MDone? q
-        with never_stuck_now (desugar af afast) (Some?.v (erase_st q));
+          (never_stuck (desugar af afast) (Some?.v (erase_st q)) /\
+           never_rejected (desugar af afast) (Some?.v (erase_st q))) ==> MDone? q
+        with (never_stuck_now (desugar af afast) (Some?.v (erase_st q));
+              never_rejected_now (desugar af afast) (Some?.v (erase_st q)));
         q
 
 (**
@@ -2212,14 +2293,36 @@ let rec mrun
  * `magic`, so it could never have discharged a precondition; with none to
  * discharge, its `MStuck` result is now within the theorem rather than outside
  * it, and the theorem says the reference machine is stuck on that program too.
- * The error it raises therefore reports a real unhandled operation.
+ * The error it raises therefore reports a real unhandled operation. The same
+ * holds of `MRejected`.
  *
- * `MDone? r` is what genuinely needs well-scopedness, and it appears guarded by
- * it: given `never_stuck (desugar af afast) (load p)`, the guard discharges and
- * the result is a value. The standing assumption has moved from "the answer is
+ * `MDone? r` is what genuinely needs the two freedom conditions, and it appears
+ * guarded by both: given `never_stuck (desugar af afast) (load p)` and
+ * `never_rejected (desugar af afast) (load p)`, the guard discharges and the
+ * result is a value. The standing assumption has moved from "the answer is
  * correct only if PureScript's row types guarantee well-scopedness" to "the
  * answer always agrees with the reference semantics, and PureScript's types are
- * what make `MStuck` unreachable".
+ * what make the non-value outcomes unreachable".
+ *
+ * **The second conjunct of the guard names a different obligation from the
+ * first.** `never_stuck` is what `Hoop.Runtime.Metatheory.load_never_stuck`
+ * discharges from well-scopedness -- every action a program fires is one its
+ * stack offers the capability for. `never_rejected` is agreement at the typed
+ * boundary: that the kind of operation a node asks for is the kind of clause
+ * the table it dispatches to holds, and that a scope which needs to borrow the
+ * prompts between it and its owner may. That is a property of the PureScript
+ * representation, and it is a *trusted* item rather than a proved one -- there
+ * is no source-level type system inside F* to derive it from. Stating it
+ * separately is what keeps the well-scopedness half exactly as strong as it
+ * was; folding it into `never_stuck` would have made `progress` a theorem about
+ * something other than capabilities.
+ *
+ * No transition in this repository produces a `Rejected`, so `never_rejected`
+ * is satisfied vacuously by every program that can currently be built, and this
+ * postcondition is today the one it replaced. It is written in its final form
+ * now because the outcome type is public: a caller who matches on the result
+ * already has the constructor to handle, and restating the guarantee twice
+ * would be a second break of the same API for no gain.
  *
  * The two FFI interpreters are the only trusted inputs. `af` is a fully
  * controllable clause, handed the delimited continuation; `afast` is a
@@ -2238,7 +2341,8 @@ let execute
       (requires True)
       (ensures fun r ->
         (exists (n: nat). erase_st r == Some (steps (desugar af afast) n (load p))) /\
-        (never_stuck (desugar af afast) (load p) ==> MDone? r))
+        ((never_stuck (desugar af afast) (load p) /\
+          never_rejected (desugar af afast) (load p)) ==> MDone? r))
   = mrun af afast (mload p)
 
 (* ------------------------------------------------------------------ *)

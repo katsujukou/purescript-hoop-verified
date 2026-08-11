@@ -202,6 +202,71 @@ let emptyHandlersImpl (_unit : any) : any = empty_record (inject 0)
 let insertClauseImpl (key : any) (value : any) (rec_ : any) : any = insert key value rec_
 let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key value rec_
 
+(* --- Reporting a boundary rejection ---------------------------------------- *)
+
+(* `Hoop_Runtime.MRejected` is a DIFFERENT failure from `MStuck`, and the two
+   messages below exist so that it reads as one.
+
+   `MStuck` says a required dynamic capability is absent: no prompt on the stack
+   handles the operation, or no cell frame answers to the label. `MRejected`
+   says the opposite -- the operation IS handled and the transition IS defined
+   -- and that what could not be guaranteed is the ANSWER-TYPE AGREEMENT the
+   PureScript side assumes when it hands a clause across. The advice differs
+   accordingly: a stuck run wants a handler installed, a rejected one wants the
+   handler that IS installed to be of the right shape, or the handler stack
+   between a scope and its owner rearranged. Reporting both as "unhandled
+   operation" would send the reader to the wrong place.
+
+   Nothing produces an `MRejected` today: no transition in `Hoop.Runtime`
+   returns one, so this code is unreachable in the shipped runtime. It is
+   written all the same, because the build compiles with `-w -a` and a
+   non-exhaustive match therefore compiles silently and fails at run time with
+   `Match_failure`. See docs/study-notes/2026-08-11-scoped-effects-detailed-design.md
+   (Decision 8). *)
+
+(* `String.concat` would pull the stdlib's `Bytes` machinery into the bundle for
+   a message nothing prints. Three lines of `^`, which Melange compiles to JS
+   `+`, do the whole job. *)
+let rec join_labels (xs : string list) : string =
+  match xs with
+  | [] -> "(none)"
+  | [ x ] -> "'" ^ x ^ "'"
+  | x :: rest -> "'" ^ x ^ "', " ^ join_labels rest
+
+let show_operation_kind (k : Hoop_Runtime_Semantics.operation_kind) : string =
+  match k with
+  | Hoop_Runtime_Semantics.KOrdinaryOperation -> "an ordinary (algebraic) operation"
+  | Hoop_Runtime_Semantics.KScopedOperation -> "a scoped operation"
+
+let show_clause_kind (k : Hoop_Runtime_Handlers.clause_kind) : string =
+  match k with
+  | Hoop_Runtime_Handlers.KFull -> "a fully controllable (ctl) clause"
+  | Hoop_Runtime_Handlers.KFast -> "a tail-resumptive (fast) clause"
+  | Hoop_Runtime_Handlers.KScoped -> "a scoped clause"
+
+let rejection_message (r : Hoop_Runtime_Semantics.rejection) : string =
+  match r with
+  | Hoop_Runtime_Semantics.ClauseKindMismatch (eff, op, expected, actual) ->
+      "hoop: the boundary rejected the dispatch of '" ^ eff ^ "." ^ op
+      ^ "': the perform site asks for " ^ show_operation_kind expected
+      ^ ", but the handler in scope holds " ^ show_clause_kind actual
+      ^ ".\n\
+         This is NOT an unhandled operation -- the handler was found. The \
+         operation's signature is the single source of truth the perform site \
+         and the clause are both derived from, so a mismatch means one of them \
+         was built by hand or against a stale signature."
+  | Hoop_Runtime_Semantics.UnborrowableScope (eff, op, blocking) ->
+      "hoop: cannot enter the scope of '" ^ eff ^ "." ^ op
+      ^ "' across non-borrowable handlers: " ^ join_labels blocking
+      ^ ".\n\
+         This is NOT an unhandled operation -- the handler was found. The \
+         current implementation can reinstall an intervening prompt only when \
+         its clauses are independent of the answer type (fast); a fully \
+         controllable one would need the prompt re-instantiated at the scope's \
+         result type, which is not supported yet. Either make the listed \
+         handlers tail-resumptive, or install them outside the scope rather \
+         than between it and its handler."
+
 (* --- Running -------------------------------------------------------------- *)
 
 (*
@@ -244,6 +309,17 @@ let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key 
     -- so a program the PureScript surface accepts cannot violate it, and one
     that does was already outside the guarded half of the theorem.
 
+  - `MRejected r`. The reference machine reaches `Rejected r` on this program,
+    so this too is a report about the *program* rather than a defect of the
+    machine. It is a different fault from `MStuck` and is reported as one --
+    see the note on `rejection_message` above -- and it is ruled out by a
+    different condition: `never_rejected` rather than `never_stuck`.
+
+    UNREACHABLE TODAY. No transition in `Hoop.Runtime` returns an `MRejected`,
+    so `never_rejected` holds vacuously of every program that can currently be
+    built and this branch cannot fire. It is written because `-w -a` means the
+    compiler will not say that `mstate` gained a constructor.
+
   - `MStep _`. Unreachable, and not by an appeal to well-scopedness: `mrun`
     returns only from its own catch-all, which it enters only on a state that is
     not `MStep`. It is spelled out because `execute`'s return type is `mstate`,
@@ -252,13 +328,15 @@ let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key 
     with `-w -a`, so an incomplete match here is not reported: a constructor
     added to `mstate` must be carried into this match by hand.
 
-  `execute` proves one thing more, guarded: given `never_stuck (desugar
-  apply_full apply_fast) (load c)` -- the well-scopedness obligation, which is
-  exactly what PureScript's row types are meant to establish and what
-  `apply_ok` assumes of the two closures above -- the result is `MDone`, so the
-  second and third branches do not arise at all. The assumption is therefore no
-  longer load-bearing for the answer being *right*; it is load-bearing only for
-  `MStuck` being unreachable.
+  `execute` proves one thing more, guarded by two conditions: given
+  `never_stuck (desugar apply_full apply_fast) (load c)` -- the well-scopedness
+  obligation, which is exactly what PureScript's row types are meant to
+  establish and what `apply_ok` assumes of the two closures above -- AND
+  `never_rejected` of the same, which is agreement at the typed boundary, the
+  result is `MDone` and none of the branches below the first arises. The two are
+  separate obligations on separate grounds, and neither implies the other. The
+  assumptions are therefore not load-bearing for the answer being *right*; they
+  are load-bearing only for the failure branches being unreachable.
 
   None of this reasoning is backend-specific.
 *)
@@ -278,5 +356,6 @@ let runImpl (c : any) : any =
             machine stops, so this is a real escape rather than a lost frame.")
   | Hoop_Runtime.MStuck (eff, op) ->
       fail ("hoop: Unhandled effect operation '" ^ eff ^ "." ^ op ^ "'")
+  | Hoop_Runtime.MRejected r -> fail (rejection_message r)
   | Hoop_Runtime.MStep (_, _, _) ->
       fail "hoop: internal error - the machine stopped in a running state"
