@@ -42,7 +42,7 @@
  *      state, and `msim` says one machine transition is one *or two* reference
  *      transitions. Never zero, so there is no stuttering to rank.
  *
- * `execute` is the extracted entry point -- what `runtime/ml/hoop_ffi.ml` calls,
+ * `execute` is the extracted entry point -- what `runtime/ml/melange/hoop_ffi.ml` calls,
  * and the only thing in the development that touches the FFI boundary. Its
  * postcondition is stated about `Hoop.Runtime.Semantics.steps` through
  * `erase_st`, so `Hoop.Runtime.Metatheory` and `Hoop.Runtime.Laws` continue to
@@ -2107,7 +2107,7 @@ let one_more_mstep
  * unconditional-`MDone?` reading.
  *
  * No branch names `MStuck`: it is folded into the catch-all, which is also
- * where `MDone` is returned. `runtime/ml/hoop_ffi.ml` sits outside the type
+ * where `MDone` is returned. `runtime/ml/melange/hoop_ffi.ml` sits outside the type
  * system and hands in a state whose well-scopedness it cannot establish; the
  * catch-all returns whatever it stops at to the FFI -- which reports the
  * unhandled operation -- where an incomplete match would raise `Match_failure`.
@@ -2144,7 +2144,7 @@ let rec mrun
 
 (**
  * **The entry point the FFI calls**: the machine, loaded and iterated to a
- * value. `runtime/ml/hoop_ffi.ml` calls this and nothing else; it is the whole
+ * value. `runtime/ml/melange/hoop_ffi.ml` calls this and nothing else; it is the whole
  * of the runtime's module boundary.
  *
  * The specification is `Hoop.Runtime.Semantics.steps`, the fuel-bounded
@@ -2156,7 +2156,7 @@ let rec mrun
  * afast) n (load p))` -- holds of every one of them: the erasure of the result
  * is a state the reference machine reaches on that same program, pinned down
  * exactly and not merely as to its shape. This is what covers the branch the
- * FFI actually has to handle. `runtime/ml/hoop_ffi.ml` supplies `p` through
+ * FFI actually has to handle. `runtime/ml/melange/hoop_ffi.ml` supplies `p` through
  * `magic`, so it could never have discharged a precondition; with none to
  * discharge, its `MStuck` result is now within the theorem rather than outside
  * it, and the theorem says the reference machine is stuck on that program too.

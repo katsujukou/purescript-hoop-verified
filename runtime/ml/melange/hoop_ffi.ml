@@ -1,8 +1,10 @@
 (**
- * The Melange boundary: the same trusted layer as `runtime/ml/hoop_ffi.ml`,
- * against Melange rather than js_of_ocaml.
+ * The boundary: the layer where F* stops verifying and starts assuming,
+ * against Melange. There was a js_of_ocaml counterpart in
+ * `runtime/ml/hoop_ffi.ml`; it was retired when Melange became the only
+ * backend, and git history has it.
  *
- * *Why a second one exists.* This file is where F* stops verifying and starts
+ * *Why a backend change lands here.* This file is where F* stops verifying and starts
  * assuming, so it is exactly the layer a backend change is allowed to move --
  * no `.fst` is touched and no proof is restated. What replaces the proof is
  * `test/js/engine-smoke.mjs`, which was written for this responsibility and
@@ -14,7 +16,7 @@
  *     string, so the conversion -- and `jsoo_is_ascii`'s scan of every label on
  *     every `perform` and every `with` -- is gone.
  *   - `array_of_js` / `array_to_js`. A Melange `array` IS a JS array; jsoo's
- *     carry a leading tag, which is why the jsoo build must copy.
+ *     carried a leading tag, which is why that build had to copy.
  *
  * Those are the two conversions this runtime crosses most: a payload array per
  * `perform`, and `handlers_of_js` converting every key of every table per
@@ -23,9 +25,10 @@
  * *And what it does not.* `wrap_callback` is gone too, but for a different
  * reason: Melange compiles a top-level `let f a b = ...` to a real two-argument
  * JS function, so the entry points below are directly callable from PureScript
- * and the double-wrapping hazard the jsoo file warns about cannot arise. What
- * Melange does NOT remove is the currying trampoline: applying an unknown
- * closure still goes through `Curry._1`, the counterpart of jsoo's `caml_call1`.
+ * and the double-wrapping hazard that `caml_js_wrap_callback` created cannot
+ * arise. What Melange does NOT remove is the currying trampoline: applying an
+ * unknown closure still goes through `Curry._1`, the counterpart of jsoo's
+ * `caml_call1`.
  *
  * *Arity is load-bearing.* Every entry point must compile to a JS function of
  * the arity PureScript imports it at (`Fn2`/`Fn3`/`Fn4`). Melange gives that for
@@ -42,9 +45,11 @@ type any
 external inject : 'a -> any = "%identity"
 external magic : any -> 'a = "%identity"
 
-(* The four that jsoo has to convert and Melange does not. Kept as named
-   identities rather than deleted, so the jsoo file and this one stay readable
-   against each other. *)
+(* The four conversions a bytecode-oriented backend has to perform and Melange
+   does not. Kept as named identities rather than deleted, so that every place
+   a value crosses the representation boundary still says so: the reader sees
+   where a JS string becomes an OCaml one, and the fact that it costs nothing
+   here is a property of the backend rather than of this file. *)
 external string_of_jsstring : any -> string = "%identity"
 external jsstring_of_string : string -> any = "%identity"
 external array_of_js : any -> any array = "%identity"
@@ -119,7 +124,7 @@ let tag_clause (eff : string) (op : string) (c : any) : any Hoop_Runtime.clause 
    result never contains a duplicate (eff, op) pair. The conversion happens once
    per Handle, not once per perform.
 
-   This is the loop the jsoo build pays `caml_string_of_jsstring` for, once per
+   This is the loop the jsoo build paid `caml_string_of_jsstring` for, once per
    key: here `string_of_jsstring` is `%identity`. *)
 let handlers_of_js (o : any) : (string * string * any Hoop_Runtime.clause) list =
   Array.fold_right
@@ -194,9 +199,64 @@ let insertClausesImpl (key : any) (value : any) (rec_ : any) : any = insert key 
 
 (* --- Running -------------------------------------------------------------- *)
 
-(* See the long note in `runtime/ml/hoop_ffi.ml` on why each branch below is
-   covered by `Hoop.Runtime.execute`'s (unconditional) theorem, and on what the
-   `var_eff` split assumes. Nothing about that reasoning is backend-specific. *)
+(*
+  `Hoop_Runtime.execute` is the whole machine, and the only entry point this
+  file calls: the reference transitions with the stack walk replaced by an
+  evidence lookup and with tail-resumptive clauses run in place, proved in F* to
+  stop at a state whose erasure `Hoop.Runtime.Semantics.steps` -- the
+  stack-walking specification -- reaches on the same program, under the
+  reference reading `Hoop.Runtime.desugar` gives this very pair of interpreters.
+  Nothing of that specification is extracted; it is ghost throughout, so the
+  only thing crossing back is `Hoop_Runtime.mstate`.
+
+  That much holds *unconditionally*: `execute` has no precondition, which
+  matters here because `c` arrives through `magic` and this file could not
+  discharge one. Each branch below is therefore covered by the theorem.
+
+  - `MDone value`. The reference machine reaches `Done value` on this program,
+    so `value` is the answer the specification gives.
+
+  - `MStuck (eff, op)`. The reference machine reaches `Stuck (eff, op)` on this
+    program -- `steps` walks the stack for a prompt handling `(eff, op)` and
+    finds none. The error raised is thus a report about the *program*, not a
+    defect of the machine: the operation really is unhandled. This is the one
+    branch PureScript's row types are supposed to rule out, and it is the one
+    the F* side cannot see them doing; what is proved is that if it is reached,
+    the blame lies with the program.
+
+    The branch splits in two on the *reserved* effect name
+    `Hoop.Runtime.Semantics.var_eff`, which the reference machine reports a
+    missing prompt-local cell under: `Stuck var_eff label`. It is always the
+    same fault -- a cell handle used outside the scope of the `new` that created
+    it -- so it is worth naming as that rather than reporting the useless
+    generic message. The constant is READ FROM THE EXTRACTED MODULE rather than
+    written out here, so the two cannot drift apart.
+
+    What that split ASSUMES is the reservation itself: that no program performs
+    an ordinary operation under the effect label `%hoop.var`, in which case the
+    specialised message would be wrong. It is exactly what
+    `Hoop.Runtime.WellScopedness.ws` demands of a `Perform` -- `eff =!= var_eff`
+    -- so a program the PureScript surface accepts cannot violate it, and one
+    that does was already outside the guarded half of the theorem.
+
+  - `MStep _`. Unreachable, and not by an appeal to well-scopedness: `mrun`
+    returns only from its own catch-all, which it enters only on a state that is
+    not `MStep`. It is spelled out because `execute`'s return type is `mstate`,
+    which has the constructor, and an incomplete match would raise
+    `Match_failure` instead of a legible error. Note that the build compiles
+    with `-w -a`, so an incomplete match here is not reported: a constructor
+    added to `mstate` must be carried into this match by hand.
+
+  `execute` proves one thing more, guarded: given `never_stuck (desugar
+  apply_full apply_fast) (load c)` -- the well-scopedness obligation, which is
+  exactly what PureScript's row types are meant to establish and what
+  `apply_ok` assumes of the two closures above -- the result is `MDone`, so the
+  second and third branches do not arise at all. The assumption is therefore no
+  longer load-bearing for the answer being *right*; it is load-bearing only for
+  `MStuck` being unreachable.
+
+  None of this reasoning is backend-specific.
+*)
 let runImpl (c : any) : any =
   match Hoop_Runtime.execute apply_full apply_fast (magic c : comp) with
   | Hoop_Runtime.MDone value -> value

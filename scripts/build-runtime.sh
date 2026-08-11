@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# runtime/*.fst --[F* verification]--> OCaml --[js_of_ocaml]--> src/Hoop/Engine.js
+# runtime/*.fst --[F* verification]--> OCaml --[Melange]--> src/Hoop/Engine.js
 #
 # Every tool comes from the nix devShell. Intermediate artifacts land in build/.
 # src/Hoop/Engine.js is generated -- do not edit it by hand.
@@ -36,8 +36,8 @@ CACHE="$ROOT/.fstar-cache"
 #   Test, Laws      leaves -- `assert_norm` fixtures and the monad laws
 VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.WellScopedness Hoop.Runtime.Metatheory Hoop.Runtime.Env Hoop.Runtime Hoop.Runtime.Test Hoop.Runtime.Laws)
 
-# Modules to extract to OCaml, in dependency order -- this is also the order
-# ocamlc links them in below. The four omitted are proof-only: `WellScopedness`,
+# Modules to extract to OCaml, in dependency order. The four omitted are
+# proof-only: `WellScopedness`,
 # `Metatheory` and `Laws` are `prop` and `Lemma` throughout and extract to
 # nothing, and `Test` is fixtures.
 #
@@ -48,7 +48,8 @@ VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics
 # implementation-only module again and its .ml will reappear.
 EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime)
 
-# Names the generated JS exposes. Must match the `export` calls in hoop_ffi.ml.
+# Names the generated JS exposes. Must match the top-level values
+# runtime/ml/melange/hoop_ffi.ml defines under these names.
 # All of them are uncurried multi-argument functions -- the PureScript side
 # imports them through Fn2 / Fn3.
 EXPORTS=(pureImpl bindImpl performImpl withImpl runImpl
@@ -56,27 +57,25 @@ EXPORTS=(pureImpl bindImpl performImpl withImpl runImpl
          mkFullClauseImpl mkFastClauseImpl mkReturnImpl undefinedReturnImpl
          emptyClausesImpl emptyHandlersImpl insertClauseImpl insertClausesImpl)
 
-# Name of the function js_of_ocaml wraps the generated code in. Engine.js calls it.
-INIT_FN=hoopInit
-
-# Which OCaml-to-JavaScript backend produces src/Hoop/Engine.js.
+# The OCaml-to-JavaScript backend that produces src/Hoop/Engine.js:
+# Melange, via runtime/ml/melange/hoop_ffi.ml, dune and esbuild.
 #
-#   melange  (default)  runtime/ml/melange/hoop_ffi.ml, via dune and esbuild
-#   jsoo                runtime/ml/hoop_ffi.ml, via ocamlc and js_of_ocaml
-#
-# Melange is the default because it is measurably better on every axis that was
-# compared: ~39% off a State-heavy loop, ~19% off handler installation, and 60%
-# off the gzipped bundle -- 9.8 KB to 3.9 KB, which every downstream bundle
-# pays. The reason is not codegen cleverness but the boundary: a Melange
-# `string` IS a JS string and a Melange `array` IS a JS array, so the four
-# conversions jsoo performs on every `perform` and every `with` become
+# It is the only backend. Melange was measurably better than js_of_ocaml on
+# every axis compared: ~39% off a State-heavy loop, ~19% off handler
+# installation, and 60% off the gzipped bundle -- 9.8 KB to 3.9 KB, which every
+# downstream bundle pays. The reason is not codegen cleverness but the boundary:
+# a Melange `string` IS a JS string and a Melange `array` IS a JS array, so the
+# four conversions jsoo performed on every `perform` and every `with` become
 # identities. That is the boundary this runtime crosses more than any other.
 #
-# The jsoo path is kept, and kept working, for two reasons: it is the fallback
-# if Melange ever stalls, and having two independent backends agree on
-# `engine-smoke.mjs` is evidence about the boundary code that neither alone
-# gives. It shares steps 1 and 2 with the Melange path, so the two always
-# compile the same extracted machine.
+# The js_of_ocaml path was RETIRED rather than frozen. It constructed AST nodes
+# and matched on machine outcomes directly, so every datatype change would have
+# required auditing and updating it -- and since both backends compile with
+# `-w -a`, an unaudited one would not have failed loudly. It would have kept
+# compiling with an incomplete interpretation and raised `Match_failure` at run
+# time. Keeping a second boundary in that state costs more than the second
+# opinion on `engine-smoke.mjs` was worth. See PR #1 and
+# docs/study-notes/2026-08-11-scoped-effects-detailed-design.md (Decision 8).
 BACKEND=${BACKEND:-melange}
 
 # src/Hoop/Engine.js is committed, so it is minified by default: it is a
@@ -99,7 +98,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-minify) MINIFY=0 ;;
     -h|--help)
-      echo "usage: $0 [--no-minify]   (BACKEND=melange|jsoo, default melange)"
+      echo "usage: $0 [--no-minify]"
       exit 0 ;;
     *) echo "ERROR: unknown option '$arg' (want: --no-minify)" >&2; exit 1 ;;
   esac
@@ -107,8 +106,12 @@ done
 
 case "$BACKEND" in
   melange) BACKEND_TOOLS=(melc dune esbuild) ;;
-  jsoo)    BACKEND_TOOLS=(ocamlc js_of_ocaml) ;;
-  *) echo "ERROR: unknown BACKEND '$BACKEND' (want: melange | jsoo)" >&2; exit 1 ;;
+  jsoo)
+    echo "ERROR: the js_of_ocaml backend is retired." >&2
+    echo "       runtime/ml/hoop_ffi.ml was removed; git history has it." >&2
+    echo "       Melange is the only backend -- unset BACKEND." >&2
+    exit 1 ;;
+  *) echo "ERROR: unknown BACKEND '$BACKEND' (want: melange)" >&2; exit 1 ;;
 esac
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -148,8 +151,8 @@ emit_engine() {
   } > "$OUT"
 }
 
-# Report which binaries are actually being used. A stray fstar.exe or
-# js_of_ocaml earlier on PATH otherwise causes confusing failures.
+# Report which binaries are actually being used. A stray fstar.exe or melc
+# earlier on PATH otherwise causes confusing failures.
 log "Tools (backend: $BACKEND)"
 for t in fstar.exe "${BACKEND_TOOLS[@]}"; do
   p="$(command -v "$t" || true)"
@@ -231,7 +234,7 @@ strip_ocaml_comments() {
     }' "$1"
 }
 
-for f in "$ML_DIR"/shim/*.ml "$ML_DIR"/hoop_ffi.ml "$ML_DIR"/melange/hoop_ffi.ml; do
+for f in "$ML_DIR"/shim/*.ml "$ML_DIR"/melange/hoop_ffi.ml; do
   if strip_ocaml_comments "$f" | grep -nE '\bZ\.|zarith|Stdint'; then
     echo "ERROR: $f references a bignum library." >&2
     exit 1
@@ -241,14 +244,10 @@ if ! grep -q 'type int = Stdlib\.Int\.t' "$ML_DIR/shim/Prims.ml"; then
   echo "ERROR: runtime/ml/shim/Prims.ml no longer realises Prims.int natively." >&2
   exit 1
 fi
-
-if [ "$BACKEND" = melange ]; then
-
 # --- 3m. Compile with Melange ----------------------------------------------
 # The repository does not become a dune project: the tree below is generated
 # into build/, used once, and removed by the `rm -rf "$BUILD"` at the top of the
-# next run. dune is an implementation detail of this step, the way ocamlc is of
-# the jsoo one.
+# next run. dune is an implementation detail of this step.
 log "[3/4] Compiling with Melange"
 MEL_FFI="$ML_DIR/melange"
 WORK="$BUILD/melange"
@@ -259,8 +258,11 @@ cat > "$WORK/dune-project" <<'EOF'
 (using melange 0.1)
 EOF
 
-# `-w -a` for the same reason the jsoo build passes it to ocamlc: extracted code
-# produces a great many warnings and none of them is actionable here.
+# `-w -a` because extracted code produces a great many warnings and none of them
+# is actionable here. Note what this also silences: a non-exhaustive match. A
+# datatype gaining a constructor will therefore compile, and fail at run time
+# with `Match_failure`, so every datatype change has to be carried into
+# runtime/ml/melange/hoop_ffi.ml by hand -- the build will not say so.
 cat > "$WORK/src/dune" <<'EOF'
 (melange.emit
  (target js)
@@ -299,9 +301,8 @@ log "[4/4] Bundling with esbuild"
 esbuild --bundle --format=esm --platform=neutral \
   "$EMIT/entry.js" --outfile="$BUILD/hoop.raw.js" >/dev/null
 
-# (c) No *generic* comparison left reachable -- the Melange reading of the guard
-#     below. Melange specialises `=` at a known `string` to `===`, exactly as
-#     the OCaml compiler does for jsoo; what it cannot specialise it routes
+# (c) No *generic* comparison left reachable. Melange specialises `=` at a
+#     known `string` to `===`; what it cannot specialise it routes
 #     through `Caml_obj.caml_equal`, a structural walk. The machine compares
 #     nothing but labels, so every comparison it makes should be the
 #     specialised one.
@@ -328,96 +329,6 @@ BODY="$BUILD/hoop.raw.js"
 PIPELINE="F* verification -> OCaml extraction -> Melange -> esbuild"
 FFI_NOTE="runtime/ml/melange/hoop_ffi.ml and runtime/ml/melange/hoop_prim.js"
 emit_engine
-
-else
-
-# --- 3. Compile to bytecode ------------------------------------------------
-log "[3/4] Compiling OCaml"
-cp "$ML_DIR"/shim/*.ml "$ML_DIR"/hoop_ffi.ml "$BUILD/ml/"
-
-ML_FILES=(Prims.ml FStar_Pervasives_Native.ml FStar_List_Tot_Base.ml)
-for m in "${EXTRACT_MODULES[@]}"; do
-  ML_FILES+=("${m//./_}.ml")
-done
-ML_FILES+=(hoop_ffi.ml)
-
-# The js_of_ocaml OCaml library is deliberately not linked: it pulls in
-# Printf/Format and inflates the bundle roughly fourfold. hoop_ffi.ml declares
-# the handful of primitives it needs directly, and those live in the jsoo
-# runtime rather than the OCaml bytecode runtime, hence -no-check-prims.
-# Warnings are silenced because extracted code produces a great many of them.
-(
-  cd "$BUILD/ml"
-  ocamlc -no-check-prims -w -a "${ML_FILES[@]}" -o hoop.byte
-)
-
-# --- 4. Bundle to JavaScript -----------------------------------------------
-log "[4/4] Bundling with js_of_ocaml"
-# --target-env=browser: the default (isomorphic) bundles Node's filesystem
-# layer, which calls require() at startup and so cannot be loaded as an ES
-# module. This runtime never touches the filesystem, so dropping it is safe --
-# the result still runs under both Node and the browser.
-js_of_ocaml --target-env=browser --wrap-with-fun="$INIT_FN" \
-  "$BUILD/ml/hoop.byte" -o "$BUILD/hoop.raw.js"
-
-# (c) No *generic* comparison left reachable. `=` at a type the OCaml compiler
-#     cannot see through becomes `caml_equal`, which goes through
-#     `caml_compare_val` and tests each operand with `caml_is_ml_string` -- a
-#     regular-expression match, per operand, per element scanned. At a known
-#     `string` the compiler picks `caml_string_equal`, which js_of_ocaml turns
-#     into `===`. The machine compares nothing but labels, so every comparison
-#     it makes should be the specialised one.
-#
-#     Reachability, not presence, is the property, and js_of_ocaml's dead-code
-#     elimination is what decides it: the shim still defines a polymorphic
-#     `mem` that nothing calls, and a `mem` nobody calls costs nothing. So the
-#     bundle is the thing to read. It is re-emitted with --pretty because the
-#     shipped one has its runtime functions renamed; --pretty changes naming
-#     and inlining only, not what survives elimination.
-#
-#     This catches a generic comparison whatever route it arrives by: a
-#     comparison drifting to a type extraction leaves abstract, or a
-#     polymorphic list operation coming back onto the hot path. The latter is
-#     how it was reached before, and is why `Hoop.Runtime.Handlers` defines
-#     `mem_string` and `Hoop.Runtime.Env.find_level` is `noextract` -- note
-#     that reading the extracted .ml would *not* have caught that one, since
-#     the comparison itself was inside the shim.
-js_of_ocaml --target-env=browser --wrap-with-fun="$INIT_FN" --pretty \
-  "$BUILD/ml/hoop.byte" -o "$BUILD/hoop.pretty.js"
-if grep -qE 'caml_(equal|notequal|compare_val)\b' "$BUILD/hoop.pretty.js"; then
-  echo "ERROR: the runtime performs a generic structural comparison." >&2
-  echo "       Extracted code must compare only at types OCaml can" >&2
-  echo "       specialise -- see the note on mem_string in" >&2
-  echo "       runtime/Hoop.Runtime.Handlers.fst." >&2
-  grep -nE 'caml_(equal|notequal|compare_val)\b' "$BUILD/hoop.pretty.js" >&2
-  exit 1
-fi
-
-# The jsoo bundle is not a module on its own: it has to be given a global and
-# unwrapped. Assembled here as readable JS so that the guards below -- and
-# `--no-minify` -- see the same program that ships.
-{
-  cat "$BUILD/hoop.raw.js"
-  cat <<EOF
-
-// Wrapped with --wrap-with-fun, the generated function takes the global object
-// as its argument and returns the exports object that Js.export wrote into
-// (jsoo_exports). Handing it an object whose prototype is the real global lets
-// builtins such as Math resolve through, without polluting the real global.
-const __hoop = ${INIT_FN}(Object.create(globalThis));
-EOF
-  echo
-  for e in "${EXPORTS[@]}"; do
-    echo "export const $e = __hoop.$e;"
-  done
-} > "$BUILD/hoop.engine.js"
-
-BODY="$BUILD/hoop.engine.js"
-PIPELINE="F* verification -> OCaml extraction -> js_of_ocaml"
-FFI_NOTE="runtime/ml/hoop_ffi.ml"
-emit_engine
-
-fi  # BACKEND
 
 # (d) The last word belongs to the bundle itself. Guards (a) and (b) read
 #     sources; this one reads what actually ships, and so also catches a bignum

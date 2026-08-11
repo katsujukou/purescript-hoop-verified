@@ -2,20 +2,21 @@
 //
 // These sit below the PureScript surface on purpose. test/Hoop.purs exercises
 // the typed API and can only construct handler tables the type checker permits;
-// what is checked here is the other half -- the handwritten OCaml in
-// runtime/ml/hoop_ffi.ml, which is part of the TCB and which no F* proof
+// what is checked here is the other half -- the handwritten boundary in
+// runtime/ml/melange/hoop_ffi.ml and runtime/ml/melange/hoop_prim.js, which is
+// part of the TCB and which no F* proof
 // covers. Hence the awkward inputs: a `__proto__` effect label, a nullish
 // return clause, a clause of neither recognised shape, an unhandled operation.
 //
 // The fast-clause section is here for the same reason. Whether a clause reaches
-// the machine tagged Full or Fast is decided by hoop_ffi.ml alone, from the JS
+// the machine tagged Full or Fast is decided by the boundary alone, from the JS
 // shape the builders produce; F* proves what each tag then means, but nothing
 // proves the tag was read off correctly.
 //
 // The prompt-local cell section likewise. F* proves what NewP / ReadP / WriteP
 // mean and runtime/Hoop.Runtime.Test.fst pins the answers by assert_norm, but
-// nothing proves that hoop_ffi.ml builds those nodes rather than three others,
-// and nothing there runs through js_of_ocaml. The two Koka figures at the end of
+// nothing proves that the boundary builds those nodes rather than three others,
+// and nothing there runs through Melange. The two Koka figures at the end of
 // that section are the sharpest instrument in this file: a runtime that held a
 // cell behind a shared mutable box would agree with every other test here and
 // disagree with exactly those two.
@@ -308,7 +309,7 @@ check('a fast body cannot reach a handler installed inside its own prompt', () =
 // consequence of it.
 //
 // These mirror fixtures 26-30 of runtime/Hoop.Runtime.Test.fst. What is checked
-// here and not there is that hoop_ffi.ml builds the right node with the right
+// here and not there is that the boundary builds the right node with the right
 // arguments -- three `magic`-crossing constructors that no type checker on
 // either side of the boundary can see through.
 
@@ -372,7 +373,7 @@ check('the innermost cell of a repeated label wins, and shadowing is total', () 
 // The machine reports a cell miss as MStuck under the reserved effect name
 // `%hoop.var`, which the generic branch of run_impl would spell as
 // "Unhandled effect operation '%hoop.var.c'" -- accurate and useless.
-// hoop_ffi.ml special-cases it. The message may assert whose fault it is:
+// the boundary special-cases it. The message may assert whose fault it is:
 // `Hoop.Runtime.execute`'s postcondition is unconditional, so an MStuck means
 // the reference machine is stuck on the same program.
 
@@ -481,7 +482,7 @@ check('a fast body cannot reach a cell installed inside its own prompt', () => {
 // [(False,1),(True,2)] for BOTH, and pass every other test in this file while
 // doing so. These are fixtures 26-29 in runtime/Hoop.Runtime.Test.fst; the point
 // of running them here is that this is the independent path -- through the
-// handwritten FFI, the extracted machine and js_of_ocaml, none of which the
+// handwritten FFI, the extracted machine and Melange, none of which the
 // assert_norms exercise.
 
 // `choice.flip` resumes once with false and once with true and pairs the two

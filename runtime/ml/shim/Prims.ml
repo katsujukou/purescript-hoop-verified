@@ -19,8 +19,11 @@
  *
  *     the machine's stack never reaches 2^31 - 1 frames.
  *
- * The bound is 2^31, not 2^62: js_of_ocaml compiles OCaml's `int` to 32 bits
- * whatever the native compiler's width. Reaching it needs on the order of
+ * The bound is 2^31, not 2^62: the JavaScript backend compiles OCaml's `int` to
+ * 32 bits whatever the native compiler's width. Melange does it by masking --
+ * `n + 1` is emitted as `n + 1 | 0` -- so the wrap to a negative value that the
+ * check below tests for happens exactly as it did under js_of_ocaml, and the
+ * argument here is unchanged by the change of backend. Reaching it needs on the order of
  * 150 GB of heap for the stack alone, against a default Node heap of 4 GB. And
  * it is checked rather than merely assumed -- the arithmetic below traps on a
  * negative result, so an overflow is a loud failure rather than a silently

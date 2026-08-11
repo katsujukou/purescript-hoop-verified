@@ -323,7 +323,7 @@ let wf_state (#v #cl: Type) (cok: clause_ok_t cl) (s: state v cl) : GTot prop =
  * yields a computation well scoped in `can`.
  *
  * **IMPORTANT** This condition is NOT provable inside F*, and not meant to be --
- * `apply` is supplied by the handwritten OCaml in `runtime/ml/hoop_ffi.ml`, which
+ * `apply` is supplied by the handwritten OCaml in `runtime/ml/melange/hoop_ffi.ml`, which
  * calls out to an arbitrary PureScript closure whose body F* never sees. This is
  * therefore an assumption on that boundary — the obligation the PureScript side must
  * discharge, by construction of its `Hoop` monad, for the progress theorem to apply

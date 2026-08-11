@@ -7,7 +7,7 @@
     # edit to this line, visible in review.
     #
     # Note `nixpkgs.follows = "fstar/nixpkgs"` below: moving F* also moves ocaml
-    # and js_of_ocaml, so the generated bundle is expected to change with it.
+    # and Melange, so the generated bundle is expected to change with it.
     fstar.url = "github:FStarLang/FStar/v2026.08.02";
     nixpkgs.follows = "fstar/nixpkgs";
 
@@ -74,13 +74,11 @@
         '';
 
         buildRuntimeCmd = pkgs.writeShellScriptBin "hoop-build-runtime" ''
-          # Both backends are on PATH: the script selects one with BACKEND
-          # (default melange), and the jsoo path is kept working as the
-          # fallback and as a second opinion on the boundary code.
+          # Melange is the only backend.
           #
           # Melange resolves its own stdlib through OCAMLPATH rather than by
           # sitting next to melc, so dune cannot find `melange.js` without it.
-          export PATH=${fstar-pkg}/bin:${z3-pkg}/bin:${pkgs.ocaml}/bin:${pkgs.ocamlPackages.js_of_ocaml-compiler}/bin:${pkgs.ocamlPackages.melange}/bin:${pkgs.dune_3}/bin:${pkgs.esbuild}/bin:$PATH
+          export PATH=${fstar-pkg}/bin:${z3-pkg}/bin:${pkgs.ocaml}/bin:${pkgs.ocamlPackages.melange}/bin:${pkgs.dune_3}/bin:${pkgs.esbuild}/bin:$PATH
 
           # The version component is the OCaml that built *Melange*, which is
           # only the same as `ocamlPackages.ocaml` while both come from this
@@ -113,20 +111,20 @@
             z3-pkg
             fstarCmd
             buildRuntimeCmd
+            # dune loads the OCaml compiler for its default context and fails
+            # with "Program ocamlc not found" without it, whatever melc brings.
             pkgs.ocaml
+            # dune resolves `melange.ppx` through findlib; without it the
+            # Melange build fails with "Library melange.ppx not found".
             pkgs.ocamlPackages.findlib
-            pkgs.ocamlPackages.zarith
-            pkgs.ocamlPackages.js_of_ocaml-compiler
-            pkgs.ocamlPackages.js_of_ocaml-ppx
             pkgs.ocamlPackages.melange
             pkgs.dune_3
             # `melange.ppx` -- which `runtime/ml/melange/hoop_ffi.ml` needs for
             # its `[@mel.*]` attributes -- depends on ppxlib, and dune resolves
-            # it through OCAMLPATH. Listed explicitly because it would
-            # otherwise arrive only as a transitive dependency of
-            # js_of_ocaml-ppx, and so would disappear the day the jsoo backend
-            # is dropped -- taking the Melange build with it, with an error
-            # naming Melange rather than the removal.
+            # it through OCAMLPATH. It used to arrive only as a transitive
+            # dependency of js_of_ocaml-ppx, so it was listed explicitly against
+            # the day the jsoo backend was dropped. That day came; this line is
+            # what kept the Melange build working through it.
             pkgs.ocamlPackages.ppxlib
           ] ++ (with pkgs;
           [ purs 

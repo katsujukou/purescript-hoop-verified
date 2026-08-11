@@ -1,10 +1,10 @@
 // The JavaScript primitives the Melange boundary declares as externals.
 //
-// TCB, exactly as much as the jsoo `hoop_ffi.ml` is: nothing here is covered by
-// an F* proof, and `test/js/engine-smoke.mjs` is what checks it.
+// TCB, exactly as much as `hoop_ffi.ml` beside it is: nothing here is covered
+// by an F* proof, and `test/js/engine-smoke.mjs` is what checks it.
 //
-// These are the same snippets the jsoo build embeds as `pure_js_expr` strings.
-// Melange has no equivalent that keeps arity information, and an OCaml `let`
+// The retired js_of_ocaml boundary embedded the same snippets as `pure_js_expr`
+// strings. Melange has no equivalent that keeps arity information, and an OCaml `let`
 // bound to a raw function would be a *curried* OCaml value -- which is how a
 // `Curry._2` gets onto the hot path. Declaring them as externals with
 // `[@mel.module]` instead keeps every call a direct JS call, and has the side
@@ -55,9 +55,11 @@ export function insert(key, value, rec) { rec[key] = value; return rec }
 // Each of them RETURNS a function, and Melange flattens `let f a = fun b c ->`
 // into a three-argument JS function -- so an OCaml definition would export the
 // wrong arity and the clause would be called with its payload in the wrong
-// place. (The jsoo boundary keeps them in JS for the mirror-image reason: its
-// `caml_js_wrap_callback` double-wraps a returned function.) Two backends, two
-// hazards, one conclusion: a curried boundary function is written in JS.
+// place. The retired jsoo boundary kept them in JS for the mirror-image reason:
+// its `caml_js_wrap_callback` double-wrapped a returned function. Two backends
+// hit it from opposite directions, which is reason to treat the conclusion as
+// the rule rather than as a Melange quirk: a curried boundary function is
+// written in JS.
 
 // A fully controllable clause from a curried PS handler
 // `a1 -> ... -> an -> Cont b r o -> Hoop r o`. `Cont` is the machine's own
