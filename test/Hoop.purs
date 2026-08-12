@@ -8,6 +8,7 @@ import Hoop.Engine (Handler, Hoop, assign, continue, handler, perform, read, run
 import Hoop.Reader (READER, ask)
 import Hoop.State (STATE, get, handleState, set)
 import Hoop.Types (class EffNewtype, type (->*), EffType, fast, full, scalar)
+import Test.Scoped as Scoped
 import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Reporter (consoleReporter)
@@ -378,3 +379,5 @@ main = runSpecAndExitProcess [ consoleReporter ] do
           _ <- if b then set 10 else pure unit
           get
       run (prog # with stateH # with ambH) `shouldEqual` [ 10, 0 ]
+
+  Scoped.spec

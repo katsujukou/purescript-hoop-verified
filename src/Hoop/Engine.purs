@@ -55,6 +55,8 @@ module Hoop.Engine
   , HHandler
   , Handler
   , HandlerF
+  , ScopeTactics
+  , ScopedClause
   , Hoop
   , RuntimeClause
   , RuntimeClauses
@@ -83,6 +85,10 @@ module Hoop.Engine
   , class PermitsOps
   , class PerformEffect
   , class PerformList
+  , class PerformScoped
+  , class PerformScopedEffect
+  , class PerformScopedList
+  , class PerformScopedOp
   , class UnexpectedFieldsGuard
   , assign
   , continue
@@ -96,8 +102,13 @@ module Hoop.Engine
   , perform
   , performEffect
   , performList
+  , performScoped
+  , performScopedEffect
+  , performScopedList
+  , performScopedOp
   , read
   , run
+  , scoped
   , toRuntimeClause
   , var
   , with
@@ -108,10 +119,12 @@ module Hoop.Engine
 
 import Prelude
 
-import Data.Function.Uncurried (Fn1, Fn2, Fn3, Fn4, runFn2, runFn3)
+import Data.Function.Uncurried (Fn1, Fn2, Fn3, Fn4, runFn2, runFn3, runFn4)
+import Data.Identity (Identity(..))
+import Data.Newtype (unwrap)
 import Data.Symbol (class IsSymbol, reflectSymbol)
 import Hoop.TypeUtil (class HasLabel, class RowListLength, type (++), type (:), type (|>), List, Nil)
-import Hoop.Types (class EffNewtype, class MkAction, type (->*), AlgOnly, AllowScoped, AnyPayload, Clause, EffType, Fast, Full, HCapability, Local, Region, Scalar(..), Scoped, evKey, mkAction, mkRegion, unClause)
+import Hoop.Types (class EffNewtype, class MkAction, type (->*), AlgOnly, AllowScoped, AnyPayload, Clause, EffType, EvKey(..), Fast, Full, HCapability, HSig, Local, Region, Scalar(..), Scoped, asAnyPayload, evKey, mkAction, mkRegion, unClause)
 import Partial.Unsafe (unsafeCrashWith)
 import Prim.Boolean (False, True)
 import Prim.Row as Row
@@ -120,7 +133,7 @@ import Prim.RowList as RL
 import Prim.TypeError (class Fail, QuoteLabel, Text)
 import Record as Record
 import Record.Unsafe as RU
-import Type.Equality (class TypeEquals, proof)
+import Type.Equality (class TypeEquals, proof, to)
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -232,6 +245,127 @@ else instance performEffectImpl1 ::
     where
     eff = reflectSymbol (Proxy :: _ efflbl)
     op = reflectSymbol (Proxy :: _ op)
+
+{------------ Typed `performScoped` API ------------}
+
+foreign import performScopedImpl
+  :: forall r a
+   . Fn4
+       String -- eff
+       String -- op
+       String -- evkey
+       (Array AnyPayload)
+       (Hoop r a)
+
+-- | **Perform a scoped operation.** The payload is the one higher-order value
+-- | the operation's signature declares, `h (Hoop r) b`, and it carries the
+-- | inner computations inside itself.
+-- |
+-- | The runtime never looks inside it. It is one opaque payload element like
+-- | any other, and that is deliberate: a machine that traversed the inner
+-- | computations would owe an `HFunctor` obligation on `h`, and the whole
+-- | design exists to avoid asking for one. Locating and running the inner
+-- | computations is the clause's job, through the capability it is handed.
+class PerformScoped :: Row EffType -> Symbol -> Type -> Constraint
+class PerformScoped eff op comptyp | eff op -> comptyp where
+  performScoped :: comptyp
+
+instance performScopedImpl' ::
+  ( RowToList eff effL
+  , PerformScopedList effL op comptyp
+  ) =>
+  PerformScoped eff op comptyp
+  where
+  performScoped = performScopedList @effL @op
+
+class PerformScopedList :: RowList EffType -> Symbol -> Type -> Constraint
+class PerformScopedList effL op comptyp | effL op -> comptyp where
+  performScopedList :: comptyp
+
+-- The reserved label, guarded exactly as on `PerformList` and for the same
+-- reason: `Hoop.Runtime.WellScopedness` makes any `Perform` under `var_eff`
+-- ill scoped, and a `PerformS` is no exception.
+instance performScopedListVar ::
+  ( Fail
+      ( Text "`%hoop.var` is reserved for prompt-local cells and has no operations to perform."
+          |> Text "  Use `read @\"label\"` / `write @\"label\"` on the region `var` hands out."
+      )
+  ) =>
+  PerformScopedList (RL.Cons "%hoop.var" _1 RL.Nil) _2 _3 where
+  performScopedList = unsafeCrashWith "impossible"
+
+else instance performScopedListImpl ::
+  ( EffNewtype efftyp repr
+  , PerformScopedEffect efflbl efftyp repr op comptyp
+  ) =>
+  PerformScopedList (RL.Cons efflbl efftyp RL.Nil) op comptyp where
+  performScopedList = performScopedEffect @efflbl @efftyp @repr @op
+
+else instance
+  ( Fail (Text """You must specify effect row with exactly 1 element. e.g.: `performScoped @(OP ()) @"op"...` where `type OP r = (op :: Op | r)`""")
+  ) =>
+  PerformScopedList _1 _2 _3 where
+  performScopedList = unsafeCrashWith "impossible"
+
+class PerformScopedEffect :: Symbol -> EffType -> Row Type -> Symbol -> Type -> Constraint
+class PerformScopedEffect efflbl efftyp repr op comptyp | efflbl efftyp repr op -> comptyp where
+  performScopedEffect :: comptyp
+
+instance performScopedEffectVar ::
+  ( Fail
+      ( Text "`%hoop.var` is reserved for prompt-local cells and has no operations to perform."
+          |> Text "  Use `read @\"label\"` / `write @\"label\"` on the region `var` hands out."
+      )
+  ) =>
+  PerformScopedEffect "%hoop.var" _1 _2 _3 _4 where
+  performScopedEffect = unsafeCrashWith "impossible"
+
+else instance performScopedEffectImpl ::
+  ( Row.Cons op comp _r repr
+  , PerformScopedOp efflbl op comp comptyp
+  ) =>
+  PerformScopedEffect efflbl efftyp repr op comptyp
+  where
+  performScopedEffect = performScopedOp @efflbl @op @comp
+
+-- | The last step, and the one that decides whether the operation is scoped at
+-- | all. Split out from `PerformScopedEffect` so that the operation's declared
+-- | type appears in an instance HEAD.
+-- |
+-- | That placement is load-bearing. With the shape written into
+-- | `PerformScopedEffect`'s head instead, or imposed by an equality in its
+-- | context, the use site's expected type is unified against
+-- | `h (Hoop eff) b -> Hoop eff b` before anything has looked at what the
+-- | operation actually is, and performing an ordinary operation scoped reports
+-- | "could not match `Unit` with `t1 (Hoop t2) t3`". Here the ordinary
+-- | signature simply fails to match the first head, the chain falls through,
+-- | and the failure says what is wrong.
+class PerformScopedOp :: Symbol -> Symbol -> Type -> Type -> Constraint
+class PerformScopedOp efflbl op comp comptyp | efflbl op comp -> comptyp where
+  performScopedOp :: comptyp
+
+instance performScopedOpScoped ::
+  ( IsSymbol efflbl
+  , IsSymbol op
+  ) =>
+  PerformScopedOp efflbl op (Scoped h) (h (Hoop eff) b -> Hoop eff b)
+  where
+  performScopedOp payload =
+    runFn4 performScopedImpl eff op key [ asAnyPayload payload ]
+    where
+    eff = reflectSymbol (Proxy :: _ efflbl)
+    op = reflectSymbol (Proxy :: _ op)
+    key = case evKey eff op of EvKey k -> k
+
+else instance performScopedOpRefused ::
+  ( Fail
+      ( Text "This operation is not scoped, so it cannot be performed with `performScoped`."
+          |> (Text "  offending operation: " ++ QuoteLabel efflbl ++ Text "." ++ QuoteLabel op)
+          |> Text "  Declare it as `Scoped h` in the effect's representation, or use `perform`."
+      )
+  ) =>
+  PerformScopedOp efflbl op _1 _2 where
+  performScopedOp = unsafeCrashWith "impossible"
 
 class ComputationSignature :: Type -> List Type -> Type -> Constraint
 class ComputationSignature comp args ret | comp -> args ret
@@ -762,6 +896,20 @@ instance clauseForFull :: (FullSignature comp r o g) => ClauseFor comp (Clause F
 else instance clauseForFast :: (FastSignature comp r o g) => ClauseFor comp (Clause Fast g) r o where
   toRuntimeClause c = mkFastClauseImpl (unClause c)
 
+-- Dispatched on the OPERATION, not on the clause value. Matching
+-- `ScopedClause h ff r o` in the second position instead leaves `r` and `o` as
+-- unknowns at the point the chain is consulted -- the clause's own type is
+-- being inferred from the lambda the user wrote -- and the solver refuses to
+-- commit to an instance head containing unknowns. The operation is always
+-- known, so keying on it commits immediately and the equality below is what
+-- forces the clause into shape.
+else instance clauseForScoped ::
+  ( TypeEquals f (ScopedClause h ff r o)
+  ) =>
+  ClauseFor (Scoped h) f r o where
+  toRuntimeClause c = case to c of
+    ScopedClause g -> mkScopedClauseImpl (scopedBody g)
+
 else instance clauseForDefault :: (FullSignature comp r o f) => ClauseFor comp f r o where
   toRuntimeClause = mkFullClauseImpl
 
@@ -772,6 +920,17 @@ class FullSignature :: Type -> Row EffType -> Type -> Type -> Constraint
 class FullSignature comp r o f | comp r o -> f
 
 instance FullSignature (a ->* b) r o (a -> Cont b r o -> Hoop r o)
+
+-- A scoped operation reached by an ordinary clause. Without this arm the user
+-- is told the signature "must be Function or Computation", which is true of
+-- ordinary operations and useless here.
+else instance
+  ( Fail
+      ( Text "This is a scoped operation, so its clause must be built with `scoped`."
+          |> Text "  An ordinary `full` / `fast` clause cannot run the computations the payload carries."
+      )
+  ) =>
+  FullSignature (Scoped h) _2 _3 _4
 
 else instance
   ( FullSignature rest r o f
@@ -792,6 +951,14 @@ class FastSignature comp r o f | comp r o -> f
 instance FastSignature (a ->* b) r o (a -> Hoop r b)
 
 else instance
+  ( Fail
+      ( Text "This is a scoped operation, so its clause must be built with `scoped`."
+          |> Text "  An ordinary `full` / `fast` clause cannot run the computations the payload carries."
+      )
+  ) =>
+  FastSignature (Scoped h) _2 _3 _4
+
+else instance
   ( FastSignature rest r o f
   ) =>
   FastSignature (a -> rest) r o (a -> f)
@@ -800,6 +967,137 @@ else instance
   ( Fail (Text "The type of operation must be Function (->) or Computation (->*)")
   ) =>
   FastSignature _1 _2 _3 _4
+
+{------------ Scoped clauses ------------}
+
+foreign import mkScopedClauseImpl :: forall h f r o. ScopedBody h f r o -> RuntimeClause r o
+
+-- The machine's calling convention for a scoped clause, and the shape
+-- `mkScopedClause` in hoop_prim.js curries into: the operation's one payload,
+-- then the weave capability, then the continuation.
+--
+-- NOT EXPORTED. The raw weave is a bare `Hoop inner x -> Hoop r (f x)`, and
+-- handing it to a clause would leak two things the tactics record is there to
+-- withhold: that the intervening context is trivial at this milestone, and that
+-- `weave` may be applied to a computation the clause did not receive. The
+-- clause sees `ScopeTactics` and nothing else.
+type ScopedBody :: HSig -> (Type -> Type) -> Row EffType -> Type -> Type
+type ScopedBody h f r o =
+  forall b inner
+   . h (Hoop inner) b
+  -> (forall x. Hoop inner x -> Hoop r (f x))
+  -> Cont b r o
+  -> Hoop r o
+
+-- | **What a scoped clause may do with the computations it was handed.**
+-- |
+-- | Three operations, and their roles do not overlap: `runScope` introduces a
+-- | context, `bindScope` extends one, `resumeScope` eliminates one onto the
+-- | continuation. Each was demanded by a clause that could not be written
+-- | without it, and nothing further was — no `pureScope`, and deliberately no
+-- | inspector.
+-- |
+-- | `f` is the handler's own answer former and is concrete: a clause may match
+-- | on it, and `catch` must (it tells failure from success by it). `ctx` is the
+-- | dynamically intervening context and is bound by the clause's own `forall`:
+-- | unnameable, uninspectable, unchooseable. Folding the two into one layer
+-- | makes `catch` inexpressible, which is why the shape is `f (ctx x)` rather
+-- | than a single functor.
+-- |
+-- | **A trap worth naming.** Sequencing two inner computations by calling
+-- | `bindScope` twice on the same context typechecks and is wrong: it re-enters
+-- | the intervening context twice, which for a nondeterministic `ctx`
+-- | duplicates branches. Sequence inside `Hoop inner` instead, and use one
+-- | `bindScope` on the result.
+type ScopeTactics :: (Type -> Type) -> (Type -> Type) -> Row EffType -> Row EffType -> Type -> Type
+type ScopeTactics f ctx inner r o =
+  { runScope :: forall x. Hoop inner x -> Hoop r (f (ctx x))
+  , bindScope :: forall x y. ctx x -> (x -> Hoop inner y) -> Hoop r (f (ctx y))
+  , resumeScope :: forall x. ctx x -> Cont x r o -> Hoop r o
+  }
+
+-- | **A clause for a scoped operation.** Built by `scoped`; the constructor is
+-- | not exported.
+-- |
+-- | `inner` is the row the payload's computations run in and `b` is the
+-- | operation's result: both are bound here, so the clause cannot choose
+-- | either.
+-- |
+-- | Note what that does and does not rule out. The clause may certainly build
+-- | computations of its own — `pure x` is a `Hoop inner x`, and so is anything
+-- | it maps or binds onto a computation it was handed. What it cannot build is
+-- | a computation demanding a capability the rigid `inner` does not have. So
+-- | the guarantee is: **everything reaching `runScope` is typed at the clause's
+-- | own rigid inner family**, which is exactly the assumption
+-- | `Hoop.Runtime.WellScopedness.apply_scoped_ok` makes and the FFI cannot
+-- | check — see the note at `apply_scoped` in
+-- | runtime/ml/melange/hoop_ffi.ml.
+newtype ScopedClause :: HSig -> (Type -> Type) -> Row EffType -> Type -> Type
+newtype ScopedClause h f r o = ScopedClause
+  ( forall b inner ctx
+     . h (Hoop inner) b
+    -> ScopeTactics f ctx inner r o
+    -> Cont b r o
+    -> Hoop r o
+  )
+
+type role ScopedClause nominal nominal nominal nominal
+
+-- | Mark a clause as scoped: it receives the operation's higher-order payload,
+-- | the scope tactics, and the continuation.
+scoped
+  :: forall h f r o
+   . ( forall b inner ctx
+        . h (Hoop inner) b
+       -> ScopeTactics f ctx inner r o
+       -> Cont b r o
+       -> Hoop r o
+     )
+  -> ScopedClause h f r o
+scoped = ScopedClause
+
+-- The tactics record, at `ctx ~ Identity`.
+--
+-- That is the intervening context at the borrowable milestone: a scope here
+-- runs under prompts that were borrowed whole, so nothing sits between the
+-- scope and its answer. The clause is quantified over `ctx` and cannot tell,
+-- which is what keeps the general case open at no cost -- `Identity` erases.
+--
+-- `Identity` is introduced on the way IN, inside the computation, so `weave`
+-- is instantiated at `Identity x` and hands back the `Hoop r (f (Identity x))`
+-- the tactics record asks for. Every step is a legitimate instantiation of the
+-- weave's own `forall`; nothing here is coerced.
+--
+-- Introducing it on the way out instead -- `unsafeCoerce (weave body)` --
+-- would be a coercion `Hoop r (f x) -> Hoop r (f (Identity x))`, which is NOT
+-- justified by `Identity` erasing. The change is under `f`, and `f` is a rigid
+-- variable whose argument need not be representational, so that spelling adds
+-- a representation assumption to the trusted base that no proof covers. It is
+-- also unreachable for `coerce`, for the same reason.
+--
+-- The price is one `map` per `runScope` or `bindScope` invocation, which the
+-- monad laws make the identity. Optimising it away is a separate matter from
+-- getting it right.
+scopeTactics
+  :: forall f inner r o
+   . (forall x. Hoop inner x -> Hoop r (f x))
+  -> ScopeTactics f Identity inner r o
+scopeTactics weave =
+  { runScope: \body -> weave (Identity <$> body)
+  , bindScope: \cx g -> weave (Identity <$> g (unwrap cx))
+  , resumeScope: \cx k -> continue k (unwrap cx)
+  }
+
+scopedBody
+  :: forall h f r o
+   . ( forall b inner ctx
+        . h (Hoop inner) b
+       -> ScopeTactics f ctx inner r o
+       -> Cont b r o
+       -> Hoop r o
+     )
+  -> ScopedBody h f r o
+scopedBody g = \payload weave k -> g payload (scopeTactics weave) k
 
 {------------ Prompt-local cells ------------}
 
@@ -913,11 +1211,16 @@ data Closed
 -- |
 -- | What F\* proves is that the machine preserves cell reachability across a
 -- | borrow. That the *surface* still installs cells nowhere but under `var`
--- | is this module's obligation as before, so the invariant needs one
--- | end-to-end regression once `withF` can run a scope: two regions sharing a
--- | label, one of them crossed by a borrowed scope, each still seeing its own
--- | cell. Until that test exists the invariant is verified in the runtime and
--- | only inspected at the surface.
+-- | remains this module's obligation, and it is now pinned end to end rather
+-- | than inspected: `Test.Scoped`, "a borrowed cell is a snapshot; a cell
+-- | outside the scope stays live", runs two regions that share the reserved
+-- | scalar label -- one inside the scoped handler, one outside it -- across a
+-- | borrowed scope, reading and writing both, and answers
+-- | `[ 200, 999, 200, 42 ]`. The four positions separate the three claims:
+-- | the scope meets the nearer cell (200, not the outer 7), a write inside is
+-- | visible inside (999), the borrowed cell is a snapshot (200 again after
+-- | return, not 999), and the cell outside the scope is live (42).
+-- | `test/js/engine-smoke.mjs` pins the snapshot half again below the surface.
 -- |
 -- | **A handler polymorphic in its cell's type must say `scalar`.** The
 -- | record-or-not dispatch is an instance chain, and with the initial
@@ -994,15 +1297,22 @@ data Closed
 -- |     the handled program, and a handler's local state being poked at by
 -- |     the code it handles is not what a cell is for. `with` stays a
 -- |     single combinator.
+-- Polymorphic in the capability, and it has to be: a scoped handler is as
+-- entitled to keep state in a cell as an ordinary one, and pinning this to
+-- `Handler` would make that unsayable. Installing cells says nothing about
+-- which clauses a table may carry, so the permission passes straight through.
 var
-  :: forall init inits effh r a o
+  :: forall init inits effh r a o capability
    . VarInit init inits
   => init
-  -> (forall s. Region s inits -> Handler effh ("%hoop.var" :: Local s inits | r) a o)
-  -> Handler effh r a o
+  -> ( forall s
+        . Region s inits
+       -> HHandler capability effh ("%hoop.var" :: Local s inits | r) a o
+     )
+  -> HHandler capability effh r a o
 var init k =
   let
-    inner :: Handler effh ("%hoop.var" :: Local Closed inits | r) a o
+    inner :: HHandler capability effh ("%hoop.var" :: Local Closed inits | r) a o
     inner = k mkRegion
   in
     case inner of

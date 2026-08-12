@@ -1408,6 +1408,29 @@ because by then there are no types.
 So `handlerScoped` is what makes a scoped-clause handler sound, and nothing
 *requires* going through it.
 
+> **Closed by the permission slice.** Both halves of the finding are now
+> unreachable, by two independent mechanisms rather than one.
+>
+> *Permission.* A table carrying a scoped clause can only be built at
+> `AllowScoped` — `PermitsClauses` refuses `Scoped h` under `AlgOnly`, naming
+> the offending operation — and `with` demands `AlgOnly`. `probeInstall` no
+> longer compiles; the fixture is `test-compile-fail/ScopedUnderWith.purs`.
+>
+> *Quantification.* `handlerScoped` takes `forall b. HHandler AllowScoped effh
+> r b (f b)`, so a table pinned at one answer type cannot be passed to it —
+> the rigid `b` is what refuses it. `test-compile-fail/MonomorphicFamily.purs`.
+>
+> The two are genuinely independent: permission alone would still admit a
+> monomorphic `HHandler AllowScoped` if `handlerScoped` were rank-1, and
+> quantification alone would still admit `with ndAllAtInt`. Neither subsumes
+> the other, which is why both are pinned.
+>
+> Note what this does *not* establish. The clause still has to apply `weave`
+> only to computations drawn from its own rigid inner family, and that remains
+> an assumption of `Hoop.Runtime.WellScopedness.apply_scoped_ok` discharged by
+> the rank-2 quantifier on `ScopedClause`, not a checked property of the FFI —
+> see the note at `apply_scoped` in `runtime/ml/melange/hoop_ffi.ml`.
+
 ### The counterexample, run
 
 Built and executed rather than argued. The table's return clause is made

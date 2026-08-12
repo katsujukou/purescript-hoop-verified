@@ -52,9 +52,10 @@ EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantic
 # runtime/ml/melange/hoop_ffi.ml defines under these names.
 # All of them are uncurried multi-argument functions -- the PureScript side
 # imports them through Fn2 / Fn3.
-EXPORTS=(pureImpl bindImpl performImpl withImpl runImpl
+EXPORTS=(pureImpl bindImpl performImpl performScopedImpl withImpl runImpl
          newCellImpl readCellImpl writeCellImpl
-         mkFullClauseImpl mkFastClauseImpl mkReturnImpl undefinedReturnImpl
+         mkFullClauseImpl mkFastClauseImpl mkScopedClauseImpl
+         mkReturnImpl undefinedReturnImpl
          emptyClausesImpl emptyHandlersImpl insertClauseImpl insertClausesImpl)
 
 # The OCaml-to-JavaScript backend that produces src/Hoop/Engine.js:

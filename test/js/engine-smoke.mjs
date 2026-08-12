@@ -28,6 +28,7 @@ import {
   newCellImpl, readCellImpl, writeCellImpl,
   mkFullClauseImpl, mkFastClauseImpl, mkReturnImpl, undefinedReturnImpl,
   emptyClausesImpl, emptyHandlersImpl, insertClauseImpl, insertClausesImpl,
+  performScopedImpl, mkScopedClauseImpl,
 } from '../../src/Hoop/Engine.js'
 
 let passed = 0
@@ -683,6 +684,121 @@ check('a long bind chain under a handler does not blow up', () => {
   let prog = pure(0)
   for (let i = 0; i < 2000; i++) prog = bind(prog, (x) => bind(perform('reader', 'ask'), (n) => pure(x + n)))
   eq(runImpl(withImpl(undefinedReturnImpl, h, prog)), 2000)
+})
+
+// --- scoped operations -----------------------------------------------------
+//
+// `performScopedImpl` and `mkScopedClauseImpl` are the two boundary entry
+// points the scoped slice added, and neither is covered by anything above: the
+// first builds a `PerformS` node, the second builds the `{ scoped }` shape that
+// `tag_clause` reads as `KScoped`. F* proves what those mean once built; that
+// the boundary builds them, and reads the weave and resume arguments off in the
+// right order, is checked only here.
+//
+// The clause is spelled at the machine's convention -- curried
+// `payload => weave => resume => comp`, which `mkScopedClause` uncurries -- so
+// a change to that convention fails here rather than silently in PureScript.
+
+const performScoped = (eff, op, payload) => performScopedImpl(eff, op, null, [payload])
+const scopedClause = (f) => mkScopedClauseImpl(f)
+
+check('a scoped clause receives the payload, weaves it, and resumes', () => {
+  // `once`: run the inner computation under the borrowed prompts, then resume
+  // the perform site with its value.
+  const h = table({
+    sc: {
+      scope: scopedClause((payload) => (weave) => (resume) =>
+        bind(weave(payload.body), (v) => resume(v))),
+    },
+  })
+  const prog = bind(performScoped('sc', 'scope', { body: pure(7) }), (x) => pure(x + 1))
+  eq(runImpl(withImpl(undefinedReturnImpl, h, prog)), 8)
+})
+
+check('a scoped clause may discard the scope and answer directly', () => {
+  const h = table({
+    sc: { scope: scopedClause((_payload) => (_weave) => (_resume) => pure('discarded')) },
+  })
+  const prog = bind(performScoped('sc', 'scope', { body: pure(7) }), (x) => pure(x + 1))
+  eq(runImpl(withImpl(undefinedReturnImpl, h, prog)), 'discarded')
+})
+
+check('a woven scope sees the handlers its perform site could see', () => {
+  // The inner computation performs an operation handled by an intermediate
+  // prompt. Reaching it at all is what `prepare_scope` is for.
+  const inner = table({ reader: { ask: mkFastClauseImpl((_p) => pure(5)) } })
+  const outer = table({
+    sc: {
+      scope: scopedClause((payload) => (weave) => (resume) =>
+        bind(weave(payload.body), (v) => resume(v))),
+    },
+  })
+  const prog = withImpl(
+    undefinedReturnImpl,
+    inner,
+    performScoped('sc', 'scope', { body: perform('reader', 'ask', null) }),
+  )
+  eq(runImpl(withImpl(undefinedReturnImpl, outer, prog)), 5)
+})
+
+check('a borrowed cell is a snapshot', () => {
+  // The cell belongs to an intermediate prompt, so it travels in the borrowed
+  // segment BY VALUE. A write inside the scope must not be visible after it.
+  const outer = table({
+    sc: {
+      scope: scopedClause((payload) => (weave) => (resume) =>
+        bind(weave(payload.body), (v) => resume(v))),
+    },
+  })
+  const body = bind(writeCell('c', 99), (_) => readCell('c'))
+  const prog = newCell(
+    'c',
+    1,
+    bind(performScoped('sc', 'scope', { body }), (inside) =>
+      bind(readCell('c'), (after) => pure([inside, after]))),
+  )
+  eq(runImpl(withImpl(undefinedReturnImpl, outer, prog)), [99, 1])
+})
+
+check('an ordinary clause reached by a scoped perform is rejected by name', () => {
+  const h = table({ sc: { scope: ctl((_p, k) => k(1)) } })
+  throws(
+    () => runImpl(withImpl(undefinedReturnImpl, h, performScoped('sc', 'scope', {}))),
+    /'sc\.scope'.*holds a fully controllable \(ctl\) clause/s,
+    'ordinary clause for a scoped perform: ',
+  )
+})
+
+check('a scoped clause reached by an ordinary perform is rejected by name', () => {
+  const h = table({
+    sc: { scope: scopedClause((_p) => (_w) => (resume) => resume(1)) },
+  })
+  throws(
+    () => runImpl(withImpl(undefinedReturnImpl, h, perform('sc', 'scope'))),
+    /'sc\.scope'.*holds a scoped clause/s,
+    'scoped clause for an ordinary perform: ',
+  )
+})
+
+check('a scope crossing a full intermediate prompt is rejected', () => {
+  // A full clause may resume more than once, so its prompt cannot be lent.
+  const inner = table({ reader: { ask: ctl((_p, k) => k(5)) } })
+  const outer = table({
+    sc: {
+      scope: scopedClause((payload) => (weave) => (resume) =>
+        bind(weave(payload.body), (v) => resume(v))),
+    },
+  })
+  const prog = withImpl(
+    undefinedReturnImpl,
+    inner,
+    performScoped('sc', 'scope', { body: perform('reader', 'ask', null) }),
+  )
+  throws(
+    () => runImpl(withImpl(undefinedReturnImpl, outer, prog)),
+    /scope of 'sc[.]scope' could not be entered across non-borrowable handlers: 'reader'/,
+    'unborrowable scope: ',
+  )
 })
 
 // --- report ----------------------------------------------------------------
