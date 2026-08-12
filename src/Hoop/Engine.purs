@@ -86,9 +86,9 @@ module Hoop.Engine
   , class PerformEffect
   , class PerformList
   , class PerformScoped
+  , class PerformScopedOp
   , class PerformScopedEffect
   , class PerformScopedList
-  , class PerformScopedOp
   , class UnexpectedFieldsGuard
   , assign
   , continue
@@ -103,9 +103,9 @@ module Hoop.Engine
   , performEffect
   , performList
   , performScoped
+  , performScopedOp
   , performScopedEffect
   , performScopedList
-  , performScopedOp
   , read
   , run
   , scoped
@@ -231,8 +231,16 @@ instance performEffectVar ::
   PerformEffect "%hoop.var" _1 _2 _3 _4 where
   performEffect = unsafeCrashWith "impossible"
 
+-- `EffNewtype efftyp repr` is what stops `repr` from being a LIE. This class is
+-- exported and names its representation by type application, so without it a
+-- caller may pass any row at all: `performEffect @"ask" @Ask @(ask :: Unit ->*
+-- String) @"ask"` then typechecks at `Hoop (ASK r) String` while the handler
+-- returns an `Int`, and the mismatch surfaces as a JS error far away. The
+-- label-derived path (`PerformList`) supplies `repr` through this same class,
+-- so the constraint costs nothing there and closes the hole here.
 else instance performEffectImpl1 ::
-  ( Row.Cons op comp _1 repr
+  ( EffNewtype efftyp repr
+  , Row.Cons op comp _1 repr
   , ComputationSignature comp args ret
   , Row.Cons efflbl efftyp _2 eff
   , MkAction args (Hoop eff ret) comptyp
@@ -320,13 +328,17 @@ instance performScopedEffectVar ::
   PerformScopedEffect "%hoop.var" _1 _2 _3 _4 where
   performScopedEffect = unsafeCrashWith "impossible"
 
+-- `EffNewtype efftyp repr` for the same reason as on `performEffect`: this
+-- class is exported and takes its representation by type application, so
+-- without it the representation is a caller's claim rather than the effect's.
 else instance performScopedEffectImpl ::
-  ( Row.Cons op comp _r repr
-  , PerformScopedOp efflbl efftyp op comp comptyp
+  ( EffNewtype efftyp repr
+  , Row.Cons op comp _r repr
+  , PerformScopedOp efflbl efftyp repr op comp comptyp
   ) =>
   PerformScopedEffect efflbl efftyp repr op comptyp
   where
-  performScopedEffect = performScopedOp @efflbl @efftyp @op @comp
+  performScopedEffect = performScopedOp @efflbl @efftyp @repr @op @comp
 
 -- | The last step, and the one that decides whether the operation is scoped at
 -- | all. Split out from `PerformScopedEffect` so that the operation's declared
@@ -340,16 +352,41 @@ else instance performScopedEffectImpl ::
 -- | "could not match `Unit` with `t1 (Hoop t2) t3`". Here the ordinary
 -- | signature simply fails to match the first head, the chain falls through,
 -- | and the failure says what is wrong.
-class PerformScopedOp :: Symbol -> EffType -> Symbol -> Type -> Type -> Constraint
-class PerformScopedOp efflbl efftyp op comp comptyp | efflbl efftyp op comp -> comptyp where
+-- |
+-- | **It carries `repr`, and both guards, because it cannot be hidden.** This
+-- | class sits *below* the two checks that make a perform site trustworthy, so
+-- | while it lacked them both were reachable around it:
+-- | `performScopedOp @"sc" @Sc @Sc' @"op" @(Scoped Twice)` compiled with `Sc`'s real
+-- | representation being `Scoped Once`, and a row spelling out
+-- | `"%hoop.var" :: Sc` walked past the reserved-label guard on
+-- | `PerformScopedEffect`.
+-- |
+-- | Un-exporting it was the smaller fix and is not available: PureScript needs
+-- | a class in scope to discharge it at a use site, so a chain reachable from
+-- | an exported method must be exported in full. The checks are therefore
+-- | repeated here — the same reason `performEffectVar` repeats `PerformList`'s
+-- | reserved-label guard.
+class PerformScopedOp :: Symbol -> EffType -> Row Type -> Symbol -> Type -> Type -> Constraint
+class PerformScopedOp efflbl efftyp repr op comp comptyp | efflbl efftyp repr op comp -> comptyp where
   performScopedOp :: comptyp
 
-instance performScopedOpScoped ::
-  ( Row.Cons efflbl efftyp _2 eff
+instance performScopedOpVar ::
+  ( Fail
+      ( Text "`%hoop.var` is reserved for prompt-local cells and has no operations to perform."
+          |> Text "  Use `read @\"label\"` / `write @\"label\"` on the region `var` hands out."
+      )
+  ) =>
+  PerformScopedOp "%hoop.var" _1 _2 _3 _4 _5 where
+  performScopedOp = unsafeCrashWith "impossible"
+
+else instance performScopedOpScoped ::
+  ( EffNewtype efftyp repr
+  , Row.Cons op (Scoped h) _1 repr
+  , Row.Cons efflbl efftyp _2 eff
   , IsSymbol efflbl
   , IsSymbol op
   ) =>
-  PerformScopedOp efflbl efftyp op (Scoped h) (h (Hoop eff) b -> Hoop eff b)
+  PerformScopedOp efflbl efftyp repr op (Scoped h) (h (Hoop eff) b -> Hoop eff b)
   where
   performScopedOp payload =
     runFn4 performScopedImpl eff op key [ asAnyPayload payload ]
@@ -365,7 +402,7 @@ else instance performScopedOpRefused ::
           |> Text "  Declare it as `Scoped h` in the effect's representation, or use `perform`."
       )
   ) =>
-  PerformScopedOp efflbl _0 op _1 _2 where
+  PerformScopedOp efflbl _0 _r op _1 _2 where
   performScopedOp = unsafeCrashWith "impossible"
 
 class ComputationSignature :: Type -> List Type -> Type -> Constraint
