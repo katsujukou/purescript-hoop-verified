@@ -1005,11 +1005,20 @@ type ScopedBody h f r o =
 -- | makes `catch` inexpressible, which is why the shape is `f (ctx x)` rather
 -- | than a single functor.
 -- |
--- | **A trap worth naming.** Sequencing two inner computations by calling
--- | `bindScope` twice on the same context typechecks and is wrong: it re-enters
--- | the intervening context twice, which for a nondeterministic `ctx`
--- | duplicates branches. Sequence inside `Hoop inner` instead, and use one
--- | `bindScope` on the result.
+-- | **A trap worth naming, stated precisely.** Calling `bindScope` twice on the
+-- | same context *as a way of sequencing two inner computations* typechecks and
+-- | is wrong: it re-enters the intervening context twice, so for a
+-- | nondeterministic `ctx` the branches are duplicated. Sequence inside
+-- | `Hoop inner` instead, and use one `bindScope` on the result — that is how
+-- | `bracket`'s normal path is written.
+-- |
+-- | This is not a general prohibition on re-entering a context more than once.
+-- | Hoop admits multi-shot continuations, and a higher-order handler that
+-- | deliberately re-enters the same context several times is a legitimate thing
+-- | to write. What is wrong is using repeated re-entry as *sequencing*, where
+-- | the duplication is not what was meant. Resource safety, which is what this
+-- | usually comes up around, is not bought by restricting `bindScope` at all —
+-- | it needs finalizer frames in the machine.
 type ScopeTactics :: (Type -> Type) -> (Type -> Type) -> Row EffType -> Row EffType -> Type -> Type
 type ScopeTactics f ctx inner r o =
   { runScope :: forall x. Hoop inner x -> Hoop r (f (ctx x))

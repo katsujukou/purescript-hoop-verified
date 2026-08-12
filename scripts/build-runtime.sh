@@ -48,6 +48,44 @@ VERIFY_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics
 # implementation-only module again and its .ml will reappear.
 EXTRACT_MODULES=(Hoop.Runtime.Handlers Hoop.Runtime.Syntax Hoop.Runtime.Semantics Hoop.Runtime.Env Hoop.Runtime.Machine Hoop.Runtime.Api)
 
+# --- Prototypes ------------------------------------------------------------
+#
+# runtime/proto/ holds machines that are being DESIGNED, not shipped. They are
+# verified on every build -- a prototype whose simulation does not close is not
+# telling us anything -- and they are never extracted, never reachable from the
+# FFI, and never in the bundle.
+#
+# The point of verifying them here rather than in a scratch directory is that
+# the risk in a new machine is not whether it runs; it is whether preservation
+# and simulation close over the representation it chose. Deferring that until
+# after the code is written is what puts a representation in place that cannot
+# be proved about.
+#
+# `Hoop.Runtime.*` is not to be edited for a prototype's sake. A prototype that
+# needs a change there is a prototype that has finished.
+PROTO_DIR="$ROOT/runtime/proto"
+PROTO_MODULES=()
+if [ -d "$PROTO_DIR" ]; then
+  for f in "$PROTO_DIR"/*.fst; do
+    [ -e "$f" ] || continue
+    PROTO_MODULES+=("$(basename "$f" .fst)")
+  done
+fi
+
+# Guard: a prototype must never reach the shipped path. This is checked rather
+# than trusted, because `--extract` reads a module name as a namespace prefix,
+# so a prototype named into an extracted namespace would be offered up silently.
+for pm in "${PROTO_MODULES[@]}"; do
+  for em in "${EXTRACT_MODULES[@]}"; do
+    if [ "$pm" = "$em" ] || [ "${pm#"$em".}" != "$pm" ]; then
+      echo "ERROR: prototype module '$pm' is extracted (or lies under the" >&2
+      echo "       extracted namespace '$em'). Prototypes are verified, never" >&2
+      echo "       shipped. Rename it out of that namespace." >&2
+      exit 1
+    fi
+  done
+done
+
 # Names the generated JS exposes. Must match the top-level values
 # runtime/ml/melange/hoop_ffi.ml defines under these names.
 # All of them are uncurried multi-argument functions -- the PureScript side
@@ -186,6 +224,16 @@ for m in "${VERIFY_MODULES[@]}"; do
     printf '  %s\n' "$m.$ext"
     fstar.exe --cache_checked_modules --cache_dir "$CACHE" \
       --include "$FST_DIR" "$src"
+  done
+done
+
+for m in "${PROTO_MODULES[@]}"; do
+  for ext in fsti fst; do
+    src="$PROTO_DIR/$m.$ext"
+    [ -f "$src" ] || continue
+    printf '  %s (prototype)\n' "$m.$ext"
+    fstar.exe --cache_checked_modules --cache_dir "$CACHE" \
+      --include "$FST_DIR" --include "$PROTO_DIR" "$src"
   done
 done
 

@@ -2006,6 +2006,258 @@ about that surface rather than about the language.
   `Hoop_Runtime_Syntax.PerformS` and a `Hoop_Runtime_Semantics.weave_of`
   detour — after the two exports were restored.
 
+## The general level — decisions taken, and Gate A
+
+### The reframing: re-instantiation is free, the evidence is not
+
+F\*'s machine has one value type and one clause type, and PureScript erases
+types, so **the table built at answer type `o` and the table built at `x` are
+the same JS closures**. What a general weave needs is therefore not machinery
+to rebuild a table; it is evidence that reusing it is legitimate.
+
+Half of that evidence is already derivable from the shipped runtime data, and
+half is not:
+
+- *Derivable.* `ret == None` and "every dispatch-visible clause is `KFast`" are
+  facts about the frame and the table, and F\* can state them from the real
+  `ret` and the tagged table. The authority is that data, never a boolean the
+  FFI supplies. The surface's `HasLabel hsL "pure" False` is a **diagnostic**
+  witness of the same fact, not the authority.
+- *Not derivable.* Family provenance. `withF (HandlerF installer) = installer`
+  calls the ordinary `withImpl`, so the `HandlerF` type is gone by the time a
+  `PromptF` exists, and an erased table cannot be asked whether it came from a
+  family. This has to be carried from `withF` to the prompt.
+
+That was the first correction to the reframing, and it is the load-bearing one:
+re-instantiation is free as computation, not as evidence.
+
+### The three-way classification
+
+| class | condition | behaviour |
+|---|---|---|
+| `ContextTransparent` | every dispatch-visible clause is `Fast`, **and** `ret = None` | the current borrow, as a fast path |
+| `Reinstantiable` | family provenance present | the general `ctx` / re-entry path |
+| `Monomorphic` | otherwise | `Rejected` |
+
+Priority is fixed: a prompt with family provenance is `Family` **even if it
+happens to be all-fast with `ret = None`**. Dropping it to the fast path is an
+optimisation to be justified by an equivalence proof, not a default.
+
+`ContextTransparent` rather than `Borrowable`: the second names an
+implementation, the first names the property that makes the implementation
+sound.
+
+**This is narrower than today's criterion, deliberately.** Today
+`blocking_effects` reads clause kinds only, so an all-fast handler with a
+non-identity `pure` is borrowed and its return transformation silently dropped
+inside the scope. Under the classification such a handler installed with plain
+`with` is `Monomorphic`, i.e. rejected. A `ContextDiscarding` fourth class to
+preserve the old answer was considered and rejected: it would formalise exactly
+the silent semantic difference this project avoids everywhere else. If that
+behaviour is ever wanted it should be an explicit API, not an implicit class.
+
+The baseline that records what changes is `Test.Scoped.baselineSpec`.
+
+### The baseline, measured before anything moves
+
+Run against the shipped runtime, an all-fast intermediate with
+`pure: \s -> "<" <> s <> ">"`:
+
+| observation | result |
+|---|---|
+| no scope | `Right "<a>"` — once |
+| scope resumed across it | `Right "<a>"` — once, **not twice** |
+| the raw scope value, seen through `bindScope` | **`"a"`**, not `"<a>"` |
+| the clause discards its continuation | `Left "y"` — **never** |
+
+The third row is the decisive one and it needed `bindScope`, which nothing had
+exercised before. The mechanism: `borrow` clears `ret` on an intermediate, so
+the scope's own value is untransformed; `kont_of captured` splices back the
+**un-borrowed** frames, so the transformation happens once, on resumption.
+`weave_of` uses `prepared` (borrowed) and `kont_of` uses `captured`
+(un-borrowed) — two different lists, and that is what makes "not inside,
+exactly once outside" come out.
+
+### Gate A: types only
+
+Eight conditions. Seven behaved as intended; the eighth was **vacuous**, and
+finding that out was the useful part.
+
+| # | condition | result |
+|---|---|---|
+| 1 | a monomorphic `Handler` cannot be reused at a rigid `x` | refused |
+| 2 | a `HandlerF` is legitimate at every `x`, no `unsafeCoerce` | compiles |
+| 3 | the classification is expressible as a kind, `Reinstantiable` carrying `f` | compiles |
+| 4 | one intermediate gives `ctx = f`; two give `Compose f₁ f₂` | compiles |
+| 5 | owner outermost: `Either String (Array (Maybe x))` | compiles |
+| 6 | the tactics are not implementable from the clause alone | **see below** |
+| 7a | all-fast, no `pure` → `ContextTransparent` | compiles |
+| 7b | all-fast, non-identity `pure` → not `ContextTransparent` | refused |
+| 7c | the same clauses via `HandlerF` → `Reinstantiable f` | compiles |
+| 7d | a `Full` clause → not `ContextTransparent` | refused, by name |
+| 8 | no `unsafeCoerce`, `HFunctor` or FFI in the positive cases | held |
+
+The classification needs **no new type machinery**: `AllFastOps` is the same
+shape as `PermitsOps`, and `ret = None` is the `HasLabel hsL "pure" False` that
+`handler` already computes. (`7b`'s message is currently
+`Could not match True with False`, which is not fit to show a user; the real
+implementation must wrap that in a `Fail`.)
+
+#### Condition 6 was vacuous as first written, and why that matters
+
+Stated over `runScope`, it *compiles*:
+
+```purescript
+runScopeAtArray weave = \body -> weave (map (\x -> [ x ]) body)
+```
+
+which is well typed and semantically wrong — it injects each value into a
+singleton instead of re-entering the intermediate prompt. **Types cannot tell
+the right `runScope` from a wrong one.**
+
+Restated over `resumeScope` it is not vacuous:
+
+```purescript
+resumeScopeAtArray _weave = \cx k -> case Array.head cx of
+  Just x -> continue k x
+  Nothing -> ?noValueToReturn      -- Hoop r0 o1, with o1 rigid
+```
+
+There is no `o` to be had: `o` is rigid, the weave produces `f _`, and `k` needs
+an `x` that does not exist. So:
+
+> The need for a machine capability is exposed by **elimination**. Introduction
+> (`runScope`) and extension (`bindScope`) are not forced by their types, and a
+> wrong implementation of either typechecks.
+
+This decides what Gate B has to be. `runScope` and `bindScope` can only be
+checked behaviourally, and the strongest instrument is a `Full` clause that
+actually resumes its continuation more than once — that is what exercises the
+`Cont ... o`-dependent part of a re-instantiated table, which a non-identity
+`ret` alone does not reach. It is a *required* fixture rather than the only one:
+performing the intermediate's own operations inside the scope, a combining
+intermediate, a two-layer `ctx` whose order is observed, and `bindScope`
+applying a continuation to each branch all discriminate too.
+
+### The consequence: non-trivial logic leaves PureScript
+
+Condition 6 says a wrong `runScope` typechecks. The answer is **not** a cleverer
+PureScript type that pins the implementation down — types do not determine an
+implementation's extensional meaning, and no amount of indexing changes that.
+The answer is to move the logic that can be wrong somewhere it can be proved.
+
+This is not hypothetical. The first `scopeTactics` written for the borrowable
+milestone had `runScope: \body -> unsafeCoerce (weave body)`. It typechecked,
+every test passed, and it was caught in review — the type system never fired.
+
+So the boundary is:
+
+```text
+PureScript ScopeTactics     -- passes its arguments through, and nothing else
+    ↓
+FFI constructor
+    ↓
+F* reference transition     -- what the tactic MEANS
+    ↓
+F* optimized transition     -- what runs
+    ↓  simulation
+```
+
+No `map`, no traversal, no branching, no context composition on the PureScript
+side. The present `Identity <$> body` is admissible only because `ctx` is
+trivial at this milestone; at a non-trivial `ctx` every tactic delegates.
+
+**Added to Gate B as stop conditions:**
+
+- any of `runScope` / `bindScope` / `resumeScope` needing to be non-trivial
+  PureScript logic rather than a thin delegation to a verified transition;
+- PureScript traversing, constructing or observing a `ctx`;
+- the FFI passing anything but a context plan or an opaque context value;
+- a tactic with no corresponding reference transition;
+- no simulation between the reference and optimized machines;
+- `unsafeCoerce` moving a value into or out of a `ctx`.
+
+The FFI choosing the right transition is checked separately, by perturbing each
+JS smoke — the boundary is outside every proof, as it is for the existing
+clause-shape discrimination.
+
+#### Where the laws go — one level below `ScopeTactics`
+
+An earlier draft of this section proposed stating unit and associativity over
+the record's own functions. They do not typecheck there: `bindScope cx pure` has
+type `Hoop r (f (ctx x))`, not `ctx x`, so there is nothing to compare `cx` to;
+and `bindScope (bindScope cx g) h` cannot nest, because the inner call already
+returns `Hoop r (f (ctx y))`. The record is the *public* form, with the owner's
+`f` already laid over the top.
+
+The laws belong to the context plan underneath, over operations of the shape
+
+```text
+enter_C   : Comp x -> Comp (C x)
+extend_C  : C x -> (x -> Comp y) -> Comp (C y)
+resume_C  : C x -> (x -> Comp o) -> Comp o
+```
+
+with the obligations: left identity at a point; `extend_C cx pure` a right
+identity; associativity of `extend_C`; `resume_C` agreeing with the preserved
+continuation; plan composition matching handler nesting; and — the one tying
+the classification back to what ships — **a transparent plan being
+observationally equal to the existing borrow**. `runScope` and friends are then
+that proved algebra with `f` laid over it.
+
+The injection counterexample (`weave (map (\x -> [x]) body)`) fails
+associativity, which is why it belongs there rather than in a fixture.
+
+#### Indexed protocols are not the safety mechanism
+
+An indexed `IHoop` can express a usage protocol, and there are places it would
+earn its keep — the machine primitives' call protocol, a specific combinator
+that must re-enter exactly once, finalizer registration and release. It is not
+what makes the tactics correct, for two reasons.
+
+*It does not reach the failure mode.* Restricting `runScope` to one call does
+nothing about that one call being the injection rather than a re-entry. The
+defect is extensional, and an index counts occurrences.
+
+*It cannot enforce linear use of a value anyway.* PureScript duplicates
+variables freely, so `let p1 = bindScope cx g` and `let p2 = bindScope cx h` are
+two values whichever indices the monad carries; an Atkey-style pre/post index
+([Parameterised Notions of Computation](https://bentnib.org/param-notions.html))
+refuses to *compose* them in one chain but does not record that `cx` was named
+twice. Tracking that needs usage in the typing context, as in
+[Quantitative Type Theory](https://bentnib.org/quantitative-type-theory.pdf) —
+and distinguishing several live contexts would need fresh type-level tokens
+besides. That is a heavy design for PureScript, and it would be buying the wrong
+thing.
+
+And the rule it would enforce is not a general law. "At most one `bindScope` per
+context" is right for `bracket`'s sequencing and wrong in general: Hoop admits
+multi-shot continuations, and a handler that deliberately re-enters a context
+several times is legitimate. The recorded trap has been narrowed accordingly —
+it is about using repeated re-entry *as sequencing*, not about repeated re-entry.
+Resource safety, which is what motivates the restriction, is not bought by
+constraining `bindScope`; it needs finalizer frames, and it has its own
+milestone.
+
+### Where the prototype lives
+
+`runtime/proto/`, verified on every build and never extracted. The guard that
+keeps it out of the shipped path is checked, not trusted — `--extract` reads a
+module name as a namespace prefix, so a prototype named into an extracted
+namespace would be offered up silently. Fire-tested with a module named
+`Hoop.Runtime.Machine.Sneaky`.
+
+`Hoop.Runtime.*` is not to be edited for a prototype's sake. A prototype that
+needs a change there is a prototype that has finished.
+
+Verifying rather than scratch-building is the point: the risk in a new machine
+is not whether it runs but whether preservation and simulation close over the
+representation it chose, and deferring that is what leaves a representation in
+place that cannot be proved about. The TypeScript-backed project is kept as a
+*mirror* for implementability and performance once the transitions are fixed —
+not as a gate, since it has already made different choices (shared-cell
+semantics among them) that would pull the representation the wrong way.
+
 ## Agenda — decisions still open
 
 1. ~~**The surface type discipline in detail.**~~ **Settled** — see "Shipped"
