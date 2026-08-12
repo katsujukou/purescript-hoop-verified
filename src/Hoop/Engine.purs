@@ -322,11 +322,11 @@ instance performScopedEffectVar ::
 
 else instance performScopedEffectImpl ::
   ( Row.Cons op comp _r repr
-  , PerformScopedOp efflbl op comp comptyp
+  , PerformScopedOp efflbl efftyp op comp comptyp
   ) =>
   PerformScopedEffect efflbl efftyp repr op comptyp
   where
-  performScopedEffect = performScopedOp @efflbl @op @comp
+  performScopedEffect = performScopedOp @efflbl @efftyp @op @comp
 
 -- | The last step, and the one that decides whether the operation is scoped at
 -- | all. Split out from `PerformScopedEffect` so that the operation's declared
@@ -340,15 +340,16 @@ else instance performScopedEffectImpl ::
 -- | "could not match `Unit` with `t1 (Hoop t2) t3`". Here the ordinary
 -- | signature simply fails to match the first head, the chain falls through,
 -- | and the failure says what is wrong.
-class PerformScopedOp :: Symbol -> Symbol -> Type -> Type -> Constraint
-class PerformScopedOp efflbl op comp comptyp | efflbl op comp -> comptyp where
+class PerformScopedOp :: Symbol -> EffType -> Symbol -> Type -> Type -> Constraint
+class PerformScopedOp efflbl efftyp op comp comptyp | efflbl efftyp op comp -> comptyp where
   performScopedOp :: comptyp
 
 instance performScopedOpScoped ::
-  ( IsSymbol efflbl
+  ( Row.Cons efflbl efftyp _2 eff
+  , IsSymbol efflbl
   , IsSymbol op
   ) =>
-  PerformScopedOp efflbl op (Scoped h) (h (Hoop eff) b -> Hoop eff b)
+  PerformScopedOp efflbl efftyp op (Scoped h) (h (Hoop eff) b -> Hoop eff b)
   where
   performScopedOp payload =
     runFn4 performScopedImpl eff op key [ asAnyPayload payload ]
@@ -364,7 +365,7 @@ else instance performScopedOpRefused ::
           |> Text "  Declare it as `Scoped h` in the effect's representation, or use `perform`."
       )
   ) =>
-  PerformScopedOp efflbl op _1 _2 where
+  PerformScopedOp efflbl _0 op _1 _2 where
   performScopedOp = unsafeCrashWith "impossible"
 
 class ComputationSignature :: Type -> List Type -> Type -> Constraint

@@ -1760,28 +1760,273 @@ all depend on the answer, while `Splice` depends on none of it. What condition 4
 moves is how `prepared` is built, whether a prompt holds a table or a factory,
 and how the surface is typed — not the splice primitive underneath.
 
+## Shipped — the borrowable milestone, as built
+
+Step 5 is done. What follows is the record of what landed and, more usefully,
+of the four places where the plan above did not survive contact with the
+compiler. Each of those is a shape that would be re-invented by anyone
+reworking this area, so the *reason* is recorded rather than only the outcome.
+
+### The published surface
+
+```purescript
+-- Hoop.Types
+kind HCapability ; AlgOnly ; AllowScoped        -- an open kind
+Scoped :: HSig -> Type                          -- the operation-signature marker
+
+-- Hoop.Engine
+HHandler :: HCapability -> Row EffType -> Row EffType -> Type -> Type -> Type
+type Handler effh r a o = HHandler AlgOnly effh r a o     -- unchanged for users
+HandlerF effh r f                                          -- the family
+handlerScoped :: (forall b. HHandler AllowScoped effh r b (f b)) -> HandlerF effh r f
+withF         :: Row.Union effh effb effa => HandlerF effh effb f -> Hoop effa a -> Hoop effb (f a)
+
+ScopeTactics f ctx inner r o    -- runScope / bindScope / resumeScope
+ScopedClause h f r o ; scoped
+performScoped   -- via PerformScopedList / PerformScopedEffect / PerformScopedOp
+```
+
+`ScopeTactics` and `ScopedClause` are published at the **general** shape the
+bind gate settled on, not at a borrowable-only one. The milestone specialises
+`ctx ~ Identity` in the engine's own `scopeTactics`; the clause is quantified
+over `ctx` and cannot tell.
+
+`Handler` remains a five-argument-free synonym, so every existing annotation
+compiles unchanged, and the capability is not re-exported from `Hoop` — a user
+never spells `AlgOnly` or `AllowScoped`.
+
+### `capability` works because it is in the RESULT type
+
+The first attempt threaded the capability through the classes that BUILD the
+table (`BuildHandler` → `MkHandlers` → `MkHandlersList` → `ClauseFor`). It
+fails: their methods do not mention it, so nothing at a use site determines it,
+and the chain stalls on an unknown and reports a partial overlap instead of the
+intended `Fail`.
+
+The working shape is a **method-less predicate**, `PermitsClauses capability
+effhL`, discharged from `handler`'s context. But "carrying no method" is *not*
+the reason it works — a method-less class stalls just the same when its index is
+undetermined. What makes it work is that `capability` occurs in `handler`'s
+**result** type, so it is fixed at the point the handler is consumed: `with`
+demands `AlgOnly`, `handlerScoped` demands `AllowScoped`. The predicate is then
+always discharged against a *known* capability. A handler value with no consumer
+and no annotation simply generalises with the constraint attached, which is
+correct and was checked.
+
+Walking `effh` costs nothing new: `handler` already demanded `RowToList effh
+effhL`, and `MkHandlersList`'s cons instance already did `EffNewtype efftyp
+repr, RowToList repr reprL`. The open-row objection — that an open row cannot be
+walked — does not bite, because the row walked is the one `Proxy effh` supplies,
+which is closed by construction. The computation's row stays open.
+
+`PermitsOps` is a four-arm chain: `AllowScoped` + `Scoped h` permitted,
+`AlgOnly` + `Scoped h` refused with the message that names the offending
+operation and points at `handlerScoped` / `withF`, **any other capability** +
+`Scoped h` refused generically, everything else recursing. The third arm is not
+a placeholder for a future extension: `HCapability` is an open kind, so a user
+may declare their own inhabitant and pin a handler to it. Deny-by-default is
+what keeps a capability nobody vetted from being scoped-permissive.
+
+### Two things the type checker forced
+
+Neither is a matter of taste; both were arrived at by watching the error
+messages, and both would be re-broken by an obvious-looking simplification.
+
+**`ClauseFor` for a scoped operation must be keyed on the OPERATION.** The
+natural spelling puts the clause in the head —
+
+```purescript
+ClauseFor comp (ScopedClause h ff r o) r o
+```
+
+— and it does not work. The clause's own type is still being inferred from the
+lambda the user wrote, so `r` and `o` arrive as unknowns, and the solver refuses
+to commit to an instance head containing them: *"The instance head contains
+unknown type variables."* The operation is always known, so keying on it
+(`ClauseFor (Scoped h) f r o`, with `TypeEquals f (ScopedClause h ff r o)` in
+the context) commits immediately and the equality is what forces the clause into
+shape.
+
+**`performScoped` needs a separate class whose head carries the operation's
+declared type.** With the payload shape written into `PerformScopedEffect`'s
+head — or imposed by an equality in its context — the use site's expected type
+is unified against `h (Hoop eff) b -> Hoop eff b` before anything has looked at
+what the operation actually is. Performing an ordinary operation scoped then
+reports
+
+```text
+Could not match type Unit with type t1 (Hoop t2) t3
+```
+
+which says nothing. Splitting out `PerformScopedOp efflbl op comp comptyp`, with
+`comp` in the **head**, makes an ordinary signature fail to match the first arm;
+the chain falls through and the failure says what is wrong. The general lesson:
+a `Fail` arm only speaks if the discrimination it depends on happens in a head.
+
+### `Identity` is introduced on the way IN
+
+The tactics record at `ctx ~ Identity` looks like it could be
+
+```purescript
+runScope body = unsafeCoerce (weave body)        -- WRONG
+```
+
+since `Identity` erases. It is not sound. The coercion is
+`Hoop r (f x) -> Hoop r (f (Identity x))`, and the change is **under `f`**,
+which is a rigid variable whose argument need not be representational. That
+spelling adds a representation assumption to the trusted base that no proof
+covers, and `coerce` cannot express it for the same reason. The correct form
+introduces `Identity` inside the computation, so the weave's own `forall` is
+instantiated at `Identity x`:
+
+```purescript
+scopeTactics weave =
+  { runScope: \body -> weave (Identity <$> body)
+  , bindScope: \cx g -> weave (Identity <$> g (unwrap cx))
+  , resumeScope: \cx k -> continue k (unwrap cx)
+  }
+```
+
+The price is one `map` per scope entry, which the monad laws make the identity.
+**The scoped slice added no `unsafeCoerce` to `Hoop.Engine`.**
+
+### `var` had to be generalised — a regression of the slice's own making
+
+`var` was typed `... -> Handler effh r a o`. Before the capability index there
+was only one handler type, so that was fully general; after it, a scoped handler
+could not keep state in a cell. `var` is now polymorphic in the capability —
+installing cells says nothing about which clauses a table may carry.
+
+### Borrowability: what is refused, and where
+
+Same restriction in substance as the TypeScript-backed runtime, but stated,
+derived and reported rather than thrown.
+
+- **The criterion is negative.** `blocking_effects` tests `found.kind =!=
+  KFast`, so a `KScoped` clause blocks a borrow exactly as a `KFull` one does,
+  and for the same reason — its canonical type mentions the answer type.
+- **Only the intermediates are checked.** `scope_blockers` returns `[]` for the
+  last frame of the prepared segment: the owner is not borrowed, so **the scoped
+  handler itself may carry full clauses**. Only prompts *between* the perform
+  site and the owner are constrained.
+- **Shadowed entries do not block.** The property is stated through
+  `lookup_handler`, so a `Full` clause that a later entry shadows is invisible
+  to dispatch and has no business blocking a borrow either.
+- **At weave use, not at dispatch** (Decision 5). A non-borrowable prompt in a
+  context that is never woven rejects nothing.
+- **`Rejected`, not `Stuck`** (Decision 7). The message names the innermost
+  offending effect labels and says what to do about them — make them
+  tail-resumptive, or install them outside the scope rather than between it and
+  its handler. Only the innermost offender is named, because accumulating every
+  blocker would need `@` on a path that must not call it.
+- **`borrowable` is derived, not stored** — `Nil? (blocking_effects hs)` —
+  so the FFI cannot supply its own answer.
+
+### Is `Rejected` reachable from a well-typed program?
+
+Asked after the slice landed, and worth recording because the answer differs
+between the two rejections and because asking it found a defect.
+
+**`UnborrowableScope`: yes, easily, and by design.** The type system does not
+track borrowability — Decision 5 puts the check at weave use, at run time —
+so a program that installs an ordinary handler between a scoped handler and its
+perform site is well typed and rejects. It is not an exotic case: an unmarked
+clause defaults to `full`, so the naive reader handler blocks a scope over it.
+Run, from PureScript:
+
+```text
+hoop: the scope of 'exc.catch' could not be entered across non-borrowable
+handlers: 'rd'. ... Either make the listed handlers tail-resumptive, or install
+them outside the scope rather than between it and its handler.
+```
+
+This is the milestone's known boundary, and it is why the message is written to
+be actionable rather than diagnostic. Lifting it is what "the general level"
+below is about.
+
+**`ClauseKindMismatch`: the question found a real defect, now fixed.** The
+route was duplicate row labels — PureScript rows admit them, and the machine
+dispatches on the label *string* — so two effect types sharing a label and an
+operation name could put an ordinary clause where a scoped perform looks. It
+ran, and produced the kind-mismatch rejection from a fully type-checked program.
+
+But the reason it ran was that **`performScoped` constrained nothing about the
+row it appeared in**. `PerformScopedOp`'s instance head introduced `eff` without
+the `Row.Cons efflbl efftyp _ eff` that ordinary `performEffectImpl1` carries,
+so `bad :: forall r. Hoop r Int` compiled — a scoped operation could be
+performed into a row that does not declare it, including the empty row. That is
+a defect of the slice, independent of the duplicate-label question; the
+regression is `test-compile-fail/ScopedPerformIgnoresRow.purs`.
+
+With the constraint restored the duplicate-label construction no longer
+typechecks in either label order: performing the scoped operation requires the
+first `e` to be the scoped effect, installing the ordinary handler innermost
+requires it to be the ordinary one, and the two cannot both hold.
+
+**What is not claimed.** That construction closing is not a proof that
+`ClauseKindMismatch` is unreachable from well-typed code. `performEffect` and
+`performScopedEffect` are exported and take the effect label, effect type and
+representation by *type application*, which is a documented way round the
+label-derived path; that route has not been examined for this. And
+`unsafeCoerce` is always available. What the FFI comment says — that a kind
+mismatch means one side "was built by hand or against a stale signature" —
+holds for the typed surface as it now stands, and should be read as a claim
+about that surface rather than about the language.
+
+### What the tests constitute
+
+- `test/Scoped.purs` — five behaviours through the real machine. The clause is
+  a `catch`, chosen because `runScope` is on its **success** path: a clause that
+  discarded its scope would exercise the dispatch of `PerformS` and never the
+  `Weave` transition.
+- `test/Scoped.purs`, the cell fixture — `Right [ 200, 999, 200, 42 ]`. Two
+  regions sharing the reserved scalar label, one inside the scoped handler and
+  one outside, read and written from both sides of a borrow. The four positions
+  separate the three claims: the scope meets the nearer cell, a write inside is
+  visible inside, the borrowed cell is a snapshot, the outer cell is live. This
+  is the end-to-end half of the placement invariant that F\*'s `borrow_param` /
+  `prepare_scope_can` (capability preservation), `prepare_scope_fast_agrees`
+  (structure preservation) and fixtures 35-40 (the list itself) leave to the
+  surface.
+- `test-compile-fail/` + `scripts/compile-fail.sh` — four fixtures that must
+  NOT compile, each declaring the substrings its error must contain. **One
+  module per fixture, built one at a time**, because the PureScript compiler
+  reports one error per module and two fixtures in one module mask each
+  other. That trap was hit twice during this work and produced two false
+  passes; it is the reason the harness exists in this shape. The harness
+  itself is fire-tested three ways: a fixture that compiles, one that fails
+  for the wrong reason, and one declaring no expectation are all reported as
+  failures.
+- `test/js/engine-smoke.mjs` — seven additions below the surface, covering the
+  two new boundary exports, the machine's curried scoped-clause convention, both
+  kind-mismatch rejections and the unborrowable-scope rejection, each matched
+  against the distinguishing text of the real message rather than a loose
+  pattern.
+- Guard (e) re-fired in both directions — a direct
+  `Hoop_Runtime_Syntax.PerformS` and a `Hoop_Runtime_Semantics.weave_of`
+  detour — after the two exports were restored.
+
 ## Agenda — decisions still open
 
-1. **The surface type discipline in detail**: the inner-computation marker in an
-   operation signature; how `h (Hoop inner) b` is declared; how `ScopedClause`
-   threads through `ClauseFor` / `MkHandlers` / `CanonicalizeHandlers` /
-   `BuildHandler`, which currently do not carry the handled type `a` down to the
-   clause level; and whether the recovery computation of `catch` is woven into
-   the perform-site context, and if so how the clause ensures that failures
-   raised by the recovery escape the current `catch`.
-
-   *Not* to be assumed: that the recovery is left unwoven. The
-   TypeScript-backed project weaves it (`weave (recover e)` in
-   `test/Test/Scoped.purs:268`) and gets non-re-capture from the clause's own
-   logic, by returning `Left e'` outward. "Outside the protection of this
-   `catch`" and "not restored to the perform-site context" are different things.
-3. The FFI side of Decision 6: `performScopedImpl`, `mkScopedClauseImpl` and its
-   runtime shape (`{ fun }` is taken by `fast`), the third interpreter, and the
-   `magic` on the way *into* `weave` — which is where the new trusted item of
-   Decision 3 physically lives.
-5. Latent/deferred operations, which `2026-08-06` puts next and which will test
+1. ~~**The surface type discipline in detail.**~~ **Settled** — see "Shipped"
+   above. `ScopedClause` turned out not to need threading through `MkHandlers` /
+   `CanonicalizeHandlers` / `BuildHandler` at all: `ClauseFor` keyed on the
+   operation is enough, and the permission travels as a separate predicate on
+   `handler` rather than down the builder chain. The `catch` question is
+   answered by the shipped clause, which **weaves the recovery** and gets
+   non-re-capture from its own logic by returning `Left e'` outward — the same
+   resolution the TypeScript-backed project reached (`weave (recover e)` in
+   `test/Test/Scoped.purs:268`), and pinned here by "a recovery that throws is
+   not recaptured". "Outside the protection of this `catch`" and "not restored
+   to the perform-site context" remain different things.
+2. ~~The FFI side of Decision 6.~~ **Settled** — `performScopedImpl` and
+   `mkScopedClauseImpl` are exported, the third interpreter is `apply_scoped`,
+   and the `magic` on the way *into* `weave` is where the new trusted item of
+   Decision 3 physically lives. The surface obligation that pays for it is the
+   rank-2 quantifier on `ScopedClause`.
+3. Latent/deferred operations, which `2026-08-06` puts next and which will test
    whether a snapshot segment can outlive the dispatch that produced it.
-6. Suspension and `Aff`, which is a separate milestone and has its own note:
+4. Suspension and `Aff`, which is a separate milestone and has its own note:
    `2026-08-11-async-suspend-roadmap.md`. It is ordered *after* the borrowable
    scoped milestone on purpose — a suspension inside a scope saves a
    configuration containing borrowed prompts, cells and the evidence
