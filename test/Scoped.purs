@@ -30,7 +30,17 @@ foreign import data Exc :: EffType
 newtype Catch :: HSig
 newtype Catch m a = Catch { try :: m a, recover :: String -> m a }
 
-type Exc' = (throw :: String ->* Void, catch :: Scoped Catch)
+-- | A second scoped operation, whose clause uses `bindScope`: it runs the
+-- | scope, extends the resulting context with a second inner computation, and
+-- | only then resumes. `runScope` and `resumeScope` alone never reach it.
+newtype Probe :: HSig
+newtype Probe m a = Probe { body :: m a, andThen :: a -> m a }
+
+type Exc' =
+  ( throw :: String ->* Void
+  , catch :: Scoped Catch
+  , probe :: Scoped Probe
+  )
 
 instance EffNewtype Exc Exc'
 
@@ -42,6 +52,9 @@ throwE msg = absurd <$> perform @EXC1 @"throw" msg
 
 catchE :: forall r a. Hoop (EXC r) a -> (String -> Hoop (EXC r) a) -> Hoop (EXC r) a
 catchE try recover = performScoped @EXC1 @"catch" (Catch { try, recover })
+
+probeE :: forall r a. Hoop (EXC r) a -> (a -> Hoop (EXC r) a) -> Hoop (EXC r) a
+probeE body andThen = performScoped @EXC1 @"probe" (Probe { body, andThen })
 
 -- | The clause always weaves: `runScope` is on the success path, not only on
 -- | the recovery. A clause that discarded its scope would exercise the
@@ -58,6 +71,13 @@ runExc = handler (Proxy :: _ EXC1)
             Left e -> t.runScope (rec.recover e) >>= case _ of
               Right cx -> t.resumeScope cx k
               Left e' -> pure (Left e')
+      , probe: scoped \(Probe p) t k ->
+          t.runScope p.body >>= case _ of
+            Left e -> pure (Left e)
+            Right cx ->
+              t.bindScope cx p.andThen >>= case _ of
+                Left e -> pure (Left e)
+                Right cy -> t.resumeScope cy k
       }
   , pure: Right
   }
@@ -152,3 +172,55 @@ spec = describe "scoped operations" do
   it "a borrowed cell is a snapshot; a cell outside the scope stays live" do
     run (with ctrH (withF runExcF (with stateH cellProg)))
       `shouldEqual` Right [ 200, 999, 200, 42 ]
+
+-- The baseline for the general level ----------------------------------------
+
+-- All-fast clauses, so borrowable by the current criterion, which looks only at
+-- clause kinds -- but with a NON-IDENTITY return clause, which is an answer
+-- transformation. What happens to that transformation across a borrow is the
+-- semantics the general level will change, so it is pinned here first.
+foreign import data Tick :: EffType
+type Tick' = (nop :: Unit ->* Unit)
+
+instance EffNewtype Tick Tick'
+type TICK r = (tick :: Tick | r)
+type TICK1 = TICK ()
+
+nop :: forall r. Hoop (TICK r) Unit
+nop = perform @TICK1 @"nop" unit
+
+tickH :: forall r. Handler TICK1 r String String
+tickH = handler (Proxy :: _ TICK1)
+  { tick: { nop: fast \_ -> pure unit }
+  , pure: \s -> "<" <> s <> ">"
+  }
+
+baselineSpec :: Spec Unit
+baselineSpec =
+  describe "a borrowed intermediate, as it behaves today" do
+    -- These four fix the CURRENT semantics rather than a desired one. The
+    -- general level lifts the fast-only restriction by giving a borrowed
+    -- prompt a non-trivial `ctx`, at which point the answers below change --
+    -- deliberately, and this is what will say so.
+    it "without a scope, the return clause runs once" do
+      run (withF runExcF (with tickH (pure "a")))
+        `shouldEqual` Right "<a>"
+
+    it "with a scope resumed across it, still exactly once" do
+      run (withF runExcF (with tickH (catchE (nop *> pure "a") (\_ -> pure "z"))))
+        `shouldEqual` Right "<a>"
+
+    -- `borrow` clears `ret` on an intermediate, so the scope's own value is not
+    -- transformed; `kont_of` splices back the UN-borrowed frames, so the
+    -- transformation happens once, on resumption. Neither twice nor never.
+    it "the raw scope value reaches bindScope untransformed" do
+      run
+        ( withF runExcF
+            (with tickH (probeE (nop *> pure "a") (\seen -> pure (seen <> "|bound"))))
+        ) `shouldEqual` Right "<a|bound>"
+
+    -- The answer is formed at the owner prompt, which sits outside the
+    -- intermediate, so the intermediate's transformation never runs at all.
+    it "a clause that discards its continuation skips the transformation" do
+      run (withF runExcF (with tickH (catchE (throwE "x") (\_ -> throwE "y"))))
+        `shouldEqual` Left "y"

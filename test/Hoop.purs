@@ -381,3 +381,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       run (prog # with stateH # with ambH) `shouldEqual` [ 10, 0 ]
 
   Scoped.spec
+  Scoped.baselineSpec
