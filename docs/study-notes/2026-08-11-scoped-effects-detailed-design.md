@@ -2479,17 +2479,213 @@ Stop condition, stated so it can fire:
 > transforming the inside of an opaque clause — machine-only is rejected and
 > the work moves to an explicit weave capability on the surface.
 
+#### B1.5, run: the stop condition did not fire
+
+The module verifies, at 1,098 lines grown to 2,229, with no `admit`, no
+`assume`, no weakening pragma and no `val` standing in for a proof. **What it
+establishes is the residual protocol for a closed computation satisfying
+`settles`** — see the finding below — and not the general semantics.
+
+*The projection tension resolved by deferring the choice to consumption.* The
+open problem going in was that a residual has already been run under one
+projection, while `resume_C` wants the perform-site binds back and `extend_C`
+must not have them. Both were avoided:
+
+- a **third** projection, `plan_protocol_frames`, is what a residual is produced
+  under — `plan_resume_frames` with each recorded `PIBind` rendered as a new
+  frame `PSiteF`: present, in the original interleaving with the prompts, and
+  **dormant**;
+- a consumer installs `PModeF mode` directly beneath the residual it drives, and
+  a `PSiteF` consults the nearest one — under `MResume` it is the `PBindF` it
+  was recorded from, under `MExtend` it is nothing.
+
+Because the marker is **dynamically scoped**, the bind frames a layer has
+carried into its own captured continuations — the ones at second and later
+boundary hits, where the residual is no longer literally `plan_enter_frames pl`
+— get the same treatment with nobody having to locate them. That is exactly
+where the two obvious repairs break.
+
+*Conditions.* 2, 3, 4, 5, 7, 8 passed as posed, each as something F\* checks
+(`assert_norm` at concrete values, not a comment claiming a result). 6 passed
+**at an instance**: the transparent projection is pinned frame-for-frame against
+what `borrow` produces, and the quantified statement `law_transparent_agrees` is
+stated and unproved, B3's. 9 is a property of the design, respected and located
+in comments. 1 is the interesting one.
+
+Two guards were fired independently of the work that wrote them: mutating the
+cost fixture's expected slope, and collapsing `resume_C` into `extend_C` — the
+latter breaks `fixture_5b`, which is the check that the two operations stayed
+observably different.
+
+#### The finding that reshapes the next gate: purity hides replay
+
+**This machine is pure, so consuming a residual twice is indistinguishable, by
+any observation the module can make, from re-running a suspension twice.**
+`fixture_1_same_answer` checks that the two representations return the *same
+value*. Replay becomes observable only where an effect escapes the plan, which
+in the shipped JS runtime is every effect and in this machine is none.
+
+So condition 1 was recorded about **work** instead:
+
+| | n=1 | n=5 | slope |
+|---|---|---|---|
+| residual | 43 | 51 | **+8** — one copy of the prefix |
+| suspension | 41 | 57 | **+16** — two |
+
+The intercepts are not equal and the residual is two transitions dearer at
+`n = 1`; the fixture says so rather than rounding it away.
+
+**This is a good non-vacuous check and it is not a semantic acceptance
+criterion.** Three reasons, and they are why B1.6 exists: transition counts move
+when bookkeeping frames are added; the measurement shows that one representation
+did *less work* than another, not that anything ran *once*; and while `pobs_eq`
+observes only values, a replaying implementation can still satisfy the laws B2
+is meant to prove. The cost fixture stays, demoted from semantic evidence to a
+**regression test that prefix work is shared**.
+
+#### Three judgements taken
+
+*B1's criterion "a `resume_C` that could be written without touching the plan is
+wrong" is retracted.* Under the residual representation `pl` really is unused in
+both consumers; the plan is read exactly once, by `enter_ctx_C`. Accepted —
+the discriminating power moved rather than vanished (`flat_ops` is now wrong at
+`o_enter_ctx`, and that is checked). Recorded, though, as a property of **this
+representation** and not as a general licence: *the plan is interpreted once, at
+production, and the interpretation is sealed into the token.*
+
+*`plookup_t` — dispatch threaded as a parameter* — is accepted for a
+prototype, and is arguably a gain: it separates the machine semantics from the
+table implementation. It was forced, not chosen: `handlers` is abstract in its
+`.fsti`, `lookup_handler` does not reduce, this module has no interface and may
+not gain one, so the fixtures would have been claims rather than checks. The
+cost is that they exercise the dispatch *discipline* against their own table.
+Closing it needs two layers, not more `assert_norm`: B2's laws quantified over
+any coherent `lk` / `apply`, and a production bridge tying `pref_lookup` to
+`lookup_handler` and the shipped table's classification — which step 1's
+fixtures already largely pin.
+
+*`pfind_mode`'s nearest-enclosing search carries no label.* Unproved in B1.5 and
+that is acceptable there, but it belongs in **B2's completion conditions**: it
+is a semantic invariant, not an implementation detail — pick the wrong marker
+and a `PSiteF` confuses `MResume` with `MExtend`. The order is to prove
+"the nearest marker is the driving consumer's" from a well-bracketed production
+discipline first, and to fall back to labelling three frames and one search only
+if that fails.
+
+### Gate B1.6: effectful production
+
+A machine-global logger alone would make prefix exact-once observable and leave
+`settles` and detached production exactly where they are. Both are one problem,
+so they are gated together.
+
+Today production is a **detached evaluation**:
+
+```fstar
+enter_ctx_C ... = psteps ... (PStep c (PBoundaryF :: plan_protocol_frames pl))
+```
+
+— a meta-level function running the computation to completion on an *empty*
+ambient stack. But the surface's `runScope` is a `Hoop` computation, so effects
+raised during production must be able to travel outward. Every law in the module
+currently carries a `settles` hypothesis, which is precisely this.
+
+> **The central proposition: can context production be expressed as an effectful
+> transition on the live machine, rather than as detached evaluation on an empty
+> stack?**
+
+An observation trace is the *instrument* for checking that, not the answer.
+Adding the trace and keeping `settles` would mean proving the laws with the
+hardest part pushed outside the hypothesis.
+
+| # | requirement |
+|---|---|
+| 1 | the transition sequence carries an observation trace that is **not** preserved into the residual |
+| 2 | one observation event sits in the protected prefix |
+| 3 | consuming the residual twice yields that prefix event **once** |
+| 4 | the suspension version yields the same event **twice** |
+| 5 | an ordinary operation the plan does not handle, placed in the prefix, is handled by a prompt **outside the owner** |
+| 6 | that outer handler's pending binds and answer transformation are **not lost** |
+| 7 | on success, the `settles` hypothesis — in the sense "performs no operation outside the plan" — is removed from the laws |
+| 8 | production is initiated by an **object-language transition on the live stack**; neither the production primitive nor the tactics invoke `psteps`, accept `fuel`, or call the clause interpreter directly |
+
+5 and 6 are the substance; 1–4 are how exact-once stops being a claim about
+transition counts; 8 is the stop condition, below.
+
+#### The stop condition, and why it is about a type
+
+> Production must become an object-language machine transition. It must **not**
+> remain a meta-level call to `psteps`, even if that call is handed an ambient
+> stack or an observation trace.
+
+The reason is visible in the signature as it stands, before any behaviour is
+considered:
+
+```fstar
+o_enter_ctx : plookup_t cl -> papply_t v cl -> nat -> plan v cl -> pcomp v cl
+            -> pctx v cl
+```
+
+Taking `lk`, `apply` and a `fuel` and returning a pure `pctx` **is** detached
+evaluation, written down. It is not a semantic operation so much as a
+test-harness partial evaluator exposed through the interface. If B1.6 succeeds
+the shape must instead be a node — conceptually
+
+```fstar
+PEnterCtx : plan v cl -> pcomp v cl -> pcomp v cl
+```
+
+— that steps on the live stack and yields an opaque context token as a *value*
+when it reaches the boundary. The constructor's real name and the token's
+representation are outcomes of the gate; "an implementation that calls `psteps`
+from the inside does not count" can be fixed in advance.
+
+This connects back to the standing stop condition that the three tactics must be
+thin delegations to a verified machine transition. A tactic that runs the
+machine itself is not delegating to a transition; it *is* one, written at the
+wrong level.
+
+The four laws may well change type as a consequence. That is not a regression —
+it is the same correction reaching the laws. "B2b: the four laws, over the new
+production" is already phrased to allow it.
+
+#### The exact-once fixture must be written in the object language
+
+Requirements 2–4 are vacuous if the fixture produces its token at the meta
+level. `let cx = enter_ctx_C ...` invites normalisation, sharing and
+substitution to decide the answer, which is not a test of what the *machine*
+did. The shape required is
+
+```text
+enter once
+  >>= \cx ->
+        consume cx
+          *> consume cx
+```
+
+— the token produced once by an object-language bind, the same produced token
+consumed twice, the prefix event appearing **once** in the whole trace, and each
+consumer's own events appearing twice.
+
 ### What is not decided
 
-- The classification stays three-way. If B1.5 succeeds, family provenance alone
-  may be enough for the machine to build the general path, and no separate class
-  is needed. Only if B1.5 fails does `Reinstantiable ≠ ContextWeavable`
-  become a shipping fact. (The name for that contingent fourth class appears
-  in the exchange that proposed it as `ContextThreadable`; recorded here as
-  `ContextWeavable` to keep the vocabulary note above true of the code as well
-  as the prose.)
-- B2 and B3 are blocked on the `pctx` representation, which is exactly what
-  B1.5 decides.
+- The classification stays three-way, and B1.5 is a reason to expect it to stay
+  that way: the machine built the general path from provenance alone, with no
+  capability supplied from the surface. It is not yet settled, because the path
+  is established only for computations satisfying `settles`. Only if the general
+  case fails does `Reinstantiable ≠ ContextWeavable` become a shipping fact.
+  (The name for that contingent fourth class appears in the exchange that
+  proposed it as `ContextThreadable`; recorded here as `ContextWeavable` to keep
+  the vocabulary note above true of the code as well as the prose.)
+- B2 and B3 are now blocked on B1.6 rather than on the representation.
+
+The order, revised after B1.5:
+
+| gate | what it settles |
+|---|---|
+| B1.6 | effectful production, and exact-once as an observation rather than a cost |
+| B2a | `pfind_mode`'s well-bracketing invariant |
+| B2b | the four laws, over the new production |
+| B3 | a transparent plan against the existing borrow; simulation with the optimised machine |
 
 One fact about the TCB that constrains the fallback: implementing library-side
 `Either` / `Array` / `Maybe` weave capabilities as PureScript callbacks and
@@ -2538,6 +2734,7 @@ semantics among them) that would pull the representation the wrong way.
    not share a type.
 5. **The representation of the context value.** Two candidates are excluded
    (replaying suspension, precomputed leaf list); the residual-configuration
-   protocol is the one to run, as Gate B1.5. Everything downstream — B2, B3,
-   whether the classification splits, and whether any weave capability appears
-   on the surface at all — waits on that answer.
+   protocol is the one to run, as Gate B1.5. **Answered**: the residual protocol
+   works, without any capability supplied from the surface, for computations
+   that satisfy `settles`. What remains open is production — B1.6 — and that
+   is what B2 and B3 now wait on.
