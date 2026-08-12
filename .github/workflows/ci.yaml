@@ -67,6 +67,9 @@ jobs:
       - name: PureScript Test
         run: spago test
 
+      - name: Test for expected failure
+        run: scripts/compile-fail.sh
+
       - name: Format check
         run: git ls-files '*.purs' | xargs purs-tidy check
 
