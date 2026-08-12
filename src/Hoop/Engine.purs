@@ -54,6 +54,7 @@ module Hoop.Engine
   ( Cont
   , HHandler
   , Handler
+  , HandlerF
   , Hoop
   , RuntimeClause
   , RuntimeClauses
@@ -86,6 +87,7 @@ module Hoop.Engine
   , assign
   , continue
   , handler
+  , handlerScoped
   , installCells
   , installCellsList
   , mkHandlers
@@ -99,6 +101,7 @@ module Hoop.Engine
   , toRuntimeClause
   , var
   , with
+  , withF
   , write
   , (:=)
   ) where
@@ -299,6 +302,58 @@ with
   -> Hoop effa a
   -> Hoop effb o
 with (HHandler install) comp = install comp
+
+-- | **A handler that can be reinstalled at any result type.** Where an
+-- | `HHandler` answers at one fixed `o`, this answers at `f b` for every `b`.
+-- |
+-- | That is exactly what a scoped operation needs. A scoped clause runs an
+-- | inner computation whose result type is not the answer type of the handler
+-- | that contains the clause -- the machine reinstalls the handler around the
+-- | scope, and reinstalling it at a *different* result type is only meaningful
+-- | if the table was built for every result type. A single `HHandler` cannot
+-- | supply that; a family can.
+-- |
+-- | `f` is the answer former: the shape the handler wraps its result in
+-- | (`Array` for a non-determinism handler, `Either e` for an exception
+-- | handler). It is what the return clause produces, so a handler with a
+-- | scoped clause needs a `pure` clause -- without one `o ~ a`, `f` collapses
+-- | to the identity, and no scope can be given a different answer than its
+-- | context.
+-- |
+-- | *Separate from `HHandler` / `with` by decision of the borrowable
+-- | milestone, not of the final higher-order API.* Whether the two collapse
+-- | into one once general higher-order operations arrive is open.
+newtype HandlerF :: Row EffType -> Row EffType -> (Type -> Type) -> Type
+newtype HandlerF effh r f = HandlerF (forall effa b. Hoop effa b -> Hoop r (f b))
+
+-- Same reasoning as `HHandler`: `effh` is phantom in the representation and
+-- must not be coercible, since it is the claim about which effects this family
+-- discharges. `r` and `f` do occur, so inference would already pin them.
+type role HandlerF nominal nominal nominal
+
+-- | **Close a handler into a family.** The argument is polymorphic in the
+-- | result type: the whole clause table is checked at *every* `b`, not at one,
+-- | which is what makes reinstallation around a scope sound.
+-- |
+-- | This is the only way to obtain a `HandlerF`, and `withF` is the only way
+-- | to install one, so a table carrying a scoped clause cannot reach the
+-- | machine without having been checked at every result type. The other half
+-- | of that guarantee is `PermitsClauses`, which stops such a table from being
+-- | installed by ordinary `with`.
+handlerScoped
+  :: forall effh r f
+   . (forall b. HHandler AllowScoped effh r b (f b))
+  -> HandlerF effh r f
+handlerScoped h = HandlerF \comp -> case h of HHandler install -> install comp
+
+-- | Handle the effects `effh` with a family, wrapping the result in `f`.
+withF
+  :: forall effh effb effa a f
+   . Row.Union effh effb effa
+  => HandlerF effh effb f
+  -> Hoop effa a
+  -> Hoop effb (f a)
+withF (HandlerF install) comp = install comp
 
 -- | Build a handler from a record of clauses. The record may use the
 -- | canonical form `{ eff: { op: clause } }`, or a bare clause
@@ -825,10 +880,44 @@ data Closed
 -- | `NewP` / `ReadP` / `WriteP` mean; where the surface *puts* them is this
 -- | module's obligation.
 -- |
--- | **Before adding scoped effects, re-derive it.** An operation that
--- | carries a computation lets a clause choose where that computation
--- | runs, and a computation resumed at a stack position other than the one
--- | it was suspended at is precisely the case the invariant does not cover.
+-- | **Re-derived for scoped borrowing, and it holds.** A scoped operation
+-- | lets a clause choose where an inner computation runs, which is the case
+-- | the invariant did not originally cover. `prepare_scope` settles it:
+-- | borrowing keeps every `ParamF` entire -- label *and* value -- and is a
+-- | filter-and-rewrite that never reorders frames, so a borrowed clause still
+-- | meets its own handler's cell first, with no label minting at run time.
+-- |
+-- | Three separate results back that, and they answer different questions:
+-- |
+-- | * *Capability preservation* — `Hoop.Runtime.Metatheory.borrow_param` gives
+-- |   `param_in l (borrow k) <==> param_in l k`, and `prepare_scope_can` lifts
+-- |   it to the whole prepared segment. This is about which cells a scope can
+-- |   still REACH. It says nothing about their values or their order, and
+-- |   dropping the `ParamF` clause would make `prepare_scope_can` false.
+-- | * *Structure preservation* — `Hoop.Runtime.Semantics.prepare_scope_fast_agrees`
+-- |   proves the shipped accumulating walk computes the specification's list
+-- |   exactly, so "keeps label and value, never reorders" is a claim about
+-- |   what actually runs and not only about the `noextract` spec.
+-- | * *The list itself* — fixtures 35-40 in `Hoop.Runtime.Test` normalise it.
+-- |   36 pins that a cell survives with BOTH label and value; 39 pins order on
+-- |   an interleaved segment (two binds, two cells, two prompts, owner last)
+-- |   that nothing reordered, deduplicated or reversed would satisfy; 40 spells
+-- |   the same expected list out again through `prepare_scope_fast`, and was
+-- |   perturbed by hand -- the two prompts swapped -- and confirmed to fail
+-- |   before the expected value was restored.
+-- |
+-- | Note the consequence, which is a semantic fact rather than a hazard: the
+-- | frame carries the *value*, so a scope receives a snapshot that branches.
+-- | A cell stays live across a scope only for a handler installed outside the
+-- | scoped one -- composition order decides it.
+-- |
+-- | What F\* proves is that the machine preserves cell reachability across a
+-- | borrow. That the *surface* still installs cells nowhere but under `var`
+-- | is this module's obligation as before, so the invariant needs one
+-- | end-to-end regression once `withF` can run a scope: two regions sharing a
+-- | label, one of them crossed by a borrowed scope, each still seeing its own
+-- | cell. Until that test exists the invariant is verified in the runtime and
+-- | only inspected at the surface.
 -- |
 -- | **A handler polymorphic in its cell's type must say `scalar`.** The
 -- | record-or-not dispatch is an instance chain, and with the initial
