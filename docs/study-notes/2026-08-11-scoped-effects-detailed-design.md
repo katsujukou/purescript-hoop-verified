@@ -1223,6 +1223,32 @@ Recorded now because it constrains what may be frozen at the borrowable
 milestone, and because one attractive-looking shortcut has already been tried
 and withdrawn.
 
+> **A vocabulary note, fixed once.** This project uses `weave` and `ctx` for
+> its own concepts — types, code, classification names, and prose about Hoop.
+> The machine already has a `Weave` node and a `weave_of`, and the raw `weave` a
+> scoped clause receives today is the trivial-`ctx` instance of the general
+> capability; a second word for it here would be a synonym with no distinction
+> behind it.
+>
+> **Prior work retains its source terminology.** `fused-effects` calls the
+> corresponding algebra operation `thread`; Polysemy speaks of *functorial
+> state* carried by `Tactical` / `runT` / `bindT`. These play analogous
+> context-propagation roles, and each corresponds to Hoop's weave capability —
+> but they are not definitionally the same operation, because their types and
+> handler architectures differ:
+>
+> - `fused-effects`'s `thread` is a method passing an already-composed *outer*
+>   context through an `Algebra`;
+> - Polysemy's `Tactics` carry a hidden stateful environment moved by `runT` /
+>   `bindT`, as an internal effect;
+> - Hoop's `weave` is the capability — and the machine transition — that
+>   re-establishes the dynamic prompt context between the perform site and the
+>   owner around a scoped computation.
+>
+> The roles correspond; the inputs, outputs and responsibility boundaries do
+> not. So the correspondence is stated once, here, and the literature is quoted
+> in its own words thereafter.
+
 ### Withdrawn: "keep `ret` on the intermediates and it generalises"
 
 Operationally the transition is definable — over F\*'s single value type `v`,
@@ -1234,7 +1260,9 @@ need the existing table reused; it needs the **handler family re-instantiated at
 full clause nor its answer type. So the general level needs one of
 
 - prompts holding a polymorphic handler *factory* rather than a table;
-- borrowed prompts rebuilt from a context-threading capability;
+- borrowed prompts rebuilt from a general WEAVE CAPABILITY -- the ability to
+  re-enter an intervening handler at an unknown answer type. The raw `weave` a
+  scoped clause is handed today is its trivial-`ctx` instance;
 - explicit generalized forwarding, as the scoped calculus requires for passing
   an unknown scoped operation through another handler
   ([LMCS](https://lmcs.episciences.org/14832/pdf)).
@@ -1292,8 +1320,8 @@ so the woven result is `f (ctx x)` and **not** `ctx (f x)`. For
 `withF runExc (withF ndAll program)` that is `Either e (Array a)`, which is
 exactly what makes `catch` still able to match the outer `Left` / `Right`. But
 the success payload is `ctx x`, which cannot be handed to a `Cont x r o`
-directly — hence a `bindT`-style context-threading capability is required, of
-the Polysemy shape rather than a type parameter.
+directly — hence a `bindT`-style weave capability is required, of the Polysemy
+shape rather than a type parameter.
 
 ### Do not pre-drill the hole
 
@@ -1744,11 +1772,11 @@ Fixed by a dependency split that happens to be clean:
 2. **Decision 1 (`Resumed` → `Splice`), as its own commit.**
    `Splice fs body` is a lower-level
    execution primitive that survives *every* candidate for the general level —
-   borrowable, factory, context-threading, generalized forwarding — so nothing
-   the gate decides can overturn it. Its stop rule (condition 5) is also the
-   earliest available check on whether the existing laws and simulation really
-   survive a generalised node, and that check is independent of everything else
-   here.
+   borrowable, factory, general weave capability, generalized forwarding — so
+   nothing the gate decides can overturn it. Its stop rule (condition 5) is
+   also the earliest available check on whether the existing laws and
+   simulation really survive a generalised node, and that check is independent
+   of everything else here.
 3. **The types-only gate in the TypeScript-backed project**, condition 4 first,
    negative fixture before positive.
 4. **Choose between table / factory / tactics** from what the gate shows.
@@ -2058,6 +2086,12 @@ behaviour is ever wanted it should be an explicit API, not an implicit class.
 
 The baseline that records what changes is `Test.Scoped.baselineSpec`.
 
+**The classification is still three-way, and stays that way until Gate B1.5
+reports.** Whether `Reinstantiable` splits — family provenance on one side, a
+family *plus* an explicit weave capability on the other — depends on whether
+the machine can build the general path from provenance alone. See "What is not
+decided" at the end of this section.
+
 ### The baseline, measured before anything moves
 
 Run against the shipped runtime, an all-fast intermediate with
@@ -2250,6 +2284,221 @@ namespace would be offered up silently. Fire-tested with a module named
 `Hoop.Runtime.*` is not to be edited for a prototype's sake. A prototype that
 needs a change there is a prototype that has finished.
 
+### B1: the plan verifies; its context value replays
+
+`runtime/proto/Hoop.Proto.GeneralWeave.fst` (1,098 lines) states the context
+algebra as `prop`-valued definitions — not `val`s, not axioms — over an
+ordered plan:
+
+```fstar
+plan      = Plan (layers: list plan_item) (owner: powner)
+plan_item = PIBind fn | PICell l x | PITransparent hs | PIReenter hs ret
+```
+
+with two projections of the same plan, which is the point of the
+representation:
+
+```fstar
+let enter_C  pl c    = PSplice (plan_enter_frames pl) c
+let resume_C pl cx k = PSplice (plan_resume_frames pl) (pbind (PCtx?.pending cx) k)
+```
+
+Four laws: `law_left_identity`, `law_right_identity`, `law_assoc` — two
+conjuncts, one algebraic and one anchored to the plan — and
+`law_resume_matches_continuation`. Each is a `prop` parameterised by a
+`ctx_ops`, so `law_X apply ops ...` is a *statement about* an implementation.
+
+**What B1 established and what it did not.** F\* checked that the four
+propositions are well typed and that the representation can even make them —
+`law_assoc`'s anchored conjunct is the one that needed the ordered plan to be
+statable at all. It did **not** prove that `ref_ops` satisfies them; that is
+B2's obligation, written down as such in the module. Likewise the two wrong
+implementations `pointwise_ops` and `flat_ops` are recorded with the laws each
+is *intended* to fail — all four for `pointwise_ops`, the two anchored ones for
+`flat_ops` — and those refutations are unproved too. They are there so the laws
+have something to be tested against, not as results.
+
+**Where it fails.** `pctx` is a *suspension*: it holds the pending computation.
+So re-entry **replays** it, and `catch`'s observe-then-resume runs the protected
+computation twice. That is decisive on two counts. It makes B3's obligation "a
+transparent plan is observationally equal to the existing borrow" *false* —
+and the shipped runtime demonstrably runs the body once (`baselineSpec`: `Right
+"<a>"` once, not twice). A representation whose stated goal is to subsume the
+shipped behaviour cannot begin by contradicting it.
+
+Kept from B1, unchanged: the ordered plan, owner separation, `PIBind`
+preservation, the two enter/resume projections, and the anchored half of
+`law_assoc`. What is replaced is `pctx` and its production and consumption
+rules.
+
+### Gate A2: what an answer former gives, and what it does not
+
+Three results, all measured against types and behaviour rather than argued.
+
+*The distributive law is suppliable and composable.* The law experimented with
+is
+
+```purescript
+type Dist f r = forall x. f (Hoop r x) -> Hoop r (f x)
+```
+
+— computations *inside* the shape, pulled out. It is writable for `Either e` and
+for `Array`, and `Compose f g` composes from `Dist f` and `Dist g` needing only
+`Functor f`. So there is no supply problem and no composition problem.
+
+*The derivation stops short of elimination.* Applying `Dist` to the context
+mapped with the continuation gets only as far as `Hoop r (f o)`. Completing
+that attempted derivation would require an additional operation
+
+```text
+Hoop r (f o) -> Hoop r o
+```
+
+which `Dist` does not provide. It is **not** the inverse of `Dist` — that would
+be `Hoop r (f o) -> f (Hoop r o)` — but a separate elimination of the remaining
+`f` layer, and with `o` rigid nothing but `unsafeCoerce` inhabits it. The same
+shape of hole condition 6 found, now at the general level: **the answer former
+says how values come back out of the scope, and it does not say how the layer is
+discharged.**
+
+The scope of that finding is worth keeping narrow. It says the `Dist`-based
+derivation leaves this hole — not that `resumeScope` must in general perform
+such a collapse. A plan-anchored machine transition is a candidate precisely
+because it can implement `resumeScope` without ever constructing an
+`Hoop r (f o)` to collapse.
+
+*The answer former does not determine the context.* `f = Identity` with a
+`Full` clause that resumes twice ran the continuation **2 times**. `f` is
+`Identity`; the control is multi-shot. So `f` does not determine `ctx`, and a
+type of the form `HandlerF effh r f` says nothing about how many context values
+exist or how they are eliminated.
+
+Conclusion recorded: **`Dist f` alone is not sufficient, and handler control is
+not recoverable from the answer former.** One clarification that belongs with
+it — `Dist` is not `Traversable`. It is a distributive law for one specific
+`Hoop r`. `Traversable` supplies it in general, but is not a necessary
+condition.
+
+### The counterexample gate: eager leaf collection is dead
+
+A candidate general representation was "the leaves, and the captured
+continuations up to them", collected by the machine. Run against a clause whose
+second resume is conditional on the first's answer —
+
+```purescript
+first <- continue k true
+case first of
+  Left _  -> continue k false
+  Right _ -> pure first
+```
+
+— the continuation ran **2 times**, and the second call's existence is decided
+by the first call's *real* answer. A static leaf list cannot express that.
+
+**What this rejects is eager leaf collection, not machine-only.** The list is
+dead because it is computed in advance; the question of whether the machine can
+supply the general path without a new surface capability is untouched by it.
+
+### `f = (->) s`, stated precisely
+
+`Reader s a` and `s -> a` differ by a newtype and nothing else; PureScript's
+`newtype Reader r a = Reader (r -> a)` with `runReader` is the same functor.
+There is no Hoop-specific obstruction here, and the earlier framing of this as
+"Hoop cannot express it" was wrong.
+
+What is true:
+
+- `Dist ((->) s) r = (s -> Hoop r x) -> Hoop r (s -> x)` is not constructible in
+  general — `(->) s` does not carry a distributive law in that direction. The
+  same hole is there in Haskell.
+- The standard Reader handler uses `s -> Hoop r a`, **not** `Hoop r (s -> a)`,
+  and so contributes a trivial `ctx`.
+
+What may **not** be said: that `(->) s` cannot be an answer former.
+`HandlerF effh r ((->) s)` is writable in special cases — a pure-only handler,
+an abortive clause that discards its continuation, a handler that receives the
+`s` as an operation argument. The precise statement is:
+
+> `(->) s` has no general `Dist`-based weave capability, and the standard Reader
+> effect does not implement it as an answer former.
+
+### Gate B1.5: residual configuration, before any explicit capability
+
+Two representations of the context value are now excluded:
+
+| candidate | why it fails |
+|---|---|
+| the original inner computation | replay — B1 |
+| the list of leaves | no result-dependent resume — the gate above |
+
+The remaining machine-only candidate is a **residual configuration**: the
+machine stops at the first resume point and keeps a configuration that can be
+continued once a real answer arrives. As a protocol:
+
+```text
+ContextDone     result
+ContextRequests value residual
+```
+
+`ContextRequests x residual` means: the handler asked for `continue k x` and has
+not yet been given the answer; hand it one and `residual` continues.
+`resume_C pl cx k` interprets that — take `ContextRequests x rest`, run `k x`
+under `plan_resume_frames pl`, hand the real answer to `rest`, repeat if the
+handler asks again, and return the handler's own result when it finishes.
+
+Under this reading the result-dependent case works: the first resume returns the
+*real* `Left`, the second resume comes into existence only because of it, the
+protected prefix is not re-run, and effects performed between resumes stay in
+the residual configuration. This is a coroutine — an interaction tree whose
+next shape is decided by the answer received — not a precomputed tree.
+
+Why it is worth trying before any surface capability: **`continue` is an
+explicit boundary the machine already knows**, and the rest of the clause's
+closure is already preserved as `BindF`. The clause can stay entirely opaque.
+So "reifying the handler algebra requires a new trusted DSL" is *not*
+established.
+
+Conditions:
+
+| # | condition |
+|---|---|
+| 1 | `runScope → resumeScope` runs the protected prefix exactly once |
+| 2 | `firstOfTwo` produces two resume requests, in order |
+| 3 | `retryOnFailure`'s second resume depends on the first's real answer |
+| 4 | effects performed between two resumes keep their order |
+| 5 | a `Full` clause that never calls its continuation terminates correctly |
+| 6 | a transparent plan is observationally equal to the existing borrow |
+| 7 | a mixed plan preserves prompt / cell / bind order |
+| 8 | a deliberately multi-resumed context is multi-shot **from the saved point**, not from the prefix |
+| 9 | no new FFI that inspects a clause closure, and no semantic callback assumption |
+
+Stop condition, stated so it can fire:
+
+> If the residual configuration cannot be built at the first resume point from
+> the existing machine state and `BindF` alone — if it requires inspecting or
+> transforming the inside of an opaque clause — machine-only is rejected and
+> the work moves to an explicit weave capability on the surface.
+
+### What is not decided
+
+- The classification stays three-way. If B1.5 succeeds, family provenance alone
+  may be enough for the machine to build the general path, and no separate class
+  is needed. Only if B1.5 fails does `Reinstantiable ≠ ContextWeavable`
+  become a shipping fact. (The name for that contingent fourth class appears
+  in the exchange that proposed it as `ContextThreadable`; recorded here as
+  `ContextWeavable` to keep the vocabulary note above true of the code as well
+  as the prose.)
+- B2 and B3 are blocked on the `pctx` representation, which is exactly what
+  B1.5 decides.
+
+One fact about the TCB that constrains the fallback: implementing library-side
+`Either` / `Array` / `Maybe` weave capabilities as PureScript callbacks and
+pinning them with fixtures does **not** leave the TCB at zero — a fixture
+observes behaviour at chosen points, it does not prove the callback. The TCB
+stays flat only if F\* interprets the residual protocol, or if the
+descriptor/capability is extracted from F\*. That is a second reason to run
+B1.5 first.
+
 Verifying rather than scratch-building is the point: the risk in a new machine
 is not whether it runs but whether preservation and simulation close over the
 representation it chose, and deferring that is what leaves a representation in
@@ -2287,3 +2536,8 @@ semantics among them) that would pull the representation the wrong way.
    `Rejected` land in the same match sites and are different in kind (one
    resumable, one terminal); they should be looked at together even if they do
    not share a type.
+5. **The representation of the context value.** Two candidates are excluded
+   (replaying suspension, precomputed leaf list); the residual-configuration
+   protocol is the one to run, as Gate B1.5. Everything downstream — B2, B3,
+   whether the classification splits, and whether any weave capability appears
+   on the surface at all — waits on that answer.

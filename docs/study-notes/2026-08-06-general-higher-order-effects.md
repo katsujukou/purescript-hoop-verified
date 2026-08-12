@@ -174,7 +174,7 @@ hmap : (forall x. m x -> n x) -> h m a -> h n a
 ```
 
 This tells an interpreter where every embedded computation occurs and lets it
-thread an outer handler and its functorial context through the node.
+weave an outer handler and its functorial context through the node.
 
 ### Why TypeScript Hoop does not
 
