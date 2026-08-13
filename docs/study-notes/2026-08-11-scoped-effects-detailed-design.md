@@ -2987,7 +2987,8 @@ stays first-order and goes through, without weakening what is proved.
 
 Strand 2 is the configuration-wide statement: extend `pconf_wf` — today only
 the store's freshness invariant — with a stack condition, and prove that the
-machine preserves it. It cannot be done as an unconditional `pload`/`pstep` theorem.
+machine preserves it. It cannot be done as an unconditional `pload`/`pstep`
+theorem.
 
 > **"Every reachable stack is well-bracketed" is false for an arbitrary initial
 > `pcomp` and an arbitrary `papply_t`.** A raw `PSplice` can push any frame
@@ -3009,6 +3010,117 @@ condition of its own.
 
 Until strand 2 closes, strand 1's result is local: it is about what a step does
 given its own guard, not about which configurations the machine can be in.
+
+#### Strand 2, run: the layers came apart, and that is the result
+
+The stop condition did not fire, and nothing added in this gate is
+stated-but-unproved. But the six layers the gate was posed with did not stay
+six: settling the `post` question first split the work into **two layers needing
+different hypotheses**, and that separation is the finding.
+
+**Layer A — the store, UNCONDITIONAL.** `lemma_pstep_store_resid_wf` requires
+only that the store already satisfies the invariant; nothing about `lk`, about
+`apply`, about the stack, or about the initial term. Three rules write the
+store, and each closes on its own: `PScopeF` allocates a `PCtxDone`, which has
+no residual; `pyield` allocates the segment above the **nearest** floor, where
+strand 1's cut lemmas give `presid_wf` from the branch guard alone; and
+`PExtendCtxC` copies an already-stored residual, changing only `post`.
+
+> **Nearest delimitation does the work reachability would otherwise have had to
+> do.**
+
+The consequence lemma the gate existed for, `lemma_reachable_residual_wf`, has
+**no `requires` at all**: every residual in the store of any configuration
+`psteps` can reach satisfies `presid_wf`. And
+`lemma_stored_residual_answers_head` restates strand 1's consumption theorem
+with its hypothesis *discharged from the store* rather than assumed of a
+hand-written residual. The two strands close against each other.
+
+**Layer B — the stack, CONDITIONAL, and it buys something else.** `pwb` is
+deliberately *not* the strong bracketing property the strand-2 warning says is
+false. It does not claim a boundary is matched by the floor its own `PEnterCtx`
+pushed; it claims only that the search a boundary runs lands on something —
+which is what a raw `PSplice` can be asked to respect. With an initial-term
+condition (`pterm_wb`) and an interpreter condition (`papply_wb`), the payoff is
+`lemma_reachable_not_paused`: **`PPaused` is unreachable from `pload`** for any
+conforming term, any conforming interpreter, any lookup, any fuel. B1.6's
+`fixture_9_paused_is_unreachable` — thirteen programs at one fixed fuel — is
+now a theorem.
+
+*The `post` question came out no, and only about shape.* `extend_ctx_C` copies
+the residual and composes onto `post` alone, so `presid_wf` survives any number
+of extensions; and `ctx_drive` runs `post` only on a stack carrying the driving
+consumer's own `PModeF`, where the shape obligation is discharged by the left
+disjunct without looking at the term. Both proved. **This is "no shape
+obligation", not "no obligation"** — whether `post` needs a condition for
+B2b's laws or B3's simulation is untouched, and the module now says so at
+the answer.
+
+*Non-vacuity.* `papply_wb` is proved of the fixtures' real interpreter, and
+`pterm_wb` of forty programs — `prog1new` / `prog1old` for **every** `n` —
+with the check itself fired by inserting an ill-formed `PSplice`. The ledger
+naming those programs is **maintained by hand**: nothing detects a fixture
+added and not listed, so the claim is about the listed programs, audited by a
+reader.
+
+*Following the shipped machine.* `pterm_wb_n` mirrors `ws_n` / `wf_stack_n`, and
+the step-indexing was **forced, not stylistic** — the plain structural
+definition is rejected at exactly the `option`-wrapped return-clause positions,
+because the subterm ordering gives the application step only where the function
+is an immediate constructor argument and `Some` interposes. The shipped machine
+took the same repair for the same reason. Divergences, each deliberate: no
+`cok` / `can` / `clause_ok_congr`, because `pterm_wb` is about frame shapes and
+never mentions an effect label; **`PStuck` is `True` where `wf_state` sets it
+`False`**, because here `PStuck` is reachable *by design* — a forged handle,
+an unhandled operation — so excluding it would make the invariant false; and
+the store layer has no counterpart at all.
+
+*The `PWeave` clause, measured at the judgement.* `pints_wb` had no program to
+exercise it, since nothing in this prototype produces a `PWeave`. Two type-level
+guards now differ **in the return clause alone** and pin that the condition
+admits a `Family` prompt carrying a real return clause
+(`guard_wb_weave_accepts`, proved, not `assert_norm`) and refuses a malformed
+one (`guard_wb_weave_rejects`, stated directly as `~(pterm_wb ...)`). The
+refutation goes through the intended route — `pints_wb` → `pret_wb` →
+`pterm_wb` → `pwb [PBoundaryF] = false` — checked by making the broken
+clause well formed and watching the proof fail at the splice step. A
+non-trivial return clause rather than `None` is the point: the `None` arm is
+`True` in one step, so a `None`-built guard would pass even against
+`pints_wb = True`.
+
+#### Where B2a leaves it
+
+> Nearest delimitation unconditionally preserves the association invariant of
+> every stored residual, while a separate, non-vacuous well-bracketedness
+> judgement excludes paused configurations for well-formed programs and
+> preserving clause interpreters.
+
+### The trace-aware gate: the acceptance conditions
+
+Next, and it is not polish. Comparing two `prun` results at one fixed fuel is
+not enough; the observation relation itself has to change.
+
+| # | condition |
+|---|---|
+| 1 | convergence is to **trace + final value**, in the form "there exists a finite step count" |
+| 2 | observational equivalence preserves convergence to the same trace and value, in both directions, from the same initial stack / store / counter |
+| 3 | the relation does not depend on any concrete fuel |
+| 4 | forgetting the trace, the new relation **implies** the existing value relation — proved |
+| 5 | the residual and suspension versions are **not** equivalent under it, though their values agree — fixed as a theorem or a guard |
+| 6 | `PEmit`s raised by the ambient stack or the clause interpreter are included, with order and multiplicity preserved |
+| 7 | `pstep`/`pstep_tr` and `psteps`/`prun` correspond by trace erasure — proved, so the two semantics cannot drift apart |
+| 8 | the five laws remain well typed when retargeted at the new relation; **proving them stays B2b's** |
+
+With these, B1.6's exact-once fixture is connected to the laws and to simulation
+for the first time.
+
+One comment in the module is scheduled to go stale here, deliberately. `prun`'s
+doc says that threading a trace through the laws "is a different and much
+stronger claim than B2 is being asked for". That was true when written and is
+now superseded: since B1.7 it is a *requirement*, because a value-only relation
+lets a prefix-replaying implementation satisfy every law. Rewrite it in the
+trace gate **with the history**, as a claim promoted rather than a sentence
+quietly replaced.
 
 ### What is not decided
 
@@ -3035,8 +3147,8 @@ The order, revised after B1.7:
 | ~~B1.6~~ | ~~effectful production, exact-once as an observation~~ — **done** |
 | ~~B1.7~~ | ~~a first-class context handle, selected by identity~~ — **done** |
 | ~~B2a-1~~ | ~~the `pcut_scope` / `pfind_mode` association discipline~~ — **done**: proximity is a semantic requirement |
-| B2a-2 | `pconf_wf` over the whole configuration, with term and interpreter conditions, preserved by every transition |
-| — | make the observation relation **trace-aware** before B2b |
+| ~~B2a-2~~ | ~~`pconf_wf` over the whole configuration, preserved by every transition~~ — **done** |
+| trace | make the observation relation trace-aware — eight acceptance conditions above |
 | B2b | the five laws, over arbitrary stack, store, counter **and trace** |
 | B3 | the existing borrow; simulation with the optimised machine; a shipping handle store |
 
