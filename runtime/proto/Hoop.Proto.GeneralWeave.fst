@@ -1,6 +1,6 @@
 (**
- * **B1.6 -- the general weave, over a RESIDUAL CONFIGURATION, with production as
- * a MACHINE TRANSITION.**
+ * **B1.7 -- the general weave, over a RESIDUAL CONFIGURATION, with production as
+ * a MACHINE TRANSITION and the context as a FIRST-CLASS PERSISTENT HANDLE.**
  *
  * A scope may cross an intervening prompt today only when every clause that
  * prompt can dispatch is `KFast`; anything else is
@@ -123,18 +123,42 @@
  * condition" for both shapes. That DIRECT recursive sum cannot be written; B1.7
  * tests the stratified handle-and-store representation that avoids the cycle.
  *
- * So the token is DEFUNCTIONALISED: production installs it in a `PTokenF` frame
- * beneath the continuation, and the three consuming nodes read the nearest one,
- * exactly as `PReadP` reads the nearest cell. A produced context is therefore
- * DYNAMICALLY SCOPED. The price, stated once here and again at `PEnterCtx`: a
- * context cannot be stored, returned as a scope's own result, or put in a list,
- * because it never enters the value language; and a scope opened inside a
- * consumer shadows the token it was consuming rather than coexisting with it.
- * This is NOT adequate for the published `ScopeTactics`: their explicit `ctx x`
- * argument lets a clause select among multiple live contexts, whereas this
- * representation always selects the nearest token. B1.7 exists to replace that
- * last step with a first-class persistent handle without discarding B1.6's live
- * production or exact-once result.
+ * B1.6 answered this by DEFUNCTIONALISING the token: production installed it in
+ * a `PTokenF` frame beneath the continuation and the consuming nodes read the
+ * nearest one, exactly as `PReadP` reads the nearest cell. A produced context
+ * was therefore DYNAMICALLY SCOPED, which is not adequate for the published
+ * `ScopeTactics` -- their explicit `ctx x` argument lets a clause select among
+ * several live contexts, and the nearest-token reading would run such a program
+ * with a different meaning.
+ *
+ * **B1.7 replaces that last step, and the whole of it is a STRATIFICATION.**
+ * The value language becomes
+ *
+ *     pval v = PV of v | PCtxKey of nat
+ *
+ * -- and a `nat` is not recursive, so `pval` needs no mention of `pctx`, so it
+ * leaves the mutual block, so `pctx` (which holds `pval v -> pcomp v cl`) can
+ * sit OUTSIDE the block, so a store `list (nat & pctx v cl)` can be given a
+ * type. The negative occurrence is still there and is still fatal to a DIRECT
+ * embedding; what the key buys is that the cycle is never closed. Condition 6 is
+ * satisfied in this precise sense, and in no wider one.
+ *
+ * The store and an allocation counter live beside the machine state in a
+ * `pconf`. `PTokenF` and `pfind_token` are DELETED: no function in this module
+ * takes a stack and returns a context. Production allocates and evaluates to
+ * `PCtxKey i`; the three consuming nodes each take a `pval v` and RESOLVE it
+ * against the store, failing if it does not resolve. Several contexts can now be
+ * alive at once and be named separately, which is what B1.6's dynamic token
+ * could not do: `fixture_16` returns a handle as a program's own answer,
+ * `fixture_17` keeps two alive at once, and `fixture_18` selects the outer one
+ * while the inner is live.
+ *
+ * **What is NOT checked**, and the boundary is the model's rather than the
+ * design's: whether a REAL handle can be put into a container and taken out
+ * again. `fixture_17` renders each handle with `fseen` before it builds a list,
+ * because the shallow `pval = PV v | PCtxKey nat` has no way to say what it
+ * means to combine two things that might be handles. Establishing container
+ * storage of live handles needs a different value model.
  *
  * **Exact-once stopped being a claim about transition counts.** B1.5 could only
  * state it as work, because the machine is pure and `pobs_eq` observes values: a
@@ -244,24 +268,90 @@
  *   8. production initiated by an object-language transition -- PASSED; the
  *      check is mechanical and is described at `enter_ctx_C`.
  *
+ * *B1.7's eight, which are about IDENTITY rather than about production.*
+ *
+ *   1. production returns an opaque handle as an object-language value, once --
+ *      PASSED (`fixture_16_handle_is_a_value`: the handle IS the program's
+ *      answer, the store holds one entry, `next` is 1).
+ *   2. two contexts alive at the same time -- PASSED
+ *      (`fixture_17_two_contexts_alive`: both alive at once and different --
+ *      but RENDERED with `fseen`, so container storage of live handles is not
+ *      what this checks; see the fixture).
+ *   3. an outer context selected explicitly while an inner one is live -- PASSED
+ *      (`fixture_18_handle_not_nearness`).
+ *   4. what is consumed is decided by the HANDLE PASSED, not by nearness --
+ *      PASSED (`fixture_18_handle_not_nearness`: two programs differing in one
+ *      variable at the same point in the same stack, with different answers).
+ *   5. B1.6's fixtures still hold -- PASSED; fixtures 1 to 15 are unchanged in
+ *      intent and rewritten only into the handle shape, which made several of
+ *      them STRONGER: `fixture_1`, `fixture_5b`, `fixture_7` and `fixture_8` now
+ *      name ONE handle twice, where B1.6 could only consume "the context in
+ *      scope" twice and argue that both found the same token.
+ *   6. strict positivity WITHOUT a direct recursive embedding -- PASSED; see the
+ *      stratification above. F* checks it by accepting these declarations, and
+ *      the rejection of the direct shapes was re-confirmed in a scratch module.
+ *   7. store integrity -- PASSED (`fixture_19_forged_handle_fails`: a forged
+ *      handle and a non-handle value both get `PStuck`, and the store holds a
+ *      real, resolvable context at the time, so the refusal is not for want of
+ *      something to fall back on). `presolve` is not GIVEN a stack, so the
+ *      fallback is impossible by type and not only by behaviour.
+ *   8. persistence and aliasing -- PASSED
+ *      (`fixture_20_persistence_and_aliasing`: `cy1 <- bindScope cx g;
+ *      cy2 <- bindScope cx h` gives three independent contexts, `cx` carries
+ *      neither extension, and consuming the three in either order agrees).
+ *
+ * *The multi-shot allocation hazard*, which none of the eight names and which no
+ * single-path fixture would catch: `next` lives in the `pconf`, and a `pconf` is
+ * not a frame, so nothing about it is captured by `PSplice` or restored by a
+ * resumption. `fixture_21_multi_shot_alloc` produces a context inside a
+ * TWICE-RESUMED continuation, checks that the two branches got different keys,
+ * and consumes both afterwards to check each resolves to its own branch's body.
+ * The store is GLOBAL and MONOTONE across capture and resumption. The scheme
+ * this rules out is the NAIVE snapshot -- one taken per continuation and
+ * restored on resumption -- which would make an extension performed in one
+ * resumption invisible to its sibling, and which solves neither collision
+ * between independent allocators nor lost updates. It is not a claim that no
+ * snapshot scheme could work; a scheme that solved those two is not excluded by
+ * anything checked here. Global-and-monotone is the REFERENCE choice, adopted so
+ * that handles created in sibling resumptions resolve together afterwards.
+ *
  * *What this file states rather than proves, listed here so that no reader has
  * to find them.*
  *
  *   - The four laws, plus `law_transparent_agrees`, are unproved. They are
- *     `prop` definitions parameterised by a `ctx_ops`; B2b proves them of
+ *     `prop` definitions parameterised by a `ctx_ops`; B2b is to prove them of
  *     `ref_ops`. Nothing in this module depends on any of them holding.
- *   - That `settles` MAY come off is argued and not proved. What is checked is
- *     that the program `settles` used to exclude now runs correctly
- *     (`fixture_10_outer_handler`); whether the laws hold in general without the
- *     hypothesis is B2b's.
+ *   - `settles` is DELETED, and what that establishes is that the laws can be
+ *     STATED without it -- together with `fixture_10_outer_handler`, which runs
+ *     the program `settles` used to exclude. Whether the propositions so stated
+ *     HOLD of `ref_ops` is the same B2b obligation as the line above, not a
+ *     separate open question about the hypothesis.
  *   - `pfind_mode` finds the NEAREST enclosing `PModeF`, with no label. B1.6
  *     both endangered this -- a production inside a consumption now has that
  *     consumer's marker beneath it -- and made the obligation smaller, by
  *     terminating the search at a scope floor. `fixture_14_nested_scope` is the
  *     program that fires that guard. The invariant itself is B2a's and is NOT
  *     proved.
- *   - `pcut_scope` cuts at the NEAREST floor, and no fixture here separates that
- *     from the farthest; the note at `pcut_scope` records what was tried.
+ *   - `pcut_scope` cuts at the NEAREST floor, and **no fixture here separates
+ *     that from the farthest -- RE-TESTED IN B1.7 AND STILL NOT SEPARATED.** The
+ *     mutation was applied again over the handle representation, confirmed to be
+ *     a genuinely different function (on `[PScopeF; PBoundaryF; PScopeF]` the two
+ *     disagree), and every fixture still passed, `fixture_15_two_floors`
+ *     included. The nearest-floor discipline remains CHOSEN, not checked, and it
+ *     joins `pfind_mode` as an obligation for B2a.
+ *   - `PCtxRequests y [] PVar` for `PCtxDone y` is likewise still ACCEPTED,
+ *     re-tested in B1.7. The two are operationally equal -- driving a request
+ *     with an empty residual pushes a `PModeF` that the value then passes
+ *     straight through, so the extension chain is never applied -- and the
+ *     constructors are kept apart for the reader.
+ *   - **The store is never reclaimed.** `palloc` only conses and nothing removes
+ *     an entry, so a handle stays resolvable for the whole run. That is what
+ *     makes condition 8 hold; whether a real implementation may reclaim is an
+ *     optimisation with an obligation, and is not addressed here.
+ *   - **`fseen` breaks handle opacity, and only for the fixtures.** No transition
+ *     applies it. Condition 1's "opaque" is a statement about the SEMANTICS, and
+ *     the fixtures are entitled to look because their job is to report what the
+ *     machine did.
  *   - `ptable.binds` is supplied by the fixtures rather than derived from the
  *     shipped table, which is abstract. No transition and no law reads it.
  *)
@@ -394,41 +484,97 @@ type ptable (cl: Type u#a) : Type u#a = {
 }
 
 (* ------------------------------------------------------------------ *)
+(*  The value language -- NEW IN B1.7, AND THE WHOLE OF THE RESTRUCTURE *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The machine's value position, as a two-case sum**, and the reason B1.7 is a
+ * different module from B1.6 rather than an addition to it.
+ *
+ * B1.6's machine had ONE value type, the abstract parameter `v`, and no way to
+ * put a context into it. The two direct repairs -- a field
+ * `kf: pctx v cl -> pcomp v cl` on the production node, and a value type
+ * `pvalue v cl = PV of v | PCtxV of pctx v cl` -- are both REJECTED BY F*, and
+ * the rejection is real rather than conservative: a `pctx` holds an extension
+ * chain `pval v -> pcomp v cl`, so it contains a NEGATIVE occurrence of the
+ * value type, and embedding it into the value language closes a negative
+ * recursive cycle. `[@@strictly_positive]` has nothing to say about it -- that
+ * attribute declares that an ABSTRACT parameter is used positively; it cannot
+ * make a real negative occurrence acceptable.
+ *
+ * **What this type does instead is stratify.** The thing that enters the value
+ * language is a `nat` -- a KEY, with no recursive structure at all -- and the
+ * residual it names lives in a store beside the machine state. Three
+ * consequences, and each of them is load-bearing:
+ *
+ *   - `pval` mentions neither `pcomp` nor `pctx`, so it is NOT part of the
+ *     mutual block below. It is defined before it and depends on nothing in it.
+ *   - `pframe` therefore no longer has to hold a `pctx` (B1.6's `PTokenF` is
+ *     deleted, not weakened), so `pctx` drops out of the mutual block too and is
+ *     defined AFTER it. It is the last of the three stratification steps and the
+ *     one that makes the store's type expressible.
+ *   - a handle is an ordinary value. It can be bound by `POp`, held in a
+ *     `PParamF` cell, put in a payload, returned from a scope, and -- the point
+ *     of the gate -- SELECTED between. Which context an operation consumes is an
+ *     argument, not a position on the stack.
+ *
+ * **`PCtxKey` is opaque TO THE MACHINE, which is the sense that matters.** No
+ * transition below matches on the `nat`, compares two of them, or does
+ * arithmetic on one; the only thing any rule does with a `PCtxKey` is hand it to
+ * `presolve`, and the only thing that MAKES one is the allocator. The fixtures'
+ * own value type can render a key (see `fd`), because a fixture has to be able
+ * to write down a FORGED handle in order to check that forging fails -- but the
+ * machine has no rule that could act on the difference.
+ *
+ * The key is a `nat` and not a `string`: a name supplied from the surface could
+ * collide, and the freshness argument below (`lemma_alloc_fresh`) would have
+ * nothing to be about.
+ *)
+noeq
+type pval (v: Type u#a) : Type u#a =
+  | PV: value:v -> pval v
+  | PCtxKey: id:nat -> pval v
+
+(* ------------------------------------------------------------------ *)
 (*  The prototype AST                                                  *)
 (*                                                                     *)
 (*  `Hoop.Runtime.Syntax.comp_tree` / `frame` with provenance on the    *)
 (*  prompt, with the context operations given nodes of their own, with  *)
 (*  the three frames B1.5's residual protocol is made of, and -- new in *)
-(*  B1.6 -- with production's node and the two frames it needs. Every   *)
+(*  B1.6 -- with production's node and the frame it needs. Every        *)
 (*  constructor is renamed (`P...`) so that nothing here shadows the    *)
 (*  production type: a prototype that could be confused for the shipped *)
 (*  AST at a call site is a prototype that will be, and                 *)
 (*  `--print_full_names` is not something a reader runs by default.     *)
 (*                                                                     *)
 (*  The block is mutually recursive and cannot be split: `plan_item`    *)
-(*  holds return clauses (`v -> pcomp`), the production node holds a    *)
-(*  `plan`, a `pframe` holds a `pctx`, and a `pctx` holds a residual    *)
-(*  STACK and an extension chain into `pcomp`.                          *)
+(*  holds return clauses (`pval v -> pcomp`), the production node holds *)
+(*  a `plan`, and a `pframe` holds continuations into `pcomp`.          *)
 (*                                                                     *)
-(*  `pstate` LEFT the block in B1.6, and that is a structural           *)
-(*  simplification worth noticing rather than a tidy-up. It was in it   *)
-(*  because `PCtxLost` carried the state a detached production had      *)
-(*  failed in. A transition has no failure to carry -- a stuck prefix   *)
-(*  makes the machine stuck -- so a context is no longer a snapshot of  *)
-(*  a run, and the syntax no longer has to be defined after the states. *)
+(*  `pstate` LEFT the block in B1.6, and `pctx` LEAVES IT IN B1.7. The  *)
+(*  second is not a tidy-up: it is the condition under which the store  *)
+(*  can be given a type at all. `pframe` held a `pctx` only because     *)
+(*  B1.6 defunctionalised the token into a `PTokenF` frame, and that    *)
+(*  frame is what nearness-based resolution read. Deleting it removes   *)
+(*  the nearness AND frees `pctx` from the block, in one step.          *)
+(*                                                                     *)
+(*  EVERY VALUE POSITION IS NOW `pval v` RATHER THAN `v`. That is a     *)
+(*  mechanical change with one semantic consequence, and it is the      *)
+(*  gate's: the thing a `POp` binds, a `PBindF` receives, a `PParamF`   *)
+(*  holds and a payload carries may be a context handle.                *)
 (* ------------------------------------------------------------------ *)
 
 noeq
 type pcomp (v: Type u#a) (cl: Type u#a) : Type u#a =
-  | POp: c:pcomp v cl -> fn:(v -> pcomp v cl) -> pcomp v cl
-  | PVar: value:v -> pcomp v cl
-  | PPerform: eff:string -> op:string -> payload:list v -> pcomp v cl
+  | POp: c:pcomp v cl -> fn:(pval v -> pcomp v cl) -> pcomp v cl
+  | PVar: value:pval v -> pcomp v cl
+  | PPerform: eff:string -> op:string -> payload:list (pval v) -> pcomp v cl
   // `PromptF` installation, WITH provenance. This is the surface's `with`
   // (`PMono`) and `withF` (`PFamily`) at one node: they differ in the evidence
   // they attach and in nothing else, which is the reframing made syntax.
   | PHandle:
       tbl:ptable cl ->
-      ret:option (v -> pcomp v cl) ->
+      ret:option (pval v -> pcomp v cl) ->
       prov:prompt_provenance ->
       body:pcomp v cl ->
       pcomp v cl
@@ -475,8 +621,7 @@ type pcomp (v: Type u#a) (cl: Type u#a) : Type u#a =
       owner:powner v cl ->
       body:pcomp v cl ->
       pcomp v cl
-  // **Producing a context.** THE node of B1.6, and the reason the gate's stop
-  // condition did not fire.
+  // **Producing a context.** THE node of B1.6, and in B1.7 it loses an argument.
   //
   // B1.5 produced a context with a meta-level function -- `enter_ctx_C lk apply
   // fuel pl c`, which ran `psteps` to completion on an EMPTY ambient stack and
@@ -504,70 +649,70 @@ type pcomp (v: Type u#a) (cl: Type u#a) : Type u#a =
   //     reason the argument identified: nothing is truncated, because nothing is
   //     returned.
   //
-  // **`kbody` is a COMPUTATION and not a function, and that is forced -- it is
-  // the one place B1.6's design was decided by F* rather than by taste.**
+  // **B1.6's `kbody` field is GONE, and its absence is condition 1.**
   //
-  // The token has to reach the continuation somehow. It cannot BE a `v`: `v` is
-  // an abstract parameter and there is nothing to inject into. The two obvious
-  // repairs are a continuation `kf: pctx v cl -> pcomp v cl` on this node, and
-  // the larger restructure that makes the machine's value position a sum,
-  // `pvalue v cl = PV of v | PCtxV of pctx v cl`, threaded through `PVar`,
-  // `PBindF`, `papply_t`, the cells and the terminals.
+  // B1.6 could not put the token in the value position -- see `pval` above for
+  // why the two direct embeddings are rejected -- so production carried the
+  // continuation the token was produced FOR, installed the token in a `PTokenF`
+  // frame beneath it, and let the consuming nodes read the nearest one. A
+  // context was therefore DYNAMICALLY SCOPED, and the published `ScopeTactics`,
+  // which take an explicit `ctx x`, would have run a well-typed program with a
+  // different meaning: given two live contexts, the nearest wins whichever was
+  // passed.
   //
-  // **NEITHER IS WELL FORMED, and for the same reason.** A `pctx` holds a
-  // residual `list (pframe v cl)` and an extension chain `v -> pcomp v cl`, so
-  // it contains a negative occurrence of the value type (and positive ones).
-  // Put it on the left of an arrow in the AST and the mutual block closes a
-  // negative recursive cycle:
+  // Under the stratification the token IS a value, so production needs no
+  // continuation of its own. `PEnterCtx pl body` runs `body` under the plan and
+  // then EVALUATES TO A HANDLE, in the ordinary way a node evaluates to a value:
+  // the enclosing `PBindF` receives it. The surface's
   //
-  //   `kf: pctx v cl -> pcomp v cl`  puts `pctx` negatively in `pcomp`
-  //   `PBindF: pvalue v cl -> pcomp` puts `pvalue` -- hence `pctx` -- negatively
+  //     cx <- t.runScope p
   //
-  // and F* answers "Inductive type ... does not satisfy the strict positivity
-  // condition" for both. It is not an F* quirk that a stronger checker would
-  // wave through: the DIRECT embedding really has a negative cycle. What this
-  // rules out is that embedding, not every first-class representation; B1.7
-  // starts from the verified stratification in which only a non-recursive key
-  // enters the value language and the residual lives in a machine-side store.
+  // is therefore literally `POp (PEnterCtx pl p) (fun cx -> ...)`, with no
+  // node-level continuation and nothing installed on the stack for a later
+  // search to find. `pfind_token` -- B1.6's nearest-token search -- is deleted;
+  // there is no function in this module that resolves a context by position.
   //
-  // What is here instead is the defunctionalisation. The token is not passed to
-  // the continuation; it is INSTALLED, in a `PTokenF` frame directly beneath
-  // `kbody`, and the three consuming nodes read the nearest one. So a produced
-  // context is DYNAMICALLY SCOPED -- exactly as a prompt-local cell is, and read
-  // by exactly the same kind of search.
+  // The rule is otherwise B1.6's, unchanged, and it is still four frames on the
+  // LIVE stack: the boundary marker, the plan's protocol frames, the scope floor
+  // `PScopeF`, and the ambient stack untouched beneath. Consequences, in the
+  // order they matter:
   //
-  // *What that costs, plainly.* A context cannot be stored, returned as a
-  // scope's own result, or put in a list, because it never enters the value
-  // language at all; and "the context" inside `kbody` means the innermost one,
-  // so a scope nested in a consumer's continuation shadows its enclosing token
-  // rather than coexisting with it. What it buys is that the property the gate
-  // is about -- production is a transition, and the token is produced ONCE, by
-  // the machine, and consumed as many times as the program says -- holds without
-  // the direct recursive value language that cannot be built. A program that
-  // needs two contexts alive at once is not expressible. Worse, the published
-  // API can express one and this representation would silently consume the
-  // nearest token instead of the handle it was passed. B1.7 is the gate for
-  // replacing nearness with first-class persistent identity.
+  //   - an operation the prefix performs that no plan prompt handles is found by
+  //     the ordinary `pfind_prompt` walk, which continues PAST the owner and
+  //     past the scope floor into the ambient stack;
+  //   - if an ambient handler is not tail-resumptive, its pending frames sit
+  //     below the point it dispatched from, and when it resumes, the scope --
+  //     boundary, plan frames and floor together, since they were all inside the
+  //     segment it captured -- is re-installed ABOVE them. The handle, when it
+  //     is finally produced, is delivered to a continuation running on a stack
+  //     that still has that handler's unfinished work in it. That is the exact
+  //     case B1.5 argued no meta-level truncation could get right, and it is
+  //     right here for the reason the argument identified: nothing is truncated,
+  //     because nothing is returned.
   | PEnterCtx:
       pl:plan v cl ->
       body:pcomp v cl ->
-      kbody:pcomp v cl ->
       pcomp v cl
-  // The three operations that consume THE CONTEXT IN SCOPE. `enter_C` needs no
-  // node of its own: it is what `PWeave` steps to.
+  // **The three consuming operations, each taking THE HANDLE IT IS TO CONSUME.**
+  // `enter_C` needs no node of its own: it is what `PWeave` steps to.
   //
-  // `PExtendCtxC` is `bindScope` in its full shape -- extend the token in scope
-  // by `g` and continue with the RESULT in scope -- and it is a node rather than
-  // a derived form because under dynamic scoping "the context extending
-  // produced" has to be installed somewhere for the rest of the clause to see.
-  // B1.5 could return it as a `pctx` and let the caller hold it; here the stack
-  // is what holds it.
-  | PExtendC: pl:plan v cl -> g:(v -> pcomp v cl) -> pcomp v cl
-  | PExtendCtxC: pl:plan v cl -> g:(v -> pcomp v cl) -> kbody:pcomp v cl -> pcomp v cl
-  | PResumeC: pl:plan v cl -> k:(v -> pcomp v cl) -> pcomp v cl
-  | PNewP: label:string -> init:v -> body:pcomp v cl -> pcomp v cl
+  // The `h:pval v` field is condition 4 made syntax. In B1.6 these nodes had no
+  // such field and the rule read the nearest `PTokenF`; here the rule resolves
+  // `h` against the store and FAILS if it does not resolve (condition 7). There
+  // is no fallback: `pstep` has no arm that reaches for a context it was not
+  // given.
+  //
+  // `PExtendCtxC` is `bindScope` in its full shape. In B1.6 it had to carry a
+  // `kbody`, because the context it produced could only be installed on the
+  // stack for the rest of the clause to find. Here it evaluates to a FRESH
+  // HANDLE, exactly as production does, so `cy <- bindScope cx g` is an ordinary
+  // bind -- and `cx` is untouched, which is condition 8.
+  | PExtendC: pl:plan v cl -> h:pval v -> g:(pval v -> pcomp v cl) -> pcomp v cl
+  | PExtendCtxC: pl:plan v cl -> h:pval v -> g:(pval v -> pcomp v cl) -> pcomp v cl
+  | PResumeC: pl:plan v cl -> h:pval v -> k:(pval v -> pcomp v cl) -> pcomp v cl
+  | PNewP: label:string -> init:pval v -> body:pcomp v cl -> pcomp v cl
   | PReadP: label:string -> pcomp v cl
-  | PWriteP: label:string -> value:v -> pcomp v cl
+  | PWriteP: label:string -> value:pval v -> pcomp v cl
 
 (**
  * **The frames.** Three of the six are new in B1.5 and all three exist for the
@@ -604,44 +749,48 @@ type pcomp (v: Type u#a) (cl: Type u#a) : Type u#a =
  *   - `PScopeF` is THE SCOPE FLOOR, new in B1.6 and the frame that makes
  *     production a transition. `PEnterCtx` installs it BENEATH the plan's
  *     frames, so it separates what belongs to the scope from what was on the
- *     ambient stack already, and it carries the continuation the token is
- *     produced FOR. Two rules read it and they are the whole of production's
- *     other half: a value that reaches it directly has drained the whole scope
- *     without ever asking for anything, so the token is `PCtxDone`; and a
- *     boundary or site frame with no mode above it CUTS the stack here, taking
- *     everything above as the residual and continuing on everything below.
+ *     ambient stack already. Two rules read it and they are the whole of
+ *     production's other half: a value that reaches it directly has drained the
+ *     whole scope without ever asking for anything, so the context is
+ *     `PCtxDone`; and a boundary or site frame with no mode above it CUTS the
+ *     stack here, taking everything above as the residual and continuing on
+ *     everything below. In both cases the context is ALLOCATED and the machine
+ *     continues with its handle as the value.
+ *
+ *     **In B1.7 it carries nothing at all**, and losing its field is worth
+ *     noticing. B1.6's floor held `kbody`, the continuation the token was
+ *     produced for, because there was no value position to deliver a token to.
+ *     Now there is: production evaluates to a handle, so the floor's whole job
+ *     is to say WHERE the scope's frames end. The frame is a marker and its
+ *     content is its position.
  *
  *     It is a frame and not a field of the boundary marker because the two are
  *     at different depths and get separated: the boundary rides up into every
  *     continuation a layer captures, and the floor stays where the ambient stack
- *     begins. Merging them would put the token's continuation inside every
- *     captured segment, so a layer that resumed twice would produce two tokens.
+ *     begins.
  *
  *     It is also what delimits the mode search; see `pfind_mode`.
  *
- *   - `PTokenF` is A PRODUCED CONTEXT, IN SCOPE. It is what `PScopeF` turns into
- *     when the token exists, and it is read by the three consuming nodes exactly
- *     as `PParamF` is read by `PReadP`. It is inert to values passing through,
- *     so a clause that produces a context and then returns without consuming it
- *     simply drops it.
- *
- *     Carrying the token on a frame rather than passing it to a function is
- *     forced by strict positivity; the argument is at `PEnterCtx` and the price
- *     is recorded there too.
+ *   - **`PTokenF` IS DELETED.** B1.6's produced context lived in this frame and
+ *     the consuming nodes read the NEAREST one, exactly as `PReadP` reads a
+ *     cell. That is the single step B1.7 rejects: it makes a context dynamically
+ *     scoped, so a program holding two `ctx x` values and passing one of them
+ *     gets the other. Deleting the frame does two things at once -- it removes
+ *     every nearness-based path to a context, and it takes `pctx` out of this
+ *     mutual block, which is what lets the store be given a type.
  *)
 and pframe (v: Type u#a) (cl: Type u#a) : Type u#a =
-  | PBindF: fn:(v -> pcomp v cl) -> pframe v cl
-  | PParamF: label:string -> value:v -> pframe v cl
+  | PBindF: fn:(pval v -> pcomp v cl) -> pframe v cl
+  | PParamF: label:string -> value:pval v -> pframe v cl
   | PPromptF:
       tbl:ptable cl ->
-      ret:option (v -> pcomp v cl) ->
+      ret:option (pval v -> pcomp v cl) ->
       prov:prompt_provenance ->
       pframe v cl
   | PBoundaryF: pframe v cl
-  | PSiteF: fn:(v -> pcomp v cl) -> pframe v cl
-  | PModeF: mode:weave_mode -> respond:(v -> pcomp v cl) -> pframe v cl
-  | PScopeF: kbody:pcomp v cl -> pframe v cl
-  | PTokenF: cx:pctx v cl -> pframe v cl
+  | PSiteF: fn:(pval v -> pcomp v cl) -> pframe v cl
+  | PModeF: mode:weave_mode -> respond:(pval v -> pcomp v cl) -> pframe v cl
+  | PScopeF: pframe v cl
 
 (**
  * **The owner of a scope**, as a thing with a name.
@@ -661,7 +810,7 @@ and pframe (v: Type u#a) (cl: Type u#a) : Type u#a =
 and powner (v: Type u#a) (cl: Type u#a) : Type u#a =
   | POwner:
       tbl:ptable cl ->
-      ret:option (v -> pcomp v cl) ->
+      ret:option (pval v -> pcomp v cl) ->
       prov:prompt_provenance ->
       powner v cl
 
@@ -715,10 +864,10 @@ and powner (v: Type u#a) (cl: Type u#a) : Type u#a =
  *     borrowable milestone.
  *)
 and plan_item (v: Type u#a) (cl: Type u#a) : Type u#a =
-  | PIBind: fn:(v -> pcomp v cl) -> plan_item v cl
-  | PICell: label:string -> value:v -> plan_item v cl
+  | PIBind: fn:(pval v -> pcomp v cl) -> plan_item v cl
+  | PICell: label:string -> value:pval v -> plan_item v cl
   | PITransparent: tbl:ptable cl -> plan_item v cl
-  | PIReenter: tbl:ptable cl -> ret:option (v -> pcomp v cl) -> plan_item v cl
+  | PIReenter: tbl:ptable cl -> ret:option (pval v -> pcomp v cl) -> plan_item v cl
 
 (**
  * **The scope plan.**
@@ -752,12 +901,22 @@ and plan (v: Type u#a) (cl: Type u#a) : Type u#a =
       plan v cl
 
 (**
- * **A context value: a RESIDUAL MACHINE CONFIGURATION.**
+ * **A context value: a RESIDUAL MACHINE CONFIGURATION** -- and in B1.7 it is
+ * OUTSIDE the mutual block above, which is the third and last step of the
+ * stratification.
  *
- * `C x` of the design note, at F*'s single value type. It is not a `v`, and that
- * is deliberate -- a machine-side datum the surface receives as an opaque token,
- * which is what the design's stop condition "the FFI passing anything but a
- * context plan or an opaque context value" already anticipates.
+ * It could not be outside in B1.6, because `pframe` held one (`PTokenF`). It can
+ * be now because nothing in the AST mentions it: a program names a context by a
+ * `PCtxKey`, and the `pctx` itself lives only in the store beside the machine
+ * state. Read the dependency order and the positivity argument comes out by
+ * inspection -- `pval` depends on nothing, the AST depends on `pval`, `pctx`
+ * depends on both, and the store depends on `pctx`. There is no cycle to check.
+ *
+ * `C x` of the design note. It is not a `pval`, and that is deliberate -- a
+ * machine-side datum the surface receives only as an opaque handle, which is
+ * what the design's stop condition "the FFI passing anything but a context plan
+ * or an opaque context value" already anticipates. The handle is the opaque
+ * value; this is what it names.
  *
  * ---------------------------------------------------------------------------
  * **WITHDRAWN: the suspension.** B1 defined
@@ -845,12 +1004,13 @@ and plan (v: Type u#a) (cl: Type u#a) : Type u#a =
  * the question and the floor" are different things to a reader even where they
  * are the same thing to the machine.
  *)
-and pctx (v: Type u#a) (cl: Type u#a) : Type u#a =
-  | PCtxDone: value:v -> pctx v cl
+noeq
+type pctx (v: Type u#a) (cl: Type u#a) : Type u#a =
+  | PCtxDone: value:pval v -> pctx v cl
   | PCtxRequests:
-      value:v ->
+      value:pval v ->
       residual:list (pframe v cl) ->
-      post:(v -> pcomp v cl) ->
+      post:(pval v -> pcomp v cl) ->
       pctx v cl
 
 (**
@@ -874,11 +1034,176 @@ and pctx (v: Type u#a) (cl: Type u#a) : Type u#a =
  *)
 noeq
 type pstate (v: Type u#a) (cl: Type u#a) : Type u#a =
-  | PDone: value:v -> pstate v cl
+  | PDone: value:pval v -> pstate v cl
   | PStep: c:pcomp v cl -> k:list (pframe v cl) -> pstate v cl
-  | PPaused: value:v -> residual:list (pframe v cl) -> pstate v cl
+  | PPaused: value:pval v -> residual:list (pframe v cl) -> pstate v cl
   | PStuck: eff:string -> op:string -> pstate v cl
   | PRejected: rejection -> pstate v cl
+
+(* ------------------------------------------------------------------ *)
+(*  The store, and the configuration it lives in                       *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The context store: an APPEND-ONLY association list**, keyed by the `nat` a
+ * `PCtxKey` carries.
+ *
+ * *Why a list and not `nat -> option (pctx v cl)`.* A function store is the
+ * shape the design note's scratch check used and it typechecks equally well, but
+ * every write to one is `fun i -> if i = n then Some cx else old i`, and
+ * "nothing was overwritten" is then a property of a chain of closures that no
+ * `assert_norm` can look at. With a list, allocation is a `::` and the two
+ * obligations of condition 8 are properties an `assert_norm` and a short
+ * induction can both reach: `palloc` only ever CONSES, and `pstore_lookup`
+ * returns the first match.
+ *
+ * *Why first-match rather than last-match.* First-match makes a later entry
+ * shadow an earlier one with the same key. That is not how the machine uses it
+ * -- `lemma_alloc_fresh` below is PROVED, and says the key allocated is strictly
+ * greater than every key already present, so the machine never creates a
+ * duplicate -- but it is the safe direction if one ever arose, because it is the
+ * ALLOCATING branch that would win rather than a stale entry from elsewhere.
+ *
+ * *What is deliberately absent: a free, a clear, and an update.* There is no
+ * function in this module that removes an entry or replaces one in place. That
+ * is condition 8 at the level of the API rather than of a proof, and it is the
+ * reason the `cy1 <- bindScope cx g; cy2 <- bindScope cx h` program has three
+ * independent contexts rather than one overwritten three times. A real
+ * implementation would want to reclaim; the point of the prototype is that
+ * reclamation is then an optimisation with an obligation, not the semantics.
+ *)
+type pstore (v: Type u#a) (cl: Type u#a) : Type u#a = list (nat & pctx v cl)
+
+let rec pstore_lookup (#v #cl: Type) (id: nat) (sto: pstore v cl)
+  : Tot (option (pctx v cl)) (decreases sto)
+  = match sto with
+    | [] -> None
+    | (i, cx) :: rest -> if i = id then Some cx else pstore_lookup id rest
+
+(**
+ * **Resolving a handle**, and it is the ONLY way any transition of this machine
+ * reaches a context.
+ *
+ * Two ways to fail, and both must fail rather than degrade:
+ *
+ *   - `PV _` -- an ordinary value used where a handle was wanted. The surface's
+ *     types make this unreachable; the machine still has to answer, and the
+ *     answer is a refusal.
+ *   - `PCtxKey id` with `id` not in the store -- a FORGED or STALE handle.
+ *
+ * **Neither arm consults the stack.** That is condition 7, and it is a property
+ * of this function's TYPE before it is a property of its body: `presolve` is not
+ * given a stack, so it could not fall back to the nearest context even if its
+ * author wanted to. B1.6's `pfind_token` took a `pstack` and returned the
+ * nearest `PTokenF`; it is deleted, and there is nothing in this module that
+ * takes its place.
+ *)
+let presolve (#v #cl: Type) (sto: pstore v cl) (h: pval v) : option (pctx v cl)
+  = match h with
+    | PV _ -> None
+    | PCtxKey id -> pstore_lookup id sto
+
+(**
+ * **The machine configuration**: a state, the store, and the next key.
+ *
+ * **`next` is in the CONFIGURATION and in nothing else, and that is the answer
+ * to the gate's flagged hazard.** This machine has multi-shot continuations: a
+ * captured segment is a list of FRAMES, and resuming it is `PSplice`, which
+ * pushes those frames back. Neither the store nor the counter is a frame, so
+ * neither is captured and neither is restored. A continuation captured before an
+ * allocation and resumed twice therefore sees a counter that the first
+ * resumption has already advanced, and the second resumption allocates a
+ * DIFFERENT key. `fixture_21_multi_shot_alloc` is the program that would catch
+ * the alternative, and `lemma_alloc_monotone` is the proof that the counter is
+ * monotone.
+ *
+ * Had `next` been carried on a frame -- or derived from anything branch-local,
+ * stack depth being the tempting one -- two resumptions of one continuation
+ * would allocate the same key and then disagree about what it names. That is not
+ * a hypothetical: the mutation was made and the fixture rejected it.
+ *
+ * The alternative of a per-continuation store snapshot was considered and
+ * rejected. It would make `bindScope` inside a resumed continuation invisible to
+ * the sibling resumption, which is a coherent design for a LINEAR context and
+ * incoherent for a multi-shot one -- the published API admits consuming the same
+ * `ctx x` from two branches, so the two branches must agree about what it is.
+ * A global monotone store is what makes "the handle passed" have a meaning that
+ * does not depend on where it is read.
+ *)
+noeq
+type pconf (v: Type u#a) (cl: Type u#a) : Type u#a = {
+  st: pstate v cl;
+  store: pstore v cl;
+  next: nat;
+}
+
+(**
+ * **Allocation, and it is the ONLY writer of the store.**
+ *
+ * A `::` and an increment. There is no other function in this module that
+ * constructs a `pstore` other than the empty one in `pload`, which is what makes
+ * "append-only" a statement about a two-line definition rather than about a
+ * discipline someone has to keep.
+ *
+ * The three obligations it discharges, and which of them are CHECKED below:
+ *
+ *   - the returned handle is `PCtxKey cf.next`, and `cf.next` is not a key of
+ *     `cf.store` provided the configuration is well formed -- `pconf_wf` states
+ *     this and `lemma_alloc_wf` PROVES it is preserved;
+ *   - the old store is a SUFFIX of the new one, so every handle that resolved
+ *     before resolves to the same context after (`lemma_alloc_preserves`,
+ *     proved);
+ *   - `next` strictly increases (`lemma_alloc_monotone`, proved), which is what
+ *     makes two allocations on two resumptions of one continuation get two
+ *     different keys.
+ *)
+let palloc (#v #cl: Type) (cx: pctx v cl) (cf: pconf v cl)
+  : (pval v & pconf v cl)
+  = (PCtxKey cf.next,
+     { cf with store = (cf.next, cx) :: cf.store; next = cf.next + 1 })
+
+(** Every key in the store is strictly below `next`. This is the invariant that
+    makes a freshly allocated key fresh, and it is the ONLY thing standing
+    between the machine and the multi-shot id collision the gate flags. *)
+let pconf_wf (#v #cl: Type) (cf: pconf v cl) : prop
+  = forall (i: nat) (cx: pctx v cl). memP (i, cx) cf.store ==> i < cf.next
+
+(** A key at or above `next` is absent -- the form the freshness invariant is
+    actually used in. *)
+let rec lemma_wf_absent (#v #cl: Type) (i: nat) (sto: pstore v cl) (n: nat)
+  : Lemma (requires (forall (j: nat) (cx: pctx v cl). memP (j, cx) sto ==> j < n) /\ i >= n)
+          (ensures pstore_lookup i sto == None)
+          (decreases sto)
+  = match sto with
+    | [] -> ()
+    | (j, cx) :: rest -> lemma_wf_absent i rest n
+
+(** Allocation preserves well-formedness. PROVED. *)
+let lemma_alloc_wf (#v #cl: Type) (cx: pctx v cl) (cf: pconf v cl)
+  : Lemma (requires pconf_wf cf) (ensures pconf_wf (snd (palloc cx cf)))
+  = ()
+
+(** `next` strictly increases. PROVED, and it is condition 8's freshness across
+    multi-shot resumption: a counter that only ever goes up cannot hand the same
+    key to two branches. *)
+let lemma_alloc_monotone (#v #cl: Type) (cx: pctx v cl) (cf: pconf v cl)
+  : Lemma (ensures (snd (palloc cx cf)).next > cf.next)
+  = ()
+
+(** **The new key is genuinely fresh**: it resolved to nothing before. PROVED. *)
+let lemma_alloc_fresh (#v #cl: Type) (cx: pctx v cl) (cf: pconf v cl)
+  : Lemma (requires pconf_wf cf)
+          (ensures pstore_lookup cf.next cf.store == None)
+  = lemma_wf_absent cf.next cf.store cf.next
+
+(** **Allocation disturbs nothing already allocated.** PROVED, and this is
+    condition 8's other half: `extend` writes a new entry, so the handle it was
+    given still resolves to exactly the context it resolved to before. *)
+let lemma_alloc_preserves (#v #cl: Type) (cx: pctx v cl) (cf: pconf v cl) (i: nat)
+  : Lemma (requires pconf_wf cf /\ Some? (pstore_lookup i cf.store))
+          (ensures pstore_lookup i (snd (palloc cx cf)).store
+                   == pstore_lookup i cf.store)
+  = lemma_alloc_fresh cx cf
 
 (* ------------------------------------------------------------------ *)
 (*  The classification, derived                                        *)
@@ -906,7 +1231,7 @@ let classify_prompt
     (#v #cl: Type)
     (prov: prompt_provenance)
     (tbl: ptable cl)
-    (ret: option (v -> pcomp v cl))
+    (ret: option (pval v -> pcomp v cl))
   : prompt_class
   = match prov with
     | PFamily -> Family
@@ -1183,8 +1508,8 @@ let plan_protocol_frames (#v #cl: Type) (pl: plan v cl) : list (pframe v cl)
 (*  They come in two layers in B1.6 and the split is worth knowing      *)
 (*  before reading them. `ctx_drive`, `extend_C`, `extend_ctx_C` and    *)
 (*  `resume_C` take an EXPLICIT context and are the meanings; the four  *)
-(*  builders below them -- `enter_ctx_C`, `extend_here_C`,              *)
-(*  `extend_ctx_here_C`, `resume_here_C` -- are single constructors and *)
+(*  builders below them -- `enter_ctx_C`, `extend_at_C`,                *)
+(*  `extend_ctx_at_C`, `resume_at_C` -- are single constructors and     *)
 (*  are what a program writes. The transitions are what join the two.   *)
 (* ------------------------------------------------------------------ *)
 
@@ -1192,7 +1517,7 @@ let plan_protocol_frames (#v #cl: Type) (pl: plan v cl) : list (pframe v cl)
     speak of one SMT symbol rather than of an `POp` a reader has to recognise.
     This is `Hoop.Runtime.Syntax.Op` under the prototype's name. *)
 unfold
-let pbind (#v #cl: Type) (c: pcomp v cl) (f: v -> pcomp v cl) : pcomp v cl
+let pbind (#v #cl: Type) (c: pcomp v cl) (f: pval v -> pcomp v cl) : pcomp v cl
   = POp c f
 
 (**
@@ -1231,11 +1556,18 @@ let enter_C (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) : pcomp v cl
  *
  * -- a lookup, a clause interpreter and a fuel bound in, a finished `pctx` out.
  * That is a partial evaluator, and the type said so before any behaviour was
- * examined. What is here instead takes a plan, an inner computation and the
- * continuation the token is produced for, and BUILDS A NODE. It runs nothing.
- * The machine's `PEnterCtx` rule is what runs, on whatever stack the program is
- * on at the time, and the token is formed by a value rule and installed by that
- * same rule.
+ * examined. What is here instead takes a plan and an inner computation, and
+ * BUILDS A NODE. It runs nothing. The machine's `PEnterCtx` rule is what runs,
+ * on whatever stack the program is on at the time, and the context is formed and
+ * allocated by a value rule.
+ *
+ * **In B1.7 it takes ONE argument fewer than in B1.6**, and the argument it lost
+ * is the gate: B1.6 had to be handed the continuation the token was produced
+ * for, because a token could not be a value and had to be installed on the stack
+ * beneath something. Production now evaluates to a handle, so `runScope` is an
+ * ordinary bind and the caller decides what to do with the result -- including
+ * keeping it, pairing it, or consuming it after some other scope has come and
+ * gone.
  *
  * **This is the gate's stop condition, and the check that it did not fire is
  * mechanical**: `psteps`, `pcost`, `papply_t`, `plookup_t` and `nat` do not
@@ -1249,9 +1581,9 @@ let enter_C (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) : pcomp v cl
  *)
 let enter_ctx_C
     (#v #cl: Type)
-    (pl: plan v cl) (c: pcomp v cl) (kbody: pcomp v cl)
+    (pl: plan v cl) (c: pcomp v cl)
   : pcomp v cl
-  = PEnterCtx pl c kbody
+  = PEnterCtx pl c
 
 (**
  * **Driving a residual**, which is what both consuming operations are.
@@ -1276,7 +1608,7 @@ let enter_ctx_C
  * leaves runs the continuation nowhere, and its own algebra has already said
  * what that means.
  *)
-let ctx_drive (#v #cl: Type) (m: weave_mode) (cx: pctx v cl) (f: v -> pcomp v cl)
+let ctx_drive (#v #cl: Type) (m: weave_mode) (cx: pctx v cl) (f: pval v -> pcomp v cl)
   : pcomp v cl
   = match cx with
     | PCtxDone y -> PVar y
@@ -1305,7 +1637,7 @@ let ctx_drive (#v #cl: Type) (m: weave_mode) (cx: pctx v cl) (f: v -> pcomp v cl
  * resumed again -- so the perform site's recorded bind frames must not fire, and
  * under this mode the `PSiteF`s they became do not.
  *)
-let extend_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: v -> pcomp v cl)
+let extend_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: pval v -> pcomp v cl)
   : pcomp v cl
   = ctx_drive MExtend cx g
 
@@ -1331,7 +1663,7 @@ let extend_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: v -> pcomp v cl)
  * boundary holds no values, so there is nothing for `g` to be applied to. This
  * is `[] >>= g == []` and not a special case.
  *)
-let extend_ctx_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: v -> pcomp v cl)
+let extend_ctx_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: pval v -> pcomp v cl)
   : pctx v cl
   = match cx with
     | PCtxDone y -> PCtxDone y
@@ -1376,37 +1708,43 @@ let extend_ctx_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: v -> pcomp v
  * inside the layer, and an outer one once, on the layer's assembled answer.
  * `fixture_7_mixed_order` is that sentence as a value.
  *)
-let resume_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (k: v -> pcomp v cl)
+let resume_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (k: pval v -> pcomp v cl)
   : pcomp v cl
   = ctx_drive MResume cx k
 
 (**
  * **The three consuming operations AS THE PROGRAM WRITES THEM** -- each a single
- * constructor, each naming no context at all.
+ * constructor, and each NAMING THE CONTEXT IT CONSUMES.
  *
  * `extend_C`, `extend_ctx_C` and `resume_C` above are the MEANINGS: functions of
  * an explicit `pctx`, which is what the transitions below delegate to once they
- * have found one. These three are what a clause builds, and they say "the
- * context in scope" rather than naming a token, because under the
- * defunctionalisation (see `PEnterCtx`) there is no way for a program to name
- * one.
+ * have RESOLVED one. These three are what a clause builds, and the `h` they take
+ * is a `pval v` -- an ordinary object-language value, the thing a `PBindF`
+ * received from a production.
+ *
+ * **The rename from B1.6's `..._here_C` is the gate.** "Here" meant the nearest
+ * `PTokenF`, so the operation took no handle and there was no syntax for naming
+ * a context; `..._at_C` takes the handle and the transition resolves it against
+ * the store. A program holding two contexts now selects, and what it selects is
+ * what it gets -- condition 4, and it is visible in these three signatures
+ * before any transition is read.
  *
  * That separation is worth having for its own sake and not only because
  * positivity forced it. It puts each tactic in the position the design note
- * demands: `resume_here_C pl k` IS a node, so the surface's `resumeScope` is a
- * constructor call and cannot be anything else. B1.5's `resume_C pl cx k` was
- * already thin, but it took a context the surface had to be holding, and the
- * only way the surface could have got one was the meta-level producer.
+ * demands: `resume_at_C pl h k` IS a node, so the surface's `resumeScope cx k`
+ * is a constructor call and cannot be anything else.
  *)
-let extend_here_C (#v #cl: Type) (pl: plan v cl) (g: v -> pcomp v cl) : pcomp v cl
-  = PExtendC pl g
+let extend_at_C (#v #cl: Type) (pl: plan v cl) (h: pval v) (g: pval v -> pcomp v cl)
+  : pcomp v cl
+  = PExtendC pl h g
 
-let extend_ctx_here_C (#v #cl: Type) (pl: plan v cl) (g: v -> pcomp v cl)
-                      (kbody: pcomp v cl) : pcomp v cl
-  = PExtendCtxC pl g kbody
+let extend_ctx_at_C (#v #cl: Type) (pl: plan v cl) (h: pval v) (g: pval v -> pcomp v cl)
+  : pcomp v cl
+  = PExtendCtxC pl h g
 
-let resume_here_C (#v #cl: Type) (pl: plan v cl) (k: v -> pcomp v cl) : pcomp v cl
-  = PResumeC pl k
+let resume_at_C (#v #cl: Type) (pl: plan v cl) (h: pval v) (k: pval v -> pcomp v cl)
+  : pcomp v cl
+  = PResumeC pl h k
 
 (**
  * **B1's two consuming operations, withdrawn, kept executable.**
@@ -1424,11 +1762,11 @@ let resume_here_C (#v #cl: Type) (pl: plan v cl) (k: v -> pcomp v cl) : pcomp v 
  * continuation the token is produced for and there is no token here, only a
  * computation re-run from the start.
  *)
-let susp_extend (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) (g: v -> pcomp v cl)
+let susp_extend (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) (g: pval v -> pcomp v cl)
   : pcomp v cl
   = PSplice (plan_enter_frames pl) (pbind c g)
 
-let susp_resume (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) (k: v -> pcomp v cl)
+let susp_resume (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) (k: pval v -> pcomp v cl)
   : pcomp v cl
   = PSplice (plan_resume_frames pl) (pbind c k)
 
@@ -1451,7 +1789,7 @@ type pstack (v: Type) (cl: Type) = list (pframe v cl)
     the ordinary `PSplice` rule. The fixtures instantiate `apply` with clauses
     that resume twice, resume conditionally, and never resume, and the protocol
     is the same protocol in all three cases. *)
-let papply_t (v cl: Type) = cl -> list v -> (v -> pcomp v cl) -> pcomp v cl
+let papply_t (v cl: Type) = cl -> list (pval v) -> (pval v -> pcomp v cl) -> pcomp v cl
 
 (**
  * **The table lookup, as a parameter** -- new in B1.5, and it is a concession to
@@ -1528,7 +1866,7 @@ let rec pfind_prompt (#v #cl: Type) (lk: plookup_t cl) (eff op: string) (k: psta
 
 (** `read`: the contents of the nearest cell with this label. *)
 let rec pfind_param (#v #cl: Type) (l: string) (k: pstack v cl)
-  : Tot (option v) (decreases k)
+  : Tot (option (pval v)) (decreases k)
   = match k with
     | [] -> None
     | PParamF l' x :: rest -> if l' = l then Some x else pfind_param l rest
@@ -1537,7 +1875,7 @@ let rec pfind_param (#v #cl: Type) (l: string) (k: pstack v cl)
 (** `write`: the stack with the nearest such cell set. Frames above it are
     rebuilt, frames below are shared -- there is no mutable cell and no
     identity, so a captured continuation keeps the value it was captured with. *)
-let rec pset_param (#v #cl: Type) (l: string) (x: v) (k: pstack v cl)
+let rec pset_param (#v #cl: Type) (l: string) (x: pval v) (k: pstack v cl)
   : Tot (option (pstack v cl)) (decreases k)
   = match k with
     | [] -> None
@@ -1589,11 +1927,11 @@ let rec pset_param (#v #cl: Type) (l: string) (x: v) (k: pstack v cl)
  * is a label and it is local to four frames and one search.
  *)
 let rec pfind_mode (#v #cl: Type) (k: pstack v cl)
-  : Tot (option (weave_mode & (v -> pcomp v cl))) (decreases k)
+  : Tot (option (weave_mode & (pval v -> pcomp v cl))) (decreases k)
   = match k with
     | [] -> None
     | PModeF m r :: _ -> Some (m, r)
-    | PScopeF _ :: _ -> None
+    | PScopeF :: _ -> None
     | _ :: rest -> pfind_mode rest
 
 (**
@@ -1629,35 +1967,40 @@ let rec pfind_mode (#v #cl: Type) (k: pstack v cl)
  * emphatically not a theorem. It is the same shape as B2a's well-bracketing
  * obligation and is recorded here so that B2a knows this discipline is chosen
  * rather than forced by anything this file checks.
+ *
+ * **RE-TESTED IN B1.7 AND STILL NOT SEPARATED.** The handle representation was
+ * the obvious candidate to make the two discriminable -- a wrongly cut residual
+ * is now a wrongly STORED one, with an identity a later program can name. It
+ * does not. The mutation was applied over the new representation, confirmed not
+ * to be a no-op (`pcut_scope [PScopeF; PBoundaryF; PScopeF]` gives
+ * `Some ([], [PBoundaryF; PScopeF])` here and `Some ([PScopeF; PBoundaryF], [])`
+ * mutated), and all 21 fixtures still passed. The gap is unchanged in size and
+ * is now known not to be closed by identity.
  *)
 let rec pcut_scope (#v #cl: Type) (k: pstack v cl)
-  : Tot (option (pstack v cl & pcomp v cl & pstack v cl)) (decreases k)
+  : Tot (option (pstack v cl & pstack v cl)) (decreases k)
   = match k with
     | [] -> None
-    | PScopeF kbody :: rest -> Some ([], kbody, rest)
+    | PScopeF :: rest -> Some ([], rest)
     | f :: rest ->
       (match pcut_scope rest with
         | None -> None
-        | Some (above, kbody, below) -> Some (f :: above, kbody, below))
+        | Some (above, below) -> Some (f :: above, below))
 
 (**
- * **The context in scope**, searched exactly as a cell is.
+ * **`pfind_token` IS DELETED, and its absence is conditions 4 and 7.**
  *
- * The nearest `PTokenF`, and there is no label -- the same discipline, and the
- * same unproved obligation, as `pfind_mode`. It is a smaller one here: a token
- * frame is installed by production directly beneath the continuation it was
- * produced for, and every consuming node is written INSIDE that continuation, so
- * "the nearest token is this scope's" fails only for a program that opens a
- * second scope around a consumer and consumes the outer one from inside it --
- * which the defunctionalisation makes inexpressible rather than wrong, since
- * there is no syntax for naming the outer token.
+ * B1.6 had, here, a search for the nearest `PTokenF` -- a context found exactly
+ * as a cell is found. That is the one step this gate rejects, so what stands in
+ * its place is nothing at all: **no function in this module takes a `pstack` and
+ * returns a `pctx`.** `presolve` is the only route to a context, it is given a
+ * store and a handle and never a stack, and a handle that does not resolve gets
+ * `PStuck` rather than a neighbour's context.
+ *
+ * Stated as a property of the file rather than of a proof: grep the signatures
+ * below and no consumer of `pstack v cl` produces a `pctx v cl`. That is a
+ * syntactic observation, not a checked theorem, and it is recorded as such.
  *)
-let rec pfind_token (#v #cl: Type) (k: pstack v cl)
-  : Tot (option (pctx v cl)) (decreases k)
-  = match k with
-    | [] -> None
-    | PTokenF cx :: _ -> Some cx
-    | _ :: rest -> pfind_token rest
 
 (** **The action a consumer with no context in scope degenerates to.** It is an
     ordinary `PPerform` under a reserved label, in the style of
@@ -1681,24 +2024,36 @@ let pctx_missing_op : string = "no-context-in-scope"
  * `post` starts as `PVar`, the inner monad's `pure`; extensions compose onto it
  * (see `extend_ctx_C`).
  *
- * With no floor to cut at there is no continuation to produce a token for, and
- * the machine answers `PPaused`. No transition of this machine builds such a
- * stack -- a boundary or a site frame is only ever pushed by `PEnterCtx`, which
- * pushes a floor beneath it, or restored by a splice of frames that were pushed
- * that way. This arm is a totality obligation, and
- * `fixture_9_paused_is_unreachable` checks that the fixtures do not reach it.
+ * With no floor to cut at there is nowhere for control to go, and the machine
+ * answers `PPaused`. No transition of this machine builds such a stack -- a
+ * boundary or a site frame is only ever pushed by `PEnterCtx`, which pushes a
+ * floor beneath it, or restored by a splice of frames that were pushed that way.
+ * This arm is a totality obligation, and `fixture_9_paused_is_unreachable` is
+ * the check that the fixtures do not reach it.
+ *
+ * **What changed in B1.7, and it is condition 1.** B1.6 cut the floor to get the
+ * continuation the floor was HOLDING, and pushed the context onto a `PTokenF`
+ * frame beneath it. The floor holds nothing now: the residual is ALLOCATED, and
+ * the machine goes on with `PVar h` -- an ordinary value step, on `below`, with
+ * the handle in the value position. Whatever `PBindF` the program wrote after
+ * `runScope` receives it, and can keep it, pass it, or select between it and
+ * another. Production yields a value exactly once, at the one point control
+ * leaves the scope through the floor.
  *)
-let pyield (#v #cl: Type) (x: v) (hd: pframe v cl) (rest: pstack v cl) : pstate v cl
+let pyield (#v #cl: Type) (x: pval v) (hd: pframe v cl) (rest: pstack v cl)
+           (cf: pconf v cl)
+  : pconf v cl
   = match pcut_scope rest with
-    | None -> PPaused x (hd :: rest)
-    | Some (above, kbody, below) ->
-      PStep kbody (PTokenF (PCtxRequests x (hd :: above) (PVar #v #cl)) :: below)
+    | None -> { cf with st = PPaused x (hd :: rest) }
+    | Some (above, below) ->
+      let (h, cf') = palloc (PCtxRequests x (hd :: above) (PVar #v #cl)) cf in
+      { cf' with st = PStep (PVar h) below }
 
 (** The delimited continuation handed to a clause, named for the reason
     `Hoop.Runtime.Semantics.kont_of` is named: a top-level symbol, so that facts
     about it are facts about one function rather than about whatever lambda a
     transition happened to build. *)
-let pkont_of (#v #cl: Type) (captured: pstack v cl) (x: v) : pcomp v cl
+let pkont_of (#v #cl: Type) (captured: pstack v cl) (x: pval v) : pcomp v cl
   = PSplice captured (PVar x)
 
 (**
@@ -1730,13 +2085,14 @@ let pkont_of (#v #cl: Type) (captured: pstack v cl) (x: v) : pcomp v cl
  *     it fires is not yet known. With a mode in scope it is a `PBindF` under
  *     `MResume` and a no-op under `MExtend`.
  *   - `PScopeF` reached by a value DIRECTLY is a scope that drained without ever
- *     asking for anything: the token is `PCtxDone`, and the floor becomes a
- *     `PTokenF` beneath the continuation. This is the rule that used to be
- *     `PDone y -> PCtxDone y` in B1.5's `pctx_of_state`, and the difference is
- *     that "the machine finished" and "the scope finished" are no longer the same
- *     event -- there is a stack below.
- *   - `PTokenF` is inert, like a cell. A clause that produces a context and then
- *     returns without consuming it drops it, which is what it should do.
+ *     asking for anything: the residual is `PCtxDone`, it is ALLOCATED, and the
+ *     machine goes on with the handle in the value position. This is the rule
+ *     that used to be `PDone y -> PCtxDone y` in B1.5.s `pctx_of_state`, and the
+ *     difference is that "the machine finished" and "the scope finished" are no
+ *     longer the same event -- there is a stack below.
+ *   - A handle a program never consumes is simply a value it dropped. The store
+ *     entry stays, because the store is append-only; reclaiming it is an
+ *     optimisation with an obligation, not the semantics.
  *
  * **`PEnterCtx` is the whole of production and it is four frames.** Boundary on
  * top, the plan's protocol frames beneath it, the floor beneath those, and the
@@ -1747,86 +2103,108 @@ let pkont_of (#v #cl: Type) (captured: pstack v cl) (x: v) : pcomp v cl
  * Nothing here looks inside a clause and nothing here assumes what `apply`
  * returns; see the note at `papply_t`.
  *)
-let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v cl)
-  : Tot (pstate v cl)
-  = match s with
-    | PDone _ -> s
-    | PPaused _ _ -> s
-    | PStuck _ _ -> s
-    | PRejected _ -> s
+let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Tot (pconf v cl)
+  = let keep (s: pstate v cl) : pconf v cl = { cf with st = s } in
+    match cf.st with
+    | PDone _ -> cf
+    | PPaused _ _ -> cf
+    | PStuck _ _ -> cf
+    | PRejected _ -> cf
     | PStep c k ->
       match c with
-      | POp comp fn -> PStep comp (PBindF fn :: k)
-      | PHandle tbl ret prov body -> PStep body (PPromptF tbl ret prov :: k)
+      | POp comp fn -> keep (PStep comp (PBindF fn :: k))
+      | PHandle tbl ret prov body -> keep (PStep body (PPromptF tbl ret prov :: k))
       | PPerform eff op payload ->
         (match pfind_prompt lk eff op k with
-          | None -> PStuck eff op
+          | None -> keep (PStuck eff op)
           | Some (captured, found, below) ->
             (match found.kind with
-              | KScoped -> PRejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped)
-              | _ -> PStep (apply found.body payload (pkont_of captured)) below))
+              | KScoped ->
+                keep (PRejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped))
+              | _ -> keep (PStep (apply found.body payload (pkont_of captured)) below)))
       // **An observation.** The event is invisible to `pstep`, which reports only
       // a state; `pstep_tr` below is what reports it, and `prun` is what
       // accumulates. Keeping the event out of `pstate` is what makes requirement
       // 1 -- the trace is not preserved into the residual -- true by the TYPE of
       // the residual rather than by a check on its contents.
-      | PEmit _ body -> PStep body k
+      | PEmit _ body -> keep (PStep body k)
       // **Entering a scope**: build the plan, then run the body under it. The
       // plan is what can fail, and it fails into the rejection the shipped
       // machine already produces -- the origin naming the scope, the labels
       // naming what stood in its way.
       | PWeave oeff oop ints own body ->
         (match plan_of ints own with
-          | Inl (MonomorphicLayer bs) -> PRejected (UnborrowableScope oeff oop bs)
-          | Inr pl -> PStep (enter_C pl body) k)
-      | PEnterCtx pl body kbody ->
-        PStep body (PBoundaryF :: (plan_protocol_frames pl @ (PScopeF kbody :: k)))
-      // The three consuming rules, and each is: find the context in scope, then
-      // appeal to the operation ONCE. A rule that inlined `ctx_drive` would be a
-      // second definition of what a tactic means.
-      | PExtendC pl g ->
-        (match pfind_token k with
-          | None -> PStuck pctx_eff pctx_missing_op
-          | Some cx -> PStep (extend_C pl cx g) k)
-      | PExtendCtxC pl g kbody ->
-        (match pfind_token k with
-          | None -> PStuck pctx_eff pctx_missing_op
-          | Some cx -> PStep kbody (PTokenF (extend_ctx_C pl cx g) :: k))
-      | PResumeC pl kk ->
-        (match pfind_token k with
-          | None -> PStuck pctx_eff pctx_missing_op
-          | Some cx -> PStep (resume_C pl cx kk) k)
+          | Inl (MonomorphicLayer bs) -> keep (PRejected (UnborrowableScope oeff oop bs))
+          | Inr pl -> keep (PStep (enter_C pl body) k))
+      // **Production**, and it is B1.6's rule with one field fewer: four frames
+      // on the live stack, and no continuation carried on the node. The handle
+      // is produced later, by the value rule, at the floor.
+      | PEnterCtx pl body ->
+        keep (PStep body (PBoundaryF :: (plan_protocol_frames pl @ (PScopeF :: k))))
+      // **The three consuming rules, and each is: RESOLVE THE HANDLE PASSED,
+      // then appeal to the operation ONCE.**
+      //
+      // `presolve cf.store h` is the whole of conditions 4 and 7. It reads `h`
+      // -- the value the program wrote -- and the store, and it is not given `k`,
+      // so no arm here can consult the stack. A handle that does not resolve is
+      // `PStuck`, and that is the same stuck state a consumer with no context at
+      // all reaches: there is no third behaviour in which a neighbouring context
+      // is used instead.
+      | PExtendC pl h g ->
+        (match presolve cf.store h with
+          | None -> keep (PStuck pctx_eff pctx_missing_op)
+          | Some cx -> keep (PStep (extend_C pl cx g) k))
+      // **`bindScope`, and it ALLOCATES.** The extended context is a new entry;
+      // `h`'s entry is untouched, because `palloc` only conses. The node
+      // evaluates to the fresh handle, so `cy <- bindScope cx g` is an ordinary
+      // bind and `cx` is still `cx`. That is condition 8.
+      | PExtendCtxC pl h g ->
+        (match presolve cf.store h with
+          | None -> keep (PStuck pctx_eff pctx_missing_op)
+          | Some cx ->
+            let (h', cf') = palloc (extend_ctx_C pl cx g) cf in
+            { cf' with st = PStep (PVar h') k })
+      | PResumeC pl h kk ->
+        (match presolve cf.store h with
+          | None -> keep (PStuck pctx_eff pctx_missing_op)
+          | Some cx -> keep (PStep (resume_C pl cx kk) k))
       | PVar value ->
         (match k with
-          | [] -> PDone value
-          | PBindF fn :: rest -> PStep (fn value) rest
-          | PParamF _ _ :: rest -> PStep (PVar value) rest
-          | PModeF _ _ :: rest -> PStep (PVar value) rest
-          | PTokenF _ :: rest -> PStep (PVar value) rest
-          | PScopeF kbody :: rest -> PStep kbody (PTokenF (PCtxDone value) :: rest)
+          | [] -> keep (PDone value)
+          | PBindF fn :: rest -> keep (PStep (fn value) rest)
+          | PParamF _ _ :: rest -> keep (PStep (PVar value) rest)
+          | PModeF _ _ :: rest -> keep (PStep (PVar value) rest)
+          // **A scope that reached its floor with no request outstanding.** The
+          // residual is `PCtxDone`, and it is allocated and handed on as a
+          // handle like any other -- a context that made no requests is still a
+          // context the surface can hold and select.
+          | PScopeF :: rest ->
+            let (h, cf') = palloc (PCtxDone value) cf in
+            { cf' with st = PStep (PVar h) rest }
           | PBoundaryF :: rest ->
             (match pfind_mode rest with
-              | None -> pyield value PBoundaryF rest
-              | Some (_, respond) -> PStep (respond value) rest)
+              | None -> pyield value PBoundaryF rest cf
+              | Some (_, respond) -> keep (PStep (respond value) rest))
           | PSiteF fn :: rest ->
             (match pfind_mode rest with
-              | None -> pyield value (PSiteF fn) rest
-              | Some (MResume, _) -> PStep (fn value) rest
-              | Some (MExtend, _) -> PStep (PVar value) rest)
+              | None -> pyield value (PSiteF fn) rest cf
+              | Some (MResume, _) -> keep (PStep (fn value) rest)
+              | Some (MExtend, _) -> keep (PStep (PVar value) rest))
           | PPromptF _ ret _ :: rest ->
             (match ret with
-              | Some fn -> PStep (fn value) rest
-              | None -> PStep (PVar value) rest))
-      | PSplice fs body -> PStep body (fs @ k)
-      | PNewP l init body -> PStep body (PParamF l init :: k)
+              | Some fn -> keep (PStep (fn value) rest)
+              | None -> keep (PStep (PVar value) rest)))
+      | PSplice fs body -> keep (PStep body (fs @ k))
+      | PNewP l init body -> keep (PStep body (PParamF l init :: k))
       | PReadP l ->
         (match pfind_param l k with
-          | None -> PStuck var_eff l
-          | Some x -> PStep (PVar x) k)
+          | None -> keep (PStuck var_eff l)
+          | Some x -> keep (PStep (PVar x) k))
       | PWriteP l x ->
         (match pset_param l x k with
-          | None -> PStuck var_eff l
-          | Some k' -> PStep (PVar x) k')
+          | None -> keep (PStuck var_eff l)
+          | Some k' -> keep (PStep (PVar x) k'))
 
 (**
  * **The same transition, reporting what it observed** -- the instrument, and the
@@ -1843,27 +2221,27 @@ let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v 
  * concatenation of the traces of its steps -- which is what makes "this event
  * appears once" a statement about a list and not about a counter.
  *)
-let pstep_tr (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v cl)
-  : Tot (pstate v cl & list string)
-  = match s with
-    | PStep (PEmit ev body) k -> (PStep body k, [ev])
-    | _ -> (pstep lk apply s, [])
+let pstep_tr (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Tot (pconf v cl & list string)
+  = match cf.st with
+    | PStep (PEmit ev body) k -> ({ cf with st = PStep body k }, [ev])
+    | _ -> (pstep lk apply cf, [])
 
 (** The iteration of `pstep`, cut off at `fuel` transitions -- the shape of
     `Hoop.Runtime.Semantics.steps`, so that the laws below can be stated in the
     same idiom the shipped monad laws are stated in. `PPaused` is terminal, or
     production would never return a context. *)
 let rec psteps (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
-               (fuel: nat) (s: pstate v cl)
-  : Tot (pstate v cl) (decreases fuel)
-  = if fuel = 0 then s
+               (fuel: nat) (cf: pconf v cl)
+  : Tot (pconf v cl) (decreases fuel)
+  = if fuel = 0 then cf
     else
-      match s with
-      | PDone _ -> s
-      | PPaused _ _ -> s
-      | PStuck _ _ -> s
-      | PRejected _ -> s
-      | PStep _ _ -> psteps lk apply (fuel - 1) (pstep lk apply s)
+      match cf.st with
+      | PDone _ -> cf
+      | PPaused _ _ -> cf
+      | PStuck _ _ -> cf
+      | PRejected _ -> cf
+      | PStep _ _ -> psteps lk apply (fuel - 1) (pstep lk apply cf)
 
 (**
  * **The same iteration, keeping the trace** -- the driver requirement 1 is about.
@@ -1884,38 +2262,43 @@ let rec psteps (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
  * different and much stronger claim than B2 is being asked for.
  *)
 let rec prun (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
-             (fuel: nat) (s: pstate v cl)
-  : Tot (pstate v cl & list string) (decreases fuel)
-  = if fuel = 0 then (s, [])
+             (fuel: nat) (cf: pconf v cl)
+  : Tot (pconf v cl & list string) (decreases fuel)
+  = if fuel = 0 then (cf, [])
     else
-      match s with
-      | PDone _ -> (s, [])
-      | PPaused _ _ -> (s, [])
-      | PStuck _ _ -> (s, [])
-      | PRejected _ -> (s, [])
+      match cf.st with
+      | PDone _ -> (cf, [])
+      | PPaused _ _ -> (cf, [])
+      | PStuck _ _ -> (cf, [])
+      | PRejected _ -> (cf, [])
       | PStep _ _ ->
-        let (s', ev) = pstep_tr lk apply s in
-        let (sf, tr) = prun lk apply (fuel - 1) s' in
-        (sf, ev @ tr)
+        let (cf', ev) = pstep_tr lk apply cf in
+        let (cff, tr) = prun lk apply (fuel - 1) cf' in
+        (cff, ev @ tr)
 
-(** **Loading a program.** *)
-let pload (#v #cl: Type) (c: pcomp v cl) : pstate v cl = PStep c []
+(** **Loading a program**, and note the store starts EMPTY and `next` at zero.
+    Every handle a run can resolve was therefore allocated by that run, which is
+    the half of condition 7 that is about provenance rather than about lookup: a
+    program cannot smuggle in a handle that happens to work, because at the
+    moment it starts there is nothing for any handle to resolve to. *)
+let pload (#v #cl: Type) (c: pcomp v cl) : pconf v cl
+  = { st = PStep c []; store = []; next = 0 }
 
 (** **The number of transitions to a settled state**, or `None` if the machine
     got stuck, was rejected, or did not settle within `fuel`. It exists for
     `fixture_1_prefix_runs_once`, which is a claim about WORK and can therefore
     not be made with `pobs_eq`; see the finding recorded there. *)
 let rec pcost (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
-              (fuel: nat) (s: pstate v cl)
+              (fuel: nat) (cf: pconf v cl)
   : Tot (option nat) (decreases fuel)
-  = match s with
+  = match cf.st with
     | PDone _ -> Some 0
     | PPaused _ _ -> Some 0
     | PStuck _ _ -> None
     | PRejected _ -> None
     | PStep _ _ ->
       if fuel = 0 then None
-      else (match pcost lk apply (fuel - 1) (pstep lk apply s) with
+      else (match pcost lk apply (fuel - 1) (pstep lk apply cf) with
             | None -> None
             | Some n -> Some (n + 1))
 
@@ -1940,33 +2323,43 @@ let rec pcost (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
 (*  condition, enforced by the record's type rather than by a reading of *)
 (*  its inhabitants.                                                     *)
 (*                                                                     *)
-(*  The `pctx` arguments went with the defunctionalisation: a produced   *)
-(*  context is bound dynamically, so the three consuming operations say  *)
-(*  "the context in scope". `pobs_eq` is what quantifies over WHICH      *)
-(*  context that is -- it ranges over every stack, and a stack is where  *)
-(*  a token lives -- so the laws below lost a parameter and gained       *)
-(*  nothing they have to assume. The functions `extend_C`,               *)
-(*  `extend_ctx_C` and `resume_C` still take an explicit context: they   *)
-(*  are the MEANINGS the transitions delegate to, and the laws speak of  *)
-(*  the nodes.                                                           *)
+(*  IN B1.7 THE THREE CONSUMING FIELDS TAKE A `pval v` -- THE HANDLE.    *)
+(*  B1.6 removed the `pctx` arguments for the wrong reason: not because  *)
+(*  an operation should not name its context, but because under the      *)
+(*  defunctionalisation there was no way to name one, so the fields said *)
+(*  "the context in scope". A `pval v` restores the argument WITHOUT     *)
+(*  restoring detached evaluation, because a handle is an object-language*)
+(*  value and not a `pctx`: the field still cannot run anything, since it*)
+(*  is still handed no store, no lookup and no fuel. Resolution is the   *)
+(*  machine's, and a `ctx_ops` cannot perform it.                        *)
+(*                                                                     *)
+(*  That is the distinction the gate turns on. "Takes the context it     *)
+(*  consumes" and "is given the means to evaluate" are different         *)
+(*  properties, and B1.6 gave up the first to secure the second. The     *)
+(*  handle buys back the first at no cost to the second, and the type    *)
+(*  below is where that is visible.                                     *)
+(*                                                                     *)
+(*  `o_enter_ctx` LOST its `kbody`. Production evaluates to a value now, *)
+(*  so it needs no continuation of its own -- and the field's arity is   *)
+(*  condition 1 stated in the record.                                    *)
 (* ------------------------------------------------------------------ *)
 
 noeq
 type ctx_ops (v: Type) (cl: Type) = {
   o_enter: plan v cl -> pcomp v cl -> pcomp v cl;
-  o_enter_ctx: plan v cl -> pcomp v cl -> pcomp v cl -> pcomp v cl;
-  o_extend: plan v cl -> (v -> pcomp v cl) -> pcomp v cl;
-  o_extend_ctx: plan v cl -> (v -> pcomp v cl) -> pcomp v cl -> pcomp v cl;
-  o_resume: plan v cl -> (v -> pcomp v cl) -> pcomp v cl;
+  o_enter_ctx: plan v cl -> pcomp v cl -> pcomp v cl;
+  o_extend: plan v cl -> pval v -> (pval v -> pcomp v cl) -> pcomp v cl;
+  o_extend_ctx: plan v cl -> pval v -> (pval v -> pcomp v cl) -> pcomp v cl;
+  o_resume: plan v cl -> pval v -> (pval v -> pcomp v cl) -> pcomp v cl;
 }
 
 (** **The reference semantics**, as data. *)
 let ref_ops (#v #cl: Type) : ctx_ops v cl = {
   o_enter = enter_C;
   o_enter_ctx = enter_ctx_C;
-  o_extend = extend_here_C;
-  o_extend_ctx = extend_ctx_here_C;
-  o_resume = resume_here_C;
+  o_extend = extend_at_C;
+  o_extend_ctx = extend_ctx_at_C;
+  o_resume = resume_at_C;
 }
 
 (**
@@ -2013,10 +2406,10 @@ let flat_ops (#v #cl: Type) : ctx_ops v cl =
   let owner_only (pl: plan v cl) : plan v cl = Plan [] (Plan?.owner pl) in
   {
     o_enter = (fun pl c -> PSplice [owner_frame (Plan?.owner pl)] c);
-    o_enter_ctx = (fun pl c kbody -> PEnterCtx (owner_only pl) c kbody);
-    o_extend = extend_here_C;
-    o_extend_ctx = extend_ctx_here_C;
-    o_resume = resume_here_C;
+    o_enter_ctx = (fun pl c -> PEnterCtx (owner_only pl) c);
+    o_extend = extend_at_C;
+    o_extend_ctx = extend_ctx_at_C;
+    o_resume = resume_at_C;
   }
 
 (**
@@ -2040,11 +2433,12 @@ let flat_ops (#v #cl: Type) : ctx_ops v cl =
 let pointwise_ops (#v #cl: Type) : ctx_ops v cl = {
   o_enter = enter_C;
   o_enter_ctx = enter_ctx_C;
-  o_extend = (fun pl g -> PExtendC pl (fun x -> PSplice (plan_enter_frames pl) (g x)));
+  o_extend =
+    (fun pl h g -> PExtendC pl h (fun x -> PSplice (plan_enter_frames pl) (g x)));
   o_extend_ctx =
-    (fun pl g kbody ->
-       PExtendCtxC pl (fun x -> PSplice (plan_enter_frames pl) (g x)) kbody);
-  o_resume = (fun pl k -> PResumeC pl (fun x -> PSplice (plan_resume_frames pl) (k x)));
+    (fun pl h g -> PExtendCtxC pl h (fun x -> PSplice (plan_enter_frames pl) (g x)));
+  o_resume =
+    (fun pl h k -> PResumeC pl h (fun x -> PSplice (plan_resume_frames pl) (k x)));
 }
 
 (* ------------------------------------------------------------------ *)
@@ -2070,13 +2464,36 @@ let pointwise_ops (#v #cl: Type) : ctx_ops v cl = {
 (* ------------------------------------------------------------------ *)
 
 let pconverges (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
-               (s: pstate v cl) (x: v) : GTot prop =
-  exists (n: nat). psteps lk apply n s == PDone x
+               (cf: pconf v cl) (x: pval v) : GTot prop =
+  exists (n: nat). (psteps lk apply n cf).st == PDone x
 
+(**
+ * **The observation, and in B1.7 it quantifies over the STORE as well as the
+ * stack.**
+ *
+ * B1.6's version ranged over `k` alone, and the comment on `ctx_ops` claimed
+ * that this was what quantified over "which context" a consuming operation
+ * meant -- a stack being where a `PTokenF` lived. That reading is withdrawn with
+ * the frame. A context now lives in the store, so a computation mentioning a
+ * handle has a meaning only RELATIVE to a store, and an observation that fixed
+ * the store at empty would be an observation about programs that have not yet
+ * produced anything.
+ *
+ * Both sides start in the SAME configuration -- same stack, same store, same
+ * counter -- and that is what makes the comparison fair. Quantifying the store
+ * existentially, or letting the two sides start from different ones, would let
+ * an implementation pass a law by allocating differently rather than by meaning
+ * the same thing.
+ *
+ * `next` is quantified too. Two runs that allocate must be comparable at every
+ * starting counter, or a law could hold only for programs that happen to be the
+ * first allocation in their run.
+ *)
 let pobs_le (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
             (c1 c2: pcomp v cl) : GTot prop =
-  forall (k: pstack v cl) (x: v).
-    pconverges lk apply (PStep c1 k) x ==> pconverges lk apply (PStep c2 k) x
+  forall (k: pstack v cl) (sto: pstore v cl) (n0: nat) (x: pval v).
+    pconverges lk apply ({ st = PStep c1 k; store = sto; next = n0 }) x ==>
+    pconverges lk apply ({ st = PStep c2 k; store = sto; next = n0 }) x
 
 let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
             (c1 c2: pcomp v cl) : GTot prop =
@@ -2097,7 +2514,7 @@ let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
 (*  They are stated over `ctx_ops`, so `law_X ops ...` is a proposition *)
 (*  about an implementation. The intended readings are                  *)
 (*                                                                     *)
-(*    law_X lk apply ref_ops ...             -- B2b proves these        *)
+(*    law_X lk apply ref_ops ...             -- B2b is to prove these   *)
 (*    ~(law_X lk apply pointwise_ops ...)    -- refused by all four     *)
 (*    ~(law_X lk apply flat_ops ...)         -- refused by the two      *)
 (*                                       ANCHORED laws only:            *)
@@ -2175,11 +2592,11 @@ let law_left_identity
     (lk: plookup_t cl) (apply: papply_t v cl)
     (ops: ctx_ops v cl)
     (pl: plan v cl)
-    (x: v)
-    (g: v -> pcomp v cl)
+    (x: pval v)
+    (g: pval v -> pcomp v cl)
   : GTot prop
   = pobs_eq lk apply
-      (ops.o_enter_ctx pl (PVar x) (ops.o_extend pl g))
+      (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_extend pl cx g))
       (ops.o_enter pl (g x))
 
 (**
@@ -2214,18 +2631,23 @@ let law_right_identity
     (c: pcomp v cl)
   : GTot prop
   = pobs_eq lk apply
-      (ops.o_enter_ctx pl c (ops.o_extend pl (PVar #v #cl)))
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
       (ops.o_enter pl c)
 
 (**
  * **Associativity of extension.** Two conjuncts, and the second is there because
  * the first was checked against the counterexample and found insufficient.
  *
- * *The algebraic half* quantifies over an ARBITRARY CONTEXT IN SCOPE -- and in
- * B1.6 it does so without a parameter for it, because `pobs_eq` ranges over
- * every stack and a token lives on a stack. Both sides are stuck at a stack with
- * no token, which makes those cases vacuous rather than accidentally true. It
- * compares the
+ * *The algebraic half* quantifies over an ARBITRARY CONTEXT, and **in B1.7 it
+ * takes a parameter for it again.** B1.6 dropped the parameter and claimed
+ * `pobs_eq`'s quantification over stacks stood in for it, a token being a frame.
+ * That claim goes with the frame: a context is a handle now, so the law names
+ * one, `cx`, and `pobs_le`'s quantification over the STORE is what ranges over
+ * what `cx` may resolve to -- including the stores where it resolves to nothing,
+ * in which both sides are `PStuck` and the case is vacuous rather than
+ * accidentally true. The law is thereby stated about the context the program
+ * PASSES, which is the whole of the gate, and B1.6's version could not say that.
+ * It compares the
  * CONTEXT PRODUCED by the first extension (`o_extend_ctx`) against the composite
  * function -- not two computations that happen to be built the same way. It is
  * what refuses `pointwise_ops`, the implementation that gives each leaf a fresh
@@ -2261,15 +2683,18 @@ let law_assoc
     (ops: ctx_ops v cl)
     (pl: plan v cl)
     (c: pcomp v cl)
-    (g h: v -> pcomp v cl)
+    (cx: pval v)
+    (g h: pval v -> pcomp v cl)
   : GTot prop
-  = // the algebraic half -- any context in scope, both sides built from `ops`
+  = // the algebraic half -- at the context `cx` NAMES, both sides built from `ops`
     pobs_eq lk apply
-      (ops.o_extend_ctx pl g (ops.o_extend pl h))
-      (ops.o_extend pl (fun x -> pbind (g x) h))
+      (pbind (ops.o_extend_ctx pl cx g) (fun cy -> ops.o_extend pl cy h))
+      (ops.o_extend pl cx (fun x -> pbind (g x) h))
     /\ // the anchored half -- one crossing of THIS plan, and no other
     pobs_eq lk apply
-      (ops.o_enter_ctx pl c (ops.o_extend_ctx pl g (ops.o_extend pl h)))
+      (pbind (ops.o_enter_ctx pl c)
+             (fun c0 -> pbind (ops.o_extend_ctx pl c0 g)
+                              (fun cy -> ops.o_extend pl cy h)))
       (PSplice (plan_enter_frames pl) (pbind (pbind c g) h))
 
 (**
@@ -2301,11 +2726,11 @@ let law_resume_matches_continuation
     (lk: plookup_t cl) (apply: papply_t v cl)
     (ops: ctx_ops v cl)
     (pl: plan v cl)
-    (x: v)
-    (k: v -> pcomp v cl)
+    (x: pval v)
+    (k: pval v -> pcomp v cl)
   : GTot prop
   = pobs_eq lk apply
-      (ops.o_enter_ctx pl (PVar x) (ops.o_resume pl k))
+      (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_resume pl cx k))
       (PSplice (plan_resume_frames pl) (k x))
 
 (**
@@ -2334,7 +2759,7 @@ let law_transparent_agrees
     (c: pcomp v cl)
   : GTot prop
   = pobs_eq lk apply
-      (ops.o_enter_ctx pl c (ops.o_extend pl (PVar #v #cl)))
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
       (PSplice (plan_enter_frames pl) c)
 
 (* ------------------------------------------------------------------ *)
@@ -2387,25 +2812,56 @@ type fcl =
 
 let fneeds_retry (x: fv) : bool = match x with | FS "retry" -> true | _ -> false
 
+(** Injection and return, so the fixtures below read as programs rather than as
+    a column of `PV`s. *)
+let fpv (x: fv) : pval fv = PV x
+let fret (x: fv) : pcomp fv fcl = PVar (PV x)
+
+(**
+ * **What a fixture SEES when a handle reaches a value position**, and it exists
+ * for the fixtures and for nothing else.
+ *
+ * The value language is `pval fv` now, so a clause that combines two answers has
+ * to say what it means to combine things that might be handles. `fseen` is that
+ * choice: an ordinary value is itself, and a handle becomes the tagged pair
+ * `FL [FS "ctx"; FI i]`.
+ *
+ * **This is an observer, and it is deliberately NOT available to the machine.**
+ * No transition applies it; `pstep` never takes a `pval` apart to see whether it
+ * is a handle, and `presolve` is the only thing that looks inside one. A handle
+ * is opaque to the SEMANTICS -- condition 1's word -- and the fixtures are
+ * entitled to break that opacity because their whole job is to report what the
+ * machine did. Without it, "these two handles are different" could not be
+ * written down as a value, and conditions 1, 2 and 8 would be unstatable.
+ *
+ * The `FI i` retains the id, which is what lets a fixture check WHICH context it
+ * was given rather than merely that it was given one.
+ *)
+let fseen (h: pval fv) : fv =
+  match h with
+  | PV x -> x
+  | PCtxKey i -> FL [FS "ctx"; FI i]
+
 let fapply : papply_t fv fcl = fun c payload k ->
   match c with
-  | FEcho -> (match payload with | x :: _ -> k x | [] -> k FU)
-  | FTwice a b -> POp (k a) (fun r1 -> POp (k b) (fun r2 -> PVar (FL [r1; r2])))
-  | FAbort z -> PVar z
+  | FEcho -> (match payload with | x :: _ -> k x | [] -> k (fpv FU))
+  | FTwice a b ->
+    POp (k (fpv a)) (fun r1 -> POp (k (fpv b)) (fun r2 -> fret (FL [fseen r1; fseen r2])))
+  | FAbort z -> fret z
   | FRetry ->
-    POp (k (FS "go1")) (fun r1 ->
-      if fneeds_retry r1
-      then POp (k (FS "go2")) (fun r2 -> PVar (FL [FS "twice"; r1; r2]))
-      else PVar (FL [FS "once"; r1]))
+    POp (k (fpv (FS "go1"))) (fun r1 ->
+      if fneeds_retry (fseen r1)
+      then POp (k (fpv (FS "go2"))) (fun r2 -> fret (FL [FS "twice"; fseen r1; fseen r2]))
+      else fret (FL [FS "once"; fseen r1]))
   | FBetween ->
-    POp (k (FS "b1")) (fun r1 ->
-      POp (PPerform "T" "mark" [FS "mid"]) (fun m ->
-        POp (k (FS "b2")) (fun r2 -> PVar (FL [r1; m; r2]))))
+    POp (k (fpv (FS "b1"))) (fun r1 ->
+      POp (PPerform "T" "mark" [fpv (FS "mid")]) (fun m ->
+        POp (k (fpv (FS "b2"))) (fun r2 -> fret (FL [fseen r1; fseen m; fseen r2]))))
   // The `POp` is the point: `fun r -> wrap r` becomes a `PBindF` on the stack
   // BELOW this clause's own prompt, so it is pending work that a resumption has
   // to come back through. `FEcho` has none, which is why it cannot be used to
   // check requirement 6.
-  | FWrap -> POp (k (FS "outer-ans")) (fun r -> PVar (FL [FS "wrap"; r]))
+  | FWrap -> POp (k (fpv (FS "outer-ans"))) (fun r -> fret (FL [FS "wrap"; fseen r]))
 
 let fclause (c: fcl) : found_clause fcl = { body = c; kind = KFull }
 
@@ -2441,12 +2897,13 @@ let ftbl : ptable fcl = { hs = fhs; binds = ["Two"; "Abort"; "Retry"; "Betw"; "E
     prompt and by the owner, and is taken here. *)
 let ftbl_out : ptable fcl = { hs = fhs; binds = ["Out"] }
 
-let fown_ret : option (fv -> pcomp fv fcl) = Some (fun x -> PVar (FL [FS "own"; x]))
+let fown_ret : option (pval fv -> pcomp fv fcl) =
+  Some (fun x -> fret (FL [FS "own"; fseen x]))
 let fowner : powner fv fcl = POwner ftbl fown_ret PFamily
 let fowner_plain : powner fv fcl = POwner ftbl None PFamily
-let fsite (x: fv) : pcomp fv fcl = PVar (FL [FS "site1"; x])
-let fsite2 (x: fv) : pcomp fv fcl = PVar (FL [FS "site2"; x])
-let fk (x: fv) : pcomp fv fcl = PVar (FL [FS "k"; x])
+let fsite (x: pval fv) : pcomp fv fcl = fret (FL [FS "site1"; fseen x])
+let fsite2 (x: pval fv) : pcomp fv fcl = fret (FL [FS "site2"; fseen x])
+let fk (x: pval fv) : pcomp fv fcl = fret (FL [FS "k"; fseen x])
 
 (* The plan shapes. `plan_LB` is the one that matters most: its recorded bind
    frame sits BETWEEN the layer and the owner, which is the interleaving that
@@ -2457,15 +2914,42 @@ let plan_L0 : plan fv fcl = Plan [PIReenter ftbl None] fowner_plain
 let plan_LB : plan fv fcl = Plan [PIReenter ftbl None; PIBind fsite2] fowner
 let plan_T : plan fv fcl = Plan [PITransparent ftbl] fowner_plain
 let plan_M : plan fv fcl =
-  Plan [PIBind fsite; PICell "c" (FI 7); PIReenter ftbl None; PIBind fsite2; PITransparent ftbl]
+  Plan [PIBind fsite; PICell "c" (fpv (FI 7)); PIReenter ftbl None; PIBind fsite2;
+        PITransparent ftbl]
        fowner
 
-let frun (fuel: nat) (c: pcomp fv fcl) : pstate fv fcl = psteps flook fapply fuel (pload c)
-let fresult (s: pstate fv fcl) : option fv = match s with | PDone x -> Some x | _ -> None
+let frun (fuel: nat) (c: pcomp fv fcl) : pconf fv fcl = psteps flook fapply fuel (pload c)
+
+(** The ANSWER of a run, as the fixtures state it: an `fv`, with a handle
+    rendered by `fseen`. A run that ends anywhere but `PDone` has no answer. *)
+let fresult (cf: pconf fv fcl) : option fv =
+  match cf.st with | PDone x -> Some (fseen x) | _ -> None
 
 (** **The trace of a whole run**, which is the observable requirements 1 to 4 are
     stated in. It is the driver's second result and comes from nowhere else. *)
 let ftrace (fuel: nat) (c: pcomp fv fcl) : list string = snd (prun flook fapply fuel (pload c))
+
+(** **The store a run ends with**, which is how the store-integrity and
+    persistence fixtures look at allocation. Nothing in the machine reads this;
+    it is the fixtures' window onto what `palloc` did. *)
+let fstore_size (fuel: nat) (c: pcomp fv fcl) : nat = length (frun fuel c).store
+let fnext (fuel: nat) (c: pcomp fv fcl) : nat = (frun fuel c).next
+
+(**
+ * **`cx <- runScope body; use cx`**, which is the surface program every fixture
+ * below is a rendering of.
+ *
+ * It is an ordinary `pbind` over the production node -- NOT a combinator with
+ * privileges. That is condition 1 in the form the fixtures use it: the handle
+ * arrives in a `PBindF` like any other value, so `use` receives a `pval fv` it
+ * may keep, ignore, pass twice, or pass alongside another one. B1.6 had no such
+ * helper and could not have: production carried its continuation, so the shape
+ * was `enter_ctx_C pl body (consume_here ...)` and there was no variable to
+ * bind.
+ *)
+let fscope (pl: plan fv fcl) (body: pcomp fv fcl) (use: pval fv -> pcomp fv fcl)
+  : pcomp fv fcl
+  = pbind (enter_ctx_C pl body) use
 
 (* ---- 1 / 8. The protected prefix runs once, and the context is multi-shot
    FROM THE SAVED POINT.
@@ -2488,20 +2972,21 @@ let ftrace (fuel: nat) (c: pcomp fv fcl) : list string = snd (prun flook fapply 
    be rounding the answer in the wrong direction. ---- *)
 
 let rec pchain (n: nat) (c: pcomp fv fcl) : Tot (pcomp fv fcl) (decreases n)
-  = if n = 0 then c else POp (PVar FU) (fun _ -> pchain (n - 1) c)
+  = if n = 0 then c else POp (fret FU) (fun _ -> pchain (n - 1) c)
 
 let body1 (n: nat) : pcomp fv fcl =
-  pchain n (POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x])))
+  pchain n (POp (PPerform "Two" "flip" []) (fun x -> fret (FL [FS "leaf"; fseen x])))
 
-(* The residual route, and in B1.6 it is ONE PROGRAM: production is a node, the
-   token is installed by the machine beneath the continuation, and the SAME token
-   is consumed twice -- an extension whose answer the program observes, and then
-   a resumption. This is `runScope` followed by `resumeScope`. Nothing is
-   produced at the meta level, so nothing about the answer is decided by F*'s
-   sharing or substitution. *)
+(* The residual route, and in B1.7 it is one program in which THE SAME HANDLE IS
+   NAMED TWICE. B1.6 could only consume "the context in scope" twice and had to
+   argue that both consumptions found the same token; here `cx` is a variable
+   bound once by an ordinary `pbind` and used by both operations, so that they
+   consume one context is a fact about the SYNTAX. This is `runScope` followed by
+   `bindScope cx` and `resumeScope cx`. *)
 let prog1new (n: nat) : pcomp fv fcl =
-  enter_ctx_C plan_L (body1 n)
-    (POp (extend_here_C plan_L (PVar #fv #fcl)) (fun _ -> resume_here_C plan_L fk))
+  pbind (enter_ctx_C plan_L (body1 n))
+        (fun cx -> POp (extend_at_C plan_L cx (PVar #fv #fcl))
+                       (fun _ -> resume_at_C plan_L cx fk))
 
 (* The withdrawn route: the same two consumptions of the same unrun computation,
    which is what B1's `PCtx` made them. *)
@@ -2530,8 +3015,8 @@ let fixture_1_prefix_runs_once () : Lemma
             | Some a, Some b, Some c, Some d ->
               b - a == 8 /\ d - c == 16 /\ d - c == 2 * (b - a)
             | _ -> False))
-  = assert_norm (cost_new 1 == Some 47);
-    assert_norm (cost_new 5 == Some 55);
+  = assert_norm (cost_new 1 == Some 48);
+    assert_norm (cost_new 5 == Some 56);
     assert_norm (cost_old 1 == Some 41);
     assert_norm (cost_old 5 == Some 57)
 
@@ -2542,7 +3027,7 @@ let fixture_1_prefix_runs_once () : Lemma
    shapes -- a `PCtxDone` absorbs the consumer's function and a `PCtxRequests`
    applies it at every leaf, so `"applied"` appears in the answer exactly when
    the token was a request. *)
-let fprobe (_: fv) : pcomp fv fcl = PVar (FS "applied")
+let fprobe (_: pval fv) : pcomp fv fcl = fret (FS "applied")
 
 (* ---- 2. `firstOfTwo`: a clause that resumes twice produces two requests, in
    order. The first request is what production yielded on; the second happens
@@ -2551,10 +3036,10 @@ let fprobe (_: fv) : pcomp fv fcl = PVar (FS "applied")
    assembles them in the order they arrived. ---- *)
 
 let body2 : pcomp fv fcl =
-  POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x]))
+  POp (PPerform "Two" "flip" []) (fun x -> fret (FL [FS "leaf"; fseen x]))
 
-let prog2 : pcomp fv fcl = enter_ctx_C plan_L body2 (resume_here_C plan_L fk)
-let prog2_probe : pcomp fv fcl = enter_ctx_C plan_L body2 (extend_here_C plan_L fprobe)
+let prog2 : pcomp fv fcl = fscope plan_L body2 (fun cx -> resume_at_C plan_L cx fk)
+let prog2_probe : pcomp fv fcl = fscope plan_L body2 (fun cx -> extend_at_C plan_L cx fprobe)
 
 let fixture_2_two_requests () : Lemma
   (ensures fresult (frun 400 prog2_probe)
@@ -2583,9 +3068,9 @@ let fixture_2_two_requests () : Lemma
 
 let body3 : pcomp fv fcl = POp (PPerform "Retry" "step" []) (fun x -> PVar x)
 let prog3a : pcomp fv fcl =
-  enter_ctx_C plan_L body3 (resume_here_C plan_L (fun _ -> PVar (FS "retry")))
+  fscope plan_L body3 (fun cx -> resume_at_C plan_L cx (fun _ -> fret (FS "retry")))
 let prog3b : pcomp fv fcl =
-  enter_ctx_C plan_L body3 (resume_here_C plan_L (fun _ -> PVar (FS "stop")))
+  fscope plan_L body3 (fun cx -> resume_at_C plan_L cx (fun _ -> fret (FS "stop")))
 
 let fixture_3_retry_on_failure () : Lemma
   (ensures fresult (frun 400 prog3a)
@@ -2604,8 +3089,9 @@ let fixture_3_retry_on_failure () : Lemma
    assembles the three results positionally. The assembled list is the trace, and
    `"mid"` sits between the two answers rather than before or after both. ---- *)
 
-let body4 : pcomp fv fcl = POp (PPerform "Betw" "go" []) (fun x -> PVar (FL [FS "leaf"; x]))
-let prog4 : pcomp fv fcl = enter_ctx_C plan_L0 body4 (resume_here_C plan_L0 fk)
+let body4 : pcomp fv fcl =
+  POp (PPerform "Betw" "go" []) (fun x -> fret (FL [FS "leaf"; fseen x]))
+let prog4 : pcomp fv fcl = fscope plan_L0 body4 (fun cx -> resume_at_C plan_L0 cx fk)
 
 let fixture_4_effect_between_resumes () : Lemma
   (ensures fresult (frun 400 prog4)
@@ -2628,9 +3114,10 @@ let fixture_4_effect_between_resumes () : Lemma
    occur in it. This is the case B1's note said would otherwise have needed a "no
    values to return" branch, and there is none. ---- *)
 
-let body5 : pcomp fv fcl = POp (PPerform "Abort" "x" []) (fun x -> PVar (FL [FS "leaf"; x]))
-let prog5 : pcomp fv fcl = enter_ctx_C plan_L body5 (resume_here_C plan_L fk)
-let prog5_probe : pcomp fv fcl = enter_ctx_C plan_L body5 (extend_here_C plan_L fprobe)
+let body5 : pcomp fv fcl =
+  POp (PPerform "Abort" "x" []) (fun x -> fret (FL [FS "leaf"; fseen x]))
+let prog5 : pcomp fv fcl = fscope plan_L body5 (fun cx -> resume_at_C plan_L cx fk)
+let prog5_probe : pcomp fv fcl = fscope plan_L body5 (fun cx -> extend_at_C plan_L cx fprobe)
 
 let fixture_5_never_resumes () : Lemma
   (ensures fresult (frun 400 prog5_probe) == Some (FL [FS "own"; FS "aborted"])
@@ -2649,15 +3136,15 @@ let fixture_5_never_resumes () : Lemma
    differ. Under any representation that had committed to a projection at
    production time, one of these two would have been unavailable.
 
-   This is the fixture that breaks if `resume_here_C` and `extend_here_C` are
+   This is the fixture that breaks if `resume_at_C` and `extend_at_C` are
    collapsed into one definition, which is why it is kept in exactly this shape:
    one production, both consumers, and an explicit statement that the answers are
    not equal. ---- *)
 
 let prog5b : pcomp fv fcl =
-  enter_ctx_C plan_LB body5
-    (POp (resume_here_C plan_LB fk) (fun a ->
-      POp (extend_here_C plan_LB fk) (fun b -> PVar (FL [a; b]))))
+  fscope plan_LB body5 (fun cx ->
+    POp (resume_at_C plan_LB cx fk) (fun a ->
+      POp (extend_at_C plan_LB cx fk) (fun b -> fret (FL [fseen a; fseen b]))))
 
 let fixture_5b_never_resumes_with_bind () : Lemma
   (ensures fresult (frun 400 prog5b)
@@ -2690,10 +3177,10 @@ let fixture_5b_never_resumes_with_bind () : Lemma
    `binds` field is not consulted, because the classification reads `hs`. ---- *)
 
 let body6 : pcomp fv fcl =
-  POp (PPerform "Echo" "e" [FS "v"]) (fun x -> PVar (FL [FS "leaf"; x]))
+  POp (PPerform "Echo" "e" [fpv (FS "v")]) (fun x -> fret (FL [FS "leaf"; fseen x]))
 let prog6_enter : pcomp fv fcl = enter_C plan_T body6
 let prog6_residual : pcomp fv fcl =
-  enter_ctx_C plan_T body6 (extend_here_C plan_T (PVar #fv #fcl))
+  fscope plan_T body6 (fun cx -> extend_at_C plan_T cx (PVar #fv #fcl))
 
 let fixture_6_transparent_classification () : Lemma
   (ensures classify_prompt #fv #fcl PMono ftbl None == ContextTransparent)
@@ -2737,47 +3224,48 @@ let fixture_6_transparent () : Lemma
    are of ONE token, in one program. ---- *)
 
 let body7 : pcomp fv fcl =
-  POp (PReadP "c") (fun cv -> POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [cv; x])))
+  POp (PReadP "c") (fun cv ->
+    POp (PPerform "Two" "flip" []) (fun x -> fret (FL [fseen cv; fseen x])))
 let prog7 : pcomp fv fcl =
-  enter_ctx_C plan_M body7
-    (POp (resume_here_C plan_M fk) (fun a ->
-      POp (extend_here_C plan_M fk) (fun b -> PVar (FL [a; b]))))
+  fscope plan_M body7 (fun cx ->
+    POp (resume_at_C plan_M cx fk) (fun a ->
+      POp (extend_at_C plan_M cx fk) (fun b -> fret (FL [fseen a; fseen b]))))
 
 let fixture_7_mixed_order_frames () : Lemma
   (ensures plan_enter_frames plan_M
-             == [PParamF "c" (FI 7);
+             == [PParamF "c" (fpv (FI 7));
                  PPromptF ftbl None PFamily;
                  PPromptF ftbl None PMono;
                  PPromptF ftbl fown_ret PFamily]
         /\ plan_resume_frames plan_M
              == [PBindF fsite;
-                 PParamF "c" (FI 7);
+                 PParamF "c" (fpv (FI 7));
                  PPromptF ftbl None PFamily;
                  PBindF fsite2;
                  PPromptF ftbl None PMono;
                  PPromptF ftbl fown_ret PFamily]
         /\ plan_protocol_frames plan_M
              == [PSiteF fsite;
-                 PParamF "c" (FI 7);
+                 PParamF "c" (fpv (FI 7));
                  PPromptF ftbl None PFamily;
                  PSiteF fsite2;
                  PPromptF ftbl None PMono;
                  PPromptF ftbl fown_ret PFamily])
   = assert_norm (plan_enter_frames plan_M
-                 == [PParamF "c" (FI 7);
+                 == [PParamF "c" (fpv (FI 7));
                      PPromptF ftbl None PFamily;
                      PPromptF ftbl None PMono;
                      PPromptF ftbl fown_ret PFamily]);
     assert_norm (plan_resume_frames plan_M
                  == [PBindF fsite;
-                     PParamF "c" (FI 7);
+                     PParamF "c" (fpv (FI 7));
                      PPromptF ftbl None PFamily;
                      PBindF fsite2;
                      PPromptF ftbl None PMono;
                      PPromptF ftbl fown_ret PFamily]);
     assert_norm (plan_protocol_frames plan_M
                  == [PSiteF fsite;
-                     PParamF "c" (FI 7);
+                     PParamF "c" (fpv (FI 7));
                      PPromptF ftbl None PFamily;
                      PSiteF fsite2;
                      PPromptF ftbl None PMono;
@@ -2810,11 +3298,11 @@ let fixture_7_mixed_order () : Lemma
    `fixture_11_prefix_event_once`. ---- *)
 
 let body8 : pcomp fv fcl =
-  POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x]))
+  POp (PPerform "Two" "flip" []) (fun x -> fret (FL [FS "leaf"; fseen x]))
 let prog8 : pcomp fv fcl =
-  enter_ctx_C plan_LB body8
-    (POp (extend_here_C plan_LB fk) (fun a ->
-      POp (resume_here_C plan_LB fk) (fun b -> PVar (FL [a; b]))))
+  fscope plan_LB body8 (fun cx ->
+    POp (extend_at_C plan_LB cx fk) (fun a ->
+      POp (resume_at_C plan_LB cx fk) (fun b -> fret (FL [fseen a; fseen b]))))
 
 let fixture_8_multi_shot () : Lemma
   (ensures fresult (frun 800 prog8)
@@ -2834,18 +3322,23 @@ let fixture_8_multi_shot () : Lemma
                                       FL [FL [FS "k"; FL [FS "leaf"; FS "a"]];
                                           FL [FS "k"; FL [FS "leaf"; FS "b"]]]]]]))
 
-(* ---- 8b. `bindScope` in its full shape: extend the context in scope and go on
-   with the RESULT in scope. The node `extend_ctx_here_C` exists because a produced
-   context is bound dynamically, so "the context extending produced" has to be
-   installed for the rest of the clause to see it.
+(* ---- 8b. `bindScope` IN ITS PUBLISHED SHAPE, and in B1.7 it is literally the
+   surface program: `cy <- bindScope cx fext; resumeScope cy fk`. `extend_ctx_at_C`
+   evaluates to a FRESH handle, so `cy` is an ordinary bound variable and `cx` is
+   still in scope beside it, untouched.
 
-   Here the token is extended by `fun x -> FL ["ext"; x]` and then resumed; the
+   B1.6 needed a `kbody` field here, because the context an extension produced
+   could only be installed on the stack for the rest of the clause to find. The
+   field is gone and the program is a bind.
+
+   Here the context is extended by `fun x -> FL ["ext"; x]` and then resumed; the
    extension composes onto the residual's `post` chain, so it runs at each leaf
    BEFORE the resumption's own function. Reading outwards: `ext` inside `k`. ---- *)
 
-let fext (x: fv) : pcomp fv fcl = PVar (FL [FS "ext"; x])
+let fext (x: pval fv) : pcomp fv fcl = fret (FL [FS "ext"; fseen x])
 let prog8b : pcomp fv fcl =
-  enter_ctx_C plan_L body8 (extend_ctx_here_C plan_L fext (resume_here_C plan_L fk))
+  fscope plan_L body8 (fun cx ->
+    pbind (extend_ctx_at_C plan_L cx fext) (fun cy -> resume_at_C plan_L cy fk))
 
 let fixture_8b_extend_then_resume () : Lemma
   (ensures fresult (frun 800 prog8b)
@@ -2866,7 +3359,7 @@ let fixture_8b_extend_then_resume () : Lemma
        interaction with one is to hand it a payload and a continuation.
      - `pstep`: no rule matches on a clause, and the protocol is built entirely
        from frames the machine pushed -- `PBoundaryF`, `PSiteF`, `PModeF`,
-       `PScopeF`, `PTokenF` -- so a layer reaches the boundary only by resuming,
+       `PScopeF` -- so a layer reaches the boundary only by resuming,
        through the ordinary `PSplice` rule, the continuation it was given.
      - `enter_ctx_C`'s rule: production PUSHES FRAMES UNDER the inner computation
        and never reads it.
@@ -2884,7 +3377,7 @@ let fixture_8b_extend_then_resume () : Lemma
    context in scope is REPORTED, as an ordinary stuck action under a reserved
    label, rather than silently taken for something else. ---- *)
 
-let fsettled (fuel: nat) (c: pcomp fv fcl) : bool = PDone? (frun fuel c)
+let fsettled (fuel: nat) (c: pcomp fv fcl) : bool = PDone? (frun fuel c).st
 
 let fixture_9_paused_is_unreachable () : Lemma
   (ensures fsettled 4000 (prog1new 1) /\ fsettled 400 prog2 /\ fsettled 400 prog2_probe
@@ -2906,9 +3399,24 @@ let fixture_9_paused_is_unreachable () : Lemma
     assert_norm (fsettled 800 prog8);
     assert_norm (fsettled 800 prog8b)
 
+(* In B1.6 this fixture ran a consumer on an empty stack, where there was no
+   `PTokenF` to find. Under a handle there is no such thing as "no context in
+   scope" -- a consumer always HAS a handle, because it takes one -- so the
+   fixture becomes the sharper question condition 7 asks: what happens to a
+   handle that names nothing. All three consumers, on a forged key, get stuck. *)
 let fixture_9_consumer_without_token () : Lemma
-  (ensures frun 400 (resume_here_C plan_L fk) == PStuck pctx_eff pctx_missing_op)
-  = assert_norm (frun 400 (resume_here_C plan_L fk) == PStuck pctx_eff pctx_missing_op)
+  (ensures (frun 400 (resume_at_C plan_L (PCtxKey 0) fk)).st
+             == PStuck pctx_eff pctx_missing_op
+        /\ (frun 400 (extend_at_C plan_L (PCtxKey 0) fk)).st
+             == PStuck pctx_eff pctx_missing_op
+        /\ (frun 400 (extend_ctx_at_C plan_L (PCtxKey 0) fk)).st
+             == PStuck pctx_eff pctx_missing_op)
+  = assert_norm ((frun 400 (resume_at_C plan_L (PCtxKey 0) fk)).st
+                 == PStuck pctx_eff pctx_missing_op);
+    assert_norm ((frun 400 (extend_at_C plan_L (PCtxKey 0) fk)).st
+                 == PStuck pctx_eff pctx_missing_op);
+    assert_norm ((frun 400 (extend_ctx_at_C plan_L (PCtxKey 0) fk)).st
+                 == PStuck pctx_eff pctx_missing_op)
 
 (* ================================================================== *)
 (*  B1.6's own requirements                                            *)
@@ -2946,21 +3454,23 @@ let fixture_9_consumer_without_token () : Lemma
    comparison, gets `PStuck "Out" "o"` on the same body. That is what the
    `settles` hypothesis was hiding. ---- *)
 
-let fouter_ret : option (fv -> pcomp fv fcl) = Some (fun x -> PVar (FL [FS "outer-ret"; x]))
+let fouter_ret : option (pval fv -> pcomp fv fcl) =
+  Some (fun x -> fret (FL [FS "outer-ret"; fseen x]))
 
 let body_out : pcomp fv fcl =
-  POp (PPerform "Out" "o" [FS "q"]) (fun x ->
-    POp (PPerform "Echo" "e" [FS "v"]) (fun y -> PVar (FL [x; y])))
+  POp (PPerform "Out" "o" [fpv (FS "q")]) (fun x ->
+    POp (PPerform "Echo" "e" [fpv (FS "v")]) (fun y -> fret (FL [fseen x; fseen y])))
 
 let prog_out : pcomp fv fcl =
   PHandle ftbl_out fouter_ret PMono
-    (enter_ctx_C plan_L body_out (resume_here_C plan_L fk))
+    (fscope plan_L body_out (fun cx -> resume_at_C plan_L cx fk))
 
 (** B1.5's production, kept executable and named for what it was, exactly as
     `susp_extend` / `susp_resume` keep B1's. Nothing but the control fixture
     refers to it. *)
 let detached_production (pl: plan fv fcl) (c: pcomp fv fcl) : pstate fv fcl
-  = psteps flook fapply 400 (PStep c (PBoundaryF :: plan_protocol_frames pl))
+  = (psteps flook fapply 400
+       { st = PStep c (PBoundaryF :: plan_protocol_frames pl); store = []; next = 0 }).st
 
 let fixture_10_outer_handler () : Lemma
   (ensures fresult (frun 400 prog_out)
@@ -2995,17 +3505,19 @@ let fixture_10_detached_gets_stuck () : Lemma
    once per consumption, in order. ---- *)
 
 let body_e : pcomp fv fcl =
-  PEmit "prefix" (POp (PPerform "Echo" "e" [FS "v"]) (fun x -> PVar (FL [FS "leaf"; x])))
+  PEmit "prefix"
+    (POp (PPerform "Echo" "e" [fpv (FS "v")]) (fun x -> fret (FL [FS "leaf"; fseen x])))
 
-let fc1 (x: fv) : pcomp fv fcl = PEmit "c1" (PVar x)
-let fc2 (x: fv) : pcomp fv fcl = PEmit "c2" (PVar x)
+let fc1 (x: pval fv) : pcomp fv fcl = PEmit "c1" (PVar x)
+let fc2 (x: pval fv) : pcomp fv fcl = PEmit "c2" (PVar x)
 
 let prog_silent : pcomp fv fcl =
-  enter_ctx_C plan_L body_e
-    (POp (extend_here_C plan_L (PVar #fv #fcl)) (fun _ -> resume_here_C plan_L fk))
+  fscope plan_L body_e (fun cx ->
+    POp (extend_at_C plan_L cx (PVar #fv #fcl)) (fun _ -> resume_at_C plan_L cx fk))
 
 let prog_traced : pcomp fv fcl =
-  enter_ctx_C plan_L body_e (POp (extend_here_C plan_L fc1) (fun _ -> resume_here_C plan_L fc2))
+  fscope plan_L body_e (fun cx ->
+    POp (extend_at_C plan_L cx fc1) (fun _ -> resume_at_C plan_L cx fc2))
 
 let fixture_11_prefix_event_once () : Lemma
   (ensures ftrace 400 prog_silent == ["prefix"]
@@ -3038,10 +3550,12 @@ let fixture_12_suspension_emits_twice () : Lemma
    appears once, first, and never again. ---- *)
 
 let body_e2 : pcomp fv fcl =
-  PEmit "prefix" (POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x])))
+  PEmit "prefix"
+    (POp (PPerform "Two" "flip" []) (fun x -> fret (FL [FS "leaf"; fseen x])))
 
 let prog_traced2 : pcomp fv fcl =
-  enter_ctx_C plan_L body_e2 (POp (extend_here_C plan_L fc1) (fun _ -> resume_here_C plan_L fc2))
+  fscope plan_L body_e2 (fun cx ->
+    POp (extend_at_C plan_L cx fc1) (fun _ -> resume_at_C plan_L cx fc2))
 
 let fixture_13_multi_shot_trace () : Lemma
   (ensures ftrace 800 prog_traced2 == ["prefix"; "c1"; "c1"; "c2"; "c2"])
@@ -3064,12 +3578,13 @@ let fixture_13_multi_shot_trace () : Lemma
    `ik(inner(leaf v))` is the inner scope's own protocol completing, and `own`
    the outer owner's answer former applied once, afterwards. ---- *)
 
-let finner (x: fv) : pcomp fv fcl =
-  enter_ctx_C plan_L0
-    (POp (PPerform "Echo" "e" [x]) (fun y -> PVar (FL [FS "inner"; y])))
-    (resume_here_C plan_L0 (fun z -> PVar (FL [FS "ik"; z])))
+let finner (x: pval fv) : pcomp fv fcl =
+  fscope plan_L0
+    (POp (PPerform "Echo" "e" [x]) (fun y -> fret (FL [FS "inner"; fseen y])))
+    (fun ci -> resume_at_C plan_L0 ci (fun z -> fret (FL [FS "ik"; fseen z])))
 
-let prog_nested : pcomp fv fcl = enter_ctx_C plan_L body6 (resume_here_C plan_L finner)
+let prog_nested : pcomp fv fcl =
+  fscope plan_L body6 (fun cx -> resume_at_C plan_L cx finner)
 
 let fixture_14_nested_scope () : Lemma
   (ensures fresult (frun 800 prog_nested)
@@ -3081,8 +3596,9 @@ let fixture_14_nested_scope () : Lemma
    scope's PROTECTED PREFIX.
 
    Fixture 14 has two protocols but never two floors -- by the time the inner
-   scope is entered the outer token has been produced, so the outer floor has
-   already become a `PTokenF`. Here the outer scope's own body IS a scope, so
+   scope is entered the outer handle has been produced, so the outer floor has
+   already been consumed by `pcut_scope`. Here the outer scope's own body IS a
+   scope, so
    when the inner boundary is reached the stack carries `PScopeF` twice, and
    `pcut_scope` has to take the NEARER one. Taking the farther one would hand the
    inner scope's residual to the outer scope's continuation and cut away the
@@ -3092,12 +3608,315 @@ let fixture_14_nested_scope () : Lemma
    the smallest program that has it. ---- *)
 
 let fmid : pcomp fv fcl =
-  enter_ctx_C plan_L0 body6 (resume_here_C plan_L0 (fun z -> PVar (FL [FS "m"; z])))
+  fscope plan_L0 body6
+    (fun cm -> resume_at_C plan_L0 cm (fun z -> fret (FL [FS "m"; fseen z])))
 
-let prog_two_floors : pcomp fv fcl = enter_ctx_C plan_L fmid (resume_here_C plan_L fk)
+let prog_two_floors : pcomp fv fcl =
+  fscope plan_L fmid (fun cx -> resume_at_C plan_L cx fk)
 
 let fixture_15_two_floors () : Lemma
   (ensures fresult (frun 800 prog_two_floors)
            == Some (FL [FS "own"; FL [FS "k"; FL [FS "m"; FL [FS "leaf"; FS "v"]]]]))
   = assert_norm (fresult (frun 800 prog_two_floors)
                  == Some (FL [FS "own"; FL [FS "k"; FL [FS "m"; FL [FS "leaf"; FS "v"]]]]))
+
+(* ------------------------------------------------------------------ *)
+(*  B1.7 -- THE EIGHT CONDITIONS OF THE FIRST-CLASS HANDLE             *)
+(*                                                                     *)
+(*  Fixtures 1 to 15 above are B1.6's and they are unchanged in intent: *)
+(*  they still run, which is condition 5. What follows is what B1.6     *)
+(*  could not write down at all, because under a dynamically scoped     *)
+(*  token there was no way for a program to NAME a context.             *)
+(*                                                                     *)
+(*  EVERY FIXTURE BELOW GOES THROUGH THE NAMED OPERATIONS --            *)
+(*  `enter_ctx_C`, `extend_at_C`, `extend_ctx_at_C`, `resume_at_C` --   *)
+(*  and never through a raw constructor. B1.6 recorded that a first     *)
+(*  firing round found constructor-level fixtures accepting a collapse  *)
+(*  that the named operations reject; that finding is respected here.   *)
+(* ------------------------------------------------------------------ *)
+
+(* ---- 16. CONDITION 1: production returns an opaque handle as an
+   object-language value, ONCE.
+
+   The program is `cx <- runScope body2; pure cx` -- the scope's handle is the
+   whole answer of the program. B1.6 could not run this: its production carried
+   the continuation, so there was no value to return, and the note recorded
+   exactly this as the price ("a context cannot be stored, returned as a scope's
+   own result, or put in a list"). What is checked here is the middle one:
+   returned as a scope's own result. Whether a live handle can be put in a
+   CONTAINER is a separate question the shallow value model cannot pose -- see
+   `fixture_17`.
+
+   Three things are checked. The answer IS the handle, and `fseen` reports which
+   one. The store holds exactly ONE entry, so the scope was reified once even
+   though its layer resumes twice -- production stops at the first boundary and
+   the rest of the layer's work is inside the residual. And `next` is 1, so
+   exactly one allocation happened in the whole run. ---- *)
+
+let prog16 : pcomp fv fcl = fscope plan_L body2 (fun cx -> PVar cx)
+
+let fixture_16_handle_is_a_value () : Lemma
+  (ensures fresult (frun 400 prog16) == Some (FL [FS "ctx"; FI 0])
+        /\ fstore_size 400 prog16 == 1
+        /\ fnext 400 prog16 == 1)
+  = assert_norm (fresult (frun 400 prog16) == Some (FL [FS "ctx"; FI 0]));
+    assert_norm (fstore_size 400 prog16 == 1);
+    assert_norm (fnext 400 prog16 == 1)
+
+(* ---- 17. CONDITION 2: two contexts alive at the same time.
+
+   Two scopes are produced one after the other, the first handle is still bound
+   when the second is produced, and both are named in the answer. The two
+   handles are DIFFERENT, and that is checked rather than assumed: they are
+   `ctx 0` and `ctx 1`, and the store holds both. Under an implementation that
+   overwrote a single cell they would be equal and the store would hold one.
+
+   **What this does NOT check, stated so the fixture is not read for more than
+   it says.** The answer is a list of `fseen cx` and `fseen cy` -- each handle
+   RENDERED to an ordinary value -- not of the handles themselves. So this is
+   "two contexts alive at once, separately nameable", and not "a live handle can
+   be put in a container and taken out again". The obstruction is the model, not
+   the design: the shallow `pval = PV v | PCtxKey nat` has no way to say what it
+   means to combine two things that might be handles, so `fseen` is the only way
+   to write the comparison down at all. Container storage of live handles needs
+   a different value model, and is untested here. ---- *)
+
+let body_a : pcomp fv fcl =
+  POp (PPerform "Echo" "e" [fpv (FS "A")]) (fun x -> fret (FL [FS "leaf"; fseen x]))
+let body_b : pcomp fv fcl =
+  POp (PPerform "Echo" "e" [fpv (FS "B")]) (fun x -> fret (FL [FS "leaf"; fseen x]))
+
+let prog17 : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx ->
+    fscope plan_L0 body_b (fun cy ->
+      fret (FL [fseen cx; fseen cy])))
+
+let fixture_17_two_contexts_alive () : Lemma
+  (ensures fresult (frun 800 prog17)
+             == Some (FL [FL [FS "ctx"; FI 0]; FL [FS "ctx"; FI 1]])
+        /\ fstore_size 800 prog17 == 2
+        /\ FL [FS "ctx"; FI 0] =!= FL [FS "ctx"; FI 1])
+  = assert_norm (fresult (frun 800 prog17)
+                 == Some (FL [FL [FS "ctx"; FI 0]; FL [FS "ctx"; FI 1]]));
+    assert_norm (fstore_size 800 prog17 == 2)
+
+(* ---- 18. CONDITIONS 3 AND 4: THE OUTER CONTEXT IS SELECTED WHILE THE INNER
+   ONE IS LIVE, AND WHAT IS CONSUMED IS DECIDED BY THE HANDLE PASSED.
+
+   **This is the fixture the gate exists for.** The two programs are identical
+   except for ONE VARIABLE -- `cx` against `cy` -- at the same point in the same
+   stack, with both contexts live. If resolution were by nearness the two would
+   have to agree, because the stack they are read from is the same stack; they
+   disagree, and the disagreement is exactly the two scopes' own bodies.
+
+   `prog18_outer` selects the context produced FIRST and gets `A`.
+   `prog18_inner` selects the context produced SECOND and gets `B`.
+
+   The published surface's
+
+       r1 <- t.runScope p
+       r2 <- t.runScope q
+       t.bindScope cx1 g
+
+   is this program. B1.6 ran it with `cx2`, silently. The third conjunct is the
+   statement that it no longer does, and it is an inequality rather than two
+   equalities so that a collapse of the two answers cannot pass by making both
+   sides wrong in the same way. ---- *)
+
+let prog18_outer : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx ->
+    fscope plan_L0 body_b (fun cy ->
+      resume_at_C plan_L0 cx fk))
+
+let prog18_inner : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx ->
+    fscope plan_L0 body_b (fun cy ->
+      resume_at_C plan_L0 cy fk))
+
+let fixture_18_handle_not_nearness () : Lemma
+  (ensures fresult (frun 800 prog18_outer)
+             == Some (FL [FS "k"; FL [FS "leaf"; FS "A"]])
+        /\ fresult (frun 800 prog18_inner)
+             == Some (FL [FS "k"; FL [FS "leaf"; FS "B"]])
+        /\ fresult (frun 800 prog18_outer) =!= fresult (frun 800 prog18_inner))
+  = assert_norm (fresult (frun 800 prog18_outer)
+                 == Some (FL [FS "k"; FL [FS "leaf"; FS "A"]]));
+    assert_norm (fresult (frun 800 prog18_inner)
+                 == Some (FL [FS "k"; FL [FS "leaf"; FS "B"]]))
+
+(* ---- 19. CONDITION 7: STORE INTEGRITY. A forged handle FAILS, and it fails
+   EVEN WHERE A REAL CONTEXT IS AVAILABLE TO FALL BACK ON.
+
+   `fixture_9_consumer_without_token` already checks a forged handle on an empty
+   store. That is the easy half: with nothing to resolve to, any implementation
+   fails. The hard half is here, and it is the one the gate names -- "a missing
+   or forged handle must NOT fall back to the nearest context".
+
+   `prog19_forged` produces a real context, binds it to `cx`, and then consumes
+   `PCtxKey 7`, which the machine never allocated. A live, resolvable, perfectly
+   good context is sitting in the store one entry away. The machine gets stuck.
+
+   `prog19_notahandle` is the other forgery: an ORDINARY VALUE where a handle was
+   wanted. The surface's types make it unreachable, but the machine still has to
+   answer, and the answer is a refusal rather than a coercion.
+
+   `prog19_good` is the control -- the same program with the real handle -- so
+   that "it got stuck" is known to be about the forgery and not about the shape
+   of the program. ---- *)
+
+let prog19_good : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx -> resume_at_C plan_L0 cx fk)
+
+let prog19_forged : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx -> resume_at_C plan_L0 (PCtxKey 7) fk)
+
+let prog19_notahandle : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx -> resume_at_C plan_L0 (fpv (FS "not-a-handle")) fk)
+
+let fixture_19_forged_handle_fails () : Lemma
+  (ensures fresult (frun 800 prog19_good)
+             == Some (FL [FS "k"; FL [FS "leaf"; FS "A"]])
+        /\ (frun 800 prog19_forged).st == PStuck pctx_eff pctx_missing_op
+        /\ (frun 800 prog19_notahandle).st == PStuck pctx_eff pctx_missing_op
+        /\ fstore_size 800 prog19_forged == 1)
+  = assert_norm (fresult (frun 800 prog19_good)
+                 == Some (FL [FS "k"; FL [FS "leaf"; FS "A"]]));
+    assert_norm ((frun 800 prog19_forged).st == PStuck pctx_eff pctx_missing_op);
+    assert_norm ((frun 800 prog19_notahandle).st == PStuck pctx_eff pctx_missing_op);
+    assert_norm (fstore_size 800 prog19_forged == 1)
+
+(* ---- 20. CONDITION 8: PERSISTENCE AND ALIASING. Extending a context produces a
+   FRESH handle without modifying the original, and two extensions of the same
+   handle stay independent.
+
+   This is the design note's program, transcribed:
+
+       cy1 <- bindScope cx g
+       cy2 <- bindScope cx h
+
+   `cx`, `cy1` and `cy2` must be three INDEPENDENT contexts, because the
+   published API admits multi-shot use of the same `ctx x`. All three are
+   consumed in one program and the three answers are reported together:
+   `cy1` carries `g`, `cy2` carries `h`, and **`cx` carries neither** -- which is
+   the conjunct that fails for any implementation that extends in place.
+
+   An implementation that overwrote `cx`'s store entry would give `cx` the answer
+   of whichever extension ran last, and one that shared a single cell between the
+   two extensions would give `cy1` and `cy2` the same answer. Both are refused
+   here by a value.
+
+   `prog20_rev` consumes the same three in a DIFFERENT ORDER and assembles the
+   answers back into the same positions. The two programs agree, which is
+   "may be consumed in either order" as an equation rather than as a claim. It
+   also rules out a store that a consumption CONSUMES: if driving `cy1` removed
+   or altered anything, the later drives would differ between the two orders. ---- *)
+
+let fg (x: pval fv) : pcomp fv fcl = fret (FL [FS "g"; fseen x])
+let fh (x: pval fv) : pcomp fv fcl = fret (FL [FS "h"; fseen x])
+
+let prog20 : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx ->
+    pbind (extend_ctx_at_C plan_L0 cx fg) (fun cy1 ->
+      pbind (extend_ctx_at_C plan_L0 cx fh) (fun cy2 ->
+        POp (resume_at_C plan_L0 cy1 fk) (fun a ->
+          POp (resume_at_C plan_L0 cy2 fk) (fun b ->
+            POp (resume_at_C plan_L0 cx fk) (fun c ->
+              fret (FL [fseen a; fseen b; fseen c])))))))
+
+let prog20_rev : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx ->
+    pbind (extend_ctx_at_C plan_L0 cx fg) (fun cy1 ->
+      pbind (extend_ctx_at_C plan_L0 cx fh) (fun cy2 ->
+        POp (resume_at_C plan_L0 cy2 fk) (fun b ->
+          POp (resume_at_C plan_L0 cy1 fk) (fun a ->
+            POp (resume_at_C plan_L0 cx fk) (fun c ->
+              fret (FL [fseen a; fseen b; fseen c])))))))
+
+(* The three handles are distinct, and the store holds all three: one production
+   and two extensions, nothing overwritten. *)
+let prog20_handles : pcomp fv fcl =
+  fscope plan_L0 body_a (fun cx ->
+    pbind (extend_ctx_at_C plan_L0 cx fg) (fun cy1 ->
+      pbind (extend_ctx_at_C plan_L0 cx fh) (fun cy2 ->
+        fret (FL [fseen cx; fseen cy1; fseen cy2]))))
+
+let fixture_20_persistence_and_aliasing () : Lemma
+  (ensures fresult (frun 800 prog20)
+             == Some (FL [FL [FS "k"; FL [FS "g"; FL [FS "leaf"; FS "A"]]];
+                          FL [FS "k"; FL [FS "h"; FL [FS "leaf"; FS "A"]]];
+                          FL [FS "k"; FL [FS "leaf"; FS "A"]]])
+        /\ fresult (frun 800 prog20_rev) == fresult (frun 800 prog20)
+        /\ fresult (frun 800 prog20_handles)
+             == Some (FL [FL [FS "ctx"; FI 0];
+                          FL [FS "ctx"; FI 1];
+                          FL [FS "ctx"; FI 2]])
+        /\ fstore_size 800 prog20_handles == 3)
+  = assert_norm (fresult (frun 800 prog20)
+                 == Some (FL [FL [FS "k"; FL [FS "g"; FL [FS "leaf"; FS "A"]]];
+                              FL [FS "k"; FL [FS "h"; FL [FS "leaf"; FS "A"]]];
+                              FL [FS "k"; FL [FS "leaf"; FS "A"]]]));
+    assert_norm (fresult (frun 800 prog20_rev)
+                 == Some (FL [FL [FS "k"; FL [FS "g"; FL [FS "leaf"; FS "A"]]];
+                              FL [FS "k"; FL [FS "h"; FL [FS "leaf"; FS "A"]]];
+                              FL [FS "k"; FL [FS "leaf"; FS "A"]]]));
+    assert_norm (fresult (frun 800 prog20_handles)
+                 == Some (FL [FL [FS "ctx"; FI 0];
+                              FL [FS "ctx"; FI 1];
+                              FL [FS "ctx"; FI 2]]));
+    assert_norm (fstore_size 800 prog20_handles == 3)
+
+(* ---- 21. THE MULTI-SHOT ALLOCATION HAZARD, which no fixture above would
+   catch.
+
+   Every fixture so far allocates along one path. This one allocates along TWO,
+   and they are two resumptions of ONE captured continuation.
+
+   `FTwice` resumes its continuation twice. The continuation contains a `runScope`,
+   so the scope is entered -- and a handle allocated -- once per resumption. If
+   the allocation counter were carried anywhere the continuation captures, both
+   resumptions would restore the same counter and allocate the SAME key, and the
+   two branches would then disagree about what that key names while both being
+   entitled to it.
+
+   `next` lives in the `pconf` and a `pconf` is not a frame, so nothing about it
+   is captured by `PSplice` and nothing is restored. The check is that the two
+   branches got `ctx 0` and `ctx 1`, and that consuming each afterwards yields
+   that branch's OWN body -- `a` for the first, `b` for the second. Both handles
+   were allocated by the machine, so this is not the forged-handle case; it is
+   the case where two legitimate handles must not be one. ---- *)
+
+let body_ms (x: pval fv) : pcomp fv fcl =
+  POp (PPerform "Echo" "e" [x]) (fun y -> fret (FL [FS "leaf"; fseen y]))
+
+let prog21_handles : pcomp fv fcl =
+  PHandle ftbl None PMono
+    (POp (PPerform "Two" "flip" []) (fun x ->
+       fscope plan_L0 (body_ms x) (fun cx -> PVar cx)))
+
+(* The consumption sits BELOW the prompt, so it runs once after both branches
+   rather than being captured into the continuation and re-run inside each. *)
+let prog21_consume : pcomp fv fcl =
+  pbind
+    (PHandle ftbl None PMono
+       (POp (PPerform "Two" "flip" []) (fun x ->
+          fscope plan_L0 (body_ms x) (fun cx -> PVar cx))))
+    (fun both ->
+       POp (resume_at_C plan_L0 (PCtxKey 0) fk) (fun a ->
+         POp (resume_at_C plan_L0 (PCtxKey 1) fk) (fun b ->
+           fret (FL [fseen both; fseen a; fseen b]))))
+
+let fixture_21_multi_shot_alloc () : Lemma
+  (ensures fresult (frun 800 prog21_handles)
+             == Some (FL [FL [FS "ctx"; FI 0]; FL [FS "ctx"; FI 1]])
+        /\ fstore_size 800 prog21_handles == 2
+        /\ fresult (frun 800 prog21_consume)
+             == Some (FL [FL [FL [FS "ctx"; FI 0]; FL [FS "ctx"; FI 1]];
+                          FL [FS "k"; FL [FS "leaf"; FS "a"]];
+                          FL [FS "k"; FL [FS "leaf"; FS "b"]]]))
+  = assert_norm (fresult (frun 800 prog21_handles)
+                 == Some (FL [FL [FS "ctx"; FI 0]; FL [FS "ctx"; FI 1]]));
+    assert_norm (fstore_size 800 prog21_handles == 2);
+    assert_norm (fresult (frun 800 prog21_consume)
+                 == Some (FL [FL [FL [FS "ctx"; FI 0]; FL [FS "ctx"; FI 1]];
+                              FL [FS "k"; FL [FS "leaf"; FS "a"]];
+                              FL [FS "k"; FL [FS "leaf"; FS "b"]]]))

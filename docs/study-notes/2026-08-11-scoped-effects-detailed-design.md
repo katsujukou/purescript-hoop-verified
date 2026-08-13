@@ -2819,34 +2819,140 @@ Condition 7 is its companion at the other end: identity must be *resolved*, and
 a handle that resolves to nothing must fail rather than degrade into B1.6's
 nearest-token reading, which is the very behaviour this gate exists to remove.
 
+#### B1.7, run: passed, and the first proofs in the prototype
+
+All eight conditions passed; the stop condition did not fire. 3,277 → 3,899
+lines.
+
+A handle is `PCtxKey of nat`, one of two constructors of the stratified value
+language `pval v`. Because `pval` mentions only a `nat` it needs no `pctx`, so
+it leaves the mutual block, so `pctx` — which holds `pval v -> pcomp v cl` —
+sits outside it, so `pstore = list (nat & pctx v cl)` can be given a type. The
+negative occurrence is still there and still fatal to a direct embedding; the
+key is what stops the cycle closing.
+
+Conditions 4 and 7 hold **by type before they hold by behaviour**:
+
+```fstar
+presolve : pstore v cl -> pval v -> option (pctx v cl)
+```
+
+is not given a stack, so there is nothing for a nearness fallback to consult.
+`PTokenF` and `pfind_token` are deleted. The store and counter live in a
+`pconf` beside the machine state; `palloc` conses and increments and is the only
+writer — no free, no clear, no update.
+
+Several B1.6 fixtures became *stronger* rather than merely surviving: 1, 5b, 7
+and 8 now name **one handle twice**, where B1.6 could only consume "the context
+in scope" twice and argue that both found the same token. Independent re-firing:
+rewriting `presolve` to ignore its key and return the most recent entry — the
+same behaviour under another name — is rejected by
+`fixture_18_handle_not_nearness`, which is two programs differing in one
+variable at one point in one stack.
+
+**The first proved obligations in this prototype.** `lemma_alloc_wf`,
+`lemma_alloc_monotone`, `lemma_alloc_fresh` and `lemma_alloc_preserves` are
+lemmas with proofs, not `prop` definitions. The last is condition 8's core:
+allocation disturbs nothing already allocated.
+
+`fixture_1_prefix_runs_once`'s intercepts moved 47→48 and 55→56, one extra
+value step for carrying the handle. **The slopes are unchanged** — 8 and 16,
+still exactly 2×.
+
+#### What B1.7 did not establish
+
+*The observation relation still has no trace.* `pobs_eq` / `pobs_le` were
+strengthened to quantify over an arbitrary store and counter, but what they
+observe is still the final value only — the `PEmit` trace B1.6 introduced is
+not in them. **An implementation that replays the prefix can therefore still
+satisfy the laws**, because on a pure machine replay changes no value. B1.6's
+exact-once
+observation is not yet connected to any proof obligation, and connecting it —
+a trace-aware observational equivalence, or a trace congruence alongside — has
+to happen *before* B2b, not after.
+
+*`pconf_wf` is not connected to reachability.* It appears in the definition and
+in the local lemmas, and there is no theorem that the initial configuration is
+well formed and that every `pstep` preserves it. That belongs in B2a.
+
+*Fixture 17 does not store handles in a list.* It renders each handle to an
+ordinary value with `fseen` before putting it in one, so what it shows is that
+two contexts are alive and separately nameable — not that a real handle can be
+put in a pair or a list and taken out again. That is a boundary of the shallow
+`pval = PV v | PCtxKey nat` model. A stronger claim needs a different model.
+
+*Stale names, corrected.* Three doc comments referred to `lemma_step_fresh` and
+one to `fixture_19_multi_shot_alloc`; neither exists. They now name
+`lemma_alloc_fresh`, `lemma_alloc_monotone` and `fixture_21_multi_shot_alloc`.
+The prose had been written ahead of the code — the same thing that made this
+gate's remaining-work estimate wrong, since F\* halts at the first fatal error
+and nothing below the failure point had been checked in the new shape at all.
+
+#### Four limits on how the representation should be read
+
+- **The global monotone store is a reference semantics**, adopted so that
+  handles created in sibling resumptions can be resolved together afterwards.
+- **Multi-shot does not rule out every snapshot scheme.** What it rules out is
+  the naive one, which solves neither collision between independent allocators
+  nor lost updates. A scheme that solved those is not excluded by anything here.
+- **The non-reclaiming association list is prototype-only.** It is *what makes*
+  condition 8 hold. A shipping form needs a reclamation scheme that cannot lose
+  an escaped handle, a lookup cost, and a bounded representation for ids.
+- **`fseen` is fixture instrumentation.** No transition applies it. It does not
+  mean handle identity is observable to a user; without it "these two handles
+  differ" could not be written as a value and conditions 1, 2 and 8 would be
+  unstatable.
+
+#### `pcut_scope`: a negative result, not a missing fixture
+
+Both mutations B1.6 recorded as accepted survive B1.7 unchanged. The interesting
+one is `pcut_scope` cutting at the farthest scope floor rather than the nearest.
+The handle representation was the obvious candidate to separate them — a
+wrongly cut residual is now a wrongly *stored* one, with an identity that can
+be named — and it does not. The mutant is not a no-op (the two disagree on
+`[PScopeF; PBoundaryF; PScopeF]`), and all 21 fixtures still pass.
+
+The conclusion to draw is **not** "the fixtures are insufficient". If B2a
+cannot state a theorem that requires the nearest decomposition, then
+nearest-floor is an implementation normal form rather than a semantic
+requirement — and this
+surviving mutation is the evidence that makes the distinction visible. The other
+survivor, `PCtxRequests y [] PVar` for `PCtxDone y`, remains genuinely
+operationally equal.
+
 ### What is not decided
 
 - The classification stays three-way, and B1.5 and B1.6 are reasons to expect it
   to stay that way: the machine built the general path from provenance alone,
-  with no capability supplied from the surface, and B1.6 made production live
-  and effectful with no hypothesis left on it. It is not yet settled, because
-  the path is established only for a context whose identity is nearness rather
-  than a value the surface can select. Only if the general case fails does
-  `Reinstantiable ≠ ContextWeavable` become a shipping fact. (The name for that
-  contingent fourth class appears in the exchange that proposed it as
+  with no capability supplied from the surface, B1.6 made production live and
+  effectful with no hypothesis left on it, and B1.7 gave the context a
+  first-class identity the surface can select. It is not yet settled, because
+  none of the five laws is proved and the observation relation cannot yet see a
+  replay. Only if that fails does
+  `Reinstantiable ≠ ContextWeavable` become a shipping fact. (The name for
+  that contingent fourth class appears in the exchange that proposed it as
   `ContextThreadable`; recorded here as `ContextWeavable` to keep the vocabulary
   note above true of the code as well as the prose.)
-- B2 and B3 are now blocked on B1.7 — the context's representation is open
-  again, in a narrower way than before B1.6.
+- The residual-context representation and its identity discipline are settled
+  **for the reference semantics** — a shipping store and the shallow `pval`
+  model's boundary both remain. B2 and B3 are now blocked on B2a and on making
+  the observation relation trace-aware.
 
-The order, revised after B1.6:
+The order, revised after B1.7:
 
 | gate | what it settles |
 |---|---|
 | ~~B1.6~~ | ~~effectful production, exact-once as an observation~~ — **done** |
-| B1.7 | a first-class context handle, selected by identity rather than nearness |
-| B2a | protocol-association invariants (`pfind_mode` / `pcut_scope`, keyed or nearest as B1.7 determines) |
-| B2b | the four laws, over the new production |
-| B3 | a transparent plan against the existing borrow; simulation with the optimised machine |
+| ~~B1.7~~ | ~~a first-class context handle, selected by identity~~ — **done** |
+| B2a | the association disciplines `pcut_scope` / `pfind_mode`, **and** `pconf_wf` preserved by every transition from a well-formed initial configuration |
+| — | make the observation relation **trace-aware** before B2b |
+| B2b | the five laws, over arbitrary stack, store, counter **and trace** |
+| B3 | the existing borrow; simulation with the optimised machine; a shipping handle store |
 
-B2a is deliberately **after** B1.7: a handle-and-store representation may turn
-`pfind_mode`'s unlabelled nearest-marker search into a keyed lookup, and proving
-an invariant about a search that is then replaced is wasted work.
+The trace step sits between B2a and B2b deliberately, and is not optional
+polish: while `pobs_eq` observes values only, a prefix-replaying implementation
+satisfies every law, and B1.6's exact-once result stays disconnected from any
+proof obligation.
 
 One fact about the TCB that constrains the fallback: implementing library-side
 `Either` / `Array` / `Maybe` weave capabilities as PureScript callbacks and
@@ -2897,7 +3003,8 @@ semantics among them) that would pull the representation the wrong way.
    (replaying suspension, precomputed leaf list). **Settled**: the residual
    protocol works, without any capability supplied from the surface (B1.5), and
    its production is a live effectful transition with no hypothesis left on it
-   (B1.6). What remains open is narrower — **the context as a first-class,
-   persistent identity**: a handle the surface can hold, select between and
-   extend, rather than the nearest dynamic token. That is B1.7, and it is what
-   B2 and B3 now wait on.
+   (B1.6), and the context is a first-class persistent identity — a handle the
+   surface can hold, select between and extend, resolved by identity and not by
+   nearness (B1.7). **Settled as a reference semantics.** What a shipping form
+   needs is separate: reclamation, lookup cost, and a bounded id representation.
+   See the four limits recorded under B1.7.
