@@ -1,5 +1,6 @@
 (**
- * **B1.5 -- the general weave, over a RESIDUAL CONFIGURATION.**
+ * **B1.6 -- the general weave, over a RESIDUAL CONFIGURATION, with production as
+ * a MACHINE TRANSITION.**
  *
  * A scope may cross an intervening prompt today only when every clause that
  * prompt can dispatch is `KFast`; anything else is
@@ -64,15 +65,100 @@
  * yields `own(site2(aborted))` against `own(aborted)`, and
  * `own(site2([site1 ...]))` against `own([...])`.
  *
+ * ===========================================================================
+ * **WHAT B1.6 CHANGED: PRODUCTION IS A TRANSITION.**
+ *
+ * B1.5 produced a context with a meta-level function:
+ *
+ * ```fstar
+ * enter_ctx_C lk apply fuel pl c
+ *   = pctx_of_state PVar (psteps lk apply fuel (PStep c (PBoundaryF :: plan_protocol_frames pl)))
+ * ```
+ *
+ * -- a lookup, a clause interpreter and a fuel bound in, a finished `pctx` out,
+ * the whole run on an EMPTY ambient stack. The gate's stop condition names that
+ * shape and refuses it, on a reading of the TYPE and before any behaviour is
+ * considered: an operation that has to be handed the interpreter is an operation
+ * that runs the program, which makes it a test-harness partial evaluator exposed
+ * through the interface rather than a semantic operation. Everything that
+ * followed from it followed from that: an operation the prefix performed that no
+ * plan prompt handled became `PStuck` where the real machine would have carried
+ * it outward to an enclosing handler, and every law therefore carried a
+ * `settles` hypothesis saying that this had not happened.
+ *
+ * **The stop condition did not fire.** Production is now the node `PEnterCtx`,
+ * whose rule pushes four things onto the LIVE stack -- the boundary marker, the
+ * plan's protocol frames, a new frame `PScopeF` (the SCOPE FLOOR), and then
+ * whatever was already there, untouched. The token is formed by a value rule,
+ * which cuts the stack at the floor: everything above is the residual,
+ * everything below is where the machine goes on running. Neither the production
+ * primitive nor any of the four consuming operations mentions `psteps`, `pcost`,
+ * `papply_t`, `plookup_t` or a fuel; every field of `ctx_ops` is a single
+ * constructor application, and `ctx_ops` no longer mentions `pctx` at all.
+ *
+ * **What the live stack buys, and it is the substance of the gate.** An
+ * operation the prefix performs that no plan prompt handles is found by the
+ * ordinary `pfind_prompt` walk, which continues past the owner and PAST THE
+ * FLOOR into the ambient stack. The segment an ambient handler captures
+ * therefore contains the whole scope, so when it resumes -- even if it is not
+ * tail-resumptive, even if it has pending frames of its own -- the scope is
+ * re-installed ABOVE that handler's unfinished work, and the token, when it is
+ * finally produced, is handed to a continuation running on top of it.
+ * `fixture_10_outer_handler` computes `wrap(outer-ret(own(k(outer-ans, v))))`:
+ * the ambient clause's pending bind and the ambient prompt's answer
+ * transformation both survive, wrapped around the scope's own answer.
+ * `fixture_10_detached_gets_stuck` is the control -- B1.5's production, kept
+ * executable, gets `PStuck "Out" "o"` on the same body. That is exactly what
+ * `settles` was hiding, and `settles` is gone.
+ *
+ * **The design obstacle, and the finding it produced.** A token has to reach the
+ * continuation. It cannot be a `v` -- `v` is abstract. The two candidates were a
+ * continuation `kf: pctx v cl -> pcomp v cl` on the production node, and the
+ * larger restructure that makes the machine's value position a sum,
+ * `pvalue v cl = PV of v | PCtxV of pctx v cl`. **NEITHER IS WELL FORMED.** A
+ * `pctx` holds a residual of frames and an extension chain `v -> pcomp v cl`, so
+ * it contains a NEGATIVE occurrence of the value type (as well as positive
+ * ones). Embedding it directly into the value language closes a negative
+ * recursive cycle, and F* answers "does not satisfy the strict positivity
+ * condition" for both shapes. That DIRECT recursive sum cannot be written; B1.7
+ * tests the stratified handle-and-store representation that avoids the cycle.
+ *
+ * So the token is DEFUNCTIONALISED: production installs it in a `PTokenF` frame
+ * beneath the continuation, and the three consuming nodes read the nearest one,
+ * exactly as `PReadP` reads the nearest cell. A produced context is therefore
+ * DYNAMICALLY SCOPED. The price, stated once here and again at `PEnterCtx`: a
+ * context cannot be stored, returned as a scope's own result, or put in a list,
+ * because it never enters the value language; and a scope opened inside a
+ * consumer shadows the token it was consuming rather than coexisting with it.
+ * This is NOT adequate for the published `ScopeTactics`: their explicit `ctx x`
+ * argument lets a clause select among multiple live contexts, whereas this
+ * representation always selects the nearest token. B1.7 exists to replace that
+ * last step with a first-class persistent handle without discarding B1.6's live
+ * production or exact-once result.
+ *
+ * **Exact-once stopped being a claim about transition counts.** B1.5 could only
+ * state it as work, because the machine is pure and `pobs_eq` observes values: a
+ * replayed prefix returns what it returned before. B1.6 adds `PEmit` and a
+ * driver `prun` that accumulates a trace OUTSIDE the value language, so
+ * `fixture_11_prefix_event_once` checks that one production and two consumptions
+ * emit `["prefix"]` when the consumers are silent and `["prefix"; "c1"; "c2"]`
+ * when they are not, while `fixture_12_suspension_emits_twice` checks that the
+ * withdrawn suspension emits `["prefix"; "c1"; "prefix"; "c2"]` on the same body.
+ * The trace is the driver's second result and is not part of a state, a frame or
+ * a `pctx`, so "not preserved into the residual" holds by the type of a residual
+ * and not by an inspection of one. `fixture_1_prefix_runs_once` survives, demoted
+ * to a performance and structure regression test; requirement 3 is the semantic
+ * statement.
+ * ===========================================================================
+ *
  * *What this module is.* A small machine, not a copy of the production one. It
  * holds only what the general weave needs: prompt provenance, the classification
- * derived from it, the scope PLAN a captured segment is turned into, the three
- * context operations over that plan, a step relation that covers them, the laws
- * they owe -- **stated, not proved** -- and, new in B1.5, executable fixtures for
- * the nine conditions the gate asks about. Clarity over efficiency throughout,
- * and no optimization pass at all: the transparent case here is part of the
- * general path and is NOT yet a fast path. Making it one, and proving the two
- * agree, is B3.
+ * derived from it, the scope PLAN a captured segment is turned into, the context
+ * operations over that plan, a step relation that covers them, the laws they owe
+ * -- **stated, not proved** -- and executable fixtures for the conditions the
+ * gates ask about. Clarity over efficiency throughout, and no optimization pass
+ * at all: the transparent case here is part of the general path and is NOT yet a
+ * fast path. Making it one, and proving the two agree, is B3.
  *
  * *What it is not.* It is not extracted, not reachable from the FFI, and not in
  * the bundle -- `scripts/build-runtime.sh` verifies `runtime/proto/*.fst` and
@@ -102,17 +188,16 @@
  * was landed in, and for the same reason -- the facts everything downstream
  * needs are proved before anything depends on them.
  *
- * *The nine gate conditions, as this file leaves them.* Each is a fixture at the
- * bottom, run with `psteps` at a definite fuel, and checked by `assert_norm` --
- * never by a comment claiming a result.
+ * *B1.5's nine conditions, as this file leaves them.* Each is a fixture at the
+ * bottom, run at a definite fuel and checked by `assert_norm` -- never by a
+ * comment claiming a result. Every production in them is IN THE OBJECT LANGUAGE:
+ * B1.5 wrote `let cx = fmk pl body` and used `cx` twice, which asks F*'s
+ * normaliser what the answer should be rather than asking the machine, and there
+ * is no `fmk` any more because there cannot be one.
  *
- *   1. prefix runs exactly once -- **PASSED AS A COST STATEMENT, and NOT as an
- *      extensional one.** The machine here is pure, and fixture 1 checks that
- *      the residual and the suspension reach the SAME value; replay is therefore
- *      invisible to `pobs_eq`. What is checked is the work: lengthening the
- *      protected prefix costs the residual one copy and the suspension exactly
- *      two. See `fixture_1_prefix_runs_once`, which states the slope, and the
- *      finding recorded there.
+ *   1. prefix runs exactly once -- **PASSED, and now as an OBSERVATION**; see
+ *      requirement 3 below. `fixture_1_prefix_runs_once` remains as a
+ *      performance / structure regression test that prefix work is shared.
  *   2. two resume requests, in order -- PASSED (`fixture_2_two_requests`).
  *   3. the second resume exists only because of the first's REAL answer --
  *      PASSED (`fixture_3_retry_on_failure`, two runs that differ only in the
@@ -124,33 +209,61 @@
  *   6. a transparent plan agrees with the borrow -- **PASSED AT AN INSTANCE, NOT
  *      IN GENERAL.** `fixture_6_transparent` checks the frames the transparent
  *      projection produces against the frames `Hoop.Runtime.Semantics.borrow`
- *      produces, and checks that `enter_C` and the residual-driven `extend_C`
+ *      produces, and checks that `enter_C` and the residual-driven extension
  *      converge to the same value on a concrete program. The quantified
  *      statement is `law_transparent_agrees` and it is B3's, unproved.
  *   7. a mixed plan preserves prompt / cell / bind ORDER -- PASSED
  *      (`fixture_7_mixed_order`, structurally on all three projections and then
  *      observably on a run).
- *   8. multi-shot FROM THE SAVED POINT -- PASSED (`fixture_8_multi_shot`).
+ *   8. multi-shot FROM THE SAVED POINT -- PASSED (`fixture_8_multi_shot`,
+ *      `fixture_8b_extend_then_resume`).
  *   9. no clause-inspecting mechanism, no assumption about `apply` -- a property
  *      of the design; where it is respected is stated at `pstep` and at
- *      `enter_ctx_C`.
+ *      `enter_ctx_C`, and `fixture_9_paused_is_unreachable` /
+ *      `fixture_9_consumer_without_token` are the two parts of it that are runs.
  *
- * *Three things B1.5 had to state rather than prove, listed here so that no
- * reader has to find them.*
+ * *B1.6's own eight, in the same form.*
  *
- *   - The four laws are unproved, as in B1. They are `prop` definitions
- *     parameterised by a `ctx_ops`; B2 proves them of `ref_ops`.
- *   - Production is a DETACHED run: the residual is built with an empty stack
- *     below the plan, so an operation the inner computation performs that no
- *     plan prompt handles is `PStuck` here where the real machine would carry it
- *     outward. The laws are therefore stated under a `settles` hypothesis, which
- *     is exactly this condition and nothing more; the note on `enter_ctx_C`
- *     explains why the obvious repair is not well defined.
- *   - `pfind_mode` finds the NEAREST enclosing `PModeF`, with no label to match
- *     on. The discipline that makes this right -- a mode marker is installed
- *     immediately below the residual it drives, so no other residual's marker
- *     can come between a marker frame and its own -- is argued at `pfind_mode`
- *     and is NOT proved.
+ *   1. a trace not preserved into the residual -- PASSED, by the TYPE of `prun`
+ *      (the trace is the driver's second result) and exhibited by
+ *      `fixture_11_prefix_event_once`'s silent run, whose whole trace after two
+ *      consumptions is `["prefix"]`.
+ *   2. one observation event in the protected prefix -- PASSED (`body_e`).
+ *   3. consuming the residual twice yields it ONCE -- PASSED
+ *      (`fixture_11_prefix_event_once`, and `fixture_13_multi_shot_trace` for a
+ *      layer that resumes twice).
+ *   4. the suspension yields it TWICE -- PASSED
+ *      (`fixture_12_suspension_emits_twice`, the control).
+ *   5. an operation the plan does not handle is handled outside the owner --
+ *      PASSED (`fixture_10_outer_handler`, with
+ *      `fixture_10_detached_gets_stuck` as the B1.5 control).
+ *   6. that handler's pending binds and answer transformation are not lost --
+ *      PASSED (same fixture; both appear in the answer, outside the scope's).
+ *   7. `settles` off the laws -- DONE. It is deleted, not weakened; the argument
+ *      that it may go is at the laws' preamble and is STATED, NOT PROVED.
+ *   8. production initiated by an object-language transition -- PASSED; the
+ *      check is mechanical and is described at `enter_ctx_C`.
+ *
+ * *What this file states rather than proves, listed here so that no reader has
+ * to find them.*
+ *
+ *   - The four laws, plus `law_transparent_agrees`, are unproved. They are
+ *     `prop` definitions parameterised by a `ctx_ops`; B2b proves them of
+ *     `ref_ops`. Nothing in this module depends on any of them holding.
+ *   - That `settles` MAY come off is argued and not proved. What is checked is
+ *     that the program `settles` used to exclude now runs correctly
+ *     (`fixture_10_outer_handler`); whether the laws hold in general without the
+ *     hypothesis is B2b's.
+ *   - `pfind_mode` finds the NEAREST enclosing `PModeF`, with no label. B1.6
+ *     both endangered this -- a production inside a consumption now has that
+ *     consumer's marker beneath it -- and made the obligation smaller, by
+ *     terminating the search at a scope floor. `fixture_14_nested_scope` is the
+ *     program that fires that guard. The invariant itself is B2a's and is NOT
+ *     proved.
+ *   - `pcut_scope` cuts at the NEAREST floor, and no fixture here separates that
+ *     from the farthest; the note at `pcut_scope` records what was tried.
+ *   - `ptable.binds` is supplied by the fixtures rather than derived from the
+ *     shipped table, which is abstract. No transition and no law reads it.
  *)
 module Hoop.Proto.GeneralWeave
 
@@ -237,25 +350,72 @@ type weave_mode =
   | MExtend
   | MResume
 
+(**
+ * **A prompt's table, as the prototype carries it** -- new in B1.6, and it is
+ * the second and last concession to CHECKABILITY that this file makes.
+ *
+ * `hs` is the shipped table, unchanged, and it is what the CLASSIFICATION reads:
+ * `borrowable` and `blocking_effects` below are applied to this field and to
+ * nothing else, so which prompts a scope may cross is still decided by the real
+ * table.
+ *
+ * `binds` is a list of effect labels, and it exists because of a hole B1.5
+ * recorded and B1.6 could not work around. `handlers` is abstract in
+ * `Hoop.Runtime.Handlers.fsti`; `keys` answers membership through an abstract
+ * `keyset`; neither reduces. So a fixture's lookup cannot tell two tables apart,
+ * and B1.5 said so plainly: "`flook` ignores its `handlers` argument -- it cannot
+ * do otherwise". Under a detached production that was a restriction on how
+ * fixtures were written. Under B1.6 it is fatal to requirement 5, whose whole
+ * content is that a prompt INSIDE the plan does not handle an operation and a
+ * prompt OUTSIDE the owner does: with a table-blind lookup the innermost plan
+ * prompt handles everything, and the operation can never reach past the owner.
+ *
+ * **What this field is and is not.** It is not consulted by the machine. It is
+ * not consulted by `pref_lookup`, which is `lookup_handler hs` and ignores it
+ * entirely -- so the reference semantics is exactly what it was, and no
+ * transition, no projection and no law reads `binds`. It is read by ONE thing:
+ * the fixtures' own lookup, which needs to be able to say "this table does not
+ * bind that effect" in a form `assert_norm` can compute. The alternative was to
+ * model "not handled here" with a FORWARDING clause -- a clause that re-performs
+ * the operation below its own prompt -- which exercises the same machine path
+ * but is a fiction of a different kind: it makes the plan's prompts handle the
+ * operation and hand it on, which is not what requirement 5 asks about. A field
+ * the reference ignores was judged the smaller lie than a clause that does
+ * something the real one would not.
+ *
+ * A realisation on the shipping path has no counterpart to `binds` and needs
+ * none: `Hoop.Runtime.Machine`'s dispatch reads `lookup_clause` off the real
+ * table, which answers exactly this question and answers it correctly.
+ *)
+noeq
+type ptable (cl: Type u#a) : Type u#a = {
+  hs: handlers cl;
+  binds: list string;
+}
+
 (* ------------------------------------------------------------------ *)
 (*  The prototype AST                                                  *)
 (*                                                                     *)
 (*  `Hoop.Runtime.Syntax.comp_tree` / `frame` with provenance on the    *)
-(*  prompt, with the three context operations given nodes of their own, *)
-(*  and -- new in B1.5 -- with the three frames the residual protocol   *)
-(*  is made of. Every constructor is renamed (`P...`) so that nothing   *)
-(*  here shadows the production type: a prototype that could be         *)
-(*  confused for the shipped AST at a call site is a prototype that     *)
-(*  will be, and `--print_full_names` is not something a reader runs by *)
-(*  default.                                                            *)
+(*  prompt, with the context operations given nodes of their own, with  *)
+(*  the three frames B1.5's residual protocol is made of, and -- new in *)
+(*  B1.6 -- with production's node and the two frames it needs. Every   *)
+(*  constructor is renamed (`P...`) so that nothing here shadows the    *)
+(*  production type: a prototype that could be confused for the shipped *)
+(*  AST at a call site is a prototype that will be, and                 *)
+(*  `--print_full_names` is not something a reader runs by default.     *)
 (*                                                                     *)
 (*  The block is mutually recursive and cannot be split: `plan_item`    *)
-(*  holds return clauses (`v -> pcomp`), the extend/resume nodes hold a *)
-(*  `plan` and a `pctx`, a `pctx` holds a residual STACK and a `pstate`,*)
-(*  and a `pstate` holds a `pcomp`. `pstate` joining the block is new:  *)
-(*  a context that fails to settle carries the state it failed in, and  *)
-(*  a diagnostic that had to be re-encoded as a string would be a       *)
-(*  diagnostic nobody could act on.                                     *)
+(*  holds return clauses (`v -> pcomp`), the production node holds a    *)
+(*  `plan`, a `pframe` holds a `pctx`, and a `pctx` holds a residual    *)
+(*  STACK and an extension chain into `pcomp`.                          *)
+(*                                                                     *)
+(*  `pstate` LEFT the block in B1.6, and that is a structural           *)
+(*  simplification worth noticing rather than a tidy-up. It was in it   *)
+(*  because `PCtxLost` carried the state a detached production had      *)
+(*  failed in. A transition has no failure to carry -- a stuck prefix   *)
+(*  makes the machine stuck -- so a context is no longer a snapshot of  *)
+(*  a run, and the syntax no longer has to be defined after the states. *)
 (* ------------------------------------------------------------------ *)
 
 noeq
@@ -267,12 +427,30 @@ type pcomp (v: Type u#a) (cl: Type u#a) : Type u#a =
   // (`PMono`) and `withF` (`PFamily`) at one node: they differ in the evidence
   // they attach and in nothing else, which is the reframing made syntax.
   | PHandle:
-      hs:handlers cl ->
+      tbl:ptable cl ->
       ret:option (v -> pcomp v cl) ->
       prov:prompt_provenance ->
       body:pcomp v cl ->
       pcomp v cl
   | PSplice: frames:list (pframe v cl) -> body:pcomp v cl -> pcomp v cl
+  // **An observation.** `PEmit ev c` appends `ev` to the machine's trace and
+  // continues as `c`; nothing else in the machine reads or produces one.
+  //
+  // It is new in B1.6 and it is the INSTRUMENT, not the result. B1.5 could say
+  // that the residual did less work than the suspension (`pcost`, and
+  // `fixture_1_prefix_runs_once` still says it) but not that the protected
+  // prefix RAN ONCE, because this machine is pure and `pobs_eq` observes only
+  // values: a replayed prefix returns what it returned before. An emission is
+  // the smallest thing that breaks that -- an effect the plan does not contain
+  // and cannot undo -- and it is exactly what every JS effect is in the shipped
+  // runtime.
+  //
+  // It carries its continuation rather than producing a value, because `v` is
+  // abstract and the prototype has no unit to hand back. That also keeps the
+  // trace out of the value language entirely: no computation can read the trace,
+  // so no fixture can accidentally check exact-once by observing a counter the
+  // program itself maintained.
+  | PEmit: ev:string -> body:pcomp v cl -> pcomp v cl
   // **Entering a scope.** The general-level counterpart of
   // `Hoop.Runtime.Syntax.Weave`, and it carries the segment UNPREPARED -- the
   // raw intervening frames and the owner -- because at the general level the
@@ -297,10 +475,96 @@ type pcomp (v: Type u#a) (cl: Type u#a) : Type u#a =
       owner:powner v cl ->
       body:pcomp v cl ->
       pcomp v cl
-  // The two context operations that consume a context. `enter_C` needs no node
-  // of its own: it is what `PWeave` steps to.
-  | PExtendC: pl:plan v cl -> cx:pctx v cl -> g:(v -> pcomp v cl) -> pcomp v cl
-  | PResumeC: pl:plan v cl -> cx:pctx v cl -> k:(v -> pcomp v cl) -> pcomp v cl
+  // **Producing a context.** THE node of B1.6, and the reason the gate's stop
+  // condition did not fire.
+  //
+  // B1.5 produced a context with a meta-level function -- `enter_ctx_C lk apply
+  // fuel pl c`, which ran `psteps` to completion on an EMPTY ambient stack and
+  // returned a `pctx`. Taking a lookup, an interpreter and a fuel and returning
+  // a pure context IS detached evaluation written down: a test-harness partial
+  // evaluator exposed through the interface. Everything that followed from it --
+  // an operation the plan did not handle becoming `PStuck` where the real
+  // machine would have carried it outward, and hence the `settles` hypothesis on
+  // every law -- followed from that one shape.
+  //
+  // Here production is a NODE. It steps on the live stack: the boundary marker,
+  // then the plan's protocol frames, then `PScopeF kf`, then whatever was
+  // already there. Consequences, in the order they matter:
+  //
+  //   - an operation the prefix performs that no plan prompt handles is found by
+  //     the ordinary `pfind_prompt` walk, which continues PAST the owner and
+  //     past the scope floor into the ambient stack;
+  //   - if an ambient handler is not tail-resumptive, its pending frames sit
+  //     below the point it dispatched from, and when it resumes, the scope --
+  //     boundary, plan frames and floor together, since they were all inside the
+  //     segment it captured -- is re-installed ABOVE them. The token, when it is
+  //     finally produced, is handed to `kf` on a stack that still has that
+  //     handler's unfinished work in it. That is the exact case B1.5 argued no
+  //     meta-level truncation could get right, and it is right here for the
+  //     reason the argument identified: nothing is truncated, because nothing is
+  //     returned.
+  //
+  // **`kbody` is a COMPUTATION and not a function, and that is forced -- it is
+  // the one place B1.6's design was decided by F* rather than by taste.**
+  //
+  // The token has to reach the continuation somehow. It cannot BE a `v`: `v` is
+  // an abstract parameter and there is nothing to inject into. The two obvious
+  // repairs are a continuation `kf: pctx v cl -> pcomp v cl` on this node, and
+  // the larger restructure that makes the machine's value position a sum,
+  // `pvalue v cl = PV of v | PCtxV of pctx v cl`, threaded through `PVar`,
+  // `PBindF`, `papply_t`, the cells and the terminals.
+  //
+  // **NEITHER IS WELL FORMED, and for the same reason.** A `pctx` holds a
+  // residual `list (pframe v cl)` and an extension chain `v -> pcomp v cl`, so
+  // it contains a negative occurrence of the value type (and positive ones).
+  // Put it on the left of an arrow in the AST and the mutual block closes a
+  // negative recursive cycle:
+  //
+  //   `kf: pctx v cl -> pcomp v cl`  puts `pctx` negatively in `pcomp`
+  //   `PBindF: pvalue v cl -> pcomp` puts `pvalue` -- hence `pctx` -- negatively
+  //
+  // and F* answers "Inductive type ... does not satisfy the strict positivity
+  // condition" for both. It is not an F* quirk that a stronger checker would
+  // wave through: the DIRECT embedding really has a negative cycle. What this
+  // rules out is that embedding, not every first-class representation; B1.7
+  // starts from the verified stratification in which only a non-recursive key
+  // enters the value language and the residual lives in a machine-side store.
+  //
+  // What is here instead is the defunctionalisation. The token is not passed to
+  // the continuation; it is INSTALLED, in a `PTokenF` frame directly beneath
+  // `kbody`, and the three consuming nodes read the nearest one. So a produced
+  // context is DYNAMICALLY SCOPED -- exactly as a prompt-local cell is, and read
+  // by exactly the same kind of search.
+  //
+  // *What that costs, plainly.* A context cannot be stored, returned as a
+  // scope's own result, or put in a list, because it never enters the value
+  // language at all; and "the context" inside `kbody` means the innermost one,
+  // so a scope nested in a consumer's continuation shadows its enclosing token
+  // rather than coexisting with it. What it buys is that the property the gate
+  // is about -- production is a transition, and the token is produced ONCE, by
+  // the machine, and consumed as many times as the program says -- holds without
+  // the direct recursive value language that cannot be built. A program that
+  // needs two contexts alive at once is not expressible. Worse, the published
+  // API can express one and this representation would silently consume the
+  // nearest token instead of the handle it was passed. B1.7 is the gate for
+  // replacing nearness with first-class persistent identity.
+  | PEnterCtx:
+      pl:plan v cl ->
+      body:pcomp v cl ->
+      kbody:pcomp v cl ->
+      pcomp v cl
+  // The three operations that consume THE CONTEXT IN SCOPE. `enter_C` needs no
+  // node of its own: it is what `PWeave` steps to.
+  //
+  // `PExtendCtxC` is `bindScope` in its full shape -- extend the token in scope
+  // by `g` and continue with the RESULT in scope -- and it is a node rather than
+  // a derived form because under dynamic scoping "the context extending
+  // produced" has to be installed somewhere for the rest of the clause to see.
+  // B1.5 could return it as a `pctx` and let the caller hold it; here the stack
+  // is what holds it.
+  | PExtendC: pl:plan v cl -> g:(v -> pcomp v cl) -> pcomp v cl
+  | PExtendCtxC: pl:plan v cl -> g:(v -> pcomp v cl) -> kbody:pcomp v cl -> pcomp v cl
+  | PResumeC: pl:plan v cl -> k:(v -> pcomp v cl) -> pcomp v cl
   | PNewP: label:string -> init:v -> body:pcomp v cl -> pcomp v cl
   | PReadP: label:string -> pcomp v cl
   | PWriteP: label:string -> value:v -> pcomp v cl
@@ -336,18 +600,48 @@ type pcomp (v: Type u#a) (cl: Type u#a) : Type u#a =
  *     each boundary hit, which is the accumulated extension chain followed by
  *     the consumer's own function. It is inert to values passing through, like
  *     `PParamF`, so a residual that drains past it is unaffected by it.
+ *
+ *   - `PScopeF` is THE SCOPE FLOOR, new in B1.6 and the frame that makes
+ *     production a transition. `PEnterCtx` installs it BENEATH the plan's
+ *     frames, so it separates what belongs to the scope from what was on the
+ *     ambient stack already, and it carries the continuation the token is
+ *     produced FOR. Two rules read it and they are the whole of production's
+ *     other half: a value that reaches it directly has drained the whole scope
+ *     without ever asking for anything, so the token is `PCtxDone`; and a
+ *     boundary or site frame with no mode above it CUTS the stack here, taking
+ *     everything above as the residual and continuing on everything below.
+ *
+ *     It is a frame and not a field of the boundary marker because the two are
+ *     at different depths and get separated: the boundary rides up into every
+ *     continuation a layer captures, and the floor stays where the ambient stack
+ *     begins. Merging them would put the token's continuation inside every
+ *     captured segment, so a layer that resumed twice would produce two tokens.
+ *
+ *     It is also what delimits the mode search; see `pfind_mode`.
+ *
+ *   - `PTokenF` is A PRODUCED CONTEXT, IN SCOPE. It is what `PScopeF` turns into
+ *     when the token exists, and it is read by the three consuming nodes exactly
+ *     as `PParamF` is read by `PReadP`. It is inert to values passing through,
+ *     so a clause that produces a context and then returns without consuming it
+ *     simply drops it.
+ *
+ *     Carrying the token on a frame rather than passing it to a function is
+ *     forced by strict positivity; the argument is at `PEnterCtx` and the price
+ *     is recorded there too.
  *)
 and pframe (v: Type u#a) (cl: Type u#a) : Type u#a =
   | PBindF: fn:(v -> pcomp v cl) -> pframe v cl
   | PParamF: label:string -> value:v -> pframe v cl
   | PPromptF:
-      hs:handlers cl ->
+      tbl:ptable cl ->
       ret:option (v -> pcomp v cl) ->
       prov:prompt_provenance ->
       pframe v cl
   | PBoundaryF: pframe v cl
   | PSiteF: fn:(v -> pcomp v cl) -> pframe v cl
   | PModeF: mode:weave_mode -> respond:(v -> pcomp v cl) -> pframe v cl
+  | PScopeF: kbody:pcomp v cl -> pframe v cl
+  | PTokenF: cx:pctx v cl -> pframe v cl
 
 (**
  * **The owner of a scope**, as a thing with a name.
@@ -366,7 +660,7 @@ and pframe (v: Type u#a) (cl: Type u#a) : Type u#a =
  *)
 and powner (v: Type u#a) (cl: Type u#a) : Type u#a =
   | POwner:
-      hs:handlers cl ->
+      tbl:ptable cl ->
       ret:option (v -> pcomp v cl) ->
       prov:prompt_provenance ->
       powner v cl
@@ -423,8 +717,8 @@ and powner (v: Type u#a) (cl: Type u#a) : Type u#a =
 and plan_item (v: Type u#a) (cl: Type u#a) : Type u#a =
   | PIBind: fn:(v -> pcomp v cl) -> plan_item v cl
   | PICell: label:string -> value:v -> plan_item v cl
-  | PITransparent: hs:handlers cl -> plan_item v cl
-  | PIReenter: hs:handlers cl -> ret:option (v -> pcomp v cl) -> plan_item v cl
+  | PITransparent: tbl:ptable cl -> plan_item v cl
+  | PIReenter: tbl:ptable cl -> ret:option (v -> pcomp v cl) -> plan_item v cl
 
 (**
  * **The scope plan.**
@@ -502,29 +796,54 @@ and plan (v: Type u#a) (cl: Type u#a) : Type u#a =
  * the boundary and its own algebra says what that means (fixture 5).
  * ---------------------------------------------------------------------------
  *
- * **The three shapes, and what each means.**
+ * **The two shapes, and what each means.**
  *
  *   - `PCtxDone y` -- the layers and the owner produced `y` without ever asking
  *     the scope for anything, and there was no recorded bind frame left in the
- *     path either. A `Full` clause that discards its continuation gets here.
+ *     path either. A `Full` clause that discards its continuation gets here. The
+ *     machine reaches it when a value arrives at the scope floor directly.
  *
- *   - `PCtxRequests x residual post` -- the machine is paused at
- *     `PStep (PVar x) residual`, whose head is a `PBoundaryF` or a `PSiteF`:
- *     the head frame is the one whose meaning depends on the consumer, and
- *     `residual` is everything the layer and owner handlers have grown up to
- *     this point. `post` is the EXTENSION CHAIN accumulated by `extend_ctx_C`,
- *     not yet applied, and it is a field rather than something already run into
- *     the residual so that extending a context re-runs nothing at all.
+ *   - `PCtxRequests x residual post` -- a value reached a `PBoundaryF` or a
+ *     `PSiteF` with no consumer above it, and the stack was cut at the scope
+ *     floor: `residual` is that frame together with everything the layer and
+ *     owner handlers have grown between it and the floor, and it begins with the
+ *     frame whose meaning depends on the consumer. `post` is the EXTENSION CHAIN
+ *     accumulated by `extend_ctx_C`, not yet applied, and it is a field rather
+ *     than something already run into the residual so that extending a context
+ *     re-runs nothing at all.
  *
- *   - `PCtxLost st` -- production did not settle: it ran out of fuel, or got
- *     stuck, or was rejected. `st` is the state it stopped in, kept whole. The
- *     laws below are conditioned on this constructor not arising; see `settles`.
+ * **WITHDRAWN IN B1.6: `PCtxLost st`.** B1.5 had a third shape, carrying the
+ * `pstate` a detached production had failed in -- out of fuel, stuck, or
+ * rejected. All three were artefacts of production being a meta-level run that
+ * had to RETURN something whatever happened. A transition returns nothing: a
+ * prefix that gets stuck makes the machine stuck, a prefix that diverges makes
+ * the machine diverge, and there is no fuel to run out of because the fuel
+ * belonged to the harness and not to the operation. Two things follow that are
+ * worth more than the constructor: the `settles` hypothesis on the four laws is
+ * gone, and `pstate` is no longer part of the AST's mutual block -- a context is
+ * no longer a snapshot of a failed run, so the state type does not have to be
+ * defined before the syntax that mentions it.
  *
  * A context does NOT carry the plan it belongs to. The plan is what the machine
  * holds at the transition, and a context carrying its own copy would be a second
- * plan that can disagree with it. The operations take both -- although, and this
- * is the price of the representation, only `enter_ctx_C` now READS the plan it
+ * plan that can disagree with it. Every operation still takes a plan -- although,
+ * and this is the price of the representation, only production READS the one it
  * is given; see the note on `resume_C`.
+ *
+ * Nor does it carry a TRACE. Whatever the prefix emitted was emitted by the
+ * transitions that produced this value, and the driver has it; there is nowhere
+ * in these two constructors for an observation to hide, which is B1.6's
+ * requirement 1 answered by the type rather than by a check.
+ *
+ * *A small fact found by trying to break it.* `PCtxDone y` and
+ * `PCtxRequests y [] (PVar)` are OPERATIONALLY THE SAME: `ctx_drive` splices a
+ * lone mode marker in the second case, the value meets it, the marker is inert,
+ * and the consumer's function goes unapplied exactly as in the first. Replacing
+ * the `PScopeF` value rule so that it builds the second was tried and no fixture
+ * noticed. The two constructors are kept apart anyway, because "the scope
+ * drained without ever asking" and "the scope asked, with nothing left between
+ * the question and the floor" are different things to a reader even where they
+ * are the same thing to the machine.
  *)
 and pctx (v: Type u#a) (cl: Type u#a) : Type u#a =
   | PCtxDone: value:v -> pctx v cl
@@ -533,15 +852,19 @@ and pctx (v: Type u#a) (cl: Type u#a) : Type u#a =
       residual:list (pframe v cl) ->
       post:(v -> pcomp v cl) ->
       pctx v cl
-  | PCtxLost: st:pstate v cl -> pctx v cl
 
 (**
- * **The machine states.**
+ * **The machine states**, and in B1.6 they are OUTSIDE the AST's mutual block:
+ * see the withdrawal of `PCtxLost` above.
  *
- * `PPaused` is new and is the only state a context is built from. It is not
- * `PStep`: `psteps` must STOP at it, or production would spin on a boundary it
- * has no answer for, and a fuel-exhausted `PStep` must stay distinguishable from
- * a deliberate pause or `PCtxLost` would swallow the difference.
+ * `PPaused` survives, demoted. In B1.5 it was where every context came from --
+ * production stopped there and read the state off. Here a boundary reached with
+ * no consumer above it and no scope floor below it is a stack that no transition
+ * of this machine can build, and `PPaused` is what the value rule answers in
+ * that case: a totality obligation, kept as a distinct state rather than folded
+ * into `PStuck` so that a well-bracketing failure would be visible as itself.
+ * `fixture_9_paused_is_unreachable` is the check that the fixtures never produce
+ * one.
  *
  * `PRejected` carries the SHIPPED rejection type. It is flat and independent of
  * `v` and `cl`, so there is nothing to translate: a plan refused here is refused
@@ -549,7 +872,8 @@ and pctx (v: Type u#a) (cl: Type u#a) : Type u#a =
  * what makes "the caller can produce the existing `UnborrowableScope` rejection"
  * a fact about a type rather than a resemblance between two enumerations.
  *)
-and pstate (v: Type u#a) (cl: Type u#a) : Type u#a =
+noeq
+type pstate (v: Type u#a) (cl: Type u#a) : Type u#a =
   | PDone: value:v -> pstate v cl
   | PStep: c:pcomp v cl -> k:list (pframe v cl) -> pstate v cl
   | PPaused: value:v -> residual:list (pframe v cl) -> pstate v cl
@@ -581,7 +905,7 @@ and pstate (v: Type u#a) (cl: Type u#a) : Type u#a =
 let classify_prompt
     (#v #cl: Type)
     (prov: prompt_provenance)
-    (hs: handlers cl)
+    (tbl: ptable cl)
     (ret: option (v -> pcomp v cl))
   : prompt_class
   = match prov with
@@ -589,7 +913,7 @@ let classify_prompt
     | PMono ->
       match ret with
       | Some _ -> Monomorphic
-      | None -> if borrowable hs then ContextTransparent else Monomorphic
+      | None -> if borrowable tbl.hs then ContextTransparent else Monomorphic
 
 (* ------------------------------------------------------------------ *)
 (*  Building the plan                                                  *)
@@ -661,17 +985,17 @@ let rec plan_layers (#v #cl: Type) (ints: list (pframe v cl))
       (match plan_layers rest with
         | Inl e -> Inl e
         | Inr ls -> Inr (PICell l x :: ls))
-    | PPromptF hs ret prov :: rest ->
-      (match classify_prompt prov hs ret with
-        | Monomorphic -> Inl (MonomorphicLayer (blocking_effects hs))
+    | PPromptF tbl ret prov :: rest ->
+      (match classify_prompt prov tbl ret with
+        | Monomorphic -> Inl (MonomorphicLayer (blocking_effects tbl.hs))
         | ContextTransparent ->
           (match plan_layers rest with
             | Inl e -> Inl e
-            | Inr ls -> Inr (PITransparent hs :: ls))
+            | Inr ls -> Inr (PITransparent tbl :: ls))
         | Family ->
           (match plan_layers rest with
             | Inl e -> Inl e
-            | Inr ls -> Inr (PIReenter hs ret :: ls)))
+            | Inr ls -> Inr (PIReenter tbl ret :: ls)))
     | _ :: rest -> plan_layers rest
 
 (** **The plan**: the classified intervening segment, and the owner beside it,
@@ -699,7 +1023,7 @@ let plan_of (#v #cl: Type) (ints: list (pframe v cl)) (own: powner v cl)
 (** **The owner, as the frame it was.** Table, return clause and provenance all
     survive the round trip; nothing about the owner is rewritten. *)
 let owner_frame (#v #cl: Type) (own: powner v cl) : pframe v cl
-  = PPromptF (POwner?.hs own) (POwner?.ret own) (POwner?.prov own)
+  = PPromptF (POwner?.tbl own) (POwner?.ret own) (POwner?.prov own)
 
 (**
  * **The layers, as the frames a SCOPE runs under.** The plan's order, which is
@@ -727,8 +1051,8 @@ let rec enter_layer_frames (#v #cl: Type) (ls: list (plan_item v cl))
     | [] -> []
     | PIBind _ :: rest -> enter_layer_frames rest
     | PICell l x :: rest -> PParamF l x :: enter_layer_frames rest
-    | PITransparent hs :: rest -> PPromptF hs None PMono :: enter_layer_frames rest
-    | PIReenter hs ret :: rest -> PPromptF hs ret PFamily :: enter_layer_frames rest
+    | PITransparent tbl :: rest -> PPromptF tbl None PMono :: enter_layer_frames rest
+    | PIReenter tbl ret :: rest -> PPromptF tbl ret PFamily :: enter_layer_frames rest
 
 (**
  * **The layers, as the frames a RESUMPTION returns through.** The same walk, and
@@ -753,8 +1077,8 @@ let rec resume_layer_frames (#v #cl: Type) (ls: list (plan_item v cl))
     | [] -> []
     | PIBind fn :: rest -> PBindF fn :: resume_layer_frames rest
     | PICell l x :: rest -> PParamF l x :: resume_layer_frames rest
-    | PITransparent hs :: rest -> PPromptF hs None PMono :: resume_layer_frames rest
-    | PIReenter hs ret :: rest -> PPromptF hs ret PFamily :: resume_layer_frames rest
+    | PITransparent tbl :: rest -> PPromptF tbl None PMono :: resume_layer_frames rest
+    | PIReenter tbl ret :: rest -> PPromptF tbl ret PFamily :: resume_layer_frames rest
 
 (**
  * **The layers, as the frames a RESIDUAL is produced under** -- the third
@@ -795,8 +1119,8 @@ let rec protocol_layer_frames (#v #cl: Type) (ls: list (plan_item v cl))
     | [] -> []
     | PIBind fn :: rest -> PSiteF fn :: protocol_layer_frames rest
     | PICell l x :: rest -> PParamF l x :: protocol_layer_frames rest
-    | PITransparent hs :: rest -> PPromptF hs None PMono :: protocol_layer_frames rest
-    | PIReenter hs ret :: rest -> PPromptF hs ret PFamily :: protocol_layer_frames rest
+    | PITransparent tbl :: rest -> PPromptF tbl None PMono :: protocol_layer_frames rest
+    | PIReenter tbl ret :: rest -> PPromptF tbl ret PFamily :: protocol_layer_frames rest
 
 (**
  * **The segment a scope runs under**: the layers, innermost first, and the owner
@@ -846,15 +1170,22 @@ let plan_protocol_frames (#v #cl: Type) (pl: plan v cl) : list (pframe v cl)
   = protocol_layer_frames (Plan?.layers pl) @ [owner_frame (Plan?.owner pl)]
 
 (* ------------------------------------------------------------------ *)
-(*  The three context operations                                       *)
+(*  The context operations                                             *)
 (*                                                                     *)
-(*  The reference MEANING of the three scope tactics. Gate A            *)
-(*  established that their types do not force these implementations --  *)
-(*  a `runScope` that injects each value into a singleton typechecks     *)
-(*  and is wrong -- which is exactly why they are defined here, in a    *)
+(*  The reference MEANING of the scope tactics. Gate A established      *)
+(*  that their types do not force these implementations -- a            *)
+(*  `runScope` that injects each value into a singleton typechecks and  *)
+(*  is wrong -- which is exactly why they are defined here, in a        *)
 (*  machine with a reference semantics, rather than on the PureScript   *)
 (*  side. The surface's job is to delegate; nothing that can be wrong    *)
 (*  should be written there.                                            *)
+(*                                                                     *)
+(*  They come in two layers in B1.6 and the split is worth knowing      *)
+(*  before reading them. `ctx_drive`, `extend_C`, `extend_ctx_C` and    *)
+(*  `resume_C` take an EXPLICIT context and are the meanings; the four  *)
+(*  builders below them -- `enter_ctx_C`, `extend_here_C`,              *)
+(*  `extend_ctx_here_C`, `resume_here_C` -- are single constructors and *)
+(*  are what a program writes. The transitions are what join the two.   *)
 (* ------------------------------------------------------------------ *)
 
 (** **The inner monad's bind**, named so that the laws below and the operations
@@ -863,16 +1194,6 @@ let plan_protocol_frames (#v #cl: Type) (pl: plan v cl) : list (pframe v cl)
 unfold
 let pbind (#v #cl: Type) (c: pcomp v cl) (f: v -> pcomp v cl) : pcomp v cl
   = POp c f
-
-(** **The operation a lost context degenerates to.** A `PCtxLost` cannot be
-    driven, and the operations must still return a computation, so they return
-    one that no plan prompt handles and that the machine therefore reports as
-    `PStuck`. It is deliberately an ordinary `PPerform` under a reserved label,
-    in the style of `Hoop.Runtime.Semantics.var_eff`, rather than a new state: a
-    prototype that grew a constructor for its own bookkeeping failure would be
-    reporting the failure in a way the shipped machine has no counterpart for. *)
-let pctx_lost_eff : string = "%hoop.ctx"
-let pctx_lost_op : string = "lost"
 
 (**
  * **Entering a scope**: run the inner computation under the plan. UNCHANGED from
@@ -897,6 +1218,40 @@ let pctx_lost_op : string = "lost"
  *)
 let enter_C (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) : pcomp v cl
   = PSplice (plan_enter_frames pl) c
+
+(**
+ * **Producing a context**, and in B1.6 it is one line of syntax.
+ *
+ * Compare what it replaced:
+ *
+ * ```fstar
+ * let enter_ctx_C lk apply fuel pl c =
+ *   pctx_of_state PVar (psteps lk apply fuel (PStep c (PBoundaryF :: plan_protocol_frames pl)))
+ * ```
+ *
+ * -- a lookup, a clause interpreter and a fuel bound in, a finished `pctx` out.
+ * That is a partial evaluator, and the type said so before any behaviour was
+ * examined. What is here instead takes a plan, an inner computation and the
+ * continuation the token is produced for, and BUILDS A NODE. It runs nothing.
+ * The machine's `PEnterCtx` rule is what runs, on whatever stack the program is
+ * on at the time, and the token is formed by a value rule and installed by that
+ * same rule.
+ *
+ * **This is the gate's stop condition, and the check that it did not fire is
+ * mechanical**: `psteps`, `pcost`, `papply_t`, `plookup_t` and `nat` do not
+ * occur in this definition, in the four consuming builders below, or in the
+ * `ctx_ops` record they are collected into -- every one of the five is a single
+ * constructor application. Nor do they occur in the `pstep` rules for
+ * `PEnterCtx`, `PExtendC`, `PExtendCtxC` and `PResumeC`. The scope tactics can
+ * therefore be thin delegations to transitions, which is the standing constraint
+ * the design note records; under B1.5 the production tactic could not have been,
+ * because there was no transition to delegate to.
+ *)
+let enter_ctx_C
+    (#v #cl: Type)
+    (pl: plan v cl) (c: pcomp v cl) (kbody: pcomp v cl)
+  : pcomp v cl
+  = PEnterCtx pl c kbody
 
 (**
  * **Driving a residual**, which is what both consuming operations are.
@@ -927,7 +1282,6 @@ let ctx_drive (#v #cl: Type) (m: weave_mode) (cx: pctx v cl) (f: v -> pcomp v cl
     | PCtxDone y -> PVar y
     | PCtxRequests x resid post ->
       PSplice (resid @ [PModeF m (fun z -> pbind (post z) f)]) (PVar x)
-    | PCtxLost _ -> PPerform pctx_lost_eff pctx_lost_op []
 
 (**
  * **Extending a context**: continue, at each value the context holds, with an
@@ -982,7 +1336,6 @@ let extend_ctx_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: v -> pcomp v
   = match cx with
     | PCtxDone y -> PCtxDone y
     | PCtxRequests x resid post -> PCtxRequests x resid (fun z -> pbind (post z) g)
-    | PCtxLost s -> PCtxLost s
 
 (**
  * **Resuming a context onto the continuation** -- the important one.
@@ -1028,16 +1381,48 @@ let resume_C (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (k: v -> pcomp v cl)
   = ctx_drive MResume cx k
 
 (**
+ * **The three consuming operations AS THE PROGRAM WRITES THEM** -- each a single
+ * constructor, each naming no context at all.
+ *
+ * `extend_C`, `extend_ctx_C` and `resume_C` above are the MEANINGS: functions of
+ * an explicit `pctx`, which is what the transitions below delegate to once they
+ * have found one. These three are what a clause builds, and they say "the
+ * context in scope" rather than naming a token, because under the
+ * defunctionalisation (see `PEnterCtx`) there is no way for a program to name
+ * one.
+ *
+ * That separation is worth having for its own sake and not only because
+ * positivity forced it. It puts each tactic in the position the design note
+ * demands: `resume_here_C pl k` IS a node, so the surface's `resumeScope` is a
+ * constructor call and cannot be anything else. B1.5's `resume_C pl cx k` was
+ * already thin, but it took a context the surface had to be holding, and the
+ * only way the surface could have got one was the meta-level producer.
+ *)
+let extend_here_C (#v #cl: Type) (pl: plan v cl) (g: v -> pcomp v cl) : pcomp v cl
+  = PExtendC pl g
+
+let extend_ctx_here_C (#v #cl: Type) (pl: plan v cl) (g: v -> pcomp v cl)
+                      (kbody: pcomp v cl) : pcomp v cl
+  = PExtendCtxC pl g kbody
+
+let resume_here_C (#v #cl: Type) (pl: plan v cl) (k: v -> pcomp v cl) : pcomp v cl
+  = PResumeC pl k
+
+(**
  * **B1's two consuming operations, withdrawn, kept executable.**
  *
  * These are the suspension representation exactly as it stood: the context was
  * the unrun inner computation, so it needed no type of its own, and each
- * operation spliced its own projection of the plan around it. They are here for
- * one reason -- `fixture_1_prefix_runs_once` runs them beside the residual and
- * MEASURES the difference, rather than asserting it in prose -- and nothing else
- * in the file refers to them. They are not a `ctx_ops`: they cannot be, because
- * `o_enter_ctx` must return a `pctx` and the withdrawn representation has no
- * constructor to return.
+ * operation spliced its own projection of the plan around it. They are here as
+ * CONTROLS and nothing else, and in B1.6 they earn their keep twice over:
+ * `fixture_1_prefix_runs_once` measures the work they cost beside the residual's,
+ * and `fixture_12_suspension_emits_twice` shows them emitting the protected
+ * prefix's observation A SECOND TIME, which is what makes
+ * `fixture_11_prefix_event_once` evidence rather than a number.
+ *
+ * They are not a `ctx_ops`. They cannot be: a `ctx_ops` production takes the
+ * continuation the token is produced for and there is no token here, only a
+ * computation re-run from the start.
  *)
 let susp_extend (#v #cl: Type) (pl: plan v cl) (c: pcomp v cl) (g: v -> pcomp v cl)
   : pcomp v cl
@@ -1092,11 +1477,17 @@ let papply_t (v cl: Type) = cl -> list v -> (v -> pcomp v cl) -> pcomp v cl
  * are opaque closures and every fixture supplies its own -- and it is a smaller
  * trade than leaving the nine conditions unchecked. The laws quantify over the
  * lookup, so they are strictly stronger than they were.
+ *
+ * *B1.6 widened the argument to a `ptable`*, so that a lookup CAN tell two
+ * prompts apart -- see `ptable`, where the reason and the price are set out. The
+ * reference lookup below ignores the widening.
  *)
-let plookup_t (cl: Type) = handlers cl -> string -> string -> option (found_clause cl)
+let plookup_t (cl: Type) = ptable cl -> string -> string -> option (found_clause cl)
 
-(** **The reference lookup**: the table as it ships. *)
-let pref_lookup (#cl: Type) : plookup_t cl = fun hs eff op -> lookup_handler hs eff op
+(** **The reference lookup**: the table as it ships, and only the table as it
+    ships. `binds` is not read here and is not read by any transition; it exists
+    for the fixtures' own lookup and for nothing else. *)
+let pref_lookup (#cl: Type) : plookup_t cl = fun tbl eff op -> lookup_handler tbl.hs eff op
 
 (** The prompt holding the handler for this action, and the stack split there:
     `(captured, found, below)`, captured including the prompt. The shipped
@@ -1104,23 +1495,32 @@ let pref_lookup (#cl: Type) : plookup_t cl = fun hs eff op -> lookup_handler hs 
     not, because nothing here proves progress and a refinement nobody spends is
     a refinement that has to be maintained.
 
-    The three protocol frames fall through the catch-all, and must: a boundary
+    The four protocol frames fall through the catch-all, and must: a boundary
     that stopped the search would delimit effects it has no business delimiting
     -- the scope's operations are meant to reach the layer handlers, which is the
     whole point of weaving -- and a captured segment that stopped short of the
     boundary would not put the boundary back on resumption, which is what makes
-    the second and later requests happen. *)
+    the second and later requests happen.
+
+    **`PScopeF` falls through too, and in B1.6 that is the single line that makes
+    requirement 5 come out.** An operation the plan does not handle walks past
+    the owner, past the scope floor, and on into the AMBIENT stack, where an
+    enclosing prompt may take it. Under B1.5 there was nothing below the floor to
+    walk into. Because the floor is inside the segment such a handler captures,
+    resuming re-installs the whole scope above that handler's own pending frames
+    -- which is requirement 6, and it is not arranged anywhere: it is what
+    capturing a segment already means. *)
 let rec pfind_prompt (#v #cl: Type) (lk: plookup_t cl) (eff op: string) (k: pstack v cl)
   : Tot (option (pstack v cl & found_clause cl & pstack v cl)) (decreases k)
   = match k with
     | [] -> None
-    | PPromptF hs ret prov :: rest ->
-      (match lk hs eff op with
-        | Some c -> Some ([PPromptF hs ret prov], c, rest)
+    | PPromptF tbl ret prov :: rest ->
+      (match lk tbl eff op with
+        | Some c -> Some ([PPromptF tbl ret prov], c, rest)
         | None ->
           (match pfind_prompt lk eff op rest with
             | None -> None
-            | Some (cap, c, below) -> Some (PPromptF hs ret prov :: cap, c, below)))
+            | Some (cap, c, below) -> Some (PPromptF tbl ret prov :: cap, c, below)))
     | f :: rest ->
       (match pfind_prompt lk eff op rest with
         | None -> None
@@ -1158,28 +1558,141 @@ let rec pset_param (#v #cl: Type) (l: string) (x: v) (k: pstack v cl)
  *
  * **There is no label, and the discipline that makes that safe is stated here
  * and NOT PROVED.** The invariant is: a mode marker is installed by `ctx_drive`
- * immediately beneath the residual it drives, and a residual is produced by
- * `enter_ctx_C` on a stack whose bottom is empty. Under that invariant no other
- * residual's marker can lie between a marker frame and its own, because a marker
- * belonging to some other context is either above the frame in question -- in
- * which case it has been popped before the frame is reached -- or below that
- * context's own residual, which the frame in question is not inside.
+ * immediately beneath the residual it drives, so no other residual's marker can
+ * lie between a marker frame and its own.
+ *
+ * **B1.6 BOTH endangered this and made it smaller, and it is worth being exact
+ * about which.** Endangered: under B1.5 production ran on an EMPTY stack, so
+ * during production there was provably no marker anywhere below, and the search
+ * could only ever find the marker of the residual currently being driven. Under
+ * B1.6 production runs on the LIVE stack, and a scope entered from inside a
+ * consumption has that consumption's marker somewhere beneath it -- so an
+ * unguarded search would let an inner boundary be answered by an outer
+ * consumer's responder, which is a genuine confusion of `MResume` with
+ * `MExtend`.
+ *
+ * Made smaller: the guard is the `PScopeF` arm below. A scope floor terminates
+ * the search, and a floor is exactly the frame that separates a scope's own
+ * stack from everything it was entered on top of. So what has to be true is now
+ * BRACKET-LOCAL -- "between a boundary or site frame and the marker that answers
+ * it there is no scope floor" -- rather than a claim about every residual in the
+ * program. That is B2a's to prove, and it is a smaller obligation than the one
+ * B1.5 left; it is still not proved here.
  *
  * Labels would settle it rather than argue it, and the file already has the
  * idiom: `PNewP` takes a label the surface supplies, and
  * `Hoop.Runtime.Syntax.NewP` does the same. What stopped B1.5 from taking that
  * route is that a label would have to be generated per scope entry, which means
- * either a counter in the machine or a `string` argument on `o_enter_ctx`, and
- * the second puts a name in the statement of all four laws for the sake of a
- * case no fixture reaches. If B2 finds a program that breaks the invariant, the
- * repair is a label and it is local to three frames and one search.
+ * either a counter in the machine or a `string` argument on production, and the
+ * second puts a name in the statement of all four laws for the sake of a case no
+ * fixture reaches. If B2a finds a program that breaks the invariant, the repair
+ * is a label and it is local to four frames and one search.
  *)
 let rec pfind_mode (#v #cl: Type) (k: pstack v cl)
   : Tot (option (weave_mode & (v -> pcomp v cl))) (decreases k)
   = match k with
     | [] -> None
     | PModeF m r :: _ -> Some (m, r)
+    | PScopeF _ :: _ -> None
     | _ :: rest -> pfind_mode rest
+
+(**
+ * **The scope floor, and the split there** -- the other half of production, and
+ * the one that has no counterpart at all in B1.5.
+ *
+ * `(above, kf, below)`: everything strictly above the nearest floor, the
+ * continuation that floor is holding, and everything strictly below it. The
+ * floor itself is dropped, because control is leaving the scope through it and a
+ * second token would otherwise be produced when the consumer's answer drains
+ * past.
+ *
+ * **`above` is the residual, and `below` is why the truncation objection B1.5
+ * raised does not apply.** B1.5 argued that running production on top of the
+ * ambient stack and truncating at a marker is not well defined: if an ambient
+ * handler reached during production is not tail-resumptive, its pending frames
+ * lie BELOW the marker, and a meta-level production -- which must return a
+ * `pctx` and has nowhere to put the rest of the machine -- would discard them.
+ * The argument is correct and it is an argument against RETURNING, not against
+ * cutting. Here nothing is returned: `below` is the stack the machine goes on
+ * running on, so those pending frames are not discarded, they are where control
+ * resumes. `fixture_10_outer_handler` is that sentence as a value.
+ *
+ * **A GAP, RECORDED BECAUSE IT WAS LOOKED FOR AND NOT FOUND.** "Nearest" is
+ * written here, and NO FIXTURE IN THIS FILE SEPARATES IT FROM "FARTHEST".
+ * Rewriting this function to cut at the outermost floor instead was tried and
+ * the module still verifies: on `prog_two_floors`, the one program that has two
+ * floors alive at once, both versions compute `own(k(m(leaf v)))`. What appears
+ * to happen is that cutting too far merely defers the inner cut by one round --
+ * the inner floor is still inside the residual, so the inner boundary yields
+ * again as soon as the outer consumer drives it -- and on a well-bracketed
+ * program the two reconverge. That is AN OBSERVATION ABOUT TWO RUNS and
+ * emphatically not a theorem. It is the same shape as B2a's well-bracketing
+ * obligation and is recorded here so that B2a knows this discipline is chosen
+ * rather than forced by anything this file checks.
+ *)
+let rec pcut_scope (#v #cl: Type) (k: pstack v cl)
+  : Tot (option (pstack v cl & pcomp v cl & pstack v cl)) (decreases k)
+  = match k with
+    | [] -> None
+    | PScopeF kbody :: rest -> Some ([], kbody, rest)
+    | f :: rest ->
+      (match pcut_scope rest with
+        | None -> None
+        | Some (above, kbody, below) -> Some (f :: above, kbody, below))
+
+(**
+ * **The context in scope**, searched exactly as a cell is.
+ *
+ * The nearest `PTokenF`, and there is no label -- the same discipline, and the
+ * same unproved obligation, as `pfind_mode`. It is a smaller one here: a token
+ * frame is installed by production directly beneath the continuation it was
+ * produced for, and every consuming node is written INSIDE that continuation, so
+ * "the nearest token is this scope's" fails only for a program that opens a
+ * second scope around a consumer and consumes the outer one from inside it --
+ * which the defunctionalisation makes inexpressible rather than wrong, since
+ * there is no syntax for naming the outer token.
+ *)
+let rec pfind_token (#v #cl: Type) (k: pstack v cl)
+  : Tot (option (pctx v cl)) (decreases k)
+  = match k with
+    | [] -> None
+    | PTokenF cx :: _ -> Some cx
+    | _ :: rest -> pfind_token rest
+
+(** **The action a consumer with no context in scope degenerates to.** It is an
+    ordinary `PPerform` under a reserved label, in the style of
+    `Hoop.Runtime.Semantics.var_eff`, so the machine reports it as `PStuck` with
+    a name a reader can act on rather than through a state of its own. It is
+    unreachable from a well-formed clause -- a consuming node only occurs in a
+    production's continuation -- and `fixture_9_consumer_without_token` is the
+    check that it is reported rather than silently mistaken for something else. *)
+let pctx_eff : string = "%hoop.ctx"
+let pctx_missing_op : string = "no-context-in-scope"
+
+(**
+ * **Forming the token at a frame that has no consumer** -- the shared tail of the
+ * `PBoundaryF` and `PSiteF` value rules.
+ *
+ * `hd` is the frame the value arrived at, and it goes into the residual as its
+ * head: the residual begins with the frame whose meaning the consumer decides,
+ * which is what `ctx_drive` relies on when it splices the residual back and
+ * hands the value to it.
+ *
+ * `post` starts as `PVar`, the inner monad's `pure`; extensions compose onto it
+ * (see `extend_ctx_C`).
+ *
+ * With no floor to cut at there is no continuation to produce a token for, and
+ * the machine answers `PPaused`. No transition of this machine builds such a
+ * stack -- a boundary or a site frame is only ever pushed by `PEnterCtx`, which
+ * pushes a floor beneath it, or restored by a splice of frames that were pushed
+ * that way. This arm is a totality obligation, and
+ * `fixture_9_paused_is_unreachable` checks that the fixtures do not reach it.
+ *)
+let pyield (#v #cl: Type) (x: v) (hd: pframe v cl) (rest: pstack v cl) : pstate v cl
+  = match pcut_scope rest with
+    | None -> PPaused x (hd :: rest)
+    | Some (above, kbody, below) ->
+      PStep kbody (PTokenF (PCtxRequests x (hd :: above) (PVar #v #cl)) :: below)
 
 (** The delimited continuation handed to a clause, named for the reason
     `Hoop.Runtime.Semantics.kont_of` is named: a top-level symbol, so that facts
@@ -1202,19 +1715,34 @@ let pkont_of (#v #cl: Type) (captured: pstack v cl) (x: v) : pcomp v cl
  * `plan_enter_frames` would be a second definition of what a tactic MEANS, and
  * the whole point is that there is exactly one.
  *
- * **The three new value rules are the protocol**, and they are the only rules in
- * the machine that consult something other than the frame in front of them:
+ * **The value rules are the protocol**, and they are the only rules in the
+ * machine that consult something other than the frame in front of them:
  *
  *   - `PModeF` is inert. A value passing a marker is a protocol that has
  *     finished; the marker is popped like a cell.
- *   - `PBoundaryF` with no mode in scope PAUSES -- this is where a context comes
- *     from. With a mode in scope it hands the value to that mode's responder and
- *     CONTINUES UNDER THE REST OF THE STACK, marker included, so the next
- *     boundary hit finds the same marker.
- *   - `PSiteF` with no mode in scope pauses too, and for the same reason: the
+ *   - `PBoundaryF` with a mode in scope hands the value to that mode's responder
+ *     and CONTINUES UNDER THE REST OF THE STACK, marker included, so the next
+ *     boundary hit finds the same marker. With no mode in scope it YIELDS: the
+ *     stack is cut at the scope floor and the token goes to the floor's
+ *     continuation.
+ *   - `PSiteF` with no mode in scope yields too, and for the same reason: the
  *     layers have finished, a recorded perform-site frame is next, and whether
  *     it fires is not yet known. With a mode in scope it is a `PBindF` under
  *     `MResume` and a no-op under `MExtend`.
+ *   - `PScopeF` reached by a value DIRECTLY is a scope that drained without ever
+ *     asking for anything: the token is `PCtxDone`, and the floor becomes a
+ *     `PTokenF` beneath the continuation. This is the rule that used to be
+ *     `PDone y -> PCtxDone y` in B1.5's `pctx_of_state`, and the difference is
+ *     that "the machine finished" and "the scope finished" are no longer the same
+ *     event -- there is a stack below.
+ *   - `PTokenF` is inert, like a cell. A clause that produces a context and then
+ *     returns without consuming it drops it, which is what it should do.
+ *
+ * **`PEnterCtx` is the whole of production and it is four frames.** Boundary on
+ * top, the plan's protocol frames beneath it, the floor beneath those, and the
+ * ambient stack -- UNTOUCHED -- beneath that. No fuel, no lookup, no clause
+ * interpreter, no `psteps`. The rule cannot inspect `body`, only push frames
+ * under it.
  *
  * Nothing here looks inside a clause and nothing here assumes what `apply`
  * returns; see the note at `papply_t`.
@@ -1229,7 +1757,7 @@ let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v 
     | PStep c k ->
       match c with
       | POp comp fn -> PStep comp (PBindF fn :: k)
-      | PHandle hs ret prov body -> PStep body (PPromptF hs ret prov :: k)
+      | PHandle tbl ret prov body -> PStep body (PPromptF tbl ret prov :: k)
       | PPerform eff op payload ->
         (match pfind_prompt lk eff op k with
           | None -> PStuck eff op
@@ -1237,6 +1765,12 @@ let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v 
             (match found.kind with
               | KScoped -> PRejected (ClauseKindMismatch eff op KOrdinaryOperation KScoped)
               | _ -> PStep (apply found.body payload (pkont_of captured)) below))
+      // **An observation.** The event is invisible to `pstep`, which reports only
+      // a state; `pstep_tr` below is what reports it, and `prun` is what
+      // accumulates. Keeping the event out of `pstate` is what makes requirement
+      // 1 -- the trace is not preserved into the residual -- true by the TYPE of
+      // the residual rather than by a check on its contents.
+      | PEmit _ body -> PStep body k
       // **Entering a scope**: build the plan, then run the body under it. The
       // plan is what can fail, and it fails into the rejection the shipped
       // machine already produces -- the origin naming the scope, the labels
@@ -1245,21 +1779,38 @@ let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v 
         (match plan_of ints own with
           | Inl (MonomorphicLayer bs) -> PRejected (UnborrowableScope oeff oop bs)
           | Inr pl -> PStep (enter_C pl body) k)
-      | PExtendC pl cx g -> PStep (extend_C pl cx g) k
-      | PResumeC pl cx kk -> PStep (resume_C pl cx kk) k
+      | PEnterCtx pl body kbody ->
+        PStep body (PBoundaryF :: (plan_protocol_frames pl @ (PScopeF kbody :: k)))
+      // The three consuming rules, and each is: find the context in scope, then
+      // appeal to the operation ONCE. A rule that inlined `ctx_drive` would be a
+      // second definition of what a tactic means.
+      | PExtendC pl g ->
+        (match pfind_token k with
+          | None -> PStuck pctx_eff pctx_missing_op
+          | Some cx -> PStep (extend_C pl cx g) k)
+      | PExtendCtxC pl g kbody ->
+        (match pfind_token k with
+          | None -> PStuck pctx_eff pctx_missing_op
+          | Some cx -> PStep kbody (PTokenF (extend_ctx_C pl cx g) :: k))
+      | PResumeC pl kk ->
+        (match pfind_token k with
+          | None -> PStuck pctx_eff pctx_missing_op
+          | Some cx -> PStep (resume_C pl cx kk) k)
       | PVar value ->
         (match k with
           | [] -> PDone value
           | PBindF fn :: rest -> PStep (fn value) rest
           | PParamF _ _ :: rest -> PStep (PVar value) rest
           | PModeF _ _ :: rest -> PStep (PVar value) rest
+          | PTokenF _ :: rest -> PStep (PVar value) rest
+          | PScopeF kbody :: rest -> PStep kbody (PTokenF (PCtxDone value) :: rest)
           | PBoundaryF :: rest ->
             (match pfind_mode rest with
-              | None -> PPaused value k
+              | None -> pyield value PBoundaryF rest
               | Some (_, respond) -> PStep (respond value) rest)
           | PSiteF fn :: rest ->
             (match pfind_mode rest with
-              | None -> PPaused value k
+              | None -> pyield value (PSiteF fn) rest
               | Some (MResume, _) -> PStep (fn value) rest
               | Some (MExtend, _) -> PStep (PVar value) rest)
           | PPromptF _ ret _ :: rest ->
@@ -1277,6 +1828,27 @@ let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v 
           | None -> PStuck var_eff l
           | Some k' -> PStep (PVar x) k')
 
+(**
+ * **The same transition, reporting what it observed** -- the instrument, and the
+ * whole of B1.6's answer to requirements 1 to 4.
+ *
+ * It is a WRAPPER and not a second copy of `pstep`: exactly one node emits, so
+ * exactly one case has to be intercepted, and every other transition is `pstep`'s
+ * verbatim. A duplicated step relation would be two definitions of the semantics
+ * that could drift, and the file would then be measuring one of them while the
+ * laws spoke about the other.
+ *
+ * The event list is `[]` or a singleton. It is a list rather than an `option` so
+ * that `prun` accumulates with `@` and the trace of a run is literally the
+ * concatenation of the traces of its steps -- which is what makes "this event
+ * appears once" a statement about a list and not about a counter.
+ *)
+let pstep_tr (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (s: pstate v cl)
+  : Tot (pstate v cl & list string)
+  = match s with
+    | PStep (PEmit ev body) k -> (PStep body k, [ev])
+    | _ -> (pstep lk apply s, [])
+
 (** The iteration of `pstep`, cut off at `fuel` transitions -- the shape of
     `Hoop.Runtime.Semantics.steps`, so that the laws below can be stated in the
     same idiom the shipped monad laws are stated in. `PPaused` is terminal, or
@@ -1292,6 +1864,39 @@ let rec psteps (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
       | PStuck _ _ -> s
       | PRejected _ -> s
       | PStep _ _ -> psteps lk apply (fuel - 1) (pstep lk apply s)
+
+(**
+ * **The same iteration, keeping the trace** -- the driver requirement 1 is about.
+ *
+ * The trace is a SECOND RESULT of the driver and is not part of any state, of
+ * any frame, or of a `pctx`. That is requirement 1 discharged by construction:
+ * "the observation trace is not preserved into the residual" is not a property
+ * that had to be checked of the residual, because there is nowhere in a residual
+ * for it to be. A residual re-driven emits what the transitions it then takes
+ * emit, and nothing else -- so an emission its prefix already made cannot come
+ * back. `fixture_11_prefix_event_once` is the run that exhibits it, and
+ * `fixture_12_suspension_emits_twice` is the control that shows the instrument
+ * is measuring something.
+ *
+ * `psteps` above is kept and is not defined through this one. The laws are stated
+ * over `pconverges`, which is about values, and threading a trace through them
+ * would make every law also a statement about observations -- which is a
+ * different and much stronger claim than B2 is being asked for.
+ *)
+let rec prun (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+             (fuel: nat) (s: pstate v cl)
+  : Tot (pstate v cl & list string) (decreases fuel)
+  = if fuel = 0 then (s, [])
+    else
+      match s with
+      | PDone _ -> (s, [])
+      | PPaused _ _ -> (s, [])
+      | PStuck _ _ -> (s, [])
+      | PRejected _ -> (s, [])
+      | PStep _ _ ->
+        let (s', ev) = pstep_tr lk apply s in
+        let (sf, tr) = prun lk apply (fuel - 1) s' in
+        (sf, ev @ tr)
 
 (** **Loading a program.** *)
 let pload (#v #cl: Type) (c: pcomp v cl) : pstate v cl = PStep c []
@@ -1315,67 +1920,6 @@ let rec pcost (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
             | Some n -> Some (n + 1))
 
 (* ------------------------------------------------------------------ *)
-(*  Producing a context                                                *)
-(* ------------------------------------------------------------------ *)
-
-(** **A settled machine state, read as a context.** The one place the three
-    shapes of `pctx` are decided, so that no operation has to re-decide it. *)
-let pctx_of_state (#v #cl: Type) (post: v -> pcomp v cl) (s: pstate v cl) : pctx v cl
-  = match s with
-    | PDone y -> PCtxDone y
-    | PPaused x resid -> PCtxRequests x resid post
-    | _ -> PCtxLost s
-
-(**
- * **The context that entering produces**, and the only operation that RUNS
- * anything.
- *
- * The inner computation is loaded with the boundary marker beneath it and the
- * plan's protocol frames beneath that, so a value leaving the scope meets the
- * boundary FIRST and the layers only afterwards. The machine is then run until
- * it settles, and whatever it settled as is the context. Nothing is built as
- * syntax: the residual is a machine configuration because a machine produced it,
- * which is the entire difference from the withdrawn suspension.
- *
- * `post` starts as `PVar`, the inner monad's `pure`. Extensions compose onto it;
- * see `extend_ctx_C`.
- *
- * **Condition 9, again.** The plan's frames and the boundary marker are all the
- * machine's own; the inner computation is run, not read; and no clause is
- * examined on the way. The only new obligation on the surface is the one the
- * design already anticipated -- that the FFI receive an opaque token.
- *
- * **The limitation this operation has, stated rather than discovered.**
- * Production runs with an EMPTY stack beneath the plan. So an operation the
- * inner computation performs before the first pause, which no plan prompt
- * handles, is `PStuck` here -- and hence `PCtxLost` -- where the real machine
- * would have carried it outward to a handler beyond the owner. After the first
- * pause the question does not arise: a consumer splices the residual into the
- * live stack, and everything outward is visible again.
- *
- * The obvious repair -- run production on top of the ambient stack and truncate
- * the residual at a marker -- is NOT well defined, and it is worth writing down
- * why rather than leaving it to be re-derived. If production dispatches to an
- * ambient handler that is tail-resumptive, the stack it resumes onto is the
- * stack it captured from, the marker is back where it was, and truncation is
- * exact. If that handler is not tail-resumptive, its own pending frames sit
- * BELOW the marker, and truncating discards them -- the ambient handler's
- * unfinished work would silently vanish. So the repair is correct exactly when
- * every ambient handler reached during production is tail-resumptive, which is
- * a condition on a stack the plan deliberately does not classify.
- *
- * `settles` below is exactly this restriction, and the four laws carry it as a
- * hypothesis rather than pretending it is not there.
- *)
-let enter_ctx_C
-    (#v #cl: Type)
-    (lk: plookup_t cl) (apply: papply_t v cl) (fuel: nat)
-    (pl: plan v cl) (c: pcomp v cl)
-  : pctx v cl
-  = pctx_of_state (PVar #v #cl)
-      (psteps lk apply fuel (PStep c (PBoundaryF :: plan_protocol_frames pl)))
-
-(* ------------------------------------------------------------------ *)
 (*  The operations as data                                             *)
 (*                                                                     *)
 (*  The laws are stated over this record rather than over the five      *)
@@ -1385,32 +1929,44 @@ let enter_ctx_C
 (*  implementation can be plugged into and fail. Two wrong ones are      *)
 (*  supplied below for exactly that purpose.                            *)
 (*                                                                     *)
-(*  `o_enter_ctx` takes the lookup, the clause interpreter and a fuel    *)
-(*  bound, and the other four take none of them. That asymmetry is the   *)
-(*  representation showing through and is worth keeping rather than      *)
-(*  smoothing over: exactly one of the five operations runs the machine, *)
-(*  and it is the one that reads the plan. Carrying `apply` as a FIELD   *)
-(*  was the alternative and was rejected -- the laws already take an     *)
-(*  `apply` for `pobs_eq`, and two of them could then disagree, which is *)
-(*  a way for a law to be vacuously true that no reader would notice.    *)
+(*  IN B1.6 ALL FIVE FIELDS BUILD SYNTAX, AND NO FIELD MENTIONS A        *)
+(*  `pctx` AT ALL. B1.5's `o_enter_ctx` took a lookup, a clause          *)
+(*  interpreter and a fuel bound and returned a `pctx`, and the design   *)
+(*  note is right that this is detached evaluation visible in a type     *)
+(*  before any behaviour is examined: an operation that needs the        *)
+(*  interpreter is an operation that RUNS the program. Every field is    *)
+(*  now `... -> pcomp v cl`, so an implementation cannot run anything,   *)
+(*  because it is not given anything to run with. That is the stop       *)
+(*  condition, enforced by the record's type rather than by a reading of *)
+(*  its inhabitants.                                                     *)
+(*                                                                     *)
+(*  The `pctx` arguments went with the defunctionalisation: a produced   *)
+(*  context is bound dynamically, so the three consuming operations say  *)
+(*  "the context in scope". `pobs_eq` is what quantifies over WHICH      *)
+(*  context that is -- it ranges over every stack, and a stack is where  *)
+(*  a token lives -- so the laws below lost a parameter and gained       *)
+(*  nothing they have to assume. The functions `extend_C`,               *)
+(*  `extend_ctx_C` and `resume_C` still take an explicit context: they   *)
+(*  are the MEANINGS the transitions delegate to, and the laws speak of  *)
+(*  the nodes.                                                           *)
 (* ------------------------------------------------------------------ *)
 
 noeq
 type ctx_ops (v: Type) (cl: Type) = {
   o_enter: plan v cl -> pcomp v cl -> pcomp v cl;
-  o_enter_ctx: plookup_t cl -> papply_t v cl -> nat -> plan v cl -> pcomp v cl -> pctx v cl;
-  o_extend: plan v cl -> pctx v cl -> (v -> pcomp v cl) -> pcomp v cl;
-  o_extend_ctx: plan v cl -> pctx v cl -> (v -> pcomp v cl) -> pctx v cl;
-  o_resume: plan v cl -> pctx v cl -> (v -> pcomp v cl) -> pcomp v cl;
+  o_enter_ctx: plan v cl -> pcomp v cl -> pcomp v cl -> pcomp v cl;
+  o_extend: plan v cl -> (v -> pcomp v cl) -> pcomp v cl;
+  o_extend_ctx: plan v cl -> (v -> pcomp v cl) -> pcomp v cl -> pcomp v cl;
+  o_resume: plan v cl -> (v -> pcomp v cl) -> pcomp v cl;
 }
 
 (** **The reference semantics**, as data. *)
 let ref_ops (#v #cl: Type) : ctx_ops v cl = {
   o_enter = enter_C;
   o_enter_ctx = enter_ctx_C;
-  o_extend = extend_C;
-  o_extend_ctx = extend_ctx_C;
-  o_resume = resume_C;
+  o_extend = extend_here_C;
+  o_extend_ctx = extend_ctx_here_C;
+  o_resume = resume_here_C;
 }
 
 (**
@@ -1431,6 +1987,12 @@ let ref_ops (#v #cl: Type) : ctx_ops v cl = {
  * layer, so every later operation, however correct in itself, operates on a
  * configuration that is missing the handlers.
  *
+ * **And in B1.6 it gets shorter still.** Its `o_enter_ctx` is now the reference
+ * NODE at a shorn plan -- the owner alone, with the layers thrown away -- rather
+ * than a second detached evaluator. There is nothing left in the field for an
+ * alternative implementation to be wrong in EXCEPT the plan it enters under,
+ * which is exactly the thing this counterexample is about.
+ *
  * **And nothing PURELY ALGEBRAIC rules it out, which is worth more than the
  * counterexample.** This algebra is wrong UNIFORMLY -- every context it produces
  * is plan-free and every operation over one is the reference operation -- so it
@@ -1448,16 +2010,13 @@ let ref_ops (#v #cl: Type) : ctx_ops v cl = {
  * which would therefore constrain nothing that mattered.
  *)
 let flat_ops (#v #cl: Type) : ctx_ops v cl =
-  let owner_only (pl: plan v cl) : list (pframe v cl) = [owner_frame (Plan?.owner pl)] in
+  let owner_only (pl: plan v cl) : plan v cl = Plan [] (Plan?.owner pl) in
   {
-    o_enter = (fun pl c -> PSplice (owner_only pl) c);
-    o_enter_ctx =
-      (fun lk apply fuel pl c ->
-         pctx_of_state (PVar #v #cl)
-           (psteps lk apply fuel (PStep c (PBoundaryF :: owner_only pl))));
-    o_extend = (fun pl cx g -> ctx_drive MExtend cx g);
-    o_extend_ctx = extend_ctx_C;
-    o_resume = (fun pl cx k -> ctx_drive MResume cx k);
+    o_enter = (fun pl c -> PSplice [owner_frame (Plan?.owner pl)] c);
+    o_enter_ctx = (fun pl c kbody -> PEnterCtx (owner_only pl) c kbody);
+    o_extend = extend_here_C;
+    o_extend_ctx = extend_ctx_here_C;
+    o_resume = resume_here_C;
   }
 
 (**
@@ -1481,17 +2040,11 @@ let flat_ops (#v #cl: Type) : ctx_ops v cl =
 let pointwise_ops (#v #cl: Type) : ctx_ops v cl = {
   o_enter = enter_C;
   o_enter_ctx = enter_ctx_C;
-  o_extend =
-    (fun pl cx g -> ctx_drive MExtend cx (fun x -> PSplice (plan_enter_frames pl) (g x)));
+  o_extend = (fun pl g -> PExtendC pl (fun x -> PSplice (plan_enter_frames pl) (g x)));
   o_extend_ctx =
-    (fun pl cx g ->
-       match cx with
-       | PCtxDone y -> PCtxDone y
-       | PCtxRequests x resid post ->
-         PCtxRequests x resid (fun z -> PSplice (plan_enter_frames pl) (pbind (post z) g))
-       | PCtxLost s -> PCtxLost s);
-  o_resume =
-    (fun pl cx k -> ctx_drive MResume cx (fun x -> PSplice (plan_resume_frames pl) (k x)));
+    (fun pl g kbody ->
+       PExtendCtxC pl (fun x -> PSplice (plan_enter_frames pl) (g x)) kbody);
+  o_resume = (fun pl k -> PResumeC pl (fun x -> PSplice (plan_resume_frames pl) (k x)));
 }
 
 (* ------------------------------------------------------------------ *)
@@ -1504,16 +2057,16 @@ let pointwise_ops (#v #cl: Type) : ctx_ops v cl = {
 (*  ranging over every handler context, INCLUDING the ones a plan       *)
 (*  re-enters.                                                          *)
 (*                                                                     *)
-(*  A NOTE THE NEXT MILESTONE NEEDS. This relation cannot see the       *)
-(*  defect B1 was withdrawn for. The machine is pure: a residual is an  *)
-(*  immutable value, so consuming one twice and re-running a suspension *)
-(*  twice produce the same answers, and `fixture_1_prefix_runs_once`    *)
-(*  checks that they do. Replay is a COST here and becomes an           *)
-(*  observation only where effects escape the plan -- which in the      *)
-(*  shipped runtime is every JS effect, and in this machine is nothing. *)
-(*  That is why fixture 1 is stated with `pcost` and not with           *)
-(*  `pobs_eq`, and why it would be wrong to claim `pobs_eq` separates   *)
-(*  the two representations.                                            *)
+(*  A NOTE B1.5 LEFT AND B1.6 ANSWERS ELSEWHERE. This relation still    *)
+(*  cannot see the defect B1 was withdrawn for. It observes VALUES, and *)
+(*  a replayed pure prefix returns what it returned before, so          *)
+(*  `pobs_eq` cannot separate the residual from the suspension and it   *)
+(*  would be wrong to claim it does. What B1.6 adds is not a stronger   *)
+(*  relation but a coarser observable: `PEmit` and `prun`, outside the  *)
+(*  value language entirely. Exact-once is `fixture_11` against         *)
+(*  `fixture_12`, on traces; `fixture_1_prefix_runs_once` stays as a    *)
+(*  regression test on cost and is no longer offered as the semantic    *)
+(*  statement.                                                          *)
 (* ------------------------------------------------------------------ *)
 
 let pconverges (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
@@ -1535,19 +2088,18 @@ let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
 (*  Each is a DEFINITION whose type is `prop`. None is a `val` without  *)
 (*  a proof, none is assumed, and NOTHING IN THIS MODULE DEPENDS ON ANY *)
 (*  OF THEM HOLDING: no operation, no transition, no fixture and no     *)
-(*  other definition mentions them. Proving them is B2's job. B1.5's    *)
-(*  job is to keep them STATABLE over the new representation, which is  *)
-(*  itself the check that the representation is right -- a              *)
-(*  representation that cannot express associativity has already        *)
-(*  failed, and one that can express it only of a fixed implementation  *)
-(*  cannot be used to rule a wrong one out.                             *)
+(*  other definition mentions them. Proving them is B2's job. B1.6's    *)
+(*  job, like B1.5's, is to keep them STATABLE -- a representation that *)
+(*  cannot express associativity has already failed, and one that can   *)
+(*  express it only of a fixed implementation cannot be used to rule a  *)
+(*  wrong one out.                                                      *)
 (*                                                                     *)
 (*  They are stated over `ctx_ops`, so `law_X ops ...` is a proposition *)
 (*  about an implementation. The intended readings are                  *)
 (*                                                                     *)
-(*    law_X lk apply fuel ref_ops ...       -- B2 proves these          *)
-(*    ~(law_X lk apply fuel pointwise_ops ...) -- refused by all four   *)
-(*    ~(law_X lk apply fuel flat_ops ...)   -- refused by the two       *)
+(*    law_X lk apply ref_ops ...             -- B2b proves these        *)
+(*    ~(law_X lk apply pointwise_ops ...)    -- refused by all four     *)
+(*    ~(law_X lk apply flat_ops ...)         -- refused by the two      *)
 (*                                       ANCHORED laws only:            *)
 (*                                       `law_assoc`'s second conjunct  *)
 (*                                       and                            *)
@@ -1560,13 +2112,35 @@ let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
 (*  operations -- and not all four may, or the laws would say no more   *)
 (*  than `ops == ref_ops`.                                             *)
 (*                                                                     *)
-(*  NEW IN B1.5: every law carries a `settles` hypothesis, and it is    *)
-(*  not decoration. Production is a detached run (see `enter_ctx_C`),   *)
-(*  so a law about a context built from an arbitrary `c` is false when  *)
-(*  `c` performs, before its first pause, an operation the plan does    *)
-(*  not handle. `settles` is exactly that condition and nothing wider:  *)
-(*  after the first pause the residual is spliced into a live stack and *)
-(*  every outward handler is visible again.                             *)
+(*  WHAT B1.6 CHANGED, AND IT IS THE SHAPE OF EVERY STATEMENT.          *)
+(*                                                                     *)
+(*  B1.5's laws read "produce a context, then consume it", with the     *)
+(*  production a meta-level term inside the proposition:                *)
+(*                                                                     *)
+(*    settles ... ==> pobs_eq lk apply                                  *)
+(*      (ops.o_extend pl (ops.o_enter_ctx lk apply fuel pl c) g) ...    *)
+(*                                                                     *)
+(*  Both the `fuel` and the `settles` are gone, and neither by          *)
+(*  weakening. A law now compares two PROGRAMS, and the production      *)
+(*  appears in the left-hand one as the node it is, with the consumption*)
+(*  written in the continuation it hands the token to. That is the same *)
+(*  shape the gate demands of the exact-once fixture, for the same      *)
+(*  reason: a token produced at the meta level invites F*'s             *)
+(*  normalisation to decide what the machine was supposed to.           *)
+(*                                                                     *)
+(*  `settles` -- "production performs no operation outside the plan" -- *)
+(*  IS REMOVED AND NOT WEAKENED. It was never a fact about the algebra; *)
+(*  it was the condition under which B1.5's detached production agreed  *)
+(*  with a real one, and there is no detached production left to        *)
+(*  disagree. The argument that it may go, STATED AND NOT PROVED: both  *)
+(*  sides of every law below are computations, `pobs_eq` plugs both     *)
+(*  into the SAME arbitrary stack `k`, and an operation the plan does   *)
+(*  not handle is then found by the same `pfind_prompt` walk on both    *)
+(*  sides -- so an unhandled operation can no longer make one side      *)
+(*  stuck while the other proceeds. What the laws now quantify over     *)
+(*  therefore includes every ambient handler context, which is strictly *)
+(*  more than B1.5 stated. Whether they HOLD there is B2b's, and this   *)
+(*  file does not claim it.                                            *)
 (*                                                                     *)
 (*  Two further laws belong to B3. `law_transparent_agrees` below is    *)
 (*  one of them and is stated, unproved, because gate condition 6 asks  *)
@@ -1574,19 +2148,6 @@ let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
 (*  needs the optimized machine that does not exist yet and is not      *)
 (*  stated at all.                                                      *)
 (* ------------------------------------------------------------------ *)
-
-(** **The side condition every law carries**: production settled. It fails
-    exactly when the detached production run got stuck, was rejected, or ran out
-    of fuel -- see `enter_ctx_C` for why the restriction exists and why the
-    obvious repair is not well defined. Written through `ops` rather than through
-    `enter_ctx_C` so that an alternative implementation is judged against its own
-    production. *)
-let settles
-    (#v #cl: Type)
-    (lk: plookup_t cl) (apply: papply_t v cl) (fuel: nat)
-    (ops: ctx_ops v cl) (pl: plan v cl) (c: pcomp v cl)
-  : GTot prop
-  = ~(PCtxLost? (ops.o_enter_ctx lk apply fuel pl c))
 
 (**
  * **Left identity, at a point.** A context holding just the value `x`, extended
@@ -1603,18 +2164,22 @@ let settles
  * does NOT rule out `flat_ops`, which ignores the plan on both sides equally.
  * That separation is deliberate; see the note on `flat_ops` for why not every
  * law should be anchored.
+ *
+ * The left-hand side is one PROGRAM: produce, and extend in the continuation
+ * that receives the token. That is B1.6's shape throughout, and it is what lets
+ * the hypothesis come off -- there is no longer a production that could have
+ * failed separately from the program it belongs to.
  *)
 let law_left_identity
     (#v #cl: Type)
-    (lk: plookup_t cl) (apply: papply_t v cl) (fuel: nat)
+    (lk: plookup_t cl) (apply: papply_t v cl)
     (ops: ctx_ops v cl)
     (pl: plan v cl)
     (x: v)
     (g: v -> pcomp v cl)
   : GTot prop
-  = settles lk apply fuel ops pl (PVar x) ==>
-    pobs_eq lk apply
-      (ops.o_extend pl (ops.o_enter_ctx lk apply fuel pl (PVar x)) g)
+  = pobs_eq lk apply
+      (ops.o_enter_ctx pl (PVar x) (ops.o_extend pl g))
       (ops.o_enter pl (g x))
 
 (**
@@ -1627,28 +2192,40 @@ let law_left_identity
  * is made of. An implementation free to choose its own context representation is
  * still bound by this.
  *
- * It is also the law that will make B2 prove the bridging fact of the whole
+ * It is also the law that will make B2b prove the bridging fact of the whole
  * B1.5 design: the left-hand side runs `c` under `plan_protocol_frames pl` in
  * `MExtend`, the right-hand side under `plan_enter_frames pl`, and the two agree
  * exactly because a `PSiteF` under `MExtend` is nothing at all.
+ *
+ * In B1.6 it acquires a second job, and it is the harder one: `c` is arbitrary,
+ * `pobs_eq` plugs both sides into an arbitrary stack, and the left-hand side
+ * runs `c` with a boundary, the plan and a floor above that stack while the
+ * right-hand side runs it with the plan alone. An operation of `c` that no plan
+ * prompt handles reaches the same ambient handler on both sides -- but on the
+ * left the segment that handler captures contains the scope's frames, so its
+ * resumption re-enters the scope, and on the right it does not have to. That
+ * they still agree is exactly what `settles` used to assume away.
  *)
 let law_right_identity
     (#v #cl: Type)
-    (lk: plookup_t cl) (apply: papply_t v cl) (fuel: nat)
+    (lk: plookup_t cl) (apply: papply_t v cl)
     (ops: ctx_ops v cl)
     (pl: plan v cl)
     (c: pcomp v cl)
   : GTot prop
-  = settles lk apply fuel ops pl c ==>
-    pobs_eq lk apply
-      (ops.o_extend pl (ops.o_enter_ctx lk apply fuel pl c) (PVar #v #cl))
+  = pobs_eq lk apply
+      (ops.o_enter_ctx pl c (ops.o_extend pl (PVar #v #cl)))
       (ops.o_enter pl c)
 
 (**
  * **Associativity of extension.** Two conjuncts, and the second is there because
  * the first was checked against the counterexample and found insufficient.
  *
- * *The algebraic half* quantifies over an ARBITRARY context and compares the
+ * *The algebraic half* quantifies over an ARBITRARY CONTEXT IN SCOPE -- and in
+ * B1.6 it does so without a parameter for it, because `pobs_eq` ranges over
+ * every stack and a token lives on a stack. Both sides are stuck at a stack with
+ * no token, which makes those cases vacuous rather than accidentally true. It
+ * compares the
  * CONTEXT PRODUCED by the first extension (`o_extend_ctx`) against the composite
  * function -- not two computations that happen to be built the same way. It is
  * what refuses `pointwise_ops`, the implementation that gives each leaf a fresh
@@ -1680,23 +2257,20 @@ let law_right_identity
  *)
 let law_assoc
     (#v #cl: Type)
-    (lk: plookup_t cl) (apply: papply_t v cl) (fuel: nat)
+    (lk: plookup_t cl) (apply: papply_t v cl)
     (ops: ctx_ops v cl)
     (pl: plan v cl)
-    (cx: pctx v cl)
     (c: pcomp v cl)
     (g h: v -> pcomp v cl)
   : GTot prop
-  = settles lk apply fuel ops pl c ==>
-    ( // the algebraic half -- any context, both sides built from `ops` alone
-      pobs_eq lk apply
-        (ops.o_extend pl (ops.o_extend_ctx pl cx g) h)
-        (ops.o_extend pl cx (fun x -> pbind (g x) h))
-      /\ // the anchored half -- one crossing of THIS plan, and no other
-      pobs_eq lk apply
-        (ops.o_extend pl
-          (ops.o_extend_ctx pl (ops.o_enter_ctx lk apply fuel pl c) g) h)
-        (PSplice (plan_enter_frames pl) (pbind (pbind c g) h)))
+  = // the algebraic half -- any context in scope, both sides built from `ops`
+    pobs_eq lk apply
+      (ops.o_extend_ctx pl g (ops.o_extend pl h))
+      (ops.o_extend pl (fun x -> pbind (g x) h))
+    /\ // the anchored half -- one crossing of THIS plan, and no other
+    pobs_eq lk apply
+      (ops.o_enter_ctx pl c (ops.o_extend_ctx pl g (ops.o_extend pl h)))
+      (PSplice (plan_enter_frames pl) (pbind (pbind c g) h))
 
 (**
  * **Resume agrees with the preserved continuation.**
@@ -1724,15 +2298,14 @@ let law_assoc
  *)
 let law_resume_matches_continuation
     (#v #cl: Type)
-    (lk: plookup_t cl) (apply: papply_t v cl) (fuel: nat)
+    (lk: plookup_t cl) (apply: papply_t v cl)
     (ops: ctx_ops v cl)
     (pl: plan v cl)
     (x: v)
     (k: v -> pcomp v cl)
   : GTot prop
-  = settles lk apply fuel ops pl (PVar x) ==>
-    pobs_eq lk apply
-      (ops.o_resume pl (ops.o_enter_ctx lk apply fuel pl (PVar x)) k)
+  = pobs_eq lk apply
+      (ops.o_enter_ctx pl (PVar x) (ops.o_resume pl k))
       (PSplice (plan_resume_frames pl) (k x))
 
 (**
@@ -1755,33 +2328,40 @@ let law_resume_matches_continuation
  *)
 let law_transparent_agrees
     (#v #cl: Type)
-    (lk: plookup_t cl) (apply: papply_t v cl) (fuel: nat)
+    (lk: plookup_t cl) (apply: papply_t v cl)
     (ops: ctx_ops v cl)
     (pl: plan v cl)
     (c: pcomp v cl)
   : GTot prop
-  = settles lk apply fuel ops pl c ==>
-    pobs_eq lk apply
-      (ops.o_extend pl (ops.o_enter_ctx lk apply fuel pl c) (PVar #v #cl))
+  = pobs_eq lk apply
+      (ops.o_enter_ctx pl c (ops.o_extend pl (PVar #v #cl)))
       (PSplice (plan_enter_frames pl) c)
 
 (* ------------------------------------------------------------------ *)
-(*  FIXTURES -- the nine gate conditions, CHECKED                      *)
+(*  FIXTURES -- the gate conditions, CHECKED                           *)
 (*                                                                     *)
 (*  Every claim below is an `assert_norm` over a concrete run, not a    *)
 (*  comment. The value and clause types are the prototype's `v` and     *)
 (*  `cl` instantiated at something computable, exactly as               *)
 (*  `Hoop.Runtime.Test` does for the shipped machine.                   *)
 (*                                                                     *)
-(*  ONE FIXTURE-SIDE RESTRICTION, recorded so that nobody reads more    *)
-(*  into these runs than they say. `flook` ignores its `handlers`       *)
-(*  argument -- it cannot do otherwise, since `handlers` is abstract    *)
-(*  and there is no way to tell two of them apart from outside          *)
-(*  `Hoop.Runtime.Handlers`. So every prompt in a fixture dispatches    *)
-(*  the same operations, and a fixture that needs a particular prompt   *)
-(*  to handle a particular operation arranges for that prompt to be the *)
-(*  innermost one at the point of the perform. That is a property of    *)
-(*  the fixtures, not of the machine.                                   *)
+(*  EVERY PRODUCTION BELOW IS IN THE OBJECT LANGUAGE. B1.5 wrote        *)
+(*  `let cx = fmk pl body` and then used `cx` twice, which asks F*'s    *)
+(*  normaliser -- and its sharing and substitution -- what the answer   *)
+(*  should be rather than asking the machine. There is no `fmk` any     *)
+(*  more and there cannot be one: production is a node, so a fixture    *)
+(*  is a closed `pcomp` and the token exists only during the run. Where *)
+(*  a fixture needs to inspect the token it does so from inside, in the *)
+(*  continuation the machine hands it to, and reports what it found as  *)
+(*  an ordinary value.                                                  *)
+(*                                                                     *)
+(*  THE B1.5 FIXTURE-SIDE RESTRICTION IS PARTLY LIFTED. B1.5 recorded   *)
+(*  that `flook` had to ignore its table argument, `handlers` being     *)
+(*  abstract, so every prompt dispatched the same operations. That is   *)
+(*  no longer true: `flook` reads `binds` off the `ptable`, so a        *)
+(*  fixture can put an effect outside a prompt's reach, which is what   *)
+(*  requirement 5 is about. What remains is that `binds` is supplied by *)
+(*  the fixture rather than derived from `hs` -- see `ptable`.          *)
 (* ------------------------------------------------------------------ *)
 
 type fv =
@@ -1791,9 +2371,11 @@ type fv =
   | FL: list fv -> fv
 
 (** The clause language the fixtures run with. Real clauses are opaque
-    PureScript closures; these are the four shapes the nine conditions need --
-    tail-resumptive, multi-shot, discarding, and the two that make a decision
-    AFTER a round trip. *)
+    PureScript closures; these are the shapes the conditions need --
+    tail-resumptive, multi-shot, discarding, the two that make a decision AFTER a
+    round trip, and (new in B1.6) one that resumes and then has work left, which
+    is what an outer handler needs in order for requirement 6 to have any
+    content. *)
 noeq
 type fcl =
   | FEcho                        (* resume with payload[0] -- tail-resumptive   *)
@@ -1801,6 +2383,7 @@ type fcl =
   | FAbort: fv -> fcl            (* never resume -- the `Full` shape            *)
   | FRetry                       (* resume again only if the first answer says  *)
   | FBetween                     (* resume, perform, resume                     *)
+  | FWrap                        (* resume, then WRAP -- pending frames below   *)
 
 let fneeds_retry (x: fv) : bool = match x with | FS "retry" -> true | _ -> false
 
@@ -1818,18 +2401,30 @@ let fapply : papply_t fv fcl = fun c payload k ->
     POp (k (FS "b1")) (fun r1 ->
       POp (PPerform "T" "mark" [FS "mid"]) (fun m ->
         POp (k (FS "b2")) (fun r2 -> PVar (FL [r1; m; r2]))))
+  // The `POp` is the point: `fun r -> wrap r` becomes a `PBindF` on the stack
+  // BELOW this clause's own prompt, so it is pending work that a resumption has
+  // to come back through. `FEcho` has none, which is why it cannot be used to
+  // check requirement 6.
+  | FWrap -> POp (k (FS "outer-ans")) (fun r -> PVar (FL [FS "wrap"; r]))
 
 let fclause (c: fcl) : found_clause fcl = { body = c; kind = KFull }
 
-let flook : plookup_t fcl = fun _ eff _ ->
-  match eff with
-  | "Two" -> Some (fclause (FTwice (FS "a") (FS "b")))
-  | "Abort" -> Some (fclause (FAbort (FS "aborted")))
-  | "Retry" -> Some (fclause FRetry)
-  | "Betw" -> Some (fclause FBetween)
-  | "Echo" -> Some (fclause FEcho)
-  | "T" -> Some (fclause FEcho)
-  | _ -> None
+(** The fixtures' lookup. It answers only for effects the table it is asked about
+    declares in `binds` -- which is what makes "the plan does not handle this
+    operation" a fact about a PROMPT here and not only about an effect label. *)
+let flook : plookup_t fcl = fun tbl eff _ ->
+  if eff `mem` tbl.binds
+  then
+    (match eff with
+      | "Two" -> Some (fclause (FTwice (FS "a") (FS "b")))
+      | "Abort" -> Some (fclause (FAbort (FS "aborted")))
+      | "Retry" -> Some (fclause FRetry)
+      | "Betw" -> Some (fclause FBetween)
+      | "Echo" -> Some (fclause FEcho)
+      | "T" -> Some (fclause FEcho)
+      | "Out" -> Some (fclause FWrap)
+      | _ -> None)
+  else None
 
 (** A REAL table, built through `Hoop.Runtime.Handlers.mk_handlers` with the real
     classifier, so that the classification fixture below is a statement about the
@@ -1837,9 +2432,18 @@ let flook : plookup_t fcl = fun _ eff _ ->
     table that is genuinely borrowable. *)
 let fhs : handlers fcl = mk_handlers #fcl (fun _ -> KFast) []
 
+(** The table every prompt inside a plan carries: the real one, declaring the
+    effects the fixtures' scopes perform -- and NOT `"Out"`. *)
+let ftbl : ptable fcl = { hs = fhs; binds = ["Two"; "Abort"; "Retry"; "Betw"; "Echo"; "T"] }
+
+(** The table an AMBIENT prompt carries: `"Out"` and nothing else, so an
+    operation of that effect performed inside a scope is refused by every plan
+    prompt and by the owner, and is taken here. *)
+let ftbl_out : ptable fcl = { hs = fhs; binds = ["Out"] }
+
 let fown_ret : option (fv -> pcomp fv fcl) = Some (fun x -> PVar (FL [FS "own"; x]))
-let fowner : powner fv fcl = POwner fhs fown_ret PFamily
-let fowner_plain : powner fv fcl = POwner fhs None PFamily
+let fowner : powner fv fcl = POwner ftbl fown_ret PFamily
+let fowner_plain : powner fv fcl = POwner ftbl None PFamily
 let fsite (x: fv) : pcomp fv fcl = PVar (FL [FS "site1"; x])
 let fsite2 (x: fv) : pcomp fv fcl = PVar (FL [FS "site2"; x])
 let fk (x: fv) : pcomp fv fcl = PVar (FL [FS "k"; x])
@@ -1848,37 +2452,40 @@ let fk (x: fv) : pcomp fv fcl = PVar (FL [FS "k"; x])
    frame sits BETWEEN the layer and the owner, which is the interleaving that
    makes the two projections differ and that no post-hoc re-insertion could
    reconstruct. *)
-let plan_L : plan fv fcl = Plan [PIReenter fhs None] fowner
-let plan_L0 : plan fv fcl = Plan [PIReenter fhs None] fowner_plain
-let plan_LB : plan fv fcl = Plan [PIReenter fhs None; PIBind fsite2] fowner
-let plan_T : plan fv fcl = Plan [PITransparent fhs] fowner_plain
+let plan_L : plan fv fcl = Plan [PIReenter ftbl None] fowner
+let plan_L0 : plan fv fcl = Plan [PIReenter ftbl None] fowner_plain
+let plan_LB : plan fv fcl = Plan [PIReenter ftbl None; PIBind fsite2] fowner
+let plan_T : plan fv fcl = Plan [PITransparent ftbl] fowner_plain
 let plan_M : plan fv fcl =
-  Plan [PIBind fsite; PICell "c" (FI 7); PIReenter fhs None; PIBind fsite2; PITransparent fhs]
+  Plan [PIBind fsite; PICell "c" (FI 7); PIReenter ftbl None; PIBind fsite2; PITransparent ftbl]
        fowner
 
 let frun (fuel: nat) (c: pcomp fv fcl) : pstate fv fcl = psteps flook fapply fuel (pload c)
 let fresult (s: pstate fv fcl) : option fv = match s with | PDone x -> Some x | _ -> None
-let fmk (pl: plan fv fcl) (c: pcomp fv fcl) : pctx fv fcl = enter_ctx_C flook fapply 400 pl c
+
+(** **The trace of a whole run**, which is the observable requirements 1 to 4 are
+    stated in. It is the driver's second result and comes from nowhere else. *)
+let ftrace (fuel: nat) (c: pcomp fv fcl) : list string = snd (prun flook fapply fuel (pload c))
 
 (* ---- 1 / 8. The protected prefix runs once, and the context is multi-shot
    FROM THE SAVED POINT.
 
-   THE FINDING THIS FIXTURE RECORDS, and it is the reason the condition is not
-   checked the way it was posed. This machine is pure. A residual is an immutable
-   value, so consuming one twice is not distinguishable, BY ANY OBSERVATION THIS
-   FILE CAN MAKE, from re-running a suspension twice: `fixture_1_same_answer`
-   below checks that the two representations return the SAME value. Replay
-   becomes observable only where an effect escapes the plan, which in the shipped
-   JS runtime is every effect and in this machine is none.
+   THIS FIXTURE IS DEMOTED IN B1.6, AND THE DEMOTION IS THE POINT. B1.5 could not
+   state exact-once as an OBSERVATION -- the machine was pure, so a residual
+   consumed twice and a suspension re-run twice returned the same value, and
+   `pobs_eq` sees only values. It therefore stated the claim about WORK, with
+   `pcost`, and recorded honestly that a transition count is not a semantic
+   acceptance criterion: counts move when bookkeeping frames are added, and "did
+   less work" is not "ran once".
 
-   So the claim is made about WORK, and `pcost` is what makes it checkable.
-   `body1 n` is a prefix of `n` trivial binds in front of the operation the layer
-   handles. Lengthening the prefix by four units costs the residual eight
-   transitions -- one copy -- and costs the suspension sixteen -- two. The slope
-   is the claim; the intercepts are not, and are not equal (the residual pays a
-   small constant for the boundary and mode frames, and at n = 1 it is in fact
-   two transitions dearer overall). Reporting the intercept as if it were the
-   result would be rounding the answer in the wrong direction. ---- *)
+   The semantic statement is now `fixture_11_prefix_event_once` against
+   `fixture_12_suspension_emits_twice`, on traces. What survives here is a
+   PERFORMANCE / STRUCTURE REGRESSION TEST THAT PREFIX WORK IS SHARED: `body1 n`
+   is a prefix of `n` trivial binds in front of the operation the layer handles,
+   and lengthening the prefix by four units costs the residual route one copy and
+   the suspension route exactly two. The slope is the claim; the intercepts are
+   not, and are not equal. Reporting the intercept as if it were the result would
+   be rounding the answer in the wrong direction. ---- *)
 
 let rec pchain (n: nat) (c: pcomp fv fcl) : Tot (pcomp fv fcl) (decreases n)
   = if n = 0 then c else POp (PVar FU) (fun _ -> pchain (n - 1) c)
@@ -1886,12 +2493,15 @@ let rec pchain (n: nat) (c: pcomp fv fcl) : Tot (pcomp fv fcl) (decreases n)
 let body1 (n: nat) : pcomp fv fcl =
   pchain n (POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x])))
 
-(* The residual route: ONE production, then two consumptions of the SAME
-   context -- an extension whose answer the program observes, and then a
-   resumption. This is `runScope` followed by `resumeScope`. *)
+(* The residual route, and in B1.6 it is ONE PROGRAM: production is a node, the
+   token is installed by the machine beneath the continuation, and the SAME token
+   is consumed twice -- an extension whose answer the program observes, and then
+   a resumption. This is `runScope` followed by `resumeScope`. Nothing is
+   produced at the meta level, so nothing about the answer is decided by F*'s
+   sharing or substitution. *)
 let prog1new (n: nat) : pcomp fv fcl =
-  let cx = fmk plan_L (body1 n) in
-  POp (extend_C plan_L cx (PVar #fv #fcl)) (fun _ -> resume_C plan_L cx fk)
+  enter_ctx_C plan_L (body1 n)
+    (POp (extend_here_C plan_L (PVar #fv #fcl)) (fun _ -> resume_here_C plan_L fk))
 
 (* The withdrawn route: the same two consumptions of the same unrun computation,
    which is what B1's `PCtx` made them. *)
@@ -1899,15 +2509,9 @@ let prog1old (n: nat) : pcomp fv fcl =
   POp (susp_extend plan_L (body1 n) (PVar #fv #fcl))
       (fun _ -> susp_resume plan_L (body1 n) fk)
 
-let prod1 (n: nat) : pstate fv fcl =
-  PStep (body1 n) (PBoundaryF :: plan_protocol_frames plan_L)
-
-(* Production is part of the residual route's bill and is counted with it. *)
-let cost_new (n: nat) : option nat =
-  match pcost flook fapply 4000 (prod1 n), pcost flook fapply 4000 (pload (prog1new n)) with
-  | Some a, Some b -> Some (a + b)
-  | _ -> None
-
+(* Production is inside the program now, so its cost is counted with it and there
+   is no second run to add on. *)
+let cost_new (n: nat) : option nat = pcost flook fapply 4000 (pload (prog1new n))
 let cost_old (n: nat) : option nat = pcost flook fapply 4000 (pload (prog1old n))
 
 let fixture_1_same_answer () : Lemma
@@ -1926,13 +2530,22 @@ let fixture_1_prefix_runs_once () : Lemma
             | Some a, Some b, Some c, Some d ->
               b - a == 8 /\ d - c == 16 /\ d - c == 2 * (b - a)
             | _ -> False))
-  = assert_norm (cost_new 1 == Some 43);
-    assert_norm (cost_new 5 == Some 51);
+  = assert_norm (cost_new 1 == Some 47);
+    assert_norm (cost_new 5 == Some 55);
     assert_norm (cost_old 1 == Some 41);
     assert_norm (cost_old 5 == Some 57)
 
+(* **How a fixture observes the SHAPE of a token without leaving the object
+   language.** There is no `cx` to write `PCtxRequests? cx` about: the token
+   exists only while the machine is running and cannot be named by a program. It
+   is observed by BEHAVIOUR instead, and the probe is enough to separate the two
+   shapes -- a `PCtxDone` absorbs the consumer's function and a `PCtxRequests`
+   applies it at every leaf, so `"applied"` appears in the answer exactly when
+   the token was a request. *)
+let fprobe (_: fv) : pcomp fv fcl = PVar (FS "applied")
+
 (* ---- 2. `firstOfTwo`: a clause that resumes twice produces two requests, in
-   order. The first request is what production paused on; the second happens
+   order. The first request is what production yielded on; the second happens
    because the layer resumed its own captured continuation, which carries the
    boundary frame with it. The consumer's `fk` runs at each, and the layer
    assembles them in the order they arrived. ---- *)
@@ -1940,15 +2553,18 @@ let fixture_1_prefix_runs_once () : Lemma
 let body2 : pcomp fv fcl =
   POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x]))
 
-let cx2 : pctx fv fcl = fmk plan_L body2
-let prog2 : pcomp fv fcl = resume_C plan_L cx2 fk
+let prog2 : pcomp fv fcl = enter_ctx_C plan_L body2 (resume_here_C plan_L fk)
+let prog2_probe : pcomp fv fcl = enter_ctx_C plan_L body2 (extend_here_C plan_L fprobe)
 
 let fixture_2_two_requests () : Lemma
-  (ensures fresult (frun 400 prog2)
+  (ensures fresult (frun 400 prog2_probe)
+             == Some (FL [FS "own"; FL [FS "applied"; FS "applied"]])
+        /\ fresult (frun 400 prog2)
            == Some (FL [FS "own";
                         FL [FL [FS "k"; FL [FS "leaf"; FS "a"]];
                             FL [FS "k"; FL [FS "leaf"; FS "b"]]]]))
-  = assert_norm (PCtxRequests? cx2);
+  = assert_norm (fresult (frun 400 prog2_probe)
+                 == Some (FL [FS "own"; FL [FS "applied"; FS "applied"]]));
     assert_norm (fresult (frun 400 prog2)
                  == Some (FL [FS "own";
                               FL [FL [FS "k"; FL [FS "leaf"; FS "a"]];
@@ -1966,8 +2582,10 @@ let fixture_2_two_requests () : Lemma
    before B1.5 began. ---- *)
 
 let body3 : pcomp fv fcl = POp (PPerform "Retry" "step" []) (fun x -> PVar x)
-let prog3a : pcomp fv fcl = resume_C plan_L (fmk plan_L body3) (fun _ -> PVar (FS "retry"))
-let prog3b : pcomp fv fcl = resume_C plan_L (fmk plan_L body3) (fun _ -> PVar (FS "stop"))
+let prog3a : pcomp fv fcl =
+  enter_ctx_C plan_L body3 (resume_here_C plan_L (fun _ -> PVar (FS "retry")))
+let prog3b : pcomp fv fcl =
+  enter_ctx_C plan_L body3 (resume_here_C plan_L (fun _ -> PVar (FS "stop")))
 
 let fixture_3_retry_on_failure () : Lemma
   (ensures fresult (frun 400 prog3a)
@@ -1987,7 +2605,7 @@ let fixture_3_retry_on_failure () : Lemma
    `"mid"` sits between the two answers rather than before or after both. ---- *)
 
 let body4 : pcomp fv fcl = POp (PPerform "Betw" "go" []) (fun x -> PVar (FL [FS "leaf"; x]))
-let prog4 : pcomp fv fcl = resume_C plan_L0 (fmk plan_L0 body4) fk
+let prog4 : pcomp fv fcl = enter_ctx_C plan_L0 body4 (resume_here_C plan_L0 fk)
 
 let fixture_4_effect_between_resumes () : Lemma
   (ensures fresult (frun 400 prog4)
@@ -2004,17 +2622,20 @@ let fixture_4_effect_between_resumes () : Lemma
 
    `FAbort` discards the continuation, so the scope never reaches the boundary
    and the protocol never asks for anything. At `plan_L` the layer's answer
-   drains through the owner and the context is `PCtxDone`; consuming it returns
-   that answer and applies nothing. This is the case B1's note said would
-   otherwise have needed a "no values to return" branch, and there is none. ---- *)
+   drains through the owner and then through the SCOPE FLOOR, which is the rule
+   that makes the token `PCtxDone`; consuming it returns that answer and applies
+   nothing. The probe run is what says "applies nothing": `"applied"` does not
+   occur in it. This is the case B1's note said would otherwise have needed a "no
+   values to return" branch, and there is none. ---- *)
 
 let body5 : pcomp fv fcl = POp (PPerform "Abort" "x" []) (fun x -> PVar (FL [FS "leaf"; x]))
-let cx5 : pctx fv fcl = fmk plan_L body5
-let prog5 : pcomp fv fcl = resume_C plan_L cx5 fk
+let prog5 : pcomp fv fcl = enter_ctx_C plan_L body5 (resume_here_C plan_L fk)
+let prog5_probe : pcomp fv fcl = enter_ctx_C plan_L body5 (extend_here_C plan_L fprobe)
 
 let fixture_5_never_resumes () : Lemma
-  (ensures fresult (frun 400 prog5) == Some (FL [FS "own"; FS "aborted"]))
-  = assert_norm (PCtxDone? cx5);
+  (ensures fresult (frun 400 prog5_probe) == Some (FL [FS "own"; FS "aborted"])
+        /\ fresult (frun 400 prog5) == Some (FL [FS "own"; FS "aborted"]))
+  = assert_norm (fresult (frun 400 prog5_probe) == Some (FL [FS "own"; FS "aborted"]));
     assert_norm (fresult (frun 400 prog5) == Some (FL [FS "own"; FS "aborted"]))
 
 (* ---- 5b. THE SAME CLAUSE, at a plan whose recorded bind frame lies between the
@@ -2022,27 +2643,30 @@ let fixture_5_never_resumes () : Lemma
    are still two.
 
    Production drains as before, but now it meets a `PSiteF` on the way out and
-   PAUSES there, because whether a perform-site bind fires is not production's
-   question. ONE residual is then consumed both ways: `resume_C` fires the site
-   frame and `extend_C` does not, so the answers differ. Under any representation
-   that had committed to a projection at production time, one of these two would
-   have been unavailable. ---- *)
+   YIELDS there, because whether a perform-site bind fires is not production's
+   question. ONE residual is then consumed both ways, in one program and from one
+   token: `resume_C` fires the site frame and `extend_C` does not, so the answers
+   differ. Under any representation that had committed to a projection at
+   production time, one of these two would have been unavailable.
 
-let cx5b : pctx fv fcl = fmk plan_LB body5
-let prog5b_resume : pcomp fv fcl = resume_C plan_LB cx5b fk
-let prog5b_extend : pcomp fv fcl = extend_C plan_LB cx5b fk
+   This is the fixture that breaks if `resume_here_C` and `extend_here_C` are
+   collapsed into one definition, which is why it is kept in exactly this shape:
+   one production, both consumers, and an explicit statement that the answers are
+   not equal. ---- *)
+
+let prog5b : pcomp fv fcl =
+  enter_ctx_C plan_LB body5
+    (POp (resume_here_C plan_LB fk) (fun a ->
+      POp (extend_here_C plan_LB fk) (fun b -> PVar (FL [a; b]))))
 
 let fixture_5b_never_resumes_with_bind () : Lemma
-  (ensures fresult (frun 400 prog5b_resume)
-             == Some (FL [FS "own"; FL [FS "site2"; FS "aborted"]])
-        /\ fresult (frun 400 prog5b_extend)
-             == Some (FL [FS "own"; FS "aborted"])
-        /\ fresult (frun 400 prog5b_resume) =!= fresult (frun 400 prog5b_extend))
-  = assert_norm (PCtxRequests? cx5b);
-    assert_norm (fresult (frun 400 prog5b_resume)
-                 == Some (FL [FS "own"; FL [FS "site2"; FS "aborted"]]));
-    assert_norm (fresult (frun 400 prog5b_extend)
-                 == Some (FL [FS "own"; FS "aborted"]))
+  (ensures fresult (frun 400 prog5b)
+           == Some (FL [FL [FS "own"; FL [FS "site2"; FS "aborted"]];
+                        FL [FS "own"; FS "aborted"]])
+        /\ FL [FS "own"; FL [FS "site2"; FS "aborted"]] =!= FL [FS "own"; FS "aborted"])
+  = assert_norm (fresult (frun 400 prog5b)
+                 == Some (FL [FL [FS "own"; FL [FS "site2"; FS "aborted"]];
+                              FL [FS "own"; FS "aborted"]]))
 
 (* ---- 6. A transparent plan agrees with the borrow.
 
@@ -2050,7 +2674,7 @@ let fixture_5b_never_resumes_with_bind () : Lemma
    `law_transparent_agrees`, and it is B3's.
 
    The first is structural: the frames a transparent item contributes are
-   `PPromptF hs None PMono`, which is frame for frame what
+   `PPromptF tbl None PMono`, which is frame for frame what
    `Hoop.Runtime.Semantics.borrow` produces for a borrowable prompt, and the same
    in all three projections -- a transparent layer has no bind frame to defer, so
    the three agree. The equality across the two ASTs cannot be written here
@@ -2062,29 +2686,31 @@ let fixture_5b_never_resumes_with_bind () : Lemma
 
    The classification is checked on a REAL table rather than on a hand-built
    `PITransparent`: `fhs` goes through `mk_handlers` with the real classifier,
-   and `classify_prompt PMono fhs None` really is `ContextTransparent`. ---- *)
+   and `classify_prompt PMono ftbl None` really is `ContextTransparent` -- the
+   `binds` field is not consulted, because the classification reads `hs`. ---- *)
 
 let body6 : pcomp fv fcl =
   POp (PPerform "Echo" "e" [FS "v"]) (fun x -> PVar (FL [FS "leaf"; x]))
 let prog6_enter : pcomp fv fcl = enter_C plan_T body6
-let prog6_residual : pcomp fv fcl = extend_C plan_T (fmk plan_T body6) (PVar #fv #fcl)
+let prog6_residual : pcomp fv fcl =
+  enter_ctx_C plan_T body6 (extend_here_C plan_T (PVar #fv #fcl))
 
 let fixture_6_transparent_classification () : Lemma
-  (ensures classify_prompt #fv #fcl PMono fhs None == ContextTransparent)
-  = assert (Nil? (blocking_effects fhs))
+  (ensures classify_prompt #fv #fcl PMono ftbl None == ContextTransparent)
+  = assert (Nil? (blocking_effects ftbl.hs))
 
 let fixture_6_transparent () : Lemma
   (ensures plan_enter_frames plan_T
-             == [PPromptF fhs None PMono; PPromptF fhs None PFamily]
+             == [PPromptF ftbl None PMono; PPromptF ftbl None PFamily]
         /\ plan_resume_frames plan_T == plan_enter_frames plan_T
         /\ plan_protocol_frames plan_T == plan_enter_frames plan_T
         /\ fresult (frun 400 prog6_enter) == fresult (frun 400 prog6_residual))
   = assert_norm (plan_enter_frames plan_T
-                 == [PPromptF fhs None PMono; PPromptF fhs None PFamily]);
+                 == [PPromptF ftbl None PMono; PPromptF ftbl None PFamily]);
     assert_norm (plan_resume_frames plan_T
-                 == [PPromptF fhs None PMono; PPromptF fhs None PFamily]);
+                 == [PPromptF ftbl None PMono; PPromptF ftbl None PFamily]);
     assert_norm (plan_protocol_frames plan_T
-                 == [PPromptF fhs None PMono; PPromptF fhs None PFamily]);
+                 == [PPromptF ftbl None PMono; PPromptF ftbl None PFamily]);
     assert_norm (fresult (frun 400 prog6_enter) == Some (FL [FS "leaf"; FS "v"]));
     assert_norm (fresult (frun 400 prog6_residual) == Some (FL [FS "leaf"; FS "v"]))
 
@@ -2107,90 +2733,88 @@ let fixture_6_transparent () : Lemma
    fact.
 
    The same context extended instead of resumed is `own([k(7, a); k(7, b)])` --
-   no site frames at all, and the layer and owner untouched. ---- *)
+   no site frames at all, and the layer and owner untouched. Both consumptions
+   are of ONE token, in one program. ---- *)
 
 let body7 : pcomp fv fcl =
   POp (PReadP "c") (fun cv -> POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [cv; x])))
-let cx7 : pctx fv fcl = fmk plan_M body7
-let prog7_resume : pcomp fv fcl = resume_C plan_M cx7 fk
-let prog7_extend : pcomp fv fcl = extend_C plan_M cx7 fk
+let prog7 : pcomp fv fcl =
+  enter_ctx_C plan_M body7
+    (POp (resume_here_C plan_M fk) (fun a ->
+      POp (extend_here_C plan_M fk) (fun b -> PVar (FL [a; b]))))
 
 let fixture_7_mixed_order_frames () : Lemma
   (ensures plan_enter_frames plan_M
              == [PParamF "c" (FI 7);
-                 PPromptF fhs None PFamily;
-                 PPromptF fhs None PMono;
-                 PPromptF fhs fown_ret PFamily]
+                 PPromptF ftbl None PFamily;
+                 PPromptF ftbl None PMono;
+                 PPromptF ftbl fown_ret PFamily]
         /\ plan_resume_frames plan_M
              == [PBindF fsite;
                  PParamF "c" (FI 7);
-                 PPromptF fhs None PFamily;
+                 PPromptF ftbl None PFamily;
                  PBindF fsite2;
-                 PPromptF fhs None PMono;
-                 PPromptF fhs fown_ret PFamily]
+                 PPromptF ftbl None PMono;
+                 PPromptF ftbl fown_ret PFamily]
         /\ plan_protocol_frames plan_M
              == [PSiteF fsite;
                  PParamF "c" (FI 7);
-                 PPromptF fhs None PFamily;
+                 PPromptF ftbl None PFamily;
                  PSiteF fsite2;
-                 PPromptF fhs None PMono;
-                 PPromptF fhs fown_ret PFamily])
+                 PPromptF ftbl None PMono;
+                 PPromptF ftbl fown_ret PFamily])
   = assert_norm (plan_enter_frames plan_M
                  == [PParamF "c" (FI 7);
-                     PPromptF fhs None PFamily;
-                     PPromptF fhs None PMono;
-                     PPromptF fhs fown_ret PFamily]);
+                     PPromptF ftbl None PFamily;
+                     PPromptF ftbl None PMono;
+                     PPromptF ftbl fown_ret PFamily]);
     assert_norm (plan_resume_frames plan_M
                  == [PBindF fsite;
                      PParamF "c" (FI 7);
-                     PPromptF fhs None PFamily;
+                     PPromptF ftbl None PFamily;
                      PBindF fsite2;
-                     PPromptF fhs None PMono;
-                     PPromptF fhs fown_ret PFamily]);
+                     PPromptF ftbl None PMono;
+                     PPromptF ftbl fown_ret PFamily]);
     assert_norm (plan_protocol_frames plan_M
                  == [PSiteF fsite;
                      PParamF "c" (FI 7);
-                     PPromptF fhs None PFamily;
+                     PPromptF ftbl None PFamily;
                      PSiteF fsite2;
-                     PPromptF fhs None PMono;
-                     PPromptF fhs fown_ret PFamily])
+                     PPromptF ftbl None PMono;
+                     PPromptF ftbl fown_ret PFamily])
 
 let fixture_7_mixed_order () : Lemma
-  (ensures fresult (frun 400 prog7_resume)
-             == Some (FL [FS "own";
-                          FL [FS "site2";
-                              FL [FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "a"]]];
-                                  FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "b"]]]]]])
-        /\ fresult (frun 400 prog7_extend)
-             == Some (FL [FS "own";
-                          FL [FL [FS "k"; FL [FI 7; FS "a"]];
-                              FL [FS "k"; FL [FI 7; FS "b"]]]]))
-  = assert_norm (fresult (frun 400 prog7_resume)
-                 == Some (FL [FS "own";
-                              FL [FS "site2";
-                                  FL [FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "a"]]];
-                                      FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "b"]]]]]]));
-    assert_norm (fresult (frun 400 prog7_extend)
-                 == Some (FL [FS "own";
-                              FL [FL [FS "k"; FL [FI 7; FS "a"]];
-                                  FL [FS "k"; FL [FI 7; FS "b"]]]]))
+  (ensures fresult (frun 800 prog7)
+           == Some (FL [FL [FS "own";
+                            FL [FS "site2";
+                                FL [FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "a"]]];
+                                    FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "b"]]]]]];
+                        FL [FS "own";
+                            FL [FL [FS "k"; FL [FI 7; FS "a"]];
+                                FL [FS "k"; FL [FI 7; FS "b"]]]]]))
+  = assert_norm (fresult (frun 800 prog7)
+                 == Some (FL [FL [FS "own";
+                                  FL [FS "site2";
+                                      FL [FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "a"]]];
+                                          FL [FS "site1"; FL [FS "k"; FL [FI 7; FS "b"]]]]]];
+                              FL [FS "own";
+                                  FL [FL [FS "k"; FL [FI 7; FS "a"]];
+                                      FL [FS "k"; FL [FI 7; FS "b"]]]]]))
 
 (* ---- 8. A context resumed more than once is multi-shot FROM THE SAVED POINT.
 
-   `cx8` is produced once. The program below drives it twice -- once as an
-   extension and once as a resumption -- and pairs the answers. Both consumptions
-   see the layer's two branches; the resumption additionally fires the recorded
-   bind frame and the extension does not. The prefix was run by production alone:
-   that half of the claim is `fixture_1_prefix_runs_once`, whose `prog1new` is
-   this same shape, and it is a claim about cost for the reason recorded
-   there. ---- *)
+   One `enter_ctx_C`, one token, driven twice -- once as an extension and once as a
+   resumption -- and the answers paired. Both consumptions see the layer's two
+   branches; the resumption additionally fires the recorded bind frame and the
+   extension does not. That the prefix was run once is
+   `fixture_11_prefix_event_once`. ---- *)
 
 let body8 : pcomp fv fcl =
   POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x]))
-let cx8 : pctx fv fcl = fmk plan_LB body8
 let prog8 : pcomp fv fcl =
-  POp (extend_C plan_LB cx8 fk) (fun a ->
-    POp (resume_C plan_LB cx8 fk) (fun b -> PVar (FL [a; b])))
+  enter_ctx_C plan_LB body8
+    (POp (extend_here_C plan_LB fk) (fun a ->
+      POp (resume_here_C plan_LB fk) (fun b -> PVar (FL [a; b]))))
 
 let fixture_8_multi_shot () : Lemma
   (ensures fresult (frun 800 prog8)
@@ -2210,20 +2834,270 @@ let fixture_8_multi_shot () : Lemma
                                       FL [FL [FS "k"; FL [FS "leaf"; FS "a"]];
                                           FL [FS "k"; FL [FS "leaf"; FS "b"]]]]]]))
 
+(* ---- 8b. `bindScope` in its full shape: extend the context in scope and go on
+   with the RESULT in scope. The node `extend_ctx_here_C` exists because a produced
+   context is bound dynamically, so "the context extending produced" has to be
+   installed for the rest of the clause to see it.
+
+   Here the token is extended by `fun x -> FL ["ext"; x]` and then resumed; the
+   extension composes onto the residual's `post` chain, so it runs at each leaf
+   BEFORE the resumption's own function. Reading outwards: `ext` inside `k`. ---- *)
+
+let fext (x: fv) : pcomp fv fcl = PVar (FL [FS "ext"; x])
+let prog8b : pcomp fv fcl =
+  enter_ctx_C plan_L body8 (extend_ctx_here_C plan_L fext (resume_here_C plan_L fk))
+
+let fixture_8b_extend_then_resume () : Lemma
+  (ensures fresult (frun 800 prog8b)
+           == Some (FL [FS "own";
+                        FL [FL [FS "k"; FL [FS "ext"; FL [FS "leaf"; FS "a"]]];
+                            FL [FS "k"; FL [FS "ext"; FL [FS "leaf"; FS "b"]]]]]))
+  = assert_norm (fresult (frun 800 prog8b)
+                 == Some (FL [FS "own";
+                              FL [FL [FS "k"; FL [FS "ext"; FL [FS "leaf"; FS "a"]]];
+                                  FL [FS "k"; FL [FS "ext"; FL [FS "leaf"; FS "b"]]]]]))
+
 (* ---- 9. No clause-inspecting mechanism, and no assumption about `apply`.
 
-   This one is a property of the design and not a run, so it is stated where it
-   is respected rather than fabricated as a fixture:
+   Mostly a property of the design, so it is stated where it is respected rather
+   than fabricated as a fixture:
 
      - `papply_t` and its note: a clause is opaque, and the machine's only
        interaction with one is to hand it a payload and a continuation.
      - `pstep`: no rule matches on a clause, and the protocol is built entirely
-       from frames the machine pushed -- `PBoundaryF`, `PSiteF`, `PModeF` -- so a
-       layer reaches the boundary only by resuming, through the ordinary
-       `PSplice` rule, the continuation it was given.
-     - `enter_ctx_C`: production RUNS the inner computation and never reads it.
+       from frames the machine pushed -- `PBoundaryF`, `PSiteF`, `PModeF`,
+       `PScopeF`, `PTokenF` -- so a layer reaches the boundary only by resuming,
+       through the ordinary `PSplice` rule, the continuation it was given.
+     - `enter_ctx_C`'s rule: production PUSHES FRAMES UNDER the inner computation
+       and never reads it.
 
    The fixtures above are the evidence that this is not vacuous: `FEcho`,
-   `FTwice`, `FAbort`, `FRetry` and `FBetween` resume once, twice, never, and
-   conditionally, and the protocol is the same protocol in every case, with no
-   rule anywhere asking which of them it is looking at. ---- *)
+   `FTwice`, `FAbort`, `FRetry`, `FBetween` and `FWrap` resume once, twice,
+   never, conditionally, and with work left over, and the protocol is the same
+   protocol in every case, with no rule anywhere asking which of them it is
+   looking at.
+
+   The two parts that ARE runs are below. `PPaused` is the answer the value rules
+   give when a boundary or site frame has neither a mode above it nor a floor
+   below it -- a stack no transition builds -- and every fixture in this file
+   reaches `PDone`, so none of them relies on it. And a consuming node with no
+   context in scope is REPORTED, as an ordinary stuck action under a reserved
+   label, rather than silently taken for something else. ---- *)
+
+let fsettled (fuel: nat) (c: pcomp fv fcl) : bool = PDone? (frun fuel c)
+
+let fixture_9_paused_is_unreachable () : Lemma
+  (ensures fsettled 4000 (prog1new 1) /\ fsettled 400 prog2 /\ fsettled 400 prog2_probe
+        /\ fsettled 400 prog3a /\ fsettled 400 prog3b /\ fsettled 400 prog4
+        /\ fsettled 400 prog5 /\ fsettled 400 prog5_probe /\ fsettled 400 prog5b
+        /\ fsettled 400 prog6_residual
+        /\ fsettled 800 prog7 /\ fsettled 800 prog8 /\ fsettled 800 prog8b)
+  = assert_norm (fsettled 4000 (prog1new 1));
+    assert_norm (fsettled 400 prog2);
+    assert_norm (fsettled 400 prog2_probe);
+    assert_norm (fsettled 400 prog3a);
+    assert_norm (fsettled 400 prog3b);
+    assert_norm (fsettled 400 prog4);
+    assert_norm (fsettled 400 prog5);
+    assert_norm (fsettled 400 prog5_probe);
+    assert_norm (fsettled 400 prog5b);
+    assert_norm (fsettled 400 prog6_residual);
+    assert_norm (fsettled 800 prog7);
+    assert_norm (fsettled 800 prog8);
+    assert_norm (fsettled 800 prog8b)
+
+let fixture_9_consumer_without_token () : Lemma
+  (ensures frun 400 (resume_here_C plan_L fk) == PStuck pctx_eff pctx_missing_op)
+  = assert_norm (frun 400 (resume_here_C plan_L fk) == PStuck pctx_eff pctx_missing_op)
+
+(* ================================================================== *)
+(*  B1.6's own requirements                                            *)
+(* ================================================================== *)
+
+(* ---- 10. An operation the plan does NOT handle, performed in the PREFIX, is
+   handled by a prompt OUTSIDE the owner -- and that handler's pending binds and
+   answer transformation are not lost. (Requirements 5 and 6, which are the
+   substance of the gate.)
+
+   The program is an ambient prompt whose table binds `"Out"` and nothing else,
+   with a scope inside it whose plan prompts and owner bind everything EXCEPT
+   `"Out"`. So when the prefix performs `Out.o`:
+
+     - `pfind_prompt` is refused by the layer prompt and by the owner, walks past
+       the SCOPE FLOOR, and finds the ambient prompt. The segment it captures
+       contains the whole scope -- boundary, plan frames and floor.
+     - the clause is `FWrap`, which resumes and then still has `fun r -> wrap r`
+       to do. That pending frame is BELOW the ambient prompt, so it is not in the
+       captured segment; resuming puts the scope back ON TOP of it.
+     - the prefix then continues, performs `Echo.e` -- which the layer DOES
+       handle -- reaches the boundary, and the token is produced. It is installed
+       beneath the continuation on the stack below the floor, which by now is the
+       ambient prompt followed by that pending frame.
+
+   The answer is `wrap(outer-ret(own(k(outer-ans, v))))`. Read it outwards: the
+   scope's own answer former ran (`own`), then the ambient prompt's answer
+   transformation (`outer-ret`), then the ambient clause's pending bind (`wrap`)
+   -- and `outer-ans`, the value the ambient handler resumed with, is inside,
+   where the prefix received it. Nothing of the ambient handler was lost and
+   nothing of the scope was.
+
+   `fixture_10_detached_gets_stuck` is the control: B1.5's production, which is
+   still writable as a meta-level call and is kept here for exactly this
+   comparison, gets `PStuck "Out" "o"` on the same body. That is what the
+   `settles` hypothesis was hiding. ---- *)
+
+let fouter_ret : option (fv -> pcomp fv fcl) = Some (fun x -> PVar (FL [FS "outer-ret"; x]))
+
+let body_out : pcomp fv fcl =
+  POp (PPerform "Out" "o" [FS "q"]) (fun x ->
+    POp (PPerform "Echo" "e" [FS "v"]) (fun y -> PVar (FL [x; y])))
+
+let prog_out : pcomp fv fcl =
+  PHandle ftbl_out fouter_ret PMono
+    (enter_ctx_C plan_L body_out (resume_here_C plan_L fk))
+
+(** B1.5's production, kept executable and named for what it was, exactly as
+    `susp_extend` / `susp_resume` keep B1's. Nothing but the control fixture
+    refers to it. *)
+let detached_production (pl: plan fv fcl) (c: pcomp fv fcl) : pstate fv fcl
+  = psteps flook fapply 400 (PStep c (PBoundaryF :: plan_protocol_frames pl))
+
+let fixture_10_outer_handler () : Lemma
+  (ensures fresult (frun 400 prog_out)
+           == Some (FL [FS "wrap";
+                        FL [FS "outer-ret";
+                            FL [FS "own";
+                                FL [FS "k"; FL [FS "outer-ans"; FS "v"]]]]]))
+  = assert_norm (fresult (frun 400 prog_out)
+                 == Some (FL [FS "wrap";
+                              FL [FS "outer-ret";
+                                  FL [FS "own";
+                                      FL [FS "k"; FL [FS "outer-ans"; FS "v"]]]]]))
+
+let fixture_10_detached_gets_stuck () : Lemma
+  (ensures detached_production plan_L body_out == PStuck "Out" "o")
+  = assert_norm (detached_production plan_L body_out == PStuck "Out" "o")
+
+(* ---- 11. One observation event in the protected prefix, and the residual
+   consumed twice yields it ONCE. (Requirements 1, 2 and 3.)
+
+   `body_e` emits `"prefix"` and then performs an operation the layer handles
+   tail-resumptively, so each consumption reaches the boundary exactly once and
+   the trace is short enough to read whole.
+
+   `prog_silent`'s consumers emit nothing, so the entire trace of a program that
+   produces one token and drives it twice is `["prefix"]` -- which is requirement
+   1 as a run: driving a residual re-emits nothing, because there is nothing in a
+   residual to re-emit.
+
+   `prog_traced`'s consumers emit `"c1"` and `"c2"`, and the trace is
+   `["prefix"; "c1"; "c2"]`: the prefix event once, each consumer's own event
+   once per consumption, in order. ---- *)
+
+let body_e : pcomp fv fcl =
+  PEmit "prefix" (POp (PPerform "Echo" "e" [FS "v"]) (fun x -> PVar (FL [FS "leaf"; x])))
+
+let fc1 (x: fv) : pcomp fv fcl = PEmit "c1" (PVar x)
+let fc2 (x: fv) : pcomp fv fcl = PEmit "c2" (PVar x)
+
+let prog_silent : pcomp fv fcl =
+  enter_ctx_C plan_L body_e
+    (POp (extend_here_C plan_L (PVar #fv #fcl)) (fun _ -> resume_here_C plan_L fk))
+
+let prog_traced : pcomp fv fcl =
+  enter_ctx_C plan_L body_e (POp (extend_here_C plan_L fc1) (fun _ -> resume_here_C plan_L fc2))
+
+let fixture_11_prefix_event_once () : Lemma
+  (ensures ftrace 400 prog_silent == ["prefix"]
+        /\ ftrace 400 prog_traced == ["prefix"; "c1"; "c2"])
+  = assert_norm (ftrace 400 prog_silent == ["prefix"]);
+    assert_norm (ftrace 400 prog_traced == ["prefix"; "c1"; "c2"])
+
+(* ---- 12. THE CONTROL. The withdrawn suspension, on the same body and with the
+   same two consumers, emits the prefix event TWICE. (Requirement 4.)
+
+   Without this the instrument would not be known to be measuring anything: a
+   trace that shows one event once is only evidence if a representation that
+   replays shows it twice. The two traces differ in exactly one element, and it
+   is the prefix's. ---- *)
+
+let prog_susp : pcomp fv fcl =
+  POp (susp_extend plan_L body_e fc1) (fun _ -> susp_resume plan_L body_e fc2)
+
+let fixture_12_suspension_emits_twice () : Lemma
+  (ensures ftrace 400 prog_susp == ["prefix"; "c1"; "prefix"; "c2"]
+        /\ ftrace 400 prog_traced =!= ftrace 400 prog_susp)
+  = assert_norm (ftrace 400 prog_susp == ["prefix"; "c1"; "prefix"; "c2"]);
+    assert_norm (ftrace 400 prog_traced == ["prefix"; "c1"; "c2"])
+
+(* ---- 13. The same, with a layer that resumes TWICE: the check that requirement
+   3 is not an artefact of a tail-resumptive layer.
+
+   Each consumption now reaches the boundary twice, so the consumer's own event
+   appears twice per consumption -- four in all -- while the prefix event still
+   appears once, first, and never again. ---- *)
+
+let body_e2 : pcomp fv fcl =
+  PEmit "prefix" (POp (PPerform "Two" "flip" []) (fun x -> PVar (FL [FS "leaf"; x])))
+
+let prog_traced2 : pcomp fv fcl =
+  enter_ctx_C plan_L body_e2 (POp (extend_here_C plan_L fc1) (fun _ -> resume_here_C plan_L fc2))
+
+let fixture_13_multi_shot_trace () : Lemma
+  (ensures ftrace 800 prog_traced2 == ["prefix"; "c1"; "c1"; "c2"; "c2"])
+  = assert_norm (ftrace 800 prog_traced2 == ["prefix"; "c1"; "c1"; "c2"; "c2"])
+
+(* ---- 14. A SCOPE OPENED INSIDE A CONSUMPTION, which is the program the scope
+   floor has to keep apart from its enclosing protocol.
+
+   B1.5 could not build this configuration. Production ran on an empty stack, so
+   during a production there was provably no mode marker anywhere beneath, and
+   `pfind_mode`'s unlabelled nearest-enclosing search could only ever find the
+   marker of the residual actually being driven. Under B1.6 production runs on
+   the LIVE stack, so a scope entered from inside a consumer's own function has
+   that consumer's marker somewhere below it -- and an unguarded search would
+   answer the INNER boundary with the OUTER consumer's responder, which is a
+   genuine confusion of `MResume` with `MExtend`.
+
+   The `PScopeF` arm of `pfind_mode` is what stops it, and this fixture is what
+   fires that arm: deleting it changes the answer. Read the result outwards --
+   `ik(inner(leaf v))` is the inner scope's own protocol completing, and `own`
+   the outer owner's answer former applied once, afterwards. ---- *)
+
+let finner (x: fv) : pcomp fv fcl =
+  enter_ctx_C plan_L0
+    (POp (PPerform "Echo" "e" [x]) (fun y -> PVar (FL [FS "inner"; y])))
+    (resume_here_C plan_L0 (fun z -> PVar (FL [FS "ik"; z])))
+
+let prog_nested : pcomp fv fcl = enter_ctx_C plan_L body6 (resume_here_C plan_L finner)
+
+let fixture_14_nested_scope () : Lemma
+  (ensures fresult (frun 800 prog_nested)
+           == Some (FL [FS "own"; FL [FS "ik"; FL [FS "inner"; FL [FS "leaf"; FS "v"]]]]))
+  = assert_norm (fresult (frun 800 prog_nested)
+                 == Some (FL [FS "own"; FL [FS "ik"; FL [FS "inner"; FL [FS "leaf"; FS "v"]]]]))
+
+(* ---- 15. TWO SCOPE FLOORS ALIVE AT ONCE: a scope nested inside another
+   scope's PROTECTED PREFIX.
+
+   Fixture 14 has two protocols but never two floors -- by the time the inner
+   scope is entered the outer token has been produced, so the outer floor has
+   already become a `PTokenF`. Here the outer scope's own body IS a scope, so
+   when the inner boundary is reached the stack carries `PScopeF` twice, and
+   `pcut_scope` has to take the NEARER one. Taking the farther one would hand the
+   inner scope's residual to the outer scope's continuation and cut away the
+   outer plan with it.
+
+   This is also the configuration B2a's well-bracketing obligation is about, in
+   the smallest program that has it. ---- *)
+
+let fmid : pcomp fv fcl =
+  enter_ctx_C plan_L0 body6 (resume_here_C plan_L0 (fun z -> PVar (FL [FS "m"; z])))
+
+let prog_two_floors : pcomp fv fcl = enter_ctx_C plan_L fmid (resume_here_C plan_L fk)
+
+let fixture_15_two_floors () : Lemma
+  (ensures fresult (frun 800 prog_two_floors)
+           == Some (FL [FS "own"; FL [FS "k"; FL [FS "m"; FL [FS "leaf"; FS "v"]]]]))
+  = assert_norm (fresult (frun 800 prog_two_floors)
+                 == Some (FL [FS "own"; FL [FS "k"; FL [FS "m"; FL [FS "leaf"; FS "v"]]]]))

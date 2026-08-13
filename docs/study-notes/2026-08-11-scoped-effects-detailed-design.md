@@ -2666,26 +2666,187 @@ enter once
 consumed twice, the prefix event appearing **once** in the whole trace, and each
 consumer's own events appearing twice.
 
+#### B1.6, run: production is a transition, and the context went dynamic
+
+The stop condition did not fire. Production is now the node
+
+```fstar
+| PEnterCtx: pl:plan v cl -> body:pcomp v cl -> kbody:pcomp v cl -> pcomp v cl
+```
+
+whose rule is one line of frame-pushing on the live stack, with a new frame
+`PScopeF` — the **scope floor** — separating the scope's frames from the
+ambient stack. The token is formed by a *value* rule cutting the stack at the
+floor.
+
+The evidence for requirement 8 is structural rather than a grep: **`ctx_ops` no
+longer mentions `pctx` at all.** Every field returns a `pcomp`, and every field
+of `ref_ops` is a single constructor application. An implementation cannot run
+anything, because it is not handed anything to run with.
+
+`settles` is **deleted, not weakened** — no law mentions it, and `PCtxLost`
+went with it. What is checked is that the program `settles` used to exclude now
+runs correctly, with the ambient handler's pending bind and answer
+transformation both intact around the scope's own answer, and that B1.5's
+production gets `PStuck` on the same body. That the laws *hold* without the
+hypothesis is B2b's.
+`law_assoc` also lost its `cx` parameter.
+
+Requirements 1–8 all passed. Requirement 1 holds **by type**: the trace is the
+driver's second result, and no `pstate`, `pframe` or `pctx` has a place to keep
+it.
+
+Guards: 23 fixtures and 10 machine rules fired. Two were re-fired independently
+— collapsing `resume_here_C` into `PExtendC` breaks `fixture_5b`, and making
+the scope floor block the outward search in `pfind_prompt` breaks `fixture_10`,
+which locates the one line that makes requirement 5 come out. A first firing
+round found a real weakness: fixtures calling raw constructors accepted the
+collapse, and were rewritten through the named operations.
+
+**Two mutations were accepted and are recorded in the module.** `pcut_scope`
+cutting at the *farthest* floor instead of the nearest is not separated by
+anything the file checks — the nearest-floor discipline is *chosen*, and joins
+`pfind_mode` as an obligation. And `PCtxRequests y [] PVar` for `PCtxDone y` is
+genuinely operationally equal, the constructors being kept apart for the reader.
+
+#### The price, and why it is not payable
+
+To get the token into the value position at all it was **defunctionalised**:
+production installs it in a `PTokenF` frame and the consuming nodes read the
+nearest one, exactly as `PReadP` reads a cell. A context is therefore
+**dynamically scoped** — it cannot be stored, returned as a scope's own
+result, or put in a list, and a scope opened inside a consumer shadows the
+token being consumed.
+
+The module claimed that nothing the design needs today is lost, on the grounds
+that the tactics are written against "the context this clause is handling".
+**That is retracted.** The published `ScopeTactics` takes an explicit context
+argument:
+
+```purescript
+bindScope   :: ctx x -> ...
+resumeScope :: ctx x -> ...
+```
+
+so this typechecks today —
+
+```purescript
+r1 <- t.runScope p
+r2 <- t.runScope q
+case r1, r2 of
+  Right cx1, Right cx2 -> t.bindScope cx1 g
+```
+
+— and under a dynamic token the last call would use `cx2`, the nearest,
+because `cx1`'s value was never kept. That is not a limit on expressiveness;
+**it runs a well-typed program with a different meaning.** `ctx` being
+unobservable does not make it unselectable: which of several `ctx x` is passed
+is the caller's choice.
+
+The same correction reaches `law_assoc`. Quantifying over stacks recovers a law
+about the *nearest* token, but not about a program that selects an outer token
+while an inner one is live, consumes two tokens in the reverse order, or holds
+tokens in a pair. The law's subject matter narrowed.
+
+#### Strict positivity: what is actually ruled out
+
+Two shapes were tried and rejected by F\*: a `kf : pctx v cl -> pcomp v cl`
+field on the production node, and the sum value type
+`pvalue v cl = PV of v | PCtxV of pctx v cl`. Both are genuine negative
+occurrences, not a conservative check being unhelpful: **`pctx` contains a
+negative occurrence of the value type, which closes a negative recursive cycle
+when it is embedded directly into the value language.** (It contains positive
+occurrences too — "contravariant in `v`", said earlier, was too strong; one
+negative occurrence is all the check needs and all that is true.)
+`[@@strictly_positive]` annotations are for
+telling F\* that an abstract parameter is used positively; they do not make a
+real negative occurrence acceptable, and there is nothing here for them to
+declare.
+
+**What is ruled out is the direct recursive embedding, and nothing wider.**
+Checked in a scratch module, at universe-annotated types so the positivity check
+is what answers:
+
+| shape | result |
+|---|---|
+| `pval` holds `pctx`, all three mutual | **rejected** — `pctx` not strictly positive |
+| key indirection, `pctx` lifted out, `pval` still mutual with `pcomp` | **rejected** — `pcomp` not strictly positive |
+| key indirection, `pval` defined **before** `pcomp` and not mutual with it, `pctx` outside | **verifies** |
+
+The third row is the point: once only a non-recursive key enters the value
+language, `pval` no longer needs to mention `pctx`, so it stratifies out of the
+recursive block, and `pctx` — which holds `pval v -> pcomp v` — sits outside
+it. A store `nat -> option (pctx v)` beside the machine state typechecks.
+
+So the handle-and-store design is available. It brings its own obligations:
+freshness, lookup, preserving the store across capture and resumption, and an
+opaque representation for the handle after extraction.
+
+### Gate B1.7: a first-class context handle
+
+B1.6's main result stands. What is rejected is neither the residual
+configuration nor machine-only, but **the step that reads an explicit context
+argument as the nearest dynamic token**.
+
+> B1.6 established live, effectful, exact-once production for a dynamically
+> scoped residual protocol. It did not establish adequacy for the first-class
+> `ctx x` the published `ScopeTactics` exposes.
+
+| # | condition |
+|---|---|
+| 1 | production returns an opaque handle as an object-language value, once |
+| 2 | two contexts can be alive at the same time |
+| 3 | an outer context can be selected explicitly while an inner one is live |
+| 4 | what is consumed is decided by the handle passed, **not** by nearness |
+| 5 | B1.6's exact-once, ambient-handler and multi-shot fixtures still hold |
+| 6 | strict positivity is satisfied **without** a direct recursive embedding |
+| 7 | **store integrity** — every consumable handle was allocated by the machine and resolves to exactly its associated residual; a missing or forged handle must **not** fall back to the nearest context |
+| 8 | **persistence and aliasing** — extending a context produces a *fresh* handle without modifying the original; two extensions of the same handle stay independent and may be consumed in either order |
+
+7 and 8 are not implied by 2 and 3. An implementation that overwrites a store
+entry in place can still keep two contexts alive and still let an outer one be
+named — and would silently break
+
+```purescript
+cy1 <- bindScope cx g
+cy2 <- bindScope cx h
+```
+
+where `cx`, `cy1` and `cy2` must be three independent contexts, because the
+published API admits multi-shot use of the same `ctx x`. An append-only
+persistent store, or semantics equivalent to one, is what condition 8 asks for.
+Condition 7 is its companion at the other end: identity must be *resolved*, and
+a handle that resolves to nothing must fail rather than degrade into B1.6's
+nearest-token reading, which is the very behaviour this gate exists to remove.
+
 ### What is not decided
 
-- The classification stays three-way, and B1.5 is a reason to expect it to stay
-  that way: the machine built the general path from provenance alone, with no
-  capability supplied from the surface. It is not yet settled, because the path
-  is established only for computations satisfying `settles`. Only if the general
-  case fails does `Reinstantiable ≠ ContextWeavable` become a shipping fact.
-  (The name for that contingent fourth class appears in the exchange that
-  proposed it as `ContextThreadable`; recorded here as `ContextWeavable` to keep
-  the vocabulary note above true of the code as well as the prose.)
-- B2 and B3 are now blocked on B1.6 rather than on the representation.
+- The classification stays three-way, and B1.5 and B1.6 are reasons to expect it
+  to stay that way: the machine built the general path from provenance alone,
+  with no capability supplied from the surface, and B1.6 made production live
+  and effectful with no hypothesis left on it. It is not yet settled, because
+  the path is established only for a context whose identity is nearness rather
+  than a value the surface can select. Only if the general case fails does
+  `Reinstantiable ≠ ContextWeavable` become a shipping fact. (The name for that
+  contingent fourth class appears in the exchange that proposed it as
+  `ContextThreadable`; recorded here as `ContextWeavable` to keep the vocabulary
+  note above true of the code as well as the prose.)
+- B2 and B3 are now blocked on B1.7 — the context's representation is open
+  again, in a narrower way than before B1.6.
 
-The order, revised after B1.5:
+The order, revised after B1.6:
 
 | gate | what it settles |
 |---|---|
-| B1.6 | effectful production, and exact-once as an observation rather than a cost |
-| B2a | `pfind_mode`'s well-bracketing invariant |
+| ~~B1.6~~ | ~~effectful production, exact-once as an observation~~ — **done** |
+| B1.7 | a first-class context handle, selected by identity rather than nearness |
+| B2a | protocol-association invariants (`pfind_mode` / `pcut_scope`, keyed or nearest as B1.7 determines) |
 | B2b | the four laws, over the new production |
 | B3 | a transparent plan against the existing borrow; simulation with the optimised machine |
+
+B2a is deliberately **after** B1.7: a handle-and-store representation may turn
+`pfind_mode`'s unlabelled nearest-marker search into a keyed lookup, and proving
+an invariant about a search that is then replaced is wasted work.
 
 One fact about the TCB that constrains the fallback: implementing library-side
 `Either` / `Array` / `Maybe` weave capabilities as PureScript callbacks and
@@ -2733,8 +2894,10 @@ semantics among them) that would pull the representation the wrong way.
    resumable, one terminal); they should be looked at together even if they do
    not share a type.
 5. **The representation of the context value.** Two candidates are excluded
-   (replaying suspension, precomputed leaf list); the residual-configuration
-   protocol is the one to run, as Gate B1.5. **Answered**: the residual protocol
-   works, without any capability supplied from the surface, for computations
-   that satisfy `settles`. What remains open is production — B1.6 — and that
-   is what B2 and B3 now wait on.
+   (replaying suspension, precomputed leaf list). **Settled**: the residual
+   protocol works, without any capability supplied from the surface (B1.5), and
+   its production is a live effectful transition with no hypothesis left on it
+   (B1.6). What remains open is narrower — **the context as a first-class,
+   persistent identity**: a handle the surface can hold, select between and
+   extend, rather than the nearest dynamic token. That is B1.7, and it is what
+   B2 and B3 now wait on.
