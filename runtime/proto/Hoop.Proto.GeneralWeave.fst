@@ -2440,6 +2440,32 @@ let pyield (#v #cl: Type) (x: pval v) (hd: pframe v cl) (rest: pstack v cl)
  * ill-formed `PSplice`, keeping every residual `presid_wf` does not close
  * reachability. Whether the function component needs a condition of its own is
  * the first thing strand 2 should settle, before building the layers above it.
+ *
+ * **WHAT STRAND 2 DID WITH IT, recorded here because this paragraph is what it
+ * was handed.** `lemma_pstep_store_resid_wf` is this lemma promoted to the step
+ * case of an induction, and `lemma_reachable_residual_wf` is the
+ * configuration-wide statement -- with NO condition on the initial term and NONE
+ * on `apply`, which is not the shape this note expected. The warning above is
+ * still exactly right; it is answered by SPLITTING the invariant rather than by
+ * conditioning all of it. The STACK layer (`pwb`, `pterm_wb`, `papply_wb`) is
+ * conditional, and what it buys is a different property -- that `PPaused` is
+ * unreachable (`lemma_reachable_not_paused`). The STORE layer needs none of
+ * that, because `pcut_scope` cuts at the nearest floor whether or not the stack
+ * was well bracketed.
+ *
+ * The `post` question came out **no, FOR THE B2a RESIDUAL AND STACK-SAFETY
+ * INVARIANTS**: the function component needs no condition of its own to keep a
+ * stored residual `presid_wf` or to keep `PPaused` unreachable. `ctx_drive`
+ * appends the driving consumer's `PModeF` beneath the residual, so `post` is
+ * only ever run on a stack that carries that marker, and on such a stack the
+ * shape obligation is vacuous. See `pterm_wb_n`'s clauses for the three
+ * consuming nodes and `lemma_ctx_drive_wb`.
+ *
+ * **The scope of that answer, stated so a later gate does not inherit it.** It
+ * is about SHAPE. Whether `post` needs a condition for B2b's observational laws
+ * or for B3's simulation is untouched here: those are about what a computation
+ * MEANS, and a `post` that is shape-correct can still return the wrong
+ * computation. Read this as "no shape obligation", not as "no obligation".
  *)
 let lemma_pyield_residual_wf
     (#v #cl: Type) (x: pval v) (hd: pframe v cl)
@@ -2882,6 +2908,1302 @@ let rec pcost (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
       else (match pcost lk apply (fuel - 1) (pstep lk apply cf) with
             | None -> None
             | Some n -> Some (n + 1))
+
+(* ------------------------------------------------------------------ *)
+(*  B2a, strand 2: the invariant, configuration-wide                   *)
+(*                                                                     *)
+(*  Strand 1 left two LOCAL results: each takes a branch condition of   *)
+(*  `pstep` as its hypothesis and says what that step does. This        *)
+(*  section makes them configuration-wide, and it does so in TWO        *)
+(*  LAYERS THAT ARE DELIBERATELY KEPT APART, because they need          *)
+(*  different hypotheses and the difference is the finding.             *)
+(*                                                                     *)
+(*    - THE STORE LAYER, below, is UNCONDITIONAL. `presid_wf` holds of  *)
+(*      every residual in the store of every reachable configuration,   *)
+(*      for an ARBITRARY initial `pcomp` and an ARBITRARY `papply_t`.   *)
+(*      No well-scopedness condition, no condition on `apply`, no       *)
+(*      condition on the stack. This was not the expected shape and     *)
+(*      the reason it comes out is recorded at                          *)
+(*      `lemma_pstep_store_resid_wf`.                                   *)
+(*                                                                     *)
+(*    - THE STACK LAYER, further down, is CONDITIONAL, and it is where  *)
+(*      the warning at `lemma_pyield_residual_wf` bites: a raw          *)
+(*      `PSplice` can push any frame list it likes and `apply` can      *)
+(*      return one, so it needs an initial-term condition (`pterm_wb`)  *)
+(*      and a condition on the clause interpreter (`papply_wb`) -- the  *)
+(*      counterparts of the shipped machine's `ws` and `apply_ok`. What *)
+(*      it buys is a DIFFERENT property: that `PPaused` -- the          *)
+(*      well-bracketing failure -- is unreachable.                      *)
+(*                                                                     *)
+(*  Keeping them apart is the point. Folding the store layer into the   *)
+(*  conditional one would have made the thing strand 1 actually needs   *)
+(*  depend on hypotheses it does not need, and a reader would have had  *)
+(*  no way to see that.                                                 *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The store condition: every context it holds has a well-formed residual.**
+ *
+ * `PCtxDone` carries no residual and is unconditionally acceptable -- there is
+ * no boundary and no site frame left to ask, so `presid_wf` has nothing to say
+ * about it. `PCtxRequests` is the case that matters, and the condition on it is
+ * `presid_wf` VERBATIM: strand 1's predicate, reused and not restated.
+ *)
+let pctx_resid_wf (#v #cl: Type) (cx: pctx v cl) : bool
+  = match cx with
+    | PCtxDone _ -> true
+    | PCtxRequests _ r _ -> presid_wf r
+
+(** Pointwise over the store, as a `bool` recursion on the list rather than a
+    `memP` quantifier, so that the fixtures can evaluate it. *)
+let rec pstore_resid_wf (#v #cl: Type) (sto: pstore v cl) : Tot bool (decreases sto)
+  = match sto with
+    | [] -> true
+    | (_, cx) :: rest -> pctx_resid_wf cx && pstore_resid_wf rest
+
+(** Lookup respects it. PROVED, by induction on the store. *)
+let rec lemma_store_resid_lookup (#v #cl: Type) (i: nat) (sto: pstore v cl)
+  : Lemma (requires pstore_resid_wf sto)
+          (ensures (match pstore_lookup i sto with
+                    | None -> True
+                    | Some cx -> pctx_resid_wf cx))
+          (decreases sto)
+  = match sto with
+    | [] -> ()
+    | _ :: rest -> lemma_store_resid_lookup i rest
+
+(** And so does the only route a transition has to a context. PROVED. *)
+let lemma_presolve_resid_wf (#v #cl: Type) (sto: pstore v cl) (h: pval v)
+  : Lemma (requires pstore_resid_wf sto)
+          (ensures (match presolve sto h with
+                    | None -> True
+                    | Some cx -> pctx_resid_wf cx))
+  = match h with
+    | PV _ -> ()
+    | PCtxKey id -> lemma_store_resid_lookup id sto
+
+(** **Extension does not touch the residual.** PROVED, and it is what makes the
+    store layer close without a condition on `post`: `extend_ctx_C` composes onto
+    the FUNCTION component and copies the segment across unchanged, so a
+    well-formed residual stays the same well-formed residual however many times
+    it is extended. *)
+let lemma_extend_ctx_resid_wf
+    (#v #cl: Type) (pl: plan v cl) (cx: pctx v cl) (g: pval v -> pcomp v cl)
+  : Lemma (requires pctx_resid_wf cx)
+          (ensures pctx_resid_wf (extend_ctx_C pl cx g))
+  = ()
+
+(** **Yielding stores a well-formed residual.** PROVED, and it is strand 1's
+    theorem with its conclusion narrowed to the store. The hypotheses are the two
+    branch conditions of the callers, exactly as there. *)
+let lemma_pyield_store_resid_wf
+    (#v #cl: Type) (x: pval v) (hd: pframe v cl)
+    (rest: pstack v cl) (cf: pconf v cl)
+  : Lemma (requires pstore_resid_wf cf.store /\
+                    pfind_mode rest == None /\ (PBoundaryF? hd \/ PSiteF? hd))
+          (ensures pstore_resid_wf (pyield x hd rest cf).store)
+  = lemma_cut_no_floor rest;
+    lemma_cut_no_mode rest
+
+(**
+ * **THE STORE LAYER, PRESERVED BY EVERY TRANSITION, UNCONDITIONALLY.** PROVED.
+ *
+ * There is no hypothesis on `lk`, none on `apply`, none on the stack and none on
+ * the initial term. That is worth stating plainly because it was not the
+ * expected shape, and the reason it comes out is a fact about which rules write
+ * the store -- there are exactly three, and each of them is closed on its own:
+ *
+ *   - the `PScopeF` value rule allocates a `PCtxDone`, which carries no residual
+ *     and so has nothing to violate;
+ *   - `pyield` allocates the segment above the NEAREST floor, and
+ *     `lemma_cut_no_floor` and `lemma_cut_no_mode` establish `presid_wf` of it
+ *     from the branch guard alone, whatever the stack was and however it was
+ *     built (`lemma_pyield_residual_wf`);
+ *   - `PExtendCtxC` allocates `extend_ctx_C pl cx g`, which COPIES the residual
+ *     of an already-stored context and changes only `post`.
+ *
+ * So the store is closed under the transition relation without any appeal to
+ * reachability of the stack. **The warning at `lemma_pyield_residual_wf` is
+ * about a different property.** "Every reachable stack is well-bracketed" is
+ * indeed false for an arbitrary term and an arbitrary `apply`, and the stack
+ * layer below is conditional for exactly that reason -- but the residual a yield
+ * hands to the store is well formed on an ILL-BRACKETED stack too, because
+ * `pcut_scope` cuts at the nearest floor whether or not that floor is where a
+ * well-bracketed program would have put it. Nearness is doing the work that
+ * reachability would otherwise have had to do.
+ *)
+let lemma_pstep_store_resid_wf
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Lemma (requires pstore_resid_wf cf.store)
+          (ensures pstore_resid_wf (pstep lk apply cf).store)
+  = match cf.st with
+    | PStep c k ->
+      (match c with
+        | PExtendCtxC pl h g ->
+          (match presolve cf.store h with
+            | None -> ()
+            | Some cx ->
+              lemma_presolve_resid_wf cf.store h;
+              lemma_extend_ctx_resid_wf pl cx g)
+        | PVar value ->
+          (match k with
+            | PBoundaryF :: rest ->
+              (match pfind_mode rest with
+                | None -> lemma_pyield_store_resid_wf value PBoundaryF rest cf
+                | Some _ -> ())
+            | PSiteF fn :: rest ->
+              (match pfind_mode rest with
+                | None -> lemma_pyield_store_resid_wf value (PSiteF fn) rest cf
+                | Some _ -> ())
+            | _ -> ())
+        | _ -> ())
+    | _ -> ()
+
+(* ---- The stack layer: shapes ------------------------------------- *)
+
+(**
+ * **"Something below can answer a boundary."** Defined FROM strand 1's two
+ * predicates and not beside them, which is the reuse that section asked for.
+ *
+ * Unfolded, it says: `k` contains a scope floor, or a mode marker, or both. Both
+ * halves are needed and they are what the two value rules do at a boundary --
+ * a mode marker makes the boundary hand its value to a responder, a floor makes
+ * it yield -- and a stack with neither is precisely the stack on which `pyield`
+ * answers `PPaused`.
+ *
+ * It is a single BOOLEAN, which is what keeps the judgement below first-order:
+ * everything a term needs to know about the stack it will run on, for the
+ * purposes of this invariant, is this one bit.
+ *)
+let panswered (#v #cl: Type) (k: pstack v cl) : bool
+  = not (pno_floor k && pno_mode k)
+
+(**
+ * **THE STACK CONDITION: every boundary and every recorded site has something
+ * below it that can answer.**
+ *
+ * This is the configuration-wide counterpart of `presid_wf`, and the two are
+ * deliberately different shapes. `presid_wf` is about a segment that has already
+ * been cut and asks that the head frame reach the marker a consumer will append;
+ * `pwb` is about a LIVE stack and asks that no boundary on it is stranded.
+ *
+ * **It is NOT "well-bracketed" in the sense the warning at
+ * `lemma_pyield_residual_wf` says is false.** It does not say that a boundary is
+ * matched by a floor pushed by the same `PEnterCtx`, nor that the frames between
+ * them are the ones that production put there. It says only that the search a
+ * boundary runs terminates at something rather than falling off the end. That
+ * weaker statement is what a raw `PSplice` can be asked to respect, and it is
+ * exactly enough for the payoff below.
+ *)
+let rec pwb (#v #cl: Type) (k: pstack v cl) : Tot bool (decreases k)
+  = match k with
+    | [] -> true
+    | PBoundaryF :: rest -> panswered rest && pwb rest
+    | PSiteF _ :: rest -> panswered rest && pwb rest
+    | _ :: rest -> pwb rest
+
+(** Both strand-1 predicates distribute over `@`. PROVED, by induction. *)
+let rec lemma_pno_floor_append (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (ensures pno_floor (a @ b) == (pno_floor a && pno_floor b)) (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: rest -> lemma_pno_floor_append rest b
+
+let rec lemma_pno_mode_append (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (ensures pno_mode (a @ b) == (pno_mode a && pno_mode b)) (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: rest -> lemma_pno_mode_append rest b
+
+(** And so, therefore, does `panswered`. PROVED. *)
+let lemma_panswered_append (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (ensures panswered (a @ b) == (panswered a || panswered b))
+  = lemma_pno_floor_append a b;
+    lemma_pno_mode_append a b
+
+(** A mode search that answers is a stack that can answer. PROVED, by induction:
+    `pfind_mode` returns `Some` only at a `PModeF` it reached without meeting a
+    floor first, and that marker is what `panswered` sees. *)
+let rec lemma_find_mode_answered (#v #cl: Type) (k: pstack v cl)
+  : Lemma (ensures Some? (pfind_mode k) ==> panswered k) (decreases k)
+  = match k with
+    | [] -> ()
+    | PModeF _ _ :: _ -> ()
+    | PScopeF :: _ -> ()
+    | _ :: rest -> lemma_find_mode_answered rest
+
+(** **The interlock, stated as the fact the payoff needs.** PROVED, by induction.
+    A stack that can answer and whose mode search came back empty must have a
+    floor, and therefore a cut -- so `pyield` takes its `Some` arm and not its
+    `PPaused` one. *)
+let rec lemma_answered_has_cut (#v #cl: Type) (k: pstack v cl)
+  : Lemma (requires panswered k /\ pfind_mode k == None)
+          (ensures Some? (pcut_scope k))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | PScopeF :: _ -> ()
+    | PModeF _ _ :: _ -> ()
+    | _ :: rest -> lemma_answered_has_cut rest
+
+(** The cut, as a decomposition of the stack it was taken from. PROVED. *)
+let rec lemma_pcut_scope_shape (#v #cl: Type) (k: pstack v cl)
+  : Lemma (ensures (match pcut_scope k with
+                    | None -> True
+                    | Some (a, b) -> k == a @ (PScopeF :: b)))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | PScopeF :: _ -> ()
+    | _ :: rest -> lemma_pcut_scope_shape rest
+
+(** The prompt search, likewise: the captured segment and what is below it
+    reassemble into the stack, the found prompt frame being the last of the
+    captured part. PROVED. *)
+let rec lemma_pfind_prompt_shape
+    (#v #cl: Type) (lk: plookup_t cl) (eff op: string) (k: pstack v cl)
+  : Lemma (ensures (match pfind_prompt lk eff op k with
+                    | None -> True
+                    | Some (cap, _, below) -> k == cap @ below))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | PPromptF _ _ _ :: rest ->
+      (match lk (PPromptF?.tbl (Cons?.hd k)) eff op with
+        | Some _ -> ()
+        | None -> lemma_pfind_prompt_shape lk eff op rest)
+    | _ :: rest -> lemma_pfind_prompt_shape lk eff op rest
+
+(** `pwb` is closed under taking suffixes. PROVED. *)
+let rec lemma_pwb_suffix (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (requires pwb (a @ b)) (ensures pwb b) (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: rest -> lemma_pwb_suffix rest b
+
+(**
+ * **`pwb` composes, and the side condition is the whole of the design.** PROVED,
+ * by induction on the segment being pushed.
+ *
+ * If the stack underneath can already answer, the segment pushed on top is
+ * unconstrained: every boundary in it sees that answer past whatever lies
+ * between. If the stack underneath cannot, the segment must answer its own
+ * boundaries. That disjunction is what lets a `PSplice` of a captured
+ * continuation -- which may well carry a boundary whose floor was left behind --
+ * be spliced back onto a stack that still holds the floor.
+ *)
+let rec lemma_pwb_append (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (requires pwb b /\ (panswered b \/ pwb a))
+          (ensures pwb (a @ b))
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | f :: rest ->
+      lemma_panswered_append rest b;
+      lemma_pwb_append rest b
+
+(** The converse, at the one hypothesis that makes it true. PROVED. When nothing
+    below can answer, a composite stack's obligations are exactly the segment's
+    own, so the segment is `pwb` on its own account. This is what discharges the
+    premise of the condition on `apply` at a dispatch. *)
+let rec lemma_pwb_split (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (requires pwb (a @ b) /\ ~(panswered b))
+          (ensures pwb a)
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | f :: rest ->
+      lemma_panswered_append rest b;
+      lemma_pwb_split rest b
+
+(** **The frames a scope is entered under carry no boundary and no site**, so
+    they are `pwb` outright and answer nothing. PROVED, by induction on the plan;
+    the owner frame is a prompt and adds neither. *)
+let rec lemma_enter_layer_frames_shape (#v #cl: Type) (ls: list (plan_item v cl))
+  : Lemma (ensures pwb (enter_layer_frames ls) /\ ~(panswered (enter_layer_frames ls)))
+          (decreases ls)
+  = match ls with
+    | [] -> ()
+    | _ :: rest -> lemma_enter_layer_frames_shape rest
+
+let lemma_plan_enter_frames_shape (#v #cl: Type) (pl: plan v cl)
+  : Lemma (ensures pwb (plan_enter_frames pl) /\ ~(panswered (plan_enter_frames pl)))
+  = lemma_enter_layer_frames_shape (Plan?.layers pl);
+    lemma_panswered_append (enter_layer_frames (Plan?.layers pl))
+                           [owner_frame (Plan?.owner pl)];
+    lemma_pwb_append (enter_layer_frames (Plan?.layers pl))
+                     [owner_frame (Plan?.owner pl)]
+
+(** Writing a cell rewrites one frame in place, and a `PParamF` is invisible to
+    both strand-1 predicates, so nothing this section can see changes. PROVED, by
+    induction, and split from the `pwb` half because the frame judgement below
+    needs the `panswered` half on its own -- with no `pwb` hypothesis to carry. *)
+let rec lemma_pset_param_answered
+    (#v #cl: Type) (l: string) (x: pval v) (k: pstack v cl)
+  : Lemma (ensures (match pset_param l x k with
+                    | None -> True
+                    | Some k' -> panswered k' == panswered k))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | PParamF l' _ :: rest ->
+      if l' = l then () else lemma_pset_param_answered l x rest
+    | _ :: rest -> lemma_pset_param_answered l x rest
+
+let rec lemma_pset_param_shape
+    (#v #cl: Type) (l: string) (x: pval v) (k: pstack v cl)
+  : Lemma (requires pwb k)
+          (ensures (match pset_param l x k with
+                    | None -> True
+                    | Some k' -> pwb k' /\ panswered k' == panswered k))
+          (decreases k)
+  = lemma_pset_param_answered l x k;
+    match k with
+    | [] -> ()
+    | PParamF l' _ :: rest ->
+      if l' = l then () else (lemma_pset_param_answered l x rest;
+                              lemma_pset_param_shape l x rest)
+    | _ :: rest ->
+      lemma_pset_param_answered l x rest;
+      lemma_pset_param_shape l x rest
+
+(* ---- The stack layer: the judgement on terms ---------------------- *)
+
+(**
+ * **The well-scopedness judgement, and it is STEP-INDEXED for the reason
+ * `Hoop.Runtime.WellScopedness.ws_n` is.**
+ *
+ * The obligation a prompt's return clause carries is `forall x. <judgement> (r x)`
+ * with `r` reached through an `option`, and F* does not offer
+ * `r x << PHandle tbl (Some r) prov body`: the subterm ordering gives the
+ * function-application step only where the function is an IMMEDIATE constructor
+ * argument, and `Some` interposes. The plain structural definition was written,
+ * rejected at exactly those two clauses, and replaced by this one -- the same
+ * repair, for the same reason, that the shipped judgement makes.
+ *
+ * `n = 0` is `True`, so a larger index is a STRONGER statement, and the
+ * judgement proper is the intersection over all indices.
+ *
+ * **What the judgement says, read at `n` large.** Everything turns on ONE
+ * question: whether the stack a term will run on can already answer a boundary.
+ * If it can, the term is unconstrained here; if it cannot, then every raw frame
+ * list the term splices must be `pwb` on its own account, and the suspended
+ * computations those frames carry must be judged in turn.
+ *
+ *   - `PSplice fs body` is where the whole judgement earns its keep. It is the
+ *     one node that can put arbitrary frames on the stack -- the warning at
+ *     `lemma_pyield_residual_wf` names it -- so this is the clause that asks for
+ *     `pwb fs`. `body` is judged only if the segment did not itself answer.
+ *
+ *   - `PWeave` splices `plan_enter_frames`, which drops the bind frames and
+ *     keeps the prompts. So the condition on its intervening segment is
+ *     `pints_wb`, which constrains the PROMPT RETURN CLAUSES and nothing else --
+ *     minimal on purpose, since a condition on the bind frames would be a demand
+ *     on continuations that `enter_layer_frames` discards.
+ *
+ *   - **`PEnterCtx`, `PExtendC`, `PExtendCtxC` and `PResumeC` ask for NOTHING,
+ *     and that is a result rather than an omission.** Production pushes its own
+ *     `PScopeF` beneath everything it installs, so every frame it lays down and
+ *     the body itself run on a stack that can answer; a consumer splices the
+ *     residual with its own `PModeF` appended beneath it, so the same is true
+ *     there. The four nodes that manipulate scopes are exactly the four that
+ *     cannot strand a boundary. See `lemma_pstep_state_wb` for where this is
+ *     discharged.
+ *)
+let rec pterm_wb_n (#v #cl: Type) (n: nat) (c: pcomp v cl)
+  : Tot prop (decreases %[n; 4; 0])
+  = if n = 0 then True
+    else
+      match c with
+      | PVar _ -> True
+      | PPerform _ _ _ -> True
+      | PReadP _ -> True
+      | PWriteP _ _ -> True
+      | POp inner fn ->
+          pterm_wb_n (n - 1) inner /\ (forall (x: pval v). pterm_wb_n (n - 1) (fn x))
+      | PHandle _ ret _ body -> pret_wb_n n ret /\ pterm_wb_n (n - 1) body
+      | PEmit _ body -> pterm_wb_n (n - 1) body
+      | PNewP _ _ body -> pterm_wb_n (n - 1) body
+      | PSplice fs body ->
+          pwb fs /\ pframes_wb_n n fs /\ (panswered fs \/ pterm_wb_n (n - 1) body)
+      | PWeave _ _ ints own body ->
+          pints_wb_n n ints /\ pret_wb_n n (POwner?.ret own) /\ pterm_wb_n (n - 1) body
+      | PEnterCtx _ _ -> True
+      | PExtendC _ _ _ -> True
+      | PExtendCtxC _ _ _ -> True
+      | PResumeC _ _ _ -> True
+
+(**
+ * **The judgement on a live stack**, and the `panswered rest` escape is the
+ * whole of its content: a frame's suspended computation will be resumed on what
+ * lies BELOW that frame, so if that can answer, the computation is unconstrained.
+ *
+ * `PSiteF` and `PModeF` carry functions and are given NO obligation here, which
+ * is worth a sentence. A `PSiteF`'s function is run by exactly one rule, and
+ * only in the arm where `pfind_mode` answered -- so the stack it is run on
+ * contains that marker and can answer. A `PModeF`'s responder likewise runs at a
+ * boundary that found this very marker. Both are therefore always resumed on an
+ * answering stack, and an obligation here would be one no rule could ever use.
+ *)
+and pframes_wb_n (#v #cl: Type) (n: nat) (fs: pstack v cl)
+  : Tot prop (decreases %[n; 3; length fs])
+  = if n = 0 then True
+    else
+      match fs with
+      | [] -> True
+      | fr :: rest -> (panswered rest \/ pframe_wb_n n fr) /\ pframes_wb_n n rest
+
+(** **The judgement on a `PWeave`'s intervening segment**: the prompts' return
+    clauses, and nothing else, because `plan_layers` followed by
+    `enter_layer_frames` keeps exactly those. Unconditional -- no `panswered`
+    escape -- because the segment is REBUILT into a frame list of its own, in
+    which nothing answers, so what the segment sat above is no help. *)
+and pints_wb_n (#v #cl: Type) (n: nat) (fs: pstack v cl)
+  : Tot prop (decreases %[n; 3; length fs])
+  = if n = 0 then True
+    else
+      match fs with
+      | [] -> True
+      | PPromptF _ ret _ :: rest -> pret_wb_n n ret /\ pints_wb_n n rest
+      | _ :: rest -> pints_wb_n n rest
+
+and pframe_wb_n (#v #cl: Type) (n: nat) (fr: pframe v cl)
+  : Tot prop (decreases %[n; 2; 0])
+  = if n = 0 then True
+    else
+      match fr with
+      | PBindF fn -> forall (x: pval v). pterm_wb_n (n - 1) (fn x)
+      | PPromptF _ ret _ -> pret_wb_n n ret
+      | _ -> True
+
+and pret_wb_n (#v #cl: Type) (n: nat) (ret: option (pval v -> pcomp v cl))
+  : Tot prop (decreases %[n; 1; 0])
+  = if n = 0 then True
+    else
+      match ret with
+      | None -> True
+      | Some r -> forall (x: pval v). pterm_wb_n (n - 1) (r x)
+
+(** The judgements proper: the intersection over every index. *)
+let pterm_wb (#v #cl: Type) (c: pcomp v cl) : prop
+  = forall (n: nat). pterm_wb_n n c
+let pframes_wb (#v #cl: Type) (fs: pstack v cl) : prop
+  = forall (n: nat). pframes_wb_n n fs
+let pints_wb (#v #cl: Type) (fs: pstack v cl) : prop
+  = forall (n: nat). pints_wb_n n fs
+let pframe_wb (#v #cl: Type) (fr: pframe v cl) : prop
+  = forall (n: nat). pframe_wb_n n fr
+let pret_wb (#v #cl: Type) (ret: option (pval v -> pcomp v cl)) : prop
+  = forall (n: nat). pret_wb_n n ret
+
+(* ---- The defining equations, recovered from the index ------------- *)
+(*                                                                     *)
+(*  The step index is an implementation detail of the definition and    *)
+(*  nothing below it mentions one. These are the equations the rest of  *)
+(*  the section works through, exactly as `Hoop.Runtime.Metatheory`     *)
+(*  assembles `ws_var`, `ws_op`, `ws_splice` and the rest into the      *)
+(*  structural reading of `ws`. Each is PROVED.                         *)
+
+let lemma_wb_trivial (#v #cl: Type) (c: pcomp v cl)
+  : Lemma (requires PVar? c \/ PPerform? c \/ PReadP? c \/ PWriteP? c \/
+                    PEnterCtx? c \/ PExtendC? c \/ PExtendCtxC? c \/ PResumeC? c)
+          (ensures pterm_wb c)
+  = ()
+
+(** The one equation that needs its index peeled by hand: both components of a
+    bind are judged at `n - 1`, so neither direction is a single instantiation.
+    PROVED, in two halves. *)
+let lemma_wb_op_fwd (#v #cl: Type) (inner: pcomp v cl) (fn: pval v -> pcomp v cl)
+  : Lemma (requires pterm_wb (POp inner fn))
+          (ensures pterm_wb inner /\ (forall (x: pval v). pterm_wb (fn x)))
+  = introduce forall (n: nat). pterm_wb_n n inner
+    with assert (pterm_wb_n (n + 1) (POp inner fn));
+    introduce forall (x: pval v). pterm_wb (fn x)
+    with (introduce forall (n: nat). pterm_wb_n n (fn x)
+          with assert (pterm_wb_n (n + 1) (POp inner fn)))
+
+let lemma_wb_op_bwd (#v #cl: Type) (inner: pcomp v cl) (fn: pval v -> pcomp v cl)
+  : Lemma (requires pterm_wb inner /\ (forall (x: pval v). pterm_wb (fn x)))
+          (ensures pterm_wb (POp inner fn))
+  = introduce forall (n: nat). pterm_wb_n n (POp inner fn)
+    with (if n = 0 then () else assert (pterm_wb_n (n - 1) inner))
+
+let lemma_wb_op (#v #cl: Type) (inner: pcomp v cl) (fn: pval v -> pcomp v cl)
+  : Lemma (pterm_wb (POp inner fn)
+           <==> (pterm_wb inner /\ (forall (x: pval v). pterm_wb (fn x))))
+  = introduce pterm_wb (POp inner fn)
+              ==> (pterm_wb inner /\ (forall (x: pval v). pterm_wb (fn x)))
+    with lemma_wb_op_fwd inner fn;
+    introduce (pterm_wb inner /\ (forall (x: pval v). pterm_wb (fn x)))
+              ==> pterm_wb (POp inner fn)
+    with lemma_wb_op_bwd inner fn
+
+let lemma_wb_handle_fwd
+    (#v #cl: Type) (tbl: ptable cl) (ret: option (pval v -> pcomp v cl))
+    (prov: prompt_provenance) (body: pcomp v cl)
+  : Lemma (requires pterm_wb (PHandle tbl ret prov body))
+          (ensures pret_wb ret /\ pterm_wb body)
+  = introduce forall (n: nat). pret_wb_n n ret
+    with (if n = 0 then () else assert (pterm_wb_n n (PHandle tbl ret prov body)));
+    introduce forall (n: nat). pterm_wb_n n body
+    with assert (pterm_wb_n (n + 1) (PHandle tbl ret prov body))
+
+let lemma_wb_handle_bwd
+    (#v #cl: Type) (tbl: ptable cl) (ret: option (pval v -> pcomp v cl))
+    (prov: prompt_provenance) (body: pcomp v cl)
+  : Lemma (requires pret_wb ret /\ pterm_wb body)
+          (ensures pterm_wb (PHandle tbl ret prov body))
+  = introduce forall (n: nat). pterm_wb_n n (PHandle tbl ret prov body)
+    with (if n = 0 then ()
+          else (assert (pret_wb_n n ret); assert (pterm_wb_n (n - 1) body)))
+
+let lemma_wb_emit_fwd (#v #cl: Type) (ev: string) (body: pcomp v cl)
+  : Lemma (requires pterm_wb (PEmit ev body)) (ensures pterm_wb body)
+  = introduce forall (n: nat). pterm_wb_n n body
+    with assert (pterm_wb_n (n + 1) (PEmit ev body))
+
+let lemma_wb_emit_bwd (#v #cl: Type) (ev: string) (body: pcomp v cl)
+  : Lemma (requires pterm_wb body) (ensures pterm_wb (PEmit ev body))
+  = introduce forall (n: nat). pterm_wb_n n (PEmit ev body)
+    with (if n = 0 then () else assert (pterm_wb_n (n - 1) body))
+
+let lemma_wb_newp_fwd (#v #cl: Type) (l: string) (init: pval v) (body: pcomp v cl)
+  : Lemma (requires pterm_wb (PNewP l init body)) (ensures pterm_wb body)
+  = introduce forall (n: nat). pterm_wb_n n body
+    with assert (pterm_wb_n (n + 1) (PNewP l init body))
+
+let lemma_wb_newp_bwd (#v #cl: Type) (l: string) (init: pval v) (body: pcomp v cl)
+  : Lemma (requires pterm_wb body) (ensures pterm_wb (PNewP l init body))
+  = introduce forall (n: nat). pterm_wb_n n (PNewP l init body)
+    with (if n = 0 then () else assert (pterm_wb_n (n - 1) body))
+
+let lemma_wb_splice_fwd (#v #cl: Type) (fs: pstack v cl) (body: pcomp v cl)
+  : Lemma (requires pterm_wb (PSplice fs body))
+          (ensures pwb fs /\ pframes_wb fs /\ (panswered fs \/ pterm_wb body))
+  = assert (pterm_wb_n 1 (PSplice fs body));
+    introduce forall (n: nat). pframes_wb_n n fs
+    with (if n = 0 then () else assert (pterm_wb_n n (PSplice fs body)));
+    if panswered fs then ()
+    else (introduce forall (n: nat). pterm_wb_n n body
+          with assert (pterm_wb_n (n + 1) (PSplice fs body)))
+
+let lemma_wb_splice_bwd (#v #cl: Type) (fs: pstack v cl) (body: pcomp v cl)
+  : Lemma (requires pwb fs /\ pframes_wb fs /\ (panswered fs \/ pterm_wb body))
+          (ensures pterm_wb (PSplice fs body))
+  = introduce forall (n: nat). pterm_wb_n n (PSplice fs body)
+    with (if n = 0 then ()
+          else (assert (pframes_wb_n n fs);
+                if panswered fs then () else assert (pterm_wb_n (n - 1) body)))
+
+let lemma_wb_weave_fwd
+    (#v #cl: Type) (oeff oop: string) (ints: pstack v cl)
+    (own: powner v cl) (body: pcomp v cl)
+  : Lemma (requires pterm_wb (PWeave oeff oop ints own body))
+          (ensures pints_wb ints /\ pret_wb (POwner?.ret own) /\ pterm_wb body)
+  = introduce forall (n: nat). pints_wb_n n ints
+    with (if n = 0 then () else assert (pterm_wb_n n (PWeave oeff oop ints own body)));
+    introduce forall (n: nat). pret_wb_n n (POwner?.ret own)
+    with (if n = 0 then () else assert (pterm_wb_n n (PWeave oeff oop ints own body)));
+    introduce forall (n: nat). pterm_wb_n n body
+    with assert (pterm_wb_n (n + 1) (PWeave oeff oop ints own body))
+
+let lemma_wb_frames_nil (#v #cl: Type) ()
+  : Lemma (pframes_wb ([] <: pstack v cl))
+  = ()
+
+let lemma_wb_frames_cons_fwd (#v #cl: Type) (fr: pframe v cl) (rest: pstack v cl)
+  : Lemma (requires pframes_wb (fr :: rest))
+          (ensures (panswered rest \/ pframe_wb fr) /\ pframes_wb rest)
+  = introduce forall (n: nat). pframes_wb_n n rest
+    with (if n = 0 then () else assert (pframes_wb_n n (fr :: rest)));
+    if panswered rest then ()
+    else (introduce forall (n: nat). pframe_wb_n n fr
+          with (if n = 0 then () else assert (pframes_wb_n n (fr :: rest))))
+
+let lemma_wb_frames_cons_bwd (#v #cl: Type) (fr: pframe v cl) (rest: pstack v cl)
+  : Lemma (requires (panswered rest \/ pframe_wb fr) /\ pframes_wb rest)
+          (ensures pframes_wb (fr :: rest))
+  = introduce forall (n: nat). pframes_wb_n n (fr :: rest)
+    with (if n = 0 then ()
+          else (assert (pframes_wb_n n rest);
+                if panswered rest then () else assert (pframe_wb_n n fr)))
+
+let lemma_wb_frame_bind_fwd (#v #cl: Type) (fn: pval v -> pcomp v cl)
+  : Lemma (requires pframe_wb (PBindF fn))
+          (ensures forall (x: pval v). pterm_wb (fn x))
+  = introduce forall (x: pval v). pterm_wb (fn x)
+    with (introduce forall (n: nat). pterm_wb_n n (fn x)
+          with assert (pframe_wb_n (n + 1) (PBindF fn)))
+
+let lemma_wb_frame_bind_bwd (#v #cl: Type) (fn: pval v -> pcomp v cl)
+  : Lemma (requires forall (x: pval v). pterm_wb (fn x))
+          (ensures pframe_wb (PBindF fn))
+  = introduce forall (n: nat). pframe_wb_n n (PBindF fn)
+    with (if n = 0 then () else ())
+
+let lemma_wb_frame_prompt_fwd
+    (#v #cl: Type) (tbl: ptable cl) (ret: option (pval v -> pcomp v cl))
+    (prov: prompt_provenance)
+  : Lemma (requires pframe_wb (PPromptF tbl ret prov)) (ensures pret_wb ret)
+  = introduce forall (n: nat). pret_wb_n n ret
+    with (if n = 0 then () else assert (pframe_wb_n n (PPromptF tbl ret prov)))
+
+let lemma_wb_frame_prompt_bwd
+    (#v #cl: Type) (tbl: ptable cl) (ret: option (pval v -> pcomp v cl))
+    (prov: prompt_provenance)
+  : Lemma (requires pret_wb ret) (ensures pframe_wb (PPromptF tbl ret prov))
+  = introduce forall (n: nat). pframe_wb_n n (PPromptF tbl ret prov)
+    with (if n = 0 then () else assert (pret_wb_n n ret))
+
+let lemma_wb_frame_inert (#v #cl: Type) (fr: pframe v cl)
+  : Lemma (requires PParamF? fr \/ PBoundaryF? fr \/ PSiteF? fr \/
+                    PModeF? fr \/ PScopeF? fr)
+          (ensures pframe_wb fr)
+  = ()
+
+let lemma_wb_ret_none (#v #cl: Type) ()
+  : Lemma (pret_wb (None <: option (pval v -> pcomp v cl)))
+  = ()
+
+let lemma_wb_ret_some_fwd (#v #cl: Type) (r: pval v -> pcomp v cl)
+  : Lemma (requires pret_wb (Some r)) (ensures forall (x: pval v). pterm_wb (r x))
+  = introduce forall (x: pval v). pterm_wb (r x)
+    with (introduce forall (n: nat). pterm_wb_n n (r x)
+          with assert (pret_wb_n (n + 1) (Some r)))
+
+let lemma_wb_ret_some_bwd (#v #cl: Type) (r: pval v -> pcomp v cl)
+  : Lemma (requires forall (x: pval v). pterm_wb (r x)) (ensures pret_wb (Some r))
+  = introduce forall (n: nat). pret_wb_n n (Some r)
+    with (if n = 0 then () else ())
+
+let lemma_wb_ints_nil (#v #cl: Type) ()
+  : Lemma (pints_wb ([] <: pstack v cl))
+  = ()
+
+let lemma_wb_ints_prompt_fwd
+    (#v #cl: Type) (tbl: ptable cl) (ret: option (pval v -> pcomp v cl))
+    (prov: prompt_provenance) (rest: pstack v cl)
+  : Lemma (requires pints_wb (PPromptF tbl ret prov :: rest))
+          (ensures pret_wb ret /\ pints_wb rest)
+  = introduce forall (n: nat). pret_wb_n n ret
+    with (if n = 0 then () else assert (pints_wb_n n (PPromptF tbl ret prov :: rest)));
+    introduce forall (n: nat). pints_wb_n n rest
+    with (if n = 0 then () else assert (pints_wb_n n (PPromptF tbl ret prov :: rest)))
+
+let lemma_wb_ints_prompt_bwd
+    (#v #cl: Type) (tbl: ptable cl) (ret: option (pval v -> pcomp v cl))
+    (prov: prompt_provenance) (rest: pstack v cl)
+  : Lemma (requires pret_wb ret /\ pints_wb rest)
+          (ensures pints_wb (PPromptF tbl ret prov :: rest))
+  = introduce forall (n: nat). pints_wb_n n (PPromptF tbl ret prov :: rest)
+    with (if n = 0 then ()
+          else (assert (pret_wb_n n ret); assert (pints_wb_n n rest)))
+
+let lemma_wb_ints_other_fwd (#v #cl: Type) (fr: pframe v cl) (rest: pstack v cl)
+  : Lemma (requires ~(PPromptF? fr) /\ pints_wb (fr :: rest))
+          (ensures pints_wb rest)
+  = introduce forall (n: nat). pints_wb_n n rest
+    with (if n = 0 then () else assert (pints_wb_n n (fr :: rest)))
+
+let lemma_wb_ints_other_bwd (#v #cl: Type) (fr: pframe v cl) (rest: pstack v cl)
+  : Lemma (requires ~(PPromptF? fr) /\ pints_wb rest)
+          (ensures pints_wb (fr :: rest))
+  = introduce forall (n: nat). pints_wb_n n (fr :: rest)
+    with (if n = 0 then () else assert (pints_wb_n n rest))
+
+(* ---- `pframes_wb` composes, exactly as `pwb` does ----------------- *)
+
+let rec lemma_pframes_wb_append_n
+    (#v #cl: Type) (n: nat) (a b: pstack v cl)
+  : Lemma (requires pframes_wb_n n b /\ (panswered b \/ pframes_wb_n n a))
+          (ensures pframes_wb_n n (a @ b))
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: rest ->
+      lemma_panswered_append rest b;
+      lemma_pframes_wb_append_n n rest b
+
+let rec lemma_pframes_wb_split_n
+    (#v #cl: Type) (n: nat) (a b: pstack v cl)
+  : Lemma (requires pframes_wb_n n (a @ b) /\ ~(panswered b))
+          (ensures pframes_wb_n n a)
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: rest ->
+      lemma_panswered_append rest b;
+      lemma_pframes_wb_split_n n rest b
+
+let rec lemma_pframes_wb_suffix_n
+    (#v #cl: Type) (n: nat) (a b: pstack v cl)
+  : Lemma (requires pframes_wb_n n (a @ b))
+          (ensures pframes_wb_n n b)
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: rest -> lemma_pframes_wb_suffix_n n rest b
+
+(** The same three, with the index quantified away. PROVED. *)
+let lemma_pframes_wb_append (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (requires pframes_wb b /\ (panswered b \/ pframes_wb a))
+          (ensures pframes_wb (a @ b))
+  = introduce forall (n: nat). pframes_wb_n n (a @ b)
+    with lemma_pframes_wb_append_n n a b
+
+let lemma_pframes_wb_split (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (requires pframes_wb (a @ b) /\ ~(panswered b))
+          (ensures pframes_wb a)
+  = introduce forall (n: nat). pframes_wb_n n a
+    with lemma_pframes_wb_split_n n a b
+
+let lemma_pframes_wb_suffix (#v #cl: Type) (a b: pstack v cl)
+  : Lemma (requires pframes_wb (a @ b))
+          (ensures pframes_wb b)
+  = introduce forall (n: nat). pframes_wb_n n b
+    with lemma_pframes_wb_suffix_n n a b
+
+(** Writing a cell preserves the frame judgement too. PROVED, at a fixed index by
+    induction, then lifted. *)
+let rec lemma_pset_param_frames_wb_n
+    (#v #cl: Type) (n: nat) (l: string) (x: pval v) (k: pstack v cl)
+  : Lemma (requires pframes_wb_n n k)
+          (ensures (match pset_param l x k with
+                    | None -> True
+                    | Some k' -> pframes_wb_n n k'))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | PParamF l' _ :: rest ->
+      if l' = l then ()
+      else (lemma_pset_param_answered l x rest;
+            lemma_pset_param_frames_wb_n n l x rest)
+    | _ :: rest ->
+      lemma_pset_param_answered l x rest;
+      lemma_pset_param_frames_wb_n n l x rest
+
+let lemma_pset_param_frames_wb
+    (#v #cl: Type) (l: string) (x: pval v) (k: pstack v cl)
+  : Lemma (requires pframes_wb k)
+          (ensures (match pset_param l x k with
+                    | None -> True
+                    | Some k' -> pframes_wb k'))
+  = match pset_param l x k with
+    | None -> ()
+    | Some k' ->
+      introduce forall (n: nat). pframes_wb_n n k'
+      with lemma_pset_param_frames_wb_n n l x k
+
+(**
+ * **The frames a `PWeave` splices satisfy the frame judgement**, given only the
+ * judgement on the prompts of its intervening segment. PROVED, by induction on
+ * that segment.
+ *
+ * This is where `pints_wb` is shown to be exactly the right condition rather
+ * than a convenient one: the walk below is `plan_layers` followed by
+ * `enter_layer_frames`, and every frame it produces is either a `PParamF`, which
+ * carries no obligation, or a `PPromptF` whose return clause is either `None`
+ * (a transparent layer, whose clause the classification already established was
+ * absent) or one that came from a prompt of the segment. The bind frames are
+ * DROPPED by `enter_layer_frames`, which is why `pints_wb` does not constrain
+ * them.
+ *)
+let rec lemma_plan_layers_wb (#v #cl: Type) (ints: pstack v cl)
+  : Lemma (requires pints_wb ints)
+          (ensures (match plan_layers ints with
+                    | Inl _ -> True
+                    | Inr ls -> pframes_wb (enter_layer_frames ls)))
+          (decreases ints)
+  = match ints with
+    | [] -> lemma_wb_frames_nil #v #cl ()
+    | PBindF fn :: rest ->
+      lemma_wb_ints_other_fwd (PBindF fn) rest;
+      lemma_plan_layers_wb rest
+    | PParamF l y :: rest ->
+      lemma_wb_ints_other_fwd (PParamF l y) rest;
+      lemma_plan_layers_wb rest;
+      (match plan_layers rest with
+        | Inl _ -> ()
+        | Inr ls ->
+          lemma_wb_frame_inert (PParamF l y <: pframe v cl);
+          lemma_wb_frames_cons_bwd (PParamF l y) (enter_layer_frames ls))
+    | PPromptF tbl ret prov :: rest ->
+      lemma_wb_ints_prompt_fwd tbl ret prov rest;
+      lemma_plan_layers_wb rest;
+      (match classify_prompt prov tbl ret with
+        | Monomorphic -> ()
+        | ContextTransparent ->
+          (match plan_layers rest with
+            | Inl _ -> ()
+            | Inr ls ->
+              lemma_wb_ret_none #v #cl ();
+              lemma_wb_frame_prompt_bwd #v #cl tbl None PMono;
+              lemma_wb_frames_cons_bwd (PPromptF tbl None PMono) (enter_layer_frames ls))
+        | Family ->
+          (match plan_layers rest with
+            | Inl _ -> ()
+            | Inr ls ->
+              lemma_wb_frame_prompt_bwd tbl ret PFamily;
+              lemma_wb_frames_cons_bwd (PPromptF tbl ret PFamily) (enter_layer_frames ls)))
+    | PBoundaryF :: rest ->
+      lemma_wb_ints_other_fwd (PBoundaryF <: pframe v cl) rest;
+      lemma_plan_layers_wb rest
+    | PSiteF fn :: rest ->
+      lemma_wb_ints_other_fwd (PSiteF fn) rest;
+      lemma_plan_layers_wb rest
+    | PModeF m r :: rest ->
+      lemma_wb_ints_other_fwd (PModeF m r) rest;
+      lemma_plan_layers_wb rest
+    | PScopeF :: rest ->
+      lemma_wb_ints_other_fwd (PScopeF <: pframe v cl) rest;
+      lemma_plan_layers_wb rest
+
+(** And with the owner's frame appended, which is what `plan_enter_frames` is.
+    PROVED. *)
+let lemma_plan_enter_frames_wb (#v #cl: Type) (ints: pstack v cl) (own: powner v cl)
+  : Lemma (requires pints_wb ints /\ pret_wb (POwner?.ret own))
+          (ensures (match plan_of ints own with
+                    | Inl _ -> True
+                    | Inr pl -> pframes_wb (plan_enter_frames pl)))
+  = lemma_plan_layers_wb ints;
+    match plan_layers ints with
+    | Inl _ -> ()
+    | Inr ls ->
+      lemma_wb_frame_prompt_bwd (POwner?.tbl own) (POwner?.ret own) (POwner?.prov own);
+      lemma_wb_frames_nil #v #cl ();
+      lemma_wb_frames_cons_bwd (owner_frame own) ([] <: pstack v cl);
+      lemma_pframes_wb_append (enter_layer_frames ls) [owner_frame own]
+
+(* ---- The condition on the clause interpreter --------------------- *)
+
+(**
+ * **The condition imposed on the FFI parameter `apply`**, and it is
+ * `Hoop.Runtime.WellScopedness.apply_ok` with one thing missing.
+ *
+ * A clause handed a payload and a continuation whose every branch is judged
+ * builds a computation that is judged. **There is no `cok` and no `can`**: the
+ * shipped `apply_ok` carries a clause predicate and a capability environment
+ * because `ws` is a judgement about WHICH ACTIONS may be fired, and a clause has
+ * to be admissible in the environment it runs in. This judgement is about
+ * FRAME SHAPES ONLY -- it says nothing about effect labels -- so there is
+ * nothing for a clause predicate to say and nothing for an environment to index.
+ * The divergence is a consequence of what the two judgements are about, not a
+ * weakening of this one.
+ *
+ * As there, this is NOT provable inside F* and is not meant to be: `apply` is a
+ * parameter. It appears only as a hypothesis. `guard_fapply_wb` below discharges
+ * it for the fixtures' own interpreter, which is the check that it is not
+ * vacuous.
+ *)
+let papply_wb (#v #cl: Type) (apply: papply_t v cl) : prop
+  = forall (c: cl) (payload: list (pval v)) (kf: (pval v -> pcomp v cl)).
+      (forall (x: pval v). pterm_wb (kf x)) ==> pterm_wb (apply c payload kf)
+
+(* ---- The configuration invariant --------------------------------- *)
+
+(**
+ * **The machine invariant.** The stack is `pwb`, every computation suspended in
+ * it is judged where it will be resumed, and the control component is judged
+ * unless the stack can already answer.
+ *
+ * **`PPaused` is `False`, and that is the payoff.** It is the state a boundary
+ * reaches with no consumer above it and no floor below it -- the well-bracketing
+ * failure the `pstate` header calls a totality obligation, checked by execution
+ * at `fixture_9_paused_is_unreachable` on the fixtures and by this invariant on
+ * every program satisfying `pterm_wb`.
+ *
+ * **`PStuck` is `True`, and that is a divergence from the shipped `wf_state`,
+ * which sets `Stuck` to `False` and proves progress.** It cannot be `False`
+ * here, and not because the proof would be hard: a stuck state is REACHABLE and
+ * MEANT to be. A forged handle is `PStuck pctx_eff pctx_missing_op` by design
+ * (`fixture_19_forged_handle_fails`), and an operation no prompt handles is
+ * `PStuck eff op` (`fixture_10_detached_gets_stuck`). Ruling those out would
+ * make the invariant false, not stronger. Progress in the shipped sense is a
+ * statement about capabilities and would need the capability judgement this
+ * prototype does not have.
+ *
+ * `PRejected` is `True` for the reason the shipped `wf_state` gives: refusing a
+ * scope is not a failure of this kind.
+ *)
+let pstate_wb (#v #cl: Type) (s: pstate v cl) : prop
+  = match s with
+    | PDone _ -> True
+    | PStuck _ _ -> True
+    | PRejected _ -> True
+    | PPaused _ _ -> False
+    | PStep c k -> pwb k /\ pframes_wb k /\ (panswered k \/ pterm_wb c)
+
+(** **THE CONFIGURATION INVARIANT**: freshness, the store layer and the stack
+    layer, composed. The first two conjuncts need no hypothesis to be preserved;
+    the third needs `papply_wb`. *)
+let pconf_ok (#v #cl: Type) (cf: pconf v cl) : prop
+  = pconf_wf cf /\ pstore_resid_wf cf.store /\ pstate_wb cf.st
+
+(** **Loading establishes it, from the initial-term condition and nothing else.**
+    PROVED. The store is empty and `next` is zero, so both of those conjuncts are
+    immediate; the stack is empty, which is `pwb`, carries nothing, and -- being
+    unable to answer -- is exactly why the term must be judged. *)
+let lemma_pload_ok (#v #cl: Type) (c: pcomp v cl)
+  : Lemma (requires pterm_wb c) (ensures pconf_ok (pload c))
+  = lemma_wb_frames_nil #v #cl ()
+
+(* ---- Preservation, rule by rule ---------------------------------- *)
+
+(** **Driving a context always builds a judged term, for ANY context and any
+    consumer function.** PROVED, and it is why the three consuming nodes carry no
+    obligation: `ctx_drive` appends its own `PModeF` beneath the residual, so
+    every boundary and every site in that residual is answered by the marker the
+    consumer just installed, whatever the residual is and whatever it is spliced
+    onto. Nothing here appeals to `presid_wf`. *)
+let lemma_ctx_drive_wb
+    (#v #cl: Type) (m: weave_mode) (cx: pctx v cl) (f: pval v -> pcomp v cl)
+  : Lemma (ensures pterm_wb (ctx_drive m cx f))
+  = match cx with
+    | PCtxDone y -> lemma_wb_trivial (PVar y <: pcomp v cl)
+    | PCtxRequests x resid post ->
+      let mk : pstack v cl = [PModeF m (fun (z: pval v) -> pbind (post z) f)] in
+      assert_norm (ctx_drive m (PCtxRequests x resid post) f
+                   == PSplice (resid @ mk) (PVar x));
+      lemma_wb_frame_inert (Cons?.hd mk);
+      lemma_wb_frames_nil #v #cl ();
+      lemma_wb_frames_cons_bwd (Cons?.hd mk) ([] <: pstack v cl);
+      lemma_panswered_append resid mk;
+      lemma_pwb_append resid mk;
+      lemma_pframes_wb_append resid mk;
+      lemma_wb_trivial (PVar x <: pcomp v cl);
+      lemma_wb_splice_bwd (resid @ mk) (PVar x)
+
+(** **Yielding lands in a judged state, and in particular NOT in `PPaused`.**
+    PROVED. `panswered rest` comes from `pwb` at the boundary or site frame the
+    value arrived at, and `pfind_mode rest == None` is the branch guard; together
+    they force a floor, hence a cut. *)
+let lemma_pyield_state_wb
+    (#v #cl: Type) (x: pval v) (hd: pframe v cl)
+    (rest: pstack v cl) (cf: pconf v cl)
+  : Lemma (requires pwb rest /\ pframes_wb rest /\
+                    panswered rest /\ pfind_mode rest == None)
+          (ensures pstate_wb (pyield x hd rest cf).st)
+  = lemma_answered_has_cut rest;
+    lemma_pcut_scope_shape rest;
+    match pcut_scope rest with
+    | None -> ()
+    | Some (above, below) ->
+      lemma_pwb_suffix above (PScopeF :: below);
+      lemma_pframes_wb_suffix above (PScopeF :: below);
+      lemma_wb_frames_cons_fwd (PScopeF <: pframe v cl) below;
+      lemma_wb_trivial (PVar (PCtxKey cf.next) <: pcomp v cl)
+
+(**
+ * **THE STACK LAYER, PRESERVED BY EVERY TRANSITION.** PROVED, and the only
+ * hypothesis beyond the invariant itself is the one on `apply`. The lookup `lk`
+ * is arbitrary; no condition on the handler tables is needed, because this
+ * judgement does not speak about effect labels.
+ *
+ * Read the case analysis for where the work is:
+ *
+ *   - `PSplice` is the case the whole judgement exists for, and it discharges
+ *     from the node's own `pwb fs`.
+ *   - `PPerform` is the case that needs `papply_wb`, and it needs it only when
+ *     the stack BELOW the handling prompt cannot answer -- in which case the
+ *     captured segment's own obligations are exactly what the composite stack
+ *     had, so `lemma_pwb_split` hands the premise over. When the stack below CAN
+ *     answer, the conclusion is not needed at all.
+ *   - `PEnterCtx` and the three consuming rules discharge with no appeal to the
+ *     term, for the reason recorded at `pterm_wb_n` and `lemma_ctx_drive_wb`.
+ *   - the boundary and site value rules are where `PPaused` is excluded.
+ *)
+let lemma_pstep_state_wb
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Lemma (requires papply_wb apply /\ pstate_wb cf.st)
+          (ensures pstate_wb (pstep lk apply cf).st)
+  = match cf.st with
+    | PDone _ -> ()
+    | PPaused _ _ -> ()
+    | PStuck _ _ -> ()
+    | PRejected _ -> ()
+    | PStep c k ->
+      match c with
+      | POp inner fn ->
+        if panswered k then lemma_wb_frames_cons_bwd (PBindF fn) k
+        else (lemma_wb_op_fwd inner fn;
+              lemma_wb_frame_bind_bwd fn;
+              lemma_wb_frames_cons_bwd (PBindF fn) k)
+      | PHandle tbl ret prov body ->
+        if panswered k then lemma_wb_frames_cons_bwd (PPromptF tbl ret prov) k
+        else (lemma_wb_handle_fwd tbl ret prov body;
+              lemma_wb_frame_prompt_bwd tbl ret prov;
+              lemma_wb_frames_cons_bwd (PPromptF tbl ret prov) k)
+      | PPerform eff op payload ->
+        (match pfind_prompt lk eff op k with
+          | None -> ()
+          | Some (captured, found, below) ->
+            lemma_pfind_prompt_shape lk eff op k;
+            lemma_pwb_suffix captured below;
+            lemma_pframes_wb_suffix captured below;
+            if panswered below then ()
+            else (lemma_pwb_split captured below;
+                  lemma_pframes_wb_split captured below;
+                  introduce forall (x: pval v). pterm_wb (pkont_of captured x)
+                  with (lemma_wb_trivial (PVar x <: pcomp v cl);
+                        lemma_wb_splice_bwd captured (PVar x))))
+      | PEmit ev body ->
+        if panswered k then () else lemma_wb_emit_fwd ev body
+      | PWeave oeff oop ints own body ->
+        (match plan_of ints own with
+          | Inl _ -> ()
+          | Inr pl ->
+            if panswered k then ()
+            else (lemma_wb_weave_fwd oeff oop ints own body;
+                  lemma_plan_enter_frames_shape pl;
+                  lemma_plan_enter_frames_wb ints own;
+                  lemma_wb_splice_bwd (plan_enter_frames pl) body))
+      | PEnterCtx pl body ->
+        let pf = plan_protocol_frames pl in
+        let t : pstack v cl = PScopeF :: k in
+        lemma_wb_frame_inert (PScopeF <: pframe v cl);
+        lemma_wb_frames_cons_bwd (PScopeF <: pframe v cl) k;
+        lemma_panswered_append pf t;
+        lemma_pwb_append pf t;
+        lemma_pframes_wb_append pf t;
+        lemma_wb_frames_cons_bwd (PBoundaryF <: pframe v cl) (pf @ t)
+      | PExtendC pl h g ->
+        (match presolve cf.store h with
+          | None -> ()
+          | Some cx -> lemma_ctx_drive_wb MExtend cx g)
+      | PExtendCtxC pl h g ->
+        (match presolve cf.store h with
+          | None -> ()
+          | Some cx -> lemma_wb_trivial (PVar (PCtxKey cf.next) <: pcomp v cl))
+      | PResumeC pl h kk ->
+        (match presolve cf.store h with
+          | None -> ()
+          | Some cx -> lemma_ctx_drive_wb MResume cx kk)
+      | PVar value ->
+        (match k with
+          | [] -> ()
+          | PBindF fn :: rest ->
+            lemma_wb_frames_cons_fwd (PBindF fn) rest;
+            if panswered rest then () else lemma_wb_frame_bind_fwd fn
+          | PParamF l y :: rest ->
+            lemma_wb_frames_cons_fwd (PParamF l y) rest;
+            lemma_wb_trivial (PVar value <: pcomp v cl)
+          | PModeF m r :: rest ->
+            lemma_wb_frames_cons_fwd (PModeF m r) rest;
+            lemma_wb_trivial (PVar value <: pcomp v cl)
+          | PScopeF :: rest ->
+            lemma_wb_frames_cons_fwd (PScopeF <: pframe v cl) rest;
+            lemma_wb_trivial (PVar (PCtxKey cf.next) <: pcomp v cl)
+          | PBoundaryF :: rest ->
+            lemma_wb_frames_cons_fwd (PBoundaryF <: pframe v cl) rest;
+            (match pfind_mode rest with
+              | None -> lemma_pyield_state_wb value PBoundaryF rest cf
+              | Some _ -> ())
+          | PSiteF fn :: rest ->
+            lemma_wb_frames_cons_fwd (PSiteF fn) rest;
+            (match pfind_mode rest with
+              | None -> lemma_pyield_state_wb value (PSiteF fn) rest cf
+              | Some (MResume, _) -> ()
+              | Some (MExtend, _) -> lemma_wb_trivial (PVar value <: pcomp v cl))
+          | PPromptF tbl ret prov :: rest ->
+            lemma_wb_frames_cons_fwd (PPromptF tbl ret prov) rest;
+            (match ret with
+              | None -> lemma_wb_trivial (PVar value <: pcomp v cl)
+              | Some fn ->
+                if panswered rest then ()
+                else (lemma_wb_frame_prompt_fwd tbl ret prov;
+                      lemma_wb_ret_some_fwd fn)))
+      | PSplice fs body ->
+        lemma_panswered_append fs k;
+        if panswered k
+        then (lemma_pwb_append fs k; lemma_pframes_wb_append fs k)
+        else (lemma_wb_splice_fwd fs body;
+              lemma_pwb_append fs k;
+              lemma_pframes_wb_append fs k)
+      | PNewP l init body ->
+        lemma_wb_frame_inert (PParamF l init <: pframe v cl);
+        lemma_wb_frames_cons_bwd (PParamF l init) k;
+        if panswered k then () else lemma_wb_newp_fwd l init body
+      | PReadP l ->
+        (match pfind_param l k with
+          | None -> ()
+          | Some y -> lemma_wb_trivial (PVar y <: pcomp v cl))
+      | PWriteP l y ->
+        lemma_pset_param_shape l y k;
+        lemma_pset_param_frames_wb l y k;
+        lemma_wb_trivial (PVar y <: pcomp v cl)
+
+(** Freshness is preserved too -- the three allocation sites are all `palloc`,
+    and `lemma_alloc_wf` is what says so. PROVED. *)
+let lemma_pstep_conf_wf
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Lemma (requires pconf_wf cf) (ensures pconf_wf (pstep lk apply cf))
+  = ()
+
+(** **THE INVARIANT, PRESERVED BY THE TRANSITION RELATION.** PROVED. The three
+    conjuncts are discharged by the three lemmas above, and only the third of
+    them uses `papply_wb`. *)
+let lemma_pstep_conf_ok
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Lemma (requires papply_wb apply /\ pconf_ok cf)
+          (ensures pconf_ok (pstep lk apply cf))
+  = lemma_pstep_conf_wf lk apply cf;
+    lemma_pstep_store_resid_wf lk apply cf;
+    lemma_pstep_state_wb lk apply cf
+
+(** The instrumented transition differs from `pstep` on exactly one node, and
+    that node leaves the stack alone. PROVED. *)
+let lemma_pstep_tr_conf_ok
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Lemma (requires papply_wb apply /\ pconf_ok cf)
+          (ensures pconf_ok (fst (pstep_tr lk apply cf)))
+  = match cf.st with
+    | PStep (PEmit ev body) k ->
+      if panswered k then () else lemma_wb_emit_fwd ev body
+    | _ -> lemma_pstep_conf_ok lk apply cf
+
+(* ---- Preservation along a run ------------------------------------ *)
+
+(** The store layer, along a whole run, still with no hypothesis. PROVED. *)
+let rec lemma_psteps_store_resid_wf
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (cf: pconf v cl)
+  : Lemma (requires pstore_resid_wf cf.store)
+          (ensures pstore_resid_wf (psteps lk apply fuel cf).store)
+          (decreases fuel)
+  = if fuel = 0 then ()
+    else
+      match cf.st with
+      | PStep _ _ ->
+        lemma_pstep_store_resid_wf lk apply cf;
+        lemma_psteps_store_resid_wf lk apply (fuel - 1) (pstep lk apply cf)
+      | _ -> ()
+
+(** The whole invariant, along a whole run. PROVED. *)
+let rec lemma_psteps_conf_ok
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (cf: pconf v cl)
+  : Lemma (requires papply_wb apply /\ pconf_ok cf)
+          (ensures pconf_ok (psteps lk apply fuel cf))
+          (decreases fuel)
+  = if fuel = 0 then ()
+    else
+      match cf.st with
+      | PStep _ _ ->
+        lemma_pstep_conf_ok lk apply cf;
+        lemma_psteps_conf_ok lk apply (fuel - 1) (pstep lk apply cf)
+      | _ -> ()
+
+(** And along an instrumented run. PROVED. *)
+let rec lemma_prun_conf_ok
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (cf: pconf v cl)
+  : Lemma (requires papply_wb apply /\ pconf_ok cf)
+          (ensures pconf_ok (fst (prun lk apply fuel cf)))
+          (decreases fuel)
+  = if fuel = 0 then ()
+    else
+      match cf.st with
+      | PStep _ _ ->
+        lemma_pstep_tr_conf_ok lk apply cf;
+        lemma_prun_conf_ok lk apply (fuel - 1) (fst (pstep_tr lk apply cf))
+      | _ -> ()
+
+(* ---- The consequences ------------------------------------------- *)
+
+(**
+ * **THE CONSEQUENCE STRAND 1 ASKED FOR: `presid_wf` holds of every residual the
+ * store can ever contain.** PROVED, from `pload`, over any number of
+ * transitions, at any key, FOR ANY INITIAL TERM AND ANY CLAUSE INTERPRETER.
+ *
+ * This is `lemma_pyield_residual_wf` promoted from a statement about one step to
+ * a statement about the machine. Strand 1's production-side theorem gives the
+ * step case; `lemma_pstep_store_resid_wf` closes the induction; and this is what
+ * it says at the only starting point the machine has.
+ *)
+let lemma_reachable_residual_wf
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (c: pcomp v cl) (i: nat)
+  : Lemma (ensures (let cfr = psteps lk apply fuel (pload c) in
+                    match pstore_lookup i cfr.store with
+                    | Some (PCtxRequests _ r _) -> presid_wf r
+                    | _ -> True))
+  = lemma_psteps_store_resid_wf lk apply fuel (pload c);
+    lemma_store_resid_lookup i (psteps lk apply fuel (pload c)).store
+
+(**
+ * **The two strands closed against each other**: a residual taken out of the
+ * store of ANY configuration whose store satisfies the invariant is one that
+ * `lemma_ctx_drive_answers_head` applies to, so driving it reaches the driving
+ * consumer's marker at its head frame and allocates nothing.
+ *
+ * PROVED. It is strand 1's consumption theorem with its one hypothesis --
+ * `presid_wf` -- discharged from the store rather than assumed of a residual
+ * written by hand. Read together with `lemma_reachable_residual_wf`, which says
+ * the store of every reachable configuration satisfies it, this is the whole of
+ * what B2a set out to establish: production only ever stores residuals whose
+ * head frame the mode search can reach, consumption only ever asks about such
+ * residuals, and NO REACHABILITY ASSUMPTION IS LEFT ANYWHERE IN THE ARGUMENT.
+ *
+ * The residual is taken apart in the SIGNATURE rather than in the conclusion:
+ * the hypothesis says the store holds exactly this context at this key, which
+ * makes the statement one a caller can instantiate at a key it has in hand. A
+ * residual with no head frame is excluded by the store condition already --
+ * `presid_wf []` is `false` -- so no arm is owed for it.
+ *)
+let lemma_stored_residual_answers_head
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (i: nat) (m: weave_mode)
+    (x: pval v) (hd: pframe v cl) (a: pstack v cl) (post: pval v -> pcomp v cl)
+    (f: pval v -> pcomp v cl) (k: pstack v cl)
+  : Lemma (requires pstore_resid_wf cf.store /\
+                    pstore_lookup i cf.store == Some (PCtxRequests x (hd :: a) post))
+          (ensures (let resp = (fun (z: pval v) -> pbind (post z) f) in
+                    let tl = a @ (PModeF m resp :: k) in
+                    let cf0 = { cf with
+                                st = PStep (ctx_drive m (PCtxRequests x (hd :: a) post) f) k } in
+                    let cf1 = pstep lk apply cf0 in
+                    cf1.store == cf.store /\ cf1.next == cf.next /\
+                    cf1.st == PStep (PVar x) (hd :: tl) /\
+                    pfind_mode tl == Some (m, resp) /\
+                    (let cf2 = pstep lk apply cf1 in
+                     cf2.store == cf.store /\ cf2.next == cf.next /\
+                     (match hd with
+                       | PBoundaryF -> cf2.st == PStep (resp x) tl
+                       | PSiteF fn ->
+                         cf2.st == (if MResume? m
+                                    then PStep (fn x) tl
+                                    else PStep (PVar x) tl)
+                       | _ -> True))))
+  = lemma_store_resid_lookup i cf.store;
+    lemma_ctx_drive_answers_head lk apply cf m x hd a post f k
+
+(**
+ * **THE STACK LAYER'S PAYOFF: `PPaused` is unreachable.** PROVED, from the
+ * initial-term condition and the condition on the clause interpreter.
+ *
+ * `fixture_9_paused_is_unreachable` checks this by execution on the fixture
+ * programs and at a fixed fuel; this is the same statement for every program
+ * satisfying `pterm_wb`, every interpreter satisfying `papply_wb`, every lookup
+ * and every fuel. It is exactly the totality obligation the `pstate` header
+ * records at `PPaused` -- "a stack that no transition of this machine can build"
+ * -- discharged rather than observed.
+ *)
+let lemma_reachable_not_paused
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (c: pcomp v cl)
+  : Lemma (requires papply_wb apply /\ pterm_wb c)
+          (ensures ~(PPaused? (psteps lk apply fuel (pload c)).st))
+  = lemma_pload_ok c;
+    lemma_psteps_conf_ok lk apply fuel (pload c)
+
+(** The same, along an instrumented run. PROVED. *)
+let lemma_prun_not_paused
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (c: pcomp v cl)
+  : Lemma (requires papply_wb apply /\ pterm_wb c)
+          (ensures ~(PPaused? (fst (prun lk apply fuel (pload c))).st))
+  = lemma_pload_ok c;
+    lemma_prun_conf_ok lk apply fuel (pload c)
 
 (* ------------------------------------------------------------------ *)
 (*  The operations as data                                             *)
@@ -4590,3 +5912,536 @@ let fixture_22_separating_state_is_reachable () : Lemma
     assert_norm (fsettled 800 prog_sep == true);
     assert_norm (fsep_scan 400 (pload prog_two_floors) == false);
     assert_norm (fsep_scan 400 (pload prog_nested) == false)
+
+
+(* ================================================================== *)
+(*  B2a, strand 2: NON-VACUITY                                         *)
+(*                                                                     *)
+(*  An invariant that excluded the programs this machine is meant to    *)
+(*  run would prove nothing about it, and the initial-term condition    *)
+(*  `pterm_wb` and the interpreter condition `papply_wb` are the two    *)
+(*  places that could go wrong that way. Both are CHECKED here rather   *)
+(*  than asserted in prose: `papply_wb` for the fixtures' own clause    *)
+(*  interpreter, and `pterm_wb` for each fixture program the ledger at  *)
+(*  the end of this section names -- one lemma each. That ledger is    *)
+(*  maintained by hand and nothing checks it is complete; see its own   *)
+(*  doc comment.                                                        *)
+(*                                                                     *)
+(*  WHAT THE CHECK FOUND, and it is a result rather than a formality:   *)
+(*  every LEDGERED program satisfies the condition, and most satisfy    *)
+(*  it TRIVIALLY. `pterm_wb` looks at a `PEnterCtx` and at the three    *)
+(*  consuming nodes and asks nothing at all, so a program built out of  *)
+(*  scopes and binds discharges by `()`. The only programs with an      *)
+(*  obligation are the three built on a raw `PSplice` -- `prog6_enter`, *)
+(*  `prog1old` and `prog_susp` -- which is the judgement's own doc       *)
+(*  comment seen from the other side.                                   *)
+(*                                                                     *)
+(*  `PWeave` IS MEASURED AT THE JUDGEMENT, NOT AT AN EXECUTION. No      *)
+(*  fixture builds a `PWeave`, because this prototype has no dispatch   *)
+(*  that produces one (see the module header), so there is no RUN to    *)
+(*  measure `pints_wb` against and there will not be one before B3.     *)
+(*  What there is instead is a pair of type-level guards --             *)
+(*  `guard_wb_weave_accepts` and `guard_wb_weave_rejects` -- which      *)
+(*  differ in the return clause alone and pin that the condition admits *)
+(*  a Family prompt carrying a real return clause and refuses a         *)
+(*  malformed one. That makes `pints_wb` a condition about this machine *)
+(*  rather than a hypothesis the preservation proof carries along, and  *)
+(*  it is as far as a judgement can be measured without a program.      *)
+(* ================================================================== *)
+
+(* ---- The equations, as rewrite rules, AT THE FIXTURES' TYPES ------ *)
+(*                                                                     *)
+(*  Checking three dozen concrete programs by hand would be three       *)
+(*  dozen chains of the equations above, and the chains would be the    *)
+(*  only thing a reader could not check by reading. These give Z3 the   *)
+(*  equations as rewrites instead, so each program's check is `()`.     *)
+(*                                                                     *)
+(*  They are declared HERE, at the very end of the file and only at     *)
+(*  `fv`/`fcl`, so that no proof above this line is affected by them:   *)
+(*  an SMT pattern is global from its declaration onwards, and every    *)
+(*  theorem of the development is already checked by the time these     *)
+(*  appear. Each is PROVED, by the corresponding equation.              *)
+
+let pat_wb_var (x: pval fv)
+  : Lemma (pterm_wb (PVar x <: pcomp fv fcl))
+          [SMTPat (pterm_wb (PVar x <: pcomp fv fcl))]
+  = lemma_wb_trivial (PVar x <: pcomp fv fcl)
+
+let pat_wb_perform (eff op: string) (payload: list (pval fv))
+  : Lemma (pterm_wb (PPerform eff op payload <: pcomp fv fcl))
+          [SMTPat (pterm_wb (PPerform eff op payload <: pcomp fv fcl))]
+  = lemma_wb_trivial (PPerform eff op payload <: pcomp fv fcl)
+
+let pat_wb_readp (l: string)
+  : Lemma (pterm_wb (PReadP l <: pcomp fv fcl))
+          [SMTPat (pterm_wb (PReadP l <: pcomp fv fcl))]
+  = lemma_wb_trivial (PReadP l <: pcomp fv fcl)
+
+let pat_wb_enterctx (pl: plan fv fcl) (body: pcomp fv fcl)
+  : Lemma (pterm_wb (PEnterCtx pl body))
+          [SMTPat (pterm_wb (PEnterCtx pl body))]
+  = lemma_wb_trivial (PEnterCtx pl body <: pcomp fv fcl)
+
+let pat_wb_extend (pl: plan fv fcl) (h: pval fv) (g: pval fv -> pcomp fv fcl)
+  : Lemma (pterm_wb (PExtendC pl h g))
+          [SMTPat (pterm_wb (PExtendC pl h g))]
+  = lemma_wb_trivial (PExtendC pl h g <: pcomp fv fcl)
+
+let pat_wb_extend_ctx (pl: plan fv fcl) (h: pval fv) (g: pval fv -> pcomp fv fcl)
+  : Lemma (pterm_wb (PExtendCtxC pl h g))
+          [SMTPat (pterm_wb (PExtendCtxC pl h g))]
+  = lemma_wb_trivial (PExtendCtxC pl h g <: pcomp fv fcl)
+
+let pat_wb_resume (pl: plan fv fcl) (h: pval fv) (kk: pval fv -> pcomp fv fcl)
+  : Lemma (pterm_wb (PResumeC pl h kk))
+          [SMTPat (pterm_wb (PResumeC pl h kk))]
+  = lemma_wb_trivial (PResumeC pl h kk <: pcomp fv fcl)
+
+let pat_wb_op (inner: pcomp fv fcl) (fn: pval fv -> pcomp fv fcl)
+  : Lemma (pterm_wb (POp inner fn)
+           <==> (pterm_wb inner /\ (forall (x: pval fv). pterm_wb (fn x))))
+          [SMTPat (pterm_wb (POp inner fn))]
+  = lemma_wb_op inner fn
+
+let pat_wb_emit (ev: string) (body: pcomp fv fcl)
+  : Lemma (pterm_wb (PEmit ev body) <==> pterm_wb body)
+          [SMTPat (pterm_wb (PEmit ev body))]
+  = introduce pterm_wb (PEmit ev body) ==> pterm_wb body
+    with lemma_wb_emit_fwd ev body;
+    introduce pterm_wb body ==> pterm_wb (PEmit ev body)
+    with lemma_wb_emit_bwd ev body
+
+let pat_wb_handle
+    (tbl: ptable fcl) (ret: option (pval fv -> pcomp fv fcl))
+    (prov: prompt_provenance) (body: pcomp fv fcl)
+  : Lemma (pterm_wb (PHandle tbl ret prov body) <==> (pret_wb ret /\ pterm_wb body))
+          [SMTPat (pterm_wb (PHandle tbl ret prov body))]
+  = introduce pterm_wb (PHandle tbl ret prov body) ==> (pret_wb ret /\ pterm_wb body)
+    with lemma_wb_handle_fwd tbl ret prov body;
+    introduce (pret_wb ret /\ pterm_wb body) ==> pterm_wb (PHandle tbl ret prov body)
+    with lemma_wb_handle_bwd tbl ret prov body
+
+(* `pret_wb None` needs no rule: it unfolds to `True` in one step. *)
+
+let pat_wb_ret_some (r: pval fv -> pcomp fv fcl)
+  : Lemma (pret_wb (Some r) <==> (forall (x: pval fv). pterm_wb (r x)))
+          [SMTPat (pret_wb (Some r))]
+  = introduce pret_wb (Some r) ==> (forall (x: pval fv). pterm_wb (r x))
+    with lemma_wb_ret_some_fwd r;
+    introduce (forall (x: pval fv). pterm_wb (r x)) ==> pret_wb (Some r)
+    with lemma_wb_ret_some_bwd r
+
+(* ---- The two return clauses the fixtures install ----------------- *)
+
+let guard_fown_ret_wb () : Lemma (pret_wb fown_ret) = ()
+let guard_fouter_ret_wb () : Lemma (pret_wb fouter_ret) = ()
+
+(* ---- The condition on the clause interpreter, DISCHARGED ---------- *)
+
+(**
+ * **`papply_wb fapply`.** PROVED, and it is the check that the condition imposed
+ * on the FFI parameter is one a real interpreter meets.
+ *
+ * Every clause of `fapply` builds its result out of `POp`, the continuation it
+ * was handed, a `PPerform` and values, and none of those constrains anything. A
+ * clause that returned a raw `PSplice` of a frame list of its own would be the
+ * interesting case, and it is exactly the case the condition exists to exclude;
+ * no real clause has one, because a clause has no frames to splice that the
+ * machine did not hand it as `kf`.
+ *)
+let lemma_fapply_wb_at (c: fcl) (payload: list (pval fv)) (kf: pval fv -> pcomp fv fcl)
+  : Lemma (requires forall (x: pval fv). pterm_wb (kf x))
+          (ensures pterm_wb (fapply c payload kf))
+  = match c with
+    | FEcho -> (match payload with | x :: _ -> () | [] -> ())
+    | FAbort _ -> ()
+    | FTwice _ _ -> ()
+    | FRetry -> ()
+    | FBetween -> ()
+    | FWrap -> ()
+
+let guard_fapply_wb () : Lemma (papply_wb fapply)
+  = introduce forall (c: fcl) (payload: list (pval fv)) (kf: (pval fv -> pcomp fv fcl)).
+      (forall (x: pval fv). pterm_wb (kf x)) ==> pterm_wb (fapply c payload kf)
+    with (introduce (forall (x: pval fv). pterm_wb (kf x))
+                    ==> pterm_wb (fapply c payload kf)
+          with lemma_fapply_wb_at c payload kf)
+
+(* ---- The three programs built on a raw `PSplice` ------------------ *)
+
+(** The shape every `plan_enter_frames` in this file has: two prompts and nothing
+    else. PROVED. *)
+let lemma_wb_frames_two_prompts
+    (t1: ptable fcl) (r1: option (pval fv -> pcomp fv fcl)) (p1: prompt_provenance)
+    (t2: ptable fcl) (r2: option (pval fv -> pcomp fv fcl)) (p2: prompt_provenance)
+  : Lemma (requires pret_wb r1 /\ pret_wb r2)
+          (ensures pframes_wb [PPromptF t1 r1 p1; PPromptF t2 r2 p2])
+  = lemma_wb_frames_nil #fv #fcl ();
+    lemma_wb_frame_prompt_bwd t2 r2 p2;
+    lemma_wb_frames_cons_bwd (PPromptF t2 r2 p2) ([] <: pstack fv fcl);
+    lemma_wb_frame_prompt_bwd t1 r1 p1;
+    lemma_wb_frames_cons_bwd (PPromptF t1 r1 p1) [PPromptF t2 r2 p2]
+
+(** The prefix `fixture_1` lengthens is judged at every length. PROVED, by
+    induction on the length. *)
+let rec lemma_pchain_wb (n: nat) (c: pcomp fv fcl)
+  : Lemma (requires pterm_wb c) (ensures pterm_wb (pchain n c)) (decreases n)
+  = if n = 0 then () else lemma_pchain_wb (n - 1) c
+
+let lemma_body1_wb (n: nat) : Lemma (ensures pterm_wb (body1 n))
+  = lemma_pchain_wb
+      n (POp (PPerform "Two" "flip" [])
+             (fun (x: pval fv) -> fret (FL [FS "leaf"; fseen x])))
+
+let guard_wb_prog6_enter () : Lemma (pterm_wb prog6_enter)
+  = lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_frames_two_prompts ftbl None PMono ftbl None PFamily;
+    assert_norm (plan_enter_frames plan_T
+                 == [PPromptF ftbl None PMono; PPromptF ftbl None PFamily]);
+    assert_norm (pwb (plan_enter_frames plan_T));
+    assert_norm (panswered (plan_enter_frames plan_T) == false);
+    lemma_wb_splice_bwd (plan_enter_frames plan_T) body6
+
+let lemma_plan_L_enter_frames_wb () : Lemma (pframes_wb (plan_enter_frames plan_L))
+  = lemma_wb_ret_none #fv #fcl ();
+    guard_fown_ret_wb ();
+    lemma_wb_frames_two_prompts ftbl None PFamily ftbl fown_ret PFamily;
+    assert_norm (plan_enter_frames plan_L
+                 == [PPromptF ftbl None PFamily; PPromptF ftbl fown_ret PFamily])
+
+let lemma_plan_L_resume_frames_wb () : Lemma (pframes_wb (plan_resume_frames plan_L))
+  = lemma_wb_ret_none #fv #fcl ();
+    guard_fown_ret_wb ();
+    lemma_wb_frames_two_prompts ftbl None PFamily ftbl fown_ret PFamily;
+    assert_norm (plan_resume_frames plan_L
+                 == [PPromptF ftbl None PFamily; PPromptF ftbl fown_ret PFamily])
+
+let guard_wb_prog1old (n: nat) : Lemma (pterm_wb (prog1old n))
+  = lemma_body1_wb n;
+    lemma_plan_L_enter_frames_wb ();
+    lemma_plan_L_resume_frames_wb ();
+    assert_norm (pwb (plan_enter_frames plan_L));
+    assert_norm (panswered (plan_enter_frames plan_L) == false);
+    assert_norm (pwb (plan_resume_frames plan_L));
+    assert_norm (panswered (plan_resume_frames plan_L) == false);
+    lemma_wb_splice_bwd (plan_enter_frames plan_L) (pbind (body1 n) (PVar #fv #fcl));
+    lemma_wb_splice_bwd (plan_resume_frames plan_L) (pbind (body1 n) fk)
+
+let guard_wb_prog_susp () : Lemma (pterm_wb prog_susp)
+  = lemma_plan_L_enter_frames_wb ();
+    lemma_plan_L_resume_frames_wb ();
+    assert_norm (pwb (plan_enter_frames plan_L));
+    assert_norm (panswered (plan_enter_frames plan_L) == false);
+    assert_norm (pwb (plan_resume_frames plan_L));
+    assert_norm (panswered (plan_resume_frames plan_L) == false);
+    lemma_wb_splice_bwd (plan_enter_frames plan_L) (pbind body_e fc1);
+    lemma_wb_splice_bwd (plan_resume_frames plan_L) (pbind body_e fc2)
+
+(* ---- Every other fixture program, one lemma each ------------------ *)
+
+let guard_wb_prog1new (n: nat) : Lemma (pterm_wb (prog1new n)) = ()
+let guard_wb_prog2 () : Lemma (pterm_wb prog2) = ()
+let guard_wb_prog2_probe () : Lemma (pterm_wb prog2_probe) = ()
+let guard_wb_prog3a () : Lemma (pterm_wb prog3a) = ()
+let guard_wb_prog3b () : Lemma (pterm_wb prog3b) = ()
+let guard_wb_prog4 () : Lemma (pterm_wb prog4) = ()
+let guard_wb_prog5 () : Lemma (pterm_wb prog5) = ()
+let guard_wb_prog5_probe () : Lemma (pterm_wb prog5_probe) = ()
+let guard_wb_prog5b () : Lemma (pterm_wb prog5b) = ()
+let guard_wb_prog6_residual () : Lemma (pterm_wb prog6_residual) = ()
+let guard_wb_prog7 () : Lemma (pterm_wb prog7) = ()
+let guard_wb_prog8 () : Lemma (pterm_wb prog8) = ()
+let guard_wb_prog8b () : Lemma (pterm_wb prog8b) = ()
+let guard_wb_prog_out () : Lemma (pterm_wb prog_out) = ()
+let guard_wb_prog_silent () : Lemma (pterm_wb prog_silent) = ()
+let guard_wb_prog_traced () : Lemma (pterm_wb prog_traced) = ()
+let guard_wb_prog_traced2 () : Lemma (pterm_wb prog_traced2) = ()
+let guard_wb_prog_nested () : Lemma (pterm_wb prog_nested) = ()
+let guard_wb_prog_two_floors () : Lemma (pterm_wb prog_two_floors) = ()
+let guard_wb_prog16 () : Lemma (pterm_wb prog16) = ()
+let guard_wb_prog17 () : Lemma (pterm_wb prog17) = ()
+let guard_wb_prog18_outer () : Lemma (pterm_wb prog18_outer) = ()
+let guard_wb_prog18_inner () : Lemma (pterm_wb prog18_inner) = ()
+let guard_wb_prog19_good () : Lemma (pterm_wb prog19_good) = ()
+let guard_wb_prog19_forged () : Lemma (pterm_wb prog19_forged) = ()
+let guard_wb_prog19_notahandle () : Lemma (pterm_wb prog19_notahandle) = ()
+(* Six binds deep under three nested handle binders. This is the one place where
+   the rewrite rules do not close on their own -- not for want of fuel, but
+   because Z3 will not push the instantiation under three quantified handles at
+   once. The inner three binds are proved once, over arbitrary handles, and the
+   outer three then close. *)
+let lemma_prog20_inner_wb (cx cy1 cy2: pval fv)
+  : Lemma (pterm_wb (POp (resume_at_C plan_L0 cy1 fk)
+                         (fun (a: pval fv) ->
+                            POp (resume_at_C plan_L0 cy2 fk)
+                                (fun (b: pval fv) ->
+                                   POp (resume_at_C plan_L0 cx fk)
+                                       (fun (c: pval fv) ->
+                                          fret (FL [fseen a; fseen b; fseen c]))))))
+  = ()
+
+let lemma_prog20_rev_inner_wb (cx cy1 cy2: pval fv)
+  : Lemma (pterm_wb (POp (resume_at_C plan_L0 cy2 fk)
+                         (fun (b: pval fv) ->
+                            POp (resume_at_C plan_L0 cy1 fk)
+                                (fun (a: pval fv) ->
+                                   POp (resume_at_C plan_L0 cx fk)
+                                       (fun (c: pval fv) ->
+                                          fret (FL [fseen a; fseen b; fseen c]))))))
+  = ()
+
+let guard_wb_prog20 () : Lemma (pterm_wb prog20)
+  = introduce forall (cx: pval fv) (cy1: pval fv) (cy2: pval fv).
+      pterm_wb (POp (resume_at_C plan_L0 cy1 fk)
+                    (fun (a: pval fv) ->
+                       POp (resume_at_C plan_L0 cy2 fk)
+                           (fun (b: pval fv) ->
+                              POp (resume_at_C plan_L0 cx fk)
+                                  (fun (c: pval fv) ->
+                                     fret (FL [fseen a; fseen b; fseen c])))))
+    with lemma_prog20_inner_wb cx cy1 cy2
+
+let guard_wb_prog20_rev () : Lemma (pterm_wb prog20_rev)
+  = introduce forall (cx: pval fv) (cy1: pval fv) (cy2: pval fv).
+      pterm_wb (POp (resume_at_C plan_L0 cy2 fk)
+                    (fun (b: pval fv) ->
+                       POp (resume_at_C plan_L0 cy1 fk)
+                           (fun (a: pval fv) ->
+                              POp (resume_at_C plan_L0 cx fk)
+                                  (fun (c: pval fv) ->
+                                     fret (FL [fseen a; fseen b; fseen c])))))
+    with lemma_prog20_rev_inner_wb cx cy1 cy2
+let guard_wb_prog20_handles () : Lemma (pterm_wb prog20_handles) = ()
+let guard_wb_prog21_handles () : Lemma (pterm_wb prog21_handles) = ()
+let guard_wb_prog21_consume () : Lemma (pterm_wb prog21_consume) = ()
+let guard_wb_prog_sep () : Lemma (pterm_wb prog_sep) = ()
+let guard_wb_prog9_resume () : Lemma (pterm_wb (resume_at_C plan_L (PCtxKey 0) fk)) = ()
+let guard_wb_prog9_extend () : Lemma (pterm_wb (extend_at_C plan_L (PCtxKey 0) fk)) = ()
+let guard_wb_prog9_extend_ctx ()
+  : Lemma (pterm_wb (extend_ctx_at_C plan_L (PCtxKey 0) fk)) = ()
+(* ---- The list, so that the claim is one statement ---------------- *)
+
+let rec pterm_wb_all (#v #cl: Type) (l: list (pcomp v cl)) : Tot prop (decreases l)
+  = match l with
+    | [] -> True
+    | c :: rest -> pterm_wb c /\ pterm_wb_all rest
+
+(** The check composes over `@`. PROVED, and it is what lets the list below be
+    checked in blocks: forty programs in one query is forty rewrites of the
+    judgement inside one term, which Z3 does not finish. *)
+let rec lemma_pterm_wb_all_append (#v #cl: Type) (l1 l2: list (pcomp v cl))
+  : Lemma (requires pterm_wb_all l1 /\ pterm_wb_all l2)
+          (ensures pterm_wb_all (l1 @ l2))
+          (decreases l1)
+  = match l1 with
+    | [] -> ()
+    | _ :: rest -> lemma_pterm_wb_all_append rest l2
+
+let fprogs_1 : list (pcomp fv fcl) =
+  [ prog1new 1; prog1new 5; prog1old 1; prog1old 5;
+    prog2; prog2_probe; prog3a; prog3b; prog4 ]
+
+let fprogs_2 : list (pcomp fv fcl) =
+  [ prog5; prog5_probe; prog5b;
+    prog6_enter; prog6_residual; prog7; prog8; prog8b ]
+
+let fprogs_3 : list (pcomp fv fcl) =
+  [ prog_out; prog_silent; prog_traced; prog_susp; prog_traced2;
+    prog_nested; prog_two_floors; prog16; prog17 ]
+
+let fprogs_4 : list (pcomp fv fcl) =
+  [ prog18_outer; prog18_inner;
+    prog19_good; prog19_forged; prog19_notahandle;
+    prog20; prog20_rev; prog20_handles ]
+
+let fprogs_5 : list (pcomp fv fcl) =
+  [ prog21_handles; prog21_consume; prog_sep;
+    resume_at_C plan_L (PCtxKey 0) fk;
+    extend_at_C plan_L (PCtxKey 0) fk;
+    extend_ctx_at_C plan_L (PCtxKey 0) fk ]
+
+(** **The fixture programs, named in one place -- a MANUALLY MAINTAINED
+    LEDGER.**
+
+    Nothing checks that this list is complete. A new fixture program that is
+    never added here is simply never checked against `pterm_wb`, and the file
+    still verifies: there is no naming convention the build enforces and no
+    reflection over the module's declarations. So "every fixture program
+    satisfies the initial-term condition" is a claim about the programs IN THIS
+    LIST, audited by hand, and it stays that way until a build-side name check
+    exists to make omission detectable. Keeping the ledger honest is a
+    reviewer's job, not the type checker's. *)
+let fixture_programs : list (pcomp fv fcl) =
+  fprogs_1 @ fprogs_2 @ fprogs_3 @ fprogs_4 @ fprogs_5
+
+(* The fuel is for `pterm_wb_all` and for nothing else: a nine-element block
+   needs nine unfoldings of a list recursion, and the default is two. Every
+   program's own check is at the default fuel, above. *)
+#push-options "--fuel 12"
+let guard_fprogs_1_wb () : Lemma (pterm_wb_all fprogs_1)
+  = guard_wb_prog1new 1; guard_wb_prog1new 5;
+    guard_wb_prog1old 1; guard_wb_prog1old 5;
+    guard_wb_prog2 (); guard_wb_prog2_probe ();
+    guard_wb_prog3a (); guard_wb_prog3b (); guard_wb_prog4 ()
+
+let guard_fprogs_2_wb () : Lemma (pterm_wb_all fprogs_2)
+  = guard_wb_prog5 (); guard_wb_prog5_probe (); guard_wb_prog5b ();
+    guard_wb_prog6_enter (); guard_wb_prog6_residual ();
+    guard_wb_prog7 (); guard_wb_prog8 (); guard_wb_prog8b ()
+
+let guard_fprogs_3_wb () : Lemma (pterm_wb_all fprogs_3)
+  = guard_wb_prog_out ();
+    guard_wb_prog_silent (); guard_wb_prog_traced ();
+    guard_wb_prog_susp (); guard_wb_prog_traced2 ();
+    guard_wb_prog_nested (); guard_wb_prog_two_floors ();
+    guard_wb_prog16 (); guard_wb_prog17 ()
+
+let guard_fprogs_4_wb () : Lemma (pterm_wb_all fprogs_4)
+  = guard_wb_prog18_outer (); guard_wb_prog18_inner ();
+    guard_wb_prog19_good (); guard_wb_prog19_forged (); guard_wb_prog19_notahandle ();
+    guard_wb_prog20 (); guard_wb_prog20_rev (); guard_wb_prog20_handles ()
+
+let guard_fprogs_5_wb () : Lemma (pterm_wb_all fprogs_5)
+  = guard_wb_prog21_handles (); guard_wb_prog21_consume (); guard_wb_prog_sep ();
+    guard_wb_prog9_resume (); guard_wb_prog9_extend (); guard_wb_prog9_extend_ctx ()
+#pop-options
+
+(** **EVERY FIXTURE PROGRAM SATISFIES THE INITIAL-TERM CONDITION.** PROVED, from
+    the lemmas above and nothing else. The two `n`-indexed families are listed at
+    the two lengths `fixture_1` actually runs, and `guard_wb_prog1new` and
+    `guard_wb_prog1old` are each proved for EVERY `n`. *)
+let guard_fixture_programs_wb () : Lemma (pterm_wb_all fixture_programs)
+  = guard_fprogs_1_wb (); guard_fprogs_2_wb (); guard_fprogs_3_wb ();
+    guard_fprogs_4_wb (); guard_fprogs_5_wb ();
+    lemma_pterm_wb_all_append fprogs_4 fprogs_5;
+    lemma_pterm_wb_all_append fprogs_3 (fprogs_4 @ fprogs_5);
+    lemma_pterm_wb_all_append fprogs_2 (fprogs_3 @ (fprogs_4 @ fprogs_5));
+    lemma_pterm_wb_all_append fprogs_1 (fprogs_2 @ (fprogs_3 @ (fprogs_4 @ fprogs_5)))
+
+(* ---- The `PWeave` clause, which no program here reaches ---------- *)
+
+(**
+ * **These two guards are about the JUDGEMENT, not about an execution.**
+ * `PWeave` remains the one node no fixture program builds -- this prototype
+ * has no dispatch that produces one, as the section header above says -- so
+ * nothing in the ledger touches `pints_wb`, the condition `pterm_wb` puts on a
+ * weave's intervening segment. That is precisely what makes it worth checking
+ * separately. A condition nothing exercises is a condition nobody has
+ * measured: were `pints_wb` to accept every segment whatsoever, the
+ * preservation proof would still go through, having been handed its hypothesis
+ * for free, and the ledger above would not notice.
+ *
+ * `pterm_wb` is a type-level predicate, so it can be measured without a
+ * program that runs. These guards measure it at `fv`/`fcl`, on the tables,
+ * plans and owner the fixtures already use, in the only two directions that
+ * say anything: one weave the condition must ACCEPT and one it must REFUSE.
+ * What they would catch is a `pints_wb` that had drifted to `True` -- guard 1
+ * would still pass, guard 2 would fail -- or one that had been tightened into
+ * something no legitimate segment meets, which guard 1 would catch.
+ *)
+
+(**
+ * **The intervening segment a legitimate weave carries.** A recorded bind
+ * frame, a Family prompt and a transparent one: the shape `plan_layers`
+ * classifies and `enter_layer_frames` rebuilds, with the bind frame in front so
+ * that the clause `pints_wb` deliberately SKIPS is on the path too.
+ *
+ * The Family prompt's return clause is `fown_ret`, and that is the point of
+ * guard 1 rather than a detail of it. `pints_wb` constrains prompt return
+ * clauses and nothing else, and its `None` case is `True` in one step -- so a
+ * segment of `None`-returning prompts satisfies the condition without the
+ * condition ever looking at a computation, and a guard built that way would
+ * pass against `pints_wb = True` just as happily. `fown_ret` is a clause that
+ * is actually there, the fixtures' own answer former, and judging it forces the
+ * descent into `pterm_wb` on its body that the guard exists to witness.
+ *)
+let fweave_ints : pstack fv fcl =
+  [ PBindF fk; PPromptF ftbl fown_ret PFamily; PPromptF ftbl None PMono ]
+
+let fweave_good : pcomp fv fcl = PWeave "Two" "flip" fweave_ints fowner body6
+
+(** The segment is judged. PROVED, from the `pints_wb` equations and nothing
+    else. *)
+let guard_wb_weave_ints () : Lemma (pints_wb fweave_ints)
+  = lemma_wb_ints_nil #fv #fcl ();
+    lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_ints_prompt_bwd #fv #fcl ftbl None PMono [];
+    guard_fown_ret_wb ();
+    lemma_wb_ints_prompt_bwd #fv #fcl ftbl fown_ret PFamily
+      [PPromptF ftbl None PMono];
+    lemma_wb_ints_other_bwd #fv #fcl (PBindF fk)
+      [PPromptF ftbl fown_ret PFamily; PPromptF ftbl None PMono]
+
+let guard_wb_weave_body () : Lemma (pterm_wb body6) = ()
+
+(** **GUARD 1: the condition ACCEPTS the general path.** PROVED. A `PWeave`
+    whose intervening segment carries a Family prompt with a return clause that
+    is really there satisfies `pterm_wb`. *)
+let guard_wb_weave_accepts () : Lemma (pterm_wb fweave_good)
+  = guard_wb_weave_ints ();
+    guard_fown_ret_wb ();
+    guard_wb_weave_body ();
+    introduce forall (n: nat). pterm_wb_n n fweave_good
+    with (if n = 0 then ()
+          else (assert (pints_wb_n n fweave_ints);
+                assert (pret_wb_n n fown_ret);
+                assert (pterm_wb_n (n - 1) body6)))
+
+(**
+ * **The same weave with the return clause broken.** `PSplice [PBoundaryF]` is
+ * the shape used elsewhere in this file for exactly this job: a boundary with
+ * nothing beneath it that could answer, which is the one thing `pwb` refuses.
+ * Everything else about the weave -- the bind frame, the transparent prompt,
+ * the owner, the body -- is unchanged from `fweave_good`, so what guard 2
+ * separates from guard 1 is the return clause and only the return clause.
+ *)
+let fweave_bad_clause (x: pval fv) : pcomp fv fcl =
+  PSplice [PBoundaryF] (fret (FL [FS "own"; fseen x]))
+
+let fweave_bad_ints : pstack fv fcl =
+  [ PBindF fk;
+    PPromptF ftbl (Some fweave_bad_clause) PFamily;
+    PPromptF ftbl None PMono ]
+
+let fweave_bad : pcomp fv fcl = PWeave "Two" "flip" fweave_bad_ints fowner body6
+
+(** **GUARD 2: the condition REFUSES the broken one.** PROVED, and stated as
+    the negation itself rather than as a mutation that is then reverted: from
+    `pterm_wb fweave_bad` the forward equations walk down to `pwb [PBoundaryF]`,
+    which `assert_norm` computes to `false`. *)
+let guard_wb_weave_rejects () : Lemma (~(pterm_wb fweave_bad))
+  = assert_norm (pwb ([PBoundaryF] <: pstack fv fcl) == false);
+    introduce pterm_wb fweave_bad ==> False
+    with
+      (lemma_wb_weave_fwd "Two" "flip" fweave_bad_ints fowner body6;
+       lemma_wb_ints_other_fwd #fv #fcl (PBindF fk)
+         [PPromptF ftbl (Some fweave_bad_clause) PFamily;
+          PPromptF ftbl None PMono];
+       lemma_wb_ints_prompt_fwd #fv #fcl ftbl (Some fweave_bad_clause) PFamily
+         [PPromptF ftbl None PMono];
+       lemma_wb_ret_some_fwd fweave_bad_clause;
+       assert (pterm_wb (fweave_bad_clause (fpv (FS "x"))));
+       lemma_wb_splice_fwd ([PBoundaryF] <: pstack fv fcl)
+         (fret (FL [FS "own"; fseen (fpv (FS "x"))])))
+
+(* ---- What the conditions then buy, at the fixtures' types -------- *)
+
+(** **The payoff, applied to the fixtures.** `fixture_9_paused_is_unreachable`
+    checks by execution that thirteen named programs settle at one fixed fuel;
+    this says that ANY program satisfying the condition -- which, by the list
+    above, is every fixture program the ledger names -- never reaches `PPaused`,
+    at any fuel whatever. PROVED, by instantiating `lemma_reachable_not_paused` at
+    the fixtures' own lookup and interpreter. *)
+let guard_fixture_never_paused (fuel: nat) (c: pcomp fv fcl)
+  : Lemma (requires pterm_wb c) (ensures ~(PPaused? (frun fuel c).st))
+  = guard_fapply_wb ();
+    lemma_reachable_not_paused flook fapply fuel c
+
+(** And the store consequence, at the fixtures' types and with NO hypothesis at
+    all -- not even `pterm_wb`, and not `papply_wb` either -- because the store
+    layer needs none. PROVED. *)
+let guard_fixture_residuals_wf (fuel: nat) (c: pcomp fv fcl) (i: nat)
+  : Lemma (ensures (match pstore_lookup i (frun fuel c).store with
+                    | Some (PCtxRequests _ r _) -> presid_wf r
+                    | _ -> True))
+  = lemma_reachable_residual_wf flook fapply fuel c i
