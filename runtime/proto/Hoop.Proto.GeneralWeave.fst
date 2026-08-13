@@ -326,19 +326,17 @@
  *     the program `settles` used to exclude. Whether the propositions so stated
  *     HOLD of `ref_ops` is the same B2b obligation as the line above, not a
  *     separate open question about the hypothesis.
- *   - `pfind_mode` finds the NEAREST enclosing `PModeF`, with no label. B1.6
- *     both endangered this -- a production inside a consumption now has that
- *     consumer's marker beneath it -- and made the obligation smaller, by
- *     terminating the search at a scope floor. `fixture_14_nested_scope` is the
- *     program that fires that guard. The invariant itself is B2a's and is NOT
- *     proved.
- *   - `pcut_scope` cuts at the NEAREST floor, and **no fixture here separates
- *     that from the farthest -- RE-TESTED IN B1.7 AND STILL NOT SEPARATED.** The
- *     mutation was applied again over the handle representation, confirmed to be
- *     a genuinely different function (on `[PScopeF; PBoundaryF; PScopeF]` the two
- *     disagree), and every fixture still passed, `fixture_15_two_floors`
- *     included. The nearest-floor discipline remains CHOSEN, not checked, and it
- *     joins `pfind_mode` as an obligation for B2a.
+ *   - ~~`pfind_mode`'s and `pcut_scope`'s nearness are CHOSEN, not checked.~~
+ *     **B2a strand 1 closed both, and they move out of this list.** The
+ *     invariant is `presid_wf`; `lemma_pyield_residual_wf` proves production
+ *     establishes it and `lemma_ctx_drive_answers_head` proves consumption
+ *     depends on it, and the farthest cut makes the second FALSE rather than
+ *     merely unproved (`guard_far_drive_reyields` runs both and they disagree
+ *     about the answer). Proximity is a SEMANTIC REQUIREMENT here. What is NOT
+ *     proved, and is handed to strand 2, is the configuration-wide statement
+ *     that every stack the machine can reach from `pload` is well bracketed;
+ *     nothing above needs it, because the hypotheses used are branch conditions
+ *     of `pstep` rather than facts about reachable stacks.
  *   - `PCtxRequests y [] PVar` for `PCtxDone y` is likewise still ACCEPTED,
  *     re-tested in B1.7. The two are operationally equal -- driving a request
  *     with an empty residual pushes a `PModeF` that the value then passes
@@ -1122,13 +1120,21 @@ let presolve (#v #cl: Type) (sto: pstore v cl) (h: pval v) : option (pctx v cl)
  * would allocate the same key and then disagree about what it names. That is not
  * a hypothetical: the mutation was made and the fixture rejected it.
  *
- * The alternative of a per-continuation store snapshot was considered and
- * rejected. It would make `bindScope` inside a resumed continuation invisible to
- * the sibling resumption, which is a coherent design for a LINEAR context and
- * incoherent for a multi-shot one -- the published API admits consuming the same
- * `ctx x` from two branches, so the two branches must agree about what it is.
- * A global monotone store is what makes "the handle passed" have a meaning that
- * does not depend on where it is read.
+ * The alternative considered and rejected is the NAIVE per-continuation
+ * snapshot -- taken at capture and restored on resumption, with nothing
+ * reconciling the branches. It would make `bindScope` inside a resumed
+ * continuation invisible to the sibling resumption, which is a coherent design
+ * for a LINEAR context and not for a multi-shot one, since the published API
+ * admits consuming the same `ctx x` from two branches and the two branches must
+ * agree about what it is. That naive scheme also solves neither collision
+ * between the branches' independent allocators nor lost updates.
+ *
+ * **This is not a claim that no snapshot representation could work.** A scheme
+ * that reconciled sibling updates and kept allocators from colliding is not
+ * excluded by anything checked here. Global-and-monotone is the REFERENCE
+ * choice, adopted because it makes "the handle passed" have a meaning that does
+ * not depend on where it is read, and a shipping form is free to differ if it
+ * can be shown to agree.
  *)
 noeq
 type pconf (v: Type u#a) (cl: Type u#a) : Type u#a = {
@@ -1895,9 +1901,16 @@ let rec pset_param (#v #cl: Type) (l: string) (x: pval v) (k: pstack v cl)
  * `pfind_prompt` for a prompt.
  *
  * **There is no label, and the discipline that makes that safe is stated here
- * and NOT PROVED.** The invariant is: a mode marker is installed by `ctx_drive`
- * immediately beneath the residual it drives, so no other residual's marker can
- * lie between a marker frame and its own.
+ * and, SINCE B2a, PROVED.** The invariant is: a mode marker is installed by
+ * `ctx_drive` immediately beneath the residual it drives, so no other residual's
+ * marker can lie between a marker frame and its own.
+ *
+ * `presid_wf` below is that invariant written down, `lemma_pyield_residual_wf`
+ * proves that every residual this machine stores satisfies it, and
+ * `lemma_ctx_drive_answers_head` proves that under it the search from the
+ * residual's head frame returns the mode AND the responder the driving consumer
+ * installed. The two together are what the paragraph after next used to promise
+ * B2a would have to supply.
  *
  * **B1.6 BOTH endangered this and made it smaller, and it is worth being exact
  * about which.** Endangered: under B1.5 production ran on an EMPTY stack, so
@@ -1915,7 +1928,15 @@ let rec pset_param (#v #cl: Type) (l: string) (x: pval v) (k: pstack v cl)
  * BRACKET-LOCAL -- "between a boundary or site frame and the marker that answers
  * it there is no scope floor" -- rather than a claim about every residual in the
  * program. That is B2a's to prove, and it is a smaller obligation than the one
- * B1.5 left; it is still not proved here.
+ * B1.5 left.
+ *
+ * **B2a proved it, in exactly that form and with one conjunct added.** The
+ * predicate is `presid_wf`, and it asks for no floor AND no nearer marker
+ * between the head frame and the end of the residual. What discharges it is not
+ * an assumption about programs: it is the branch condition
+ * `pfind_mode rest == None` that `pstep` calls `pyield` under, composed with
+ * `pcut_scope` cutting at the NEAREST floor. `lemma_pstep_yield_guard` is the
+ * check that there is no other way to reach `pyield`.
  *
  * Labels would settle it rather than argue it, and the file already has the
  * idiom: `PNewP` takes a label the surface supplies, and
@@ -1923,8 +1944,10 @@ let rec pset_param (#v #cl: Type) (l: string) (x: pval v) (k: pstack v cl)
  * route is that a label would have to be generated per scope entry, which means
  * either a counter in the machine or a `string` argument on production, and the
  * second puts a name in the statement of all four laws for the sake of a case no
- * fixture reaches. If B2a finds a program that breaks the invariant, the repair
- * is a label and it is local to four frames and one search.
+ * fixture reaches. **That repair is no longer needed for soundness**: the
+ * unlabelled search is proved to answer correctly on every residual the machine
+ * stores. It would still be needed if `pcut_scope` were ever changed, because it
+ * is nearness and not labelling that currently supplies the guarantee.
  *)
 let rec pfind_mode (#v #cl: Type) (k: pstack v cl)
   : Tot (option (weave_mode & (pval v -> pcomp v cl))) (decreases k)
@@ -1976,6 +1999,40 @@ let rec pfind_mode (#v #cl: Type) (k: pstack v cl)
  * `Some ([], [PBoundaryF; PScopeF])` here and `Some ([PScopeF; PBoundaryF], [])`
  * mutated), and all 21 fixtures still passed. The gap is unchanged in size and
  * is now known not to be closed by identity.
+ *
+ * **CLOSED IN B2a, AND BY A THEOREM RATHER THAN BY A TWENTY-SECOND FIXTURE.**
+ * The section beginning at `pno_floor` below settles it, and the verdict is that
+ * **proximity is a SEMANTIC REQUIREMENT and not a normal form.** The chain is
+ * three steps and each is checked:
+ *
+ *   - `lemma_cut_no_floor` -- the nearest cut never puts a floor in the
+ *     residual, with no hypothesis at all;
+ *   - `lemma_cut_no_mode` -- under the branch condition `pyield` is called with,
+ *     it never puts a mode marker there either;
+ *   - `lemma_ctx_drive_answers_head` -- from those two, driving a residual
+ *     reaches the DRIVING consumer's marker at the residual's head frame, runs
+ *     its responder, and allocates nothing.
+ *
+ * The third fails under the farthest cut, and not for want of a proof: the
+ * conclusion is FALSE. `guard_far_drive_reyields` runs both machines on the two
+ * residuals the two cuts produce from one yield and checks that the nearest one
+ * answers `PV 7` with the store untouched while the farthest one yields a second
+ * time, allocates, and answers with a handle. A `resumeScope` that does not
+ * resume is not a deferred cut.
+ *
+ * **Why the earlier searches missed it, and it is CHECKED rather than argued.**
+ * The separating stack needs a mode marker LIVE BETWEEN two floors. Two floors
+ * alone are not enough: with nothing but ordinary frames between them the
+ * farthest cut really does merely defer, exactly as the paragraph above guessed.
+ * `fixture_22_separating_state_is_reachable` scans the whole run of three
+ * programs for a configuration where the two cuts differ in the way that
+ * matters, and finds one in `prog_sep` and NONE in `prog_two_floors` or
+ * `prog_nested` -- the two programs the earlier gates were looking at. A value
+ * passing a `PModeF` pops it, so a scope consumed inside another scope's BODY
+ * has no marker left by the time the outer boundary yields; the marker has to be
+ * one whose resumption is still running, which means a scope entered from inside
+ * a resumption's continuation. That is what `prog_sep` does and what no fixture
+ * before it did.
  *)
 let rec pcut_scope (#v #cl: Type) (k: pstack v cl)
   : Tot (option (pstack v cl & pstack v cl)) (decreases k)
@@ -1986,6 +2043,274 @@ let rec pcut_scope (#v #cl: Type) (k: pstack v cl)
       (match pcut_scope rest with
         | None -> None
         | Some (above, below) -> Some (f :: above, below))
+
+(* ------------------------------------------------------------------ *)
+(*  B2a, strand 1: the association discipline, adjudicated             *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The vocabulary the proximity question needs, and it is two predicates.**
+ *
+ * B1.6 and B1.7 both recorded that `pcut_scope`'s "nearest" and `pfind_mode`'s
+ * "nearest" were CHOSEN and not forced: the farthest-floor mutation of
+ * `pcut_scope` is not a no-op and yet all 21 fixtures accept it. What follows
+ * settles that by proof rather than by another fixture, and the settlement turns
+ * on a single structural fact -- what the NEAREST cut guarantees about the
+ * segment it hands to the store that the FARTHEST cut does not.
+ *
+ * These two are deliberately about a SEGMENT and not about a configuration.
+ * Strand 2's `pconf_wf` will want to say things about the whole stack and the
+ * whole store; it should be able to reuse these unchanged, and nothing below
+ * mentions `pconf`.
+ *)
+let rec pno_floor (#v #cl: Type) (k: pstack v cl) : Tot bool (decreases k)
+  = match k with
+    | [] -> true
+    | PScopeF :: _ -> false
+    | _ :: rest -> pno_floor rest
+
+let rec pno_mode (#v #cl: Type) (k: pstack v cl) : Tot bool (decreases k)
+  = match k with
+    | [] -> true
+    | PModeF _ _ :: _ -> false
+    | _ :: rest -> pno_mode rest
+
+(**
+ * **THE INVARIANT, stated once and used everywhere below.**
+ *
+ * A residual is well formed when it begins with the frame whose meaning the
+ * consumer decides -- a boundary or a recorded perform site, which is exactly
+ * what `pyield` puts at its head -- and when NO SCOPE FLOOR AND NO MODE MARKER
+ * lies between that head frame and the end of the residual.
+ *
+ * Read it as the association statement the module's prose has been asking for
+ * since B1.5: *between a boundary or site frame and the marker that answers it
+ * there is no scope floor, and no nearer marker.* `ctx_drive` appends the
+ * consumer's marker at exactly the far end of the residual, so `presid_wf resid`
+ * says precisely that the search `pfind_mode` runs from the head frame reaches
+ * THAT marker: it is not stopped early by a floor, and it is not answered early
+ * by somebody else's marker.
+ *
+ * Both conjuncts are needed and they fail differently. Without `pno_floor` the
+ * search returns `None` and the consumer's own residual YIELDS AGAIN in its
+ * face, allocating a second context instead of running the consumer's function.
+ * Without `pno_mode` the search returns SOMEBODY ELSE'S responder, which is the
+ * `MResume`/`MExtend` confusion the header at `pfind_mode` names.
+ *)
+let presid_wf (#v #cl: Type) (r: pstack v cl) : bool
+  = match r with
+    | PBoundaryF :: tl -> pno_floor tl && pno_mode tl
+    | PSiteF _ :: tl -> pno_floor tl && pno_mode tl
+    | _ -> false
+
+(**
+ * **Nearest-cut lemma I: the residual above a nearest cut contains no floor.**
+ * PROVED, by induction on the stack, and it is a fact about `pcut_scope` ALONE
+ * -- no hypothesis about the machine, about reachability, or about which
+ * programs the fixtures write. `pcut_scope_far` below fails it, and the failure
+ * is exhibited at a concrete stack.
+ *)
+let rec lemma_cut_no_floor (#v #cl: Type) (k: pstack v cl)
+  : Lemma (ensures (match pcut_scope k with
+                    | None -> True
+                    | Some (above, _) -> pno_floor above))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | PScopeF :: _ -> ()
+    | _ :: rest -> lemma_cut_no_floor rest
+
+(**
+ * **Nearest-cut lemma II: under the guard `pyield` is actually called with, the
+ * residual above a nearest cut contains no mode marker.** PROVED.
+ *
+ * The hypothesis is not an assumption about well-bracketed programs. It is the
+ * literal branch condition of the two `pstep` value rules that call `pyield`:
+ * both reach it only in the `None` arm of `pfind_mode rest`. So the hypothesis
+ * is DISCHARGED BY THE CODE at the one place the conclusion is wanted, which is
+ * `lemma_pyield_residual_wf` below.
+ *
+ * The reason it works is the interlock between the two searches: `pfind_mode`
+ * stops at the first floor, and the nearest cut takes exactly the segment before
+ * the first floor. "No marker before the first floor" and "the residual is what
+ * lies before the first floor" compose. Cut anywhere else and they do not --
+ * `pfind_mode`'s `None` says nothing whatever about what lies BEYOND the first
+ * floor, which is precisely the region a farthest cut sweeps into the residual.
+ *)
+let rec lemma_cut_no_mode (#v #cl: Type) (k: pstack v cl)
+  : Lemma (requires pfind_mode k == None)
+          (ensures (match pcut_scope k with
+                    | None -> True
+                    | Some (above, _) -> pno_mode above))
+          (decreases k)
+  = match k with
+    | [] -> ()
+    | PScopeF :: _ -> ()
+    | PModeF _ _ :: _ -> ()
+    | _ :: rest -> lemma_cut_no_mode rest
+
+(**
+ * **The reachability lemma: a floor-free, marker-free segment is TRANSPARENT to
+ * the mode search.** PROVED, by induction on the segment.
+ *
+ * This is the half that makes `presid_wf` mean something operational. `ctx_drive`
+ * builds `resid @ [PModeF m respond]` and splices it; the head frame is popped
+ * by the value rule, which then searches the tail. This says the search lands on
+ * the marker `ctx_drive` just installed, with the mode and the responder it
+ * installed, whatever ambient stack `t` lies beneath.
+ *
+ * Note which nearness this one is about: it is `pfind_mode`'s. A variant that
+ * returned the FARTHEST marker before the floor would look past `PModeF m r`
+ * into `t` and could answer with an outer consumer's responder; see
+ * `pfind_mode_far` and the counterexample beneath it.
+ *
+ * *Stated as transparency rather than as an answer, and the reason is a Z3
+ * one worth recording.* The direct form
+ * `pfind_mode (a @ (PModeF m r :: t)) == Some (m, r)` is TRUE and is the
+ * corollary below, but the induction on it does not go through: the goal names
+ * `Some (m, r)`, whose second component is a FUNCTION, and Z3 fails the
+ * inductive step with `incomplete quantifiers` even though base case and step
+ * are each provable in isolation. Replacing `nat` for the responder in a
+ * standalone model of these three definitions makes the same induction succeed,
+ * which is what identifies the trigger. The transparency form never names the
+ * pair, so the induction is first-order throughout, and the corollary is one
+ * instantiation with no induction left in it.
+ *)
+let rec lemma_find_mode_through (#v #cl: Type) (a: pstack v cl) (t: pstack v cl)
+  : Lemma (requires pno_floor a /\ pno_mode a)
+          (ensures pfind_mode (a @ t) == pfind_mode t)
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: rest -> lemma_find_mode_through rest t
+
+(** **The corollary that is actually used**: the marker `ctx_drive` appends is
+    the one the search finds. PROVED, by one instantiation of the above. *)
+let lemma_find_mode_marker
+    (#v #cl: Type) (a: pstack v cl)
+    (m: weave_mode) (r: pval v -> pcomp v cl) (t: pstack v cl)
+  : Lemma (requires pno_floor a /\ pno_mode a)
+          (ensures pfind_mode (a @ (PModeF m r :: t)) == Some (m, r))
+  = lemma_find_mode_through a (PModeF m r :: t)
+
+(* ---- The farthest-choice variants, as named alternatives ---------- *)
+
+(**
+ * **The two mutations, given names and kept in the file.**
+ *
+ * B1.6 and B1.7 each APPLIED the `pcut_scope` mutation, ran the fixtures, and
+ * restored the original -- so what the file recorded afterwards was a sentence
+ * about an experiment nobody could re-run. These two definitions are that
+ * experiment made permanent: they are ordinary functions, F* checks them, and
+ * the guards below check what they do differently. Nothing in the machine calls
+ * either of them, exactly as nothing in the machine calls `flat_ops`.
+ *
+ *   - `pcut_scope_far` cuts at the OUTERMOST floor. It is the mutation the two
+ *     earlier gates fired, and it is not a no-op: `pcut_scope_far` on
+ *     `[PScopeF; PBoundaryF; PScopeF]` gives `Some ([PScopeF; PBoundaryF], [])`
+ *     where `pcut_scope` gives `Some ([], [PBoundaryF; PScopeF])`.
+ *
+ *   - `pfind_mode_far` answers with the OUTERMOST marker before the floor
+ *     rather than the innermost. It is the corresponding mutation of the other
+ *     search, which no earlier gate fired.
+ *)
+let rec pcut_scope_far (#v #cl: Type) (k: pstack v cl)
+  : Tot (option (pstack v cl & pstack v cl)) (decreases k)
+  = match k with
+    | [] -> None
+    | f :: rest ->
+      (match pcut_scope_far rest with
+        | Some (above, below) -> Some (f :: above, below)
+        | None -> if PScopeF? f then Some ([], rest) else None)
+
+let rec pfind_mode_far (#v #cl: Type) (k: pstack v cl)
+  : Tot (option (weave_mode & (pval v -> pcomp v cl))) (decreases k)
+  = match k with
+    | [] -> None
+    | PScopeF :: _ -> None
+    | PModeF m r :: rest ->
+      (match pfind_mode_far rest with
+        | None -> Some (m, r)
+        | Some x -> Some x)
+    | _ :: rest -> pfind_mode_far rest
+
+(** Total projections, so that a guard can be an equation between values with
+    decidable equality rather than a claim about a pair holding a function. *)
+let pcut_above (#v #cl: Type) (o: option (pstack v cl & pstack v cl)) : pstack v cl
+  = match o with
+    | None -> []
+    | Some (a, _) -> a
+
+let pmode_of (#v #cl: Type) (o: option (weave_mode & (pval v -> pcomp v cl)))
+  : option weave_mode
+  = match o with
+    | None -> None
+    | Some (m, _) -> Some m
+
+(** Two concrete stacks, at `v = cl = nat`, and a responder to hang on them.
+    Both shapes are ones the machine builds: `PEnterCtx` pushes a floor under
+    every scope, so a scope entered inside a scope gives two floors, and
+    `ctx_drive` appends a marker above whatever stack the consumer was running
+    on, so a context consumed inside a scope puts a marker above that scope's
+    floor. *)
+let gresp : pval nat -> pcomp nat nat = fun _ -> PVar (PV 0)
+let gstack_two_floors : pstack nat nat = [PScopeF; PBoundaryF; PScopeF]
+let gstack_mode_between : pstack nat nat =
+  [PScopeF; PModeF MExtend gresp; PScopeF]
+
+(**
+ * **GUARD 1: the farthest cut puts a scope floor inside the residual.**
+ *
+ * `lemma_cut_no_floor` is PROVED for `pcut_scope` with no hypothesis at all.
+ * This is the same property evaluated at a concrete stack for both functions,
+ * and it separates them: `true` against `false`. It is what a fixture could not
+ * show, because a fixture observes an answer and this is a property of the
+ * segment that goes into the store.
+ *)
+let guard_far_cut_keeps_a_floor () : Lemma
+  (ensures pno_floor (pcut_above (pcut_scope gstack_two_floors)) == true /\
+           pno_floor (pcut_above (pcut_scope_far gstack_two_floors)) == false)
+  = assert_norm (pno_floor (pcut_above (pcut_scope gstack_two_floors)) == true);
+    assert_norm (pno_floor (pcut_above (pcut_scope_far gstack_two_floors)) == false)
+
+(**
+ * **GUARD 2: the farthest cut puts somebody else's mode marker inside the
+ * residual, under the very guard `pyield` is called with.**
+ *
+ * The first conjunct is the hypothesis of `lemma_cut_no_mode` -- and it is the
+ * branch condition of the two `pstep` value rules that call `pyield`, so it is
+ * not an extra assumption. Under it the nearest cut yields a marker-free
+ * residual and the farthest cut does not.
+ *)
+let guard_far_cut_keeps_a_mode () : Lemma
+  (ensures None? (pfind_mode gstack_mode_between) /\
+           pno_mode (pcut_above (pcut_scope gstack_mode_between)) == true /\
+           pno_mode (pcut_above (pcut_scope_far gstack_mode_between)) == false)
+  = assert_norm (None? (pfind_mode gstack_mode_between));
+    assert_norm (pno_mode (pcut_above (pcut_scope gstack_mode_between)) == true);
+    assert_norm (pno_mode (pcut_above (pcut_scope_far gstack_mode_between)) == false)
+
+(**
+ * **GUARD 3: the farthest mode search answers with the wrong consumer's mode.**
+ *
+ * The stack is `ctx_drive`'s own shape twice over: a marker-free residual, the
+ * marker the inner consumer just appended, and beneath it an outer consumer's
+ * marker with the OTHER mode, then that consumer's floor. `pfind_mode` answers
+ * `MResume`, which is the mode of the consumer driving this residual;
+ * `pfind_mode_far` answers `MExtend`, which is an outer consumer's. A `PSiteF`
+ * in the residual therefore fires under one and not under the other, which is
+ * the `MResume`/`MExtend` confusion named in the header at `pfind_mode`.
+ *
+ * `lemma_find_mode_marker` is the proof that `pfind_mode` cannot do this.
+ *)
+let gstack_nested_markers : pstack nat nat =
+  [PModeF MResume gresp; PModeF MExtend gresp; PScopeF]
+
+let guard_far_mode_answers_outer () : Lemma
+  (ensures pmode_of (pfind_mode gstack_nested_markers) == Some MResume /\
+           pmode_of (pfind_mode_far gstack_nested_markers) == Some MExtend)
+  = assert_norm (pmode_of (pfind_mode gstack_nested_markers) == Some MResume);
+    assert_norm (pmode_of (pfind_mode_far gstack_nested_markers) == Some MExtend)
 
 (**
  * **`pfind_token` IS DELETED, and its absence is conditions 4 and 7.**
@@ -2000,6 +2325,15 @@ let rec pcut_scope (#v #cl: Type) (k: pstack v cl)
  * Stated as a property of the file rather than of a proof: grep the signatures
  * below and no consumer of `pstack v cl` produces a `pctx v cl`. That is a
  * syntactic observation, not a checked theorem, and it is recorded as such.
+ *
+ * **Re-checked after B2a, because B2a added functions that take stacks.**
+ * `pno_floor`, `pno_mode`, `presid_wf`, `pcut_scope_far`, `pfind_mode_far` and
+ * `pcut_above` all take a `pstack` and none returns a `pctx`. The one function
+ * that both takes a stack and mentions `pctx` is `gdrive`, the harness under
+ * `guard_far_drive_reyields`; it BUILDS a `PCtxRequests` from a residual written
+ * by hand at concrete types, which is what a harness for the consumption rules
+ * has to do, and it is not reachable from any transition. No new resolution path
+ * from a stack to a context was added.
  *)
 
 (** **The action a consumer with no context in scope degenerates to.** It is an
@@ -2048,6 +2382,81 @@ let pyield (#v #cl: Type) (x: pval v) (hd: pframe v cl) (rest: pstack v cl)
     | Some (above, below) ->
       let (h, cf') = palloc (PCtxRequests x (hd :: above) (PVar #v #cl)) cf in
       { cf' with st = PStep (PVar h) below }
+
+(**
+ * **THE PRODUCTION-SIDE THEOREM: every residual this machine stores is well
+ * formed.** PROVED, and the hypotheses are exactly the two branch conditions
+ * `pstep` reaches this function under.
+ *
+ * The first hypothesis, `pfind_mode rest == None`, is not a well-bracketing
+ * assumption smuggled in: it is the guard on the `None` arm of the `PBoundaryF`
+ * and `PSiteF` value rules, and those two arms are the only callers. The second
+ * says the head frame is one of those two, which is likewise what the callers
+ * pass. Nothing here assumes anything about how the stack was built.
+ *
+ * The conclusion is `presid_wf` on the segment that is HANDED TO THE STORE,
+ * together with where it is stored and what the machine goes on with. Read
+ * together with `lemma_ctx_drive_answers_head` below, the two make the
+ * association discipline a closed argument: production only ever stores
+ * residuals whose head frame is reachable by the mode search, and consumption
+ * only ever asks the mode search about such a residual.
+ *
+ * **This is where nearness is load-bearing.** Both conjuncts of `presid_wf` come
+ * from `pcut_scope` being the NEAREST cut: `lemma_cut_no_floor` needs it
+ * outright, and `lemma_cut_no_mode` needs it to compose with `pfind_mode`'s own
+ * termination at the first floor. `guard_far_cut_keeps_a_floor` and
+ * `guard_far_cut_keeps_a_mode` are the same two conjuncts evaluated for
+ * `pcut_scope_far`, and both are `false`.
+ *
+ * **WHAT IS HANDED TO STRAND 2, and it is one thing.** This lemma and
+ * `lemma_ctx_drive_answers_head` are both LOCAL: each takes a branch condition
+ * of `pstep` as its hypothesis and says what that step does. Neither says that
+ * the machine, started from `pload`, only ever reaches stacks of the shapes they
+ * describe -- and neither needs to, because their hypotheses are guards and not
+ * shape assumptions. What strand 2 would ADD is the configuration-wide
+ * statement: extend `pconf_wf` -- today only the store's freshness invariant --
+ * with a stack condition, and prove `pstep` preserves it. `pno_floor` and
+ * `pno_mode` are deliberately predicates on a SEGMENT and mention no `pconf`, so
+ * they can be reused unchanged; `presid_wf` is the property strand 2 would want
+ * to assert of every residual IN THE STORE, and this lemma is the step case for
+ * the two rules that write one.
+ *
+ * The one place a reader might expect a reachability claim and will not find one
+ * is `guard_far_drive_reyields`, which exhibits a separating stack without
+ * exhibiting a program that builds it. That is deliberate and is stated there.
+ *
+ * **A warning strand 2 must not walk past.** "Every reachable stack is
+ * well-bracketed" is FALSE for an arbitrary initial `pcomp` and an arbitrary
+ * `papply_t`. A raw `PSplice` can push any frame list it likes, and `apply` can
+ * return one. So the theorem is not `pload`-to-`pstep` preservation
+ * unconditionally; it needs a well-scopedness condition on the initial term and
+ * a preservation condition on the clause interpreter -- the counterparts of the
+ * shipped machine's `ws` / `apply_ok` / `config_ok`. An unconditional statement
+ * here would either be false or would have been narrowed until it was not about
+ * this machine.
+ *
+ * Note also that the store holds `PCtxRequests` values, which carry a
+ * `post: pval v -> pcomp v cl` beside the residual. If `post` may return an
+ * ill-formed `PSplice`, keeping every residual `presid_wf` does not close
+ * reachability. Whether the function component needs a condition of its own is
+ * the first thing strand 2 should settle, before building the layers above it.
+ *)
+let lemma_pyield_residual_wf
+    (#v #cl: Type) (x: pval v) (hd: pframe v cl)
+    (rest: pstack v cl) (cf: pconf v cl)
+  : Lemma (requires pfind_mode rest == None /\ (PBoundaryF? hd \/ PSiteF? hd))
+          (ensures (match pcut_scope rest with
+                    | None -> PPaused? (pyield x hd rest cf).st
+                    | Some (above, below) ->
+                      presid_wf (hd :: above) /\
+                      (pyield x hd rest cf).st == PStep (PVar (PCtxKey cf.next)) below /\
+                      (match pstore_lookup cf.next (pyield x hd rest cf).store with
+                        | Some cx -> PCtxRequests? cx /\
+                                     PCtxRequests?.value cx == x /\
+                                     PCtxRequests?.residual cx == hd :: above
+                        | None -> False)))
+  = lemma_cut_no_floor rest;
+    lemma_cut_no_mode rest
 
 (** The delimited continuation handed to a clause, named for the reason
     `Hoop.Runtime.Semantics.kont_of` is named: a top-level symbol, so that facts
@@ -2207,6 +2616,96 @@ let pstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v 
           | Some k' -> keep (PStep (PVar x) k'))
 
 (**
+ * **The two value rules that produce a context are exactly the two callers of
+ * `pyield`, and they call it under `pfind_mode rest == None`.** PROVED, by
+ * unfolding; it is a one-line fact and it is stated because it is the hinge of
+ * `lemma_pyield_residual_wf`'s hypothesis.
+ *
+ * Without it, that lemma's `pfind_mode rest == None` could be read as an
+ * assumption about which stacks are considered. With it, the assumption is
+ * discharged by the transition relation itself: there is no way to reach
+ * `pyield` other than through a `None` from the mode search.
+ *)
+let lemma_pstep_yield_guard
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (x: pval v) (hd: pframe v cl) (rest: pstack v cl)
+  : Lemma (requires (PBoundaryF? hd \/ PSiteF? hd) /\
+                    pfind_mode rest == None /\
+                    cf.st == PStep (PVar x) (hd :: rest))
+          (ensures pstep lk apply cf == pyield x hd rest cf)
+  = ()
+
+(**
+ * **THE CONSUMPTION-SIDE THEOREM: driving a well-formed residual reaches the
+ * DRIVING consumer's marker at the residual's head frame.** PROVED.
+ *
+ * This is the statement the module has been owing since B1.5, and it is the one
+ * that decides the proximity question. Read the conclusion in three parts:
+ *
+ *   - the splice step puts the residual back with the marker appended beneath
+ *     it, so the head frame of the residual is the frame the value meets;
+ *   - `pfind_mode` from beneath that head frame returns `Some (m, resp)` -- the
+ *     mode AND the responder this consumer just installed, not an outer
+ *     consumer's and not `None`;
+ *   - therefore the second transition RUNS THE CONSUMER'S RESPONDER (at a
+ *     boundary) or is decided by the consumer's MODE (at a site), and in
+ *     particular ALLOCATES NOTHING: `cf2.next == cf.next` says the machine did
+ *     not yield a second context in the consumer's face.
+ *
+ * The only hypothesis about the residual is `presid_wf`, which
+ * `lemma_pyield_residual_wf` PROVES of every residual this machine stores. So
+ * the two together are closed: production establishes the invariant,
+ * consumption consumes it, and neither step assumes anything about the ambient
+ * stack `k`, which is universally quantified and arbitrary.
+ *
+ * **Where nearness enters, and what breaks without it.** `presid_wf` is exactly
+ * what `pcut_scope`'s nearest cut delivers and what `pcut_scope_far` does not
+ * (`guard_far_cut_keeps_a_floor`, `guard_far_cut_keeps_a_mode`). Drop either
+ * conjunct and the conclusion is false, not merely unprovable: with a floor in
+ * the residual the mode search returns `None` and the second transition is a
+ * `pyield`, which allocates -- `guard_far_drive_reyields` runs both machines and
+ * checks that it does. With a marker in the residual the search returns the
+ * wrong responder. Proximity is therefore a SEMANTIC REQUIREMENT here and not a
+ * normal form: the theorem is false under the farthest cut.
+ *)
+let lemma_ctx_drive_answers_head
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (m: weave_mode)
+    (x: pval v) (hd: pframe v cl) (a: pstack v cl)
+    (post: pval v -> pcomp v cl) (f: pval v -> pcomp v cl) (k: pstack v cl)
+  : Lemma (requires presid_wf (hd :: a))
+          (ensures (let resp = (fun (z: pval v) -> pbind (post z) f) in
+                    let tl = a @ (PModeF m resp :: k) in
+                    let cf0 = { cf with
+                                st = PStep (ctx_drive m (PCtxRequests x (hd :: a) post) f) k } in
+                    let cf1 = pstep lk apply cf0 in
+                    cf1.store == cf.store /\ cf1.next == cf.next /\
+                    cf1.st == PStep (PVar x) (hd :: tl) /\
+                    pfind_mode tl == Some (m, resp) /\
+                    (let cf2 = pstep lk apply cf1 in
+                     cf2.store == cf.store /\ cf2.next == cf.next /\
+                     (match hd with
+                       | PBoundaryF -> cf2.st == PStep (resp x) tl
+                       | PSiteF fn ->
+                         cf2.st == (if MResume? m
+                                    then PStep (fn x) tl
+                                    else PStep (PVar x) tl)
+                       | _ -> True))))
+  = let resp = (fun (z: pval v) -> pbind (post z) f) in
+    // `assert_norm` and not `assert`: `ctx_drive` BUILDS the responder lambda,
+    // and F* gives a lambda occurring inside a definition an SMT encoding of its
+    // own, so the equality between it and the same lambda written here is not
+    // something Z3 can see. Normalising both sides makes the two terms identical
+    // and the obligation disappears without an SMT query. The same trap is why
+    // `lemma_find_mode_through` is stated as transparency rather than as an
+    // answer.
+    assert_norm (ctx_drive m (PCtxRequests x (hd :: a) post) f
+                 == PSplice ((hd :: a) @ [PModeF m (fun z -> pbind (post z) f)])
+                            (PVar x));
+    append_assoc (hd :: a) [PModeF m resp] k;
+    lemma_find_mode_marker a m resp k
+
+(**
  * **The same transition, reporting what it observed** -- the instrument, and the
  * whole of B1.6's answer to requirements 1 to 4.
  *
@@ -2242,6 +2741,88 @@ let rec psteps (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
       | PStuck _ _ -> cf
       | PRejected _ -> cf
       | PStep _ _ -> psteps lk apply (fuel - 1) (pstep lk apply cf)
+
+(* ---- B2a GUARD 4: the farthest cut, RUN ---------------------------- *)
+
+(**
+ * **The two residuals, driven, side by side.**
+ *
+ * `lemma_ctx_drive_answers_head` says what happens when a WELL-FORMED residual
+ * is driven. This is the same drive on the residual the farthest cut would have
+ * stored instead, run by the same machine, and the two disagree about the
+ * ANSWER and not merely about the segment.
+ *
+ * Both residuals come from the same yield: the stack is `gstack_mode_between`,
+ * the guard `pfind_mode` returns `None` on it, and the head frame is a boundary.
+ * `pcut_scope` takes nothing above the nearest floor; `pcut_scope_far` takes the
+ * floor and the outer consumer's marker with it. Then a consumer resumes with a
+ * continuation that answers `PV 7`.
+ *
+ *   - Nearest: the value meets the boundary, the search finds the resuming
+ *     consumer's marker, the continuation runs, the answer is `PV 7`, and the
+ *     store is untouched -- `next` is still `0`.
+ *   - Farthest: the value meets the boundary, the search hits the floor that
+ *     was swept into the residual and returns `None`, so the machine YIELDS
+ *     AGAIN -- it allocates a second context (`next` becomes `1`) and the answer
+ *     is that context's HANDLE. The consumer's continuation is never applied.
+ *
+ * That is `resumeScope cx k` failing to resume, on a machine that has no fixture
+ * to say so. It is the separation B1.6 and B1.7 each looked for and did not
+ * find, and what they were missing was not the handle representation: it was a
+ * mode marker between the two floors, which no fixture in this file builds. Both
+ * ingredients are ones the machine makes -- `PEnterCtx` pushes the floors,
+ * `ctx_drive` appends the marker -- so this is a statement about frames this
+ * transition system produces and not about an arbitrary list.
+ *
+ * **What is checked here and what is not.** CHECKED: that the two residuals
+ * exist, that the guard `pyield` is called under holds of the stack they come
+ * from, and that driving them gives different answers and different store sizes.
+ * NOT CHECKED HERE: that a program reaches THIS stack, which is written by hand.
+ * `fixture_22_separating_state_is_reachable` supplies the missing half from the
+ * other side -- a closed program whose run reaches a configuration at which the
+ * nearest cut satisfies both conjuncts of `presid_wf` and the farthest cut
+ * satisfies neither -- so between the two nothing is left to argument except the
+ * splice of one into the other. What remains genuinely open is the general
+ * statement that EVERY reachable stack is well bracketed, which is `pconf_wf`
+ * preservation and strand 2's; see the note at `lemma_pyield_residual_wf`.
+ *)
+let glk : plookup_t nat = fun _ _ _ -> None
+let gapply : papply_t nat nat = fun _ _ _ -> PVar (PV 0)
+let gk_answer : pval nat -> pcomp nat nat = fun _ -> PVar (PV 7)
+
+(** The two residuals the two cuts would store, head frame included. *)
+let gresid_near : pstack nat nat =
+  PBoundaryF :: pcut_above (pcut_scope gstack_mode_between)
+let gresid_far : pstack nat nat =
+  PBoundaryF :: pcut_above (pcut_scope_far gstack_mode_between)
+
+(** `resumeScope` on a residual, on an empty ambient stack. *)
+let gdrive (resid: pstack nat nat) : pconf nat nat =
+  { st = PStep (ctx_drive MResume
+                          (PCtxRequests (PV 1) resid (PVar #nat #nat))
+                          gk_answer)
+               [];
+    store = [];
+    next = 0 }
+
+let gresult (cf: pconf nat nat) : option (pval nat)
+  = match cf.st with
+    | PDone y -> Some y
+    | _ -> None
+
+let guard_far_drive_reyields () : Lemma
+  (ensures presid_wf gresid_near == true /\
+           presid_wf gresid_far == false /\
+           gresult (psteps glk gapply 20 (gdrive gresid_near)) == Some (PV 7) /\
+           (psteps glk gapply 20 (gdrive gresid_near)).next == 0 /\
+           gresult (psteps glk gapply 20 (gdrive gresid_far)) == Some (PCtxKey 0) /\
+           (psteps glk gapply 20 (gdrive gresid_far)).next == 1)
+  = assert_norm (presid_wf gresid_near == true);
+    assert_norm (presid_wf gresid_far == false);
+    assert_norm (gresult (psteps glk gapply 20 (gdrive gresid_near)) == Some (PV 7));
+    assert_norm ((psteps glk gapply 20 (gdrive gresid_near)).next == 0);
+    assert_norm (gresult (psteps glk gapply 20 (gdrive gresid_far)) == Some (PCtxKey 0));
+    assert_norm ((psteps glk gapply 20 (gdrive gresid_far)).next == 1)
 
 (**
  * **The same iteration, keeping the trace** -- the driver requirement 1 is about.
@@ -3920,3 +4501,92 @@ let fixture_21_multi_shot_alloc () : Lemma
                  == Some (FL [FL [FL [FS "ctx"; FI 0]; FL [FS "ctx"; FI 1]];
                               FL [FS "k"; FL [FS "leaf"; FS "a"]];
                               FL [FS "k"; FL [FS "leaf"; FS "b"]]]))
+
+(* ------------------------------------------------------------------ *)
+(*  B2a, strand 1 -- 22. THE SEPARATING CONFIGURATION IS REACHABLE     *)
+(* ------------------------------------------------------------------ *)
+
+(* ---- 22. A CLOSED PROGRAM WHOSE RUN REACHES A STATE WHERE THE NEAREST AND
+   FARTHEST CUTS DIFFER IN THE WAY THAT MATTERS.
+
+   The theorems above are what decide the proximity question and they need no
+   fixture. This one answers the separate question the two earlier gates were
+   really asking -- *can the machine get into a position where the choice is
+   observable* -- and it answers it about a program rather than about a list of
+   frames written by hand.
+
+   **What was missing before, stated exactly.** Two floors are not enough.
+   `fixture_15_two_floors` has two, and the two cuts agree there, because the
+   inner scope's consumption completes before the outer boundary is reached: a
+   value passing a `PModeF` POPS it, so by the time the outer boundary yields
+   there is nothing between the floors but ordinary frames, and sweeping them
+   into the residual really does merely defer. What is needed is a mode marker
+   that is still LIVE between the two floors, and that requires a scope to be
+   entered from inside a resumption -- not from inside a scope body. No fixture
+   in this file did that.
+
+   `prog_sep` does. Reading it outwards:
+
+     - a first scope produces `cx0` and yields, so `cx0` is a residual;
+     - a SECOND scope is entered, and its body is `resumeScope cx0 ...`, so the
+       second scope's floor is beneath the marker that resumption installs;
+     - the resumption's continuation enters a THIRD scope, whose floor is
+       therefore ABOVE that marker.
+
+   When the third scope's body reaches its boundary the stack is
+   `... Floor_3 ... Mode_0 ... Floor_2 ...`, the yield guard holds, and the two
+   cuts disagree: the nearest takes the frames above `Floor_3` and the farthest
+   takes `Floor_3`, `Mode_0` and the second scope's boundary with them.
+
+   **What is checked**: that the run reaches such a state, and that at that state
+   the nearest cut satisfies BOTH conjuncts of `presid_wf` and the farthest cut
+   satisfies NEITHER. That is `lemma_pyield_residual_wf`'s conclusion holding and
+   failing at a configuration this machine actually reaches from `pload`.
+
+   **What is NOT checked, and it is deliberate**: this file does not contain a
+   second machine built on `pcut_scope_far`, so there is no run-against-run
+   comparison of ANSWERS for this program. Duplicating `pstep` to get one would
+   be two definitions of the semantics that can drift, which the note at
+   `pstep_tr` rejects for the same reason. `guard_far_drive_reyields` supplies
+   the answer-level separation instead, on the two residuals directly. ---- *)
+
+let prog_sep : pcomp fv fcl =
+  fscope plan_L0 body6 (fun cx0 ->
+    fscope plan_L
+      (resume_at_C plan_L0 cx0
+         (fun z ->
+            fscope plan_L0 body6
+              (fun cb ->
+                 resume_at_C plan_L0 cb (fun w -> fret (FL [FS "b"; fseen w])))))
+      (fun ca -> resume_at_C plan_L ca fk))
+
+(** The state predicate: a value at a boundary, with no mode in scope -- which is
+    the exact position `pstep` calls `pyield` from -- at which the nearest cut
+    gives a well-formed residual and the farthest cut violates BOTH conjuncts. *)
+let fsep_at (cf: pconf fv fcl) : bool
+  = match cf.st with
+    | PStep (PVar _) (PBoundaryF :: rest) ->
+      None? (pfind_mode rest) &&
+      pno_floor (pcut_above (pcut_scope rest)) &&
+      pno_mode (pcut_above (pcut_scope rest)) &&
+      not (pno_floor (pcut_above (pcut_scope_far rest))) &&
+      not (pno_mode (pcut_above (pcut_scope_far rest)))
+    | _ -> false
+
+(** One pass of the real machine, checking the predicate at every configuration.
+    It is a scan and not a guessed step index, so the fixture states REACHABILITY
+    rather than a number that would move if a bookkeeping step were added. *)
+let rec fsep_scan (fuel: nat) (cf: pconf fv fcl) : Tot bool (decreases fuel)
+  = if fuel = 0 then false
+    else if fsep_at cf then true
+    else fsep_scan (fuel - 1) (pstep flook fapply cf)
+
+let fixture_22_separating_state_is_reachable () : Lemma
+  (ensures fsep_scan 400 (pload prog_sep) == true
+        /\ fsettled 800 prog_sep == true
+        /\ fsep_scan 400 (pload prog_two_floors) == false
+        /\ fsep_scan 400 (pload prog_nested) == false)
+  = assert_norm (fsep_scan 400 (pload prog_sep) == true);
+    assert_norm (fsettled 800 prog_sep == true);
+    assert_norm (fsep_scan 400 (pload prog_two_floors) == false);
+    assert_norm (fsep_scan 400 (pload prog_nested) == false)

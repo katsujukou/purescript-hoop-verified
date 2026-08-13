@@ -2920,6 +2920,96 @@ surviving mutation is the evidence that makes the distinction visible. The other
 survivor, `PCtxRequests y [] PVar` for `PCtxDone y`, remains genuinely
 operationally equal.
 
+### Gate B2a, strand 1: proximity adjudicated
+
+**Verdict: proximity is a semantic requirement of this protocol, not an
+implementation normal form.** The question was decided by a theorem, as it had
+to be — no fixture separates the two, and B1.7 had already shown that giving
+the context an identity does not separate them either.
+
+The invariant, stated over a *segment* so that it mentions no configuration:
+
+```fstar
+let presid_wf r = match r with
+  | PBoundaryF :: tl -> pno_floor tl && pno_mode tl
+  | PSiteF _ :: tl   -> pno_floor tl && pno_mode tl
+  | _ -> false
+```
+
+A residual begins with the frame whose meaning the consumer decides, and between
+that frame and the residual's end there is neither a scope floor nor a nearer
+mode marker. Since `ctx_drive` appends the consumer's own marker at exactly the
+residual's end, this *is* "between a boundary or site frame and the marker that
+answers it there is no scope floor".
+
+Seven lemmas, all **proved**. Two carry the argument:
+
+- `lemma_pyield_residual_wf` — production: every residual this machine puts in
+  the store satisfies `presid_wf`;
+- `lemma_ctx_drive_answers_head` — consumption: driving a well-formed residual
+  reaches, at its head frame, **the driving consumer's own** marker, runs that
+  responder, and **allocates nothing** (`cf2.next == cf.next`).
+
+Under the farthest cut the second conclusion is not merely unprovable but
+**false**, and `guard_far_drive_reyields` runs both residuals on the same
+machine to show it:
+
+| | answer | `next` |
+|---|---|---|
+| nearest | `PV 7` | 0 |
+| farthest | **`PCtxKey 0`** | **1** |
+
+So under the farthest choice `resumeScope cx k` does not resume: it yields
+again, allocates a *second* context, and the answer is that handle. B1.7's
+reading — "cutting too far appears merely to defer the inner cut by one
+round" — is withdrawn.
+
+**No hypothesis assumes any part of the conclusion.** The two hypotheses used
+are branch conditions of `pstep` itself (`pfind_mode rest == None`; the head is
+a boundary or a site), and `lemma_pstep_yield_guard` checks that those are the
+only routes to `pyield`. The surrounding stack stays universally quantified;
+there is no shape assumption and no reachability assumption.
+
+*Why B1.7's fixtures could not see it*, now checked as `fixture_22`: two floors
+are not enough — a **live mode marker must sit between them**. A value passing
+a `PModeF` pops it, so consuming a context inside a scope's *body* never builds
+the configuration; entering a scope from **inside a resumption's continuation**
+does. Fixtures 14 and 15 are confirmed not to reach it.
+
+Two F\* traps were recorded in passing, and the second is reusable:
+`pfind_mode (a @ (PModeF m r :: t)) == Some (m, r)` is true but resists
+induction, because the goal names a pair whose second component is a function
+— the base and step cases each go through and the whole fails on incomplete
+quantifiers. Stating transparency instead (`pfind_mode (a @ t) == pfind_mode t`)
+stays first-order and goes through, without weakening what is proved.
+
+### Gate B2a, strand 2: what it must not assume
+
+Strand 2 is the configuration-wide statement: extend `pconf_wf` — today only
+the store's freshness invariant — with a stack condition, and prove that the
+machine preserves it. It cannot be done as an unconditional `pload`/`pstep` theorem.
+
+> **"Every reachable stack is well-bracketed" is false for an arbitrary initial
+> `pcomp` and an arbitrary `papply_t`.** A raw `PSplice` can push any frame
+> list, and `apply` can return one.
+
+So the layers are: a well-scopedness condition on the initial term; a
+preservation condition on the clause interpreter; conditions on the stack and on
+the `pctx` values in the store; a configuration invariant composing them; that
+`pload` establishes it from the initial condition; and that `pstep` preserves
+it. The shipped machine already names the counterparts — `ws`, `apply_ok`,
+`clause_ok_congr`, `wf_state` in `Hoop.Runtime.Metatheory.fsti` — so this is a
+precedent to follow rather than a design to invent.
+
+One thing to settle **before** building those layers: the store holds
+`PCtxRequests`, which carries a `post : pval v -> pcomp v cl` beside its
+residual. If `post` may return an ill-formed `PSplice`, keeping every residual
+`presid_wf` does not close reachability, and the function component needs a
+condition of its own.
+
+Until strand 2 closes, strand 1's result is local: it is about what a step does
+given its own guard, not about which configurations the machine can be in.
+
 ### What is not decided
 
 - The classification stays three-way, and B1.5 and B1.6 are reasons to expect it
@@ -2944,7 +3034,8 @@ The order, revised after B1.7:
 |---|---|
 | ~~B1.6~~ | ~~effectful production, exact-once as an observation~~ — **done** |
 | ~~B1.7~~ | ~~a first-class context handle, selected by identity~~ — **done** |
-| B2a | the association disciplines `pcut_scope` / `pfind_mode`, **and** `pconf_wf` preserved by every transition from a well-formed initial configuration |
+| ~~B2a-1~~ | ~~the `pcut_scope` / `pfind_mode` association discipline~~ — **done**: proximity is a semantic requirement |
+| B2a-2 | `pconf_wf` over the whole configuration, with term and interpreter conditions, preserved by every transition |
 | — | make the observation relation **trace-aware** before B2b |
 | B2b | the five laws, over arbitrary stack, store, counter **and trace** |
 | B3 | the existing borrow; simulation with the optimised machine; a shipping handle store |
