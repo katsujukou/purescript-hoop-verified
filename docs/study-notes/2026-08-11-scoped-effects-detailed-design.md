@@ -3122,6 +3122,118 @@ lets a prefix-replaying implementation satisfy every law. Rewrite it in the
 trace gate **with the history**, as a claim promoted rather than a sentence
 quietly replaced.
 
+#### The trace gate, run
+
+All eight conditions are in place and the module verifies; 6,447 → 7,123
+lines.
+The definitions:
+
+```fstar
+let pconverges_tr lk apply cf tr x : GTot prop =
+  exists (n: nat).
+    (fst (prun lk apply n cf)).st == PDone x /\ snd (prun lk apply n cf) == tr
+```
+
+with `pobs_tr_le` quantifying over stack, store, counter, trace and value, and
+`pobs_tr_eq` its two directions. **All five laws are retargeted at
+`pobs_tr_eq`**; no law mentions the value-only relation. Proving them is still
+B2b's.
+
+`lemma_prun_stable` is the lemma that makes the existential mean anything: its
+conclusion is an equality of **pairs**, `prun (n+extra) cf == prun n cf`, fixing
+the terminal configuration and the trace at once. Its hypothesis is `~PStep?`,
+which covers all four terminals rather than only `PDone`.
+`lemma_pconverges_tr_unique` turns it into "at most one trace and one value per
+configuration".
+
+`prun`'s comment was rewritten with its history intact — *A JUDGEMENT
+PROMOTED, AND THE HISTORY IS THE POINT*, quoting B1.6's sentence and marking it
+**superseded, promoted, not corrected**.
+
+#### The gate ran without a report, and what that cost
+
+The authoring session was killed by infrastructure failures five times and never
+produced one. The work was on disk and verifying, so a separate audit session
+was run against it — which is a worse position than a report from the author,
+and the difference showed up as **one overclaim that survived into the file**.
+
+Sixteen mutations were fired in total, four by hand before the audit and twelve
+by it, each with its rejection line read. The results worth keeping:
+
+- **Condition 4 (forget) had been entirely unfired** and is the part the audit
+  paid for. Redirecting `lemma_pconverges_tr_forget` at the wrong computation,
+  weakening the hypothesis to `True`, and removing the appeal to
+  `lemma_prun_erase` each fail in an isolated place — so the implication is
+  neither vacuous nor independent of condition 7's erasure theorem.
+- Removing the store, counter or stack quantifier from `pobs_tr_le` each fails
+  in `lemma_pobs_tr_le_forget`; so does collapsing `pobs_tr_eq` to one
+  direction. **The separation guard does not detect that last one** — the
+  forget lemma is what carries it.
+- Bounding the existential (`exists n. n <= 400 /\ ...`) fails, so condition 3
+  is measured and not merely observed in the syntax.
+- Condition 6 is fire-tested in both respects: multiplicity by deleting one
+  duplicate emission, order by transposing two events.
+- One mutation is recorded as **worthless**: replacing a trace literal
+  file-wide was caught by a B1.6 fixture long before reaching the new guard. F\*
+  halting at the first error makes that the standing hazard, and the fix is to
+  scope the mutation to the guard's own lines.
+
+**Condition 8 cannot be fire-tested, and that is itself a finding.** Reverting
+`law_left_identity` to `pobs_eq` verifies — as it must, since nothing in the
+module depends on any law holding. So "the laws are retargeted" is established
+by reading, not by an obligation, and a law silently reverting would be caught
+by no proof in this file.
+
+#### The overclaim, corrected
+
+The file said `pobs_tr_le` is **strictly** stronger than `pobs_le`, and the
+header said the laws are **strictly harder** than they were. What
+`lemma_pobs_tr_le_forget` proves is the implication one way. Strictness needs a
+witness — a pair the value-only relation joins and the trace-aware one does
+not — and the file does not have one: it records elsewhere, correctly, that
+`pobs_eq flook fapply prog_traced prog_susp` is *neither claimed nor checked*.
+Both sites now say **at least as strong / at least as hard**, with the missing
+witness named. The proof was never wrong; the sentence was.
+
+Smaller findings, recorded and not repaired: `lemma_fend_is_frun` is proved and
+never used; `guard_amb_scope_prefix_once`'s comment attributes to itself an
+ordering fact that its neighbour `fixture_23` actually establishes; the file
+proves only **negative** instances of the new relation, so nothing here shows it
+is loose enough to relate two different programs — which the gate did not ask
+for, but which means this file offers no evidence that the five laws *could*
+hold. And `pobs_tr_le` quantifies over store and counter without requiring
+`pconf_wf`, so it demands agreement at configurations the machine cannot reach.
+That makes the relation stronger, not unsound, and it was inherited from B1.7
+rather than introduced here — but it is a way the laws could turn out false
+for reasons having nothing to do with the algebra, and B2b should meet it
+knowingly.
+
+Four claims of the form "strictly stronger" were corrected across the module in
+the same pass, all the same error: **taking a parameter, enlarging a domain, or
+proving an implication one way does not establish strictness — that needs a
+witness of non-equivalence, and this file has none.** So the laws now say that
+exposing `lk` as a parameter lets B2b state them uniformly (not that it
+strengthens them), and that deleting `settles` puts the ambient-handler
+configurations *inside* the obligation (a claim about the domain, not about
+logical strength).
+
+#### How B2b should start, and when it should stop
+
+**Prove one small positive instance first** — ideally a `pobs_tr_eq` between
+two *different* programs. Everything the file establishes about the new relation
+today is negative: separations, and a reflexive inhabitant found only in an
+audit scratch copy. Nothing shows the relation is loose enough to relate two
+distinct programs, so nothing yet suggests the five laws *can* hold.
+
+And a stop condition, because the relation quantifies over stores and counters
+without requiring `pconf_wf` and therefore demands agreement at configurations
+the machine cannot reach:
+
+> If the first law fails **only** because of ill-formed or unreachable
+> configurations, do not push the proof through. Stop and decide whether the
+> observation relation belongs over all configurations or should be restricted
+> to well-formed reachable ones.
+
 ### What is not decided
 
 - The classification stays three-way, and B1.5 and B1.6 are reasons to expect it
@@ -3148,7 +3260,7 @@ The order, revised after B1.7:
 | ~~B1.7~~ | ~~a first-class context handle, selected by identity~~ — **done** |
 | ~~B2a-1~~ | ~~the `pcut_scope` / `pfind_mode` association discipline~~ — **done**: proximity is a semantic requirement |
 | ~~B2a-2~~ | ~~`pconf_wf` over the whole configuration, preserved by every transition~~ — **done** |
-| trace | make the observation relation trace-aware — eight acceptance conditions above |
+| ~~trace~~ | ~~make the observation relation trace-aware~~ — **done**: five laws retargeted at `pobs_tr_eq` |
 | B2b | the five laws, over arbitrary stack, store, counter **and trace** |
 | B3 | the existing borrow; simulation with the optimised machine; a shipping handle store |
 

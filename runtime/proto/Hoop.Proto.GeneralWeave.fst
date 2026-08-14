@@ -175,6 +175,45 @@
  * statement.
  * ===========================================================================
  *
+ * ===========================================================================
+ * **WHAT B1.8 CHANGED: THE OBSERVATION RELATION CAUGHT UP WITH THE TRACE.**
+ *
+ * B1.6 added `PEmit` and `prun` and showed, on two runs at fuel 400, that a
+ * residual consumed twice emits the protected prefix's event ONCE while the
+ * withdrawn suspension emits it TWICE. What it did not do was connect that to
+ * any obligation. `pobs_le` and `pobs_eq` are stated through `pconverges`,
+ * which observes the FINAL VALUE only, and on a pure machine replay changes no
+ * value -- so **a prefix-replaying implementation satisfied every one of the
+ * five laws exactly as they were stated**, and the exact-once result sat beside
+ * the laws rather than inside them.
+ *
+ * B1.8 changes the RELATION, which is the only thing that could have closed
+ * that. `pconverges_tr` converges to a TRACE AND a value and says so as "there
+ * exists a step count", with no fuel in it; `pobs_tr_le` and `pobs_tr_eq`
+ * preserve both, in both directions, from the same stack, store and counter;
+ * and the five laws are stated over `pobs_tr_eq`. The value-only relation is
+ * kept, and `lemma_pobs_tr_eq_forget` proves the new one implies it, so the
+ * retarget is a strengthening rather than a change of subject.
+ *
+ * Three lemmas make the definition mean anything. `lemma_prun_stable` proves
+ * that once a run has reached a terminal state, more fuel changes neither the
+ * configuration NOR THE TRACE -- the trace being the half a careless driver
+ * would break, by appending to it after the machine had stopped. Without it the
+ * existential picks out no particular observation.
+ * `lemma_pconverges_tr_unique` turns that into "at most one trace and at most
+ * one value per configuration". And `lemma_prun_erase` proves `prun` and
+ * `psteps` agree on the configuration at every fuel, so the instrumented driver
+ * and the plain one are one semantics rather than two definitions that could
+ * drift.
+ *
+ * What that buys is `guard_trace_separates_residual_from_suspension`: the
+ * residual program and the suspension program are NOT equivalent under the new
+ * relation, in either direction, as a THEOREM about the relation -- while
+ * `guard_susp_agrees_on_value` checks that they converge to the same value, so
+ * the separation is genuinely the trace's doing. That is what `fixture_11`
+ * against `fixture_12` could not be.
+ * ===========================================================================
+ *
  * *What this module is.* A small machine, not a copy of the production one. It
  * holds only what the general weave needs: prompt provenance, the classification
  * derived from it, the scope PLAN a captured segment is turned into, the context
@@ -321,6 +360,20 @@
  *   - The four laws, plus `law_transparent_agrees`, are unproved. They are
  *     `prop` definitions parameterised by a `ctx_ops`; B2b is to prove them of
  *     `ref_ops`. Nothing in this module depends on any of them holding.
+ *     **In B1.8 they are stated over `pobs_tr_eq` and are therefore AT LEAST AS
+ *     HARD as they were** -- `lemma_pobs_tr_eq_forget` proves that direction,
+ *     and STRICTLY harder is not established, since no pair is exhibited that
+ *     the value-only relation joins and the trace-aware one does not. What is
+ *     checked is that each still type-checks at `prop` against the new relation
+ *     -- well typed, not proved -- and this file makes no claim that any of the
+ *     five holds of any `ctx_ops`.
+ *   - **That `pobs_eq flook fapply prog_traced prog_susp` HOLDS is not claimed
+ *     and not checked.** The value-only relation quantifies over every stack,
+ *     store and counter, and this file proves nothing about it here. What
+ *     `guard_susp_agrees_on_value` checks is the weaker and sufficient thing:
+ *     at the one configuration where the traces separate the two programs, both
+ *     converge to the SAME value, so the trace-aware separation is not one the
+ *     value-only relation could have made there.
  *   - `settles` is DELETED, and what that establishes is that the laws can be
  *     STATED without it -- together with `fixture_10_outer_handler`, which runs
  *     the program `settles` used to exclude. Whether the propositions so stated
@@ -1819,8 +1872,11 @@ let papply_t (v cl: Type) = cl -> list (pval v) -> (pval v -> pcomp v cl) -> pco
  * dispatch DISCIPLINE against a table of their own and not against the shipped
  * table's realisation. That is the same trade `apply` has always made -- clauses
  * are opaque closures and every fixture supplies its own -- and it is a smaller
- * trade than leaving the nine conditions unchecked. The laws quantify over the
- * lookup, so they are strictly stronger than they were.
+ * trade than leaving the nine conditions unchecked. The laws expose lookup as a
+ * parameter, so B2b can state them uniformly over the lookup discipline it
+ * assumes. Any theorem quantified over `lk` would include the former
+ * reference-lookup instance; this file does not claim that the parameterisation
+ * is a strict logical strengthening.
  *
  * *B1.6 widened the argument to a `ptable`*, so that a lookup CAN tell two
  * prompts apart -- see `ptable`, where the reason and the price are set out. The
@@ -2863,10 +2919,35 @@ let guard_far_drive_reyields () : Lemma
  * `fixture_12_suspension_emits_twice` is the control that shows the instrument
  * is measuring something.
  *
- * `psteps` above is kept and is not defined through this one. The laws are stated
- * over `pconverges`, which is about values, and threading a trace through them
- * would make every law also a statement about observations -- which is a
- * different and much stronger claim than B2 is being asked for.
+ * `psteps` above is kept and is not defined through this one. That is a choice
+ * that has to be paid for, and B1.8 pays for it: `lemma_pstep_tr_erase` and
+ * `lemma_prun_erase` below say that forgetting the trace turns this driver back
+ * into `psteps`, at every fuel and from every configuration. They are therefore
+ * not two semantics that could drift apart -- they are one semantics and its
+ * instrument, and gate condition 7 is that fact and nothing more.
+ *
+ * **A JUDGEMENT PROMOTED, AND THE HISTORY IS THE POINT.** B1.6 ended this
+ * comment with:
+ *
+ *   "The laws are stated over `pconverges`, which is about values, and
+ *    threading a trace through them would make every law also a statement about
+ *    observations -- which is a different and much stronger claim than B2 is
+ *    being asked for."
+ *
+ * That sentence was true of B1.6's brief and it is SUPERSEDED -- promoted, not
+ * corrected. What overtook it is what B1.7 left visible: on a pure machine a
+ * replay changes no value, so a value-only relation cannot tell a residual from
+ * a suspension, and an implementation that re-runs the protected prefix at every
+ * consumption satisfies all five laws exactly as they were then stated. The
+ * exact-once result this driver was built to exhibit was thereby connected to no
+ * proof obligation at all. The stronger claim is not optional any more; it is
+ * the only claim under which exact-once is a law-level obligation rather than a
+ * fixture. So the laws are retargeted at `pobs_tr_eq`,
+ * `lemma_pobs_tr_le_forget` proves that the new relation implies the old one so
+ * that nothing B1.6 stated is lost, and
+ * `guard_trace_separates_residual_from_suspension` is the separation as a
+ * statement ABOUT THE RELATION, which is what `fixture_11` against `fixture_12`
+ * could not be.
  *)
 let rec prun (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
              (fuel: nat) (cf: pconf v cl)
@@ -2882,6 +2963,83 @@ let rec prun (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
         let (cf', ev) = pstep_tr lk apply cf in
         let (cff, tr) = prun lk apply (fuel - 1) cf' in
         (cff, ev @ tr)
+
+(* ---- B1.8: the instrument is the same machine -------------------- *)
+
+(**
+ * **Trace erasure, one step.** PROVED, by case analysis on the current node.
+ *
+ * `pstep_tr` intercepts exactly one shape, `PStep (PEmit ev body) k`, and
+ * returns `{ cf with st = PStep body k }` -- which is verbatim what `pstep`'s
+ * `PEmit` arm returns through `keep`. Every other shape is delegated. So the
+ * instrumented transition and the transition are the same function on states,
+ * and the event list is a second result that no state depends on.
+ *)
+let lemma_pstep_tr_erase (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (cf: pconf v cl)
+  : Lemma (ensures fst (pstep_tr lk apply cf) == pstep lk apply cf)
+  = match cf.st with
+    | PStep (PEmit _ _) _ -> ()
+    | _ -> ()
+
+(**
+ * **Trace erasure, whole runs -- GATE CONDITION 7.** PROVED, by induction on the
+ * fuel.
+ *
+ * `psteps` and `prun` are written as two recursions and this is the statement
+ * that they are not two semantics. Both stop on the same four terminal shapes
+ * and step on the same one; at the stepping case the configurations agree by
+ * `lemma_pstep_tr_erase` and the induction hypothesis carries it forward. The
+ * trace is the only thing `prun` has that `psteps` does not, and the equation
+ * says so precisely: the FIRST component is `psteps`, on the nose.
+ *)
+let rec lemma_prun_erase (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (fuel: nat) (cf: pconf v cl)
+  : Lemma (ensures fst (prun lk apply fuel cf) == psteps lk apply fuel cf)
+          (decreases fuel)
+  = if fuel = 0 then ()
+    else
+      match cf.st with
+      | PDone _ -> ()
+      | PPaused _ _ -> ()
+      | PStuck _ _ -> ()
+      | PRejected _ -> ()
+      | PStep _ _ ->
+        lemma_pstep_tr_erase lk apply cf;
+        lemma_prun_erase lk apply (fuel - 1) (pstep lk apply cf)
+
+(**
+ * **FUEL STABILITY, FOR THE STATE AND FOR THE TRACE.** PROVED, by induction on
+ * `n`, and it is the lemma without which "there exists a fuel at which the
+ * machine has converged" defines nothing.
+ *
+ * The equation is between PAIRS, so it is one statement about the terminal
+ * configuration and about the trace at once -- and the trace is the half that
+ * could have failed. A driver that kept stepping after a terminal state would
+ * preserve the state (the four terminal arms of `pstep` are the identity) while
+ * appending to the trace at every further unit of fuel, and the existential
+ * would then pick out no particular observation. `prun` does not: it returns
+ * `(cf, [])` at a terminal state without consulting `pstep_tr`, so the extra
+ * fuel contributes the empty list and `@` leaves the trace alone.
+ *
+ * The hypothesis is stated as "the run of `n` did not end mid-computation",
+ * which is weaker than "ended in `PDone`" and covers the stuck, rejected and
+ * paused ends too. `pconverges_tr` below uses only the `PDone` instance.
+ *)
+let rec lemma_prun_stable (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                          (n: nat) (extra: nat) (cf: pconf v cl)
+  : Lemma (requires ~(PStep? (fst (prun lk apply n cf)).st))
+          (ensures prun lk apply (n + extra) cf == prun lk apply n cf)
+          (decreases n)
+  = if n = 0 then ()
+    else
+      match cf.st with
+      | PDone _ -> ()
+      | PPaused _ _ -> ()
+      | PStuck _ _ -> ()
+      | PRejected _ -> ()
+      | PStep _ _ ->
+        lemma_prun_stable lk apply (n - 1) extra (fst (pstep_tr lk apply cf))
 
 (** **Loading a program**, and note the store starts EMPTY and `next` at zero.
     Every handle a run can resolve was therefore allocated by that run, which is
@@ -4354,16 +4512,31 @@ let pointwise_ops (#v #cl: Type) : ctx_ops v cl = {
 (*  ranging over every handler context, INCLUDING the ones a plan       *)
 (*  re-enters.                                                          *)
 (*                                                                     *)
-(*  A NOTE B1.5 LEFT AND B1.6 ANSWERS ELSEWHERE. This relation still    *)
-(*  cannot see the defect B1 was withdrawn for. It observes VALUES, and *)
-(*  a replayed pure prefix returns what it returned before, so          *)
-(*  `pobs_eq` cannot separate the residual from the suspension and it   *)
-(*  would be wrong to claim it does. What B1.6 adds is not a stronger   *)
-(*  relation but a coarser observable: `PEmit` and `prun`, outside the  *)
-(*  value language entirely. Exact-once is `fixture_11` against         *)
-(*  `fixture_12`, on traces; `fixture_1_prefix_runs_once` stays as a    *)
-(*  regression test on cost and is no longer offered as the semantic    *)
-(*  statement.                                                          *)
+(*  A NOTE B1.5 LEFT, B1.6 ANSWERED ELSEWHERE, AND B1.8 CLOSES.         *)
+(*  `pobs_eq` observes VALUES, and a replayed pure prefix returns what  *)
+(*  it returned before, so `pobs_eq` cannot separate the residual from  *)
+(*  the suspension and it would be wrong to claim it does. B1.6 added   *)
+(*  not a stronger relation but a coarser observable -- `PEmit` and     *)
+(*  `prun`, outside the value language entirely -- and left exact-once  *)
+(*  as `fixture_11` against `fixture_12`, two runs at one fixed fuel.   *)
+(*                                                                     *)
+(*  THAT IS THE GAP B1.8 EXISTS TO CLOSE, and it is worth naming        *)
+(*  precisely, because it is not a gap in the machine. On a pure        *)
+(*  machine replay changes no value, so AN IMPLEMENTATION THAT RE-RUNS  *)
+(*  THE PROTECTED PREFIX AT EVERY CONSUMPTION SATISFIES ALL FIVE LAWS   *)
+(*  AS THEY WERE STATED OVER `pobs_eq`. B1.6's exact-once result was    *)
+(*  therefore attached to no proof obligation whatever: it was a        *)
+(*  measurement beside the laws, not a constraint on them.              *)
+(*                                                                     *)
+(*  So the relation itself changes. `pconverges_tr` below converges to  *)
+(*  a TRACE AND a value, `pobs_tr_le` / `pobs_tr_eq` preserve both, and *)
+(*  the laws are retargeted at `pobs_tr_eq`. The value-only relation is *)
+(*  KEPT, not replaced: `lemma_pobs_tr_le_forget` proves the new        *)
+(*  relation implies it, which is how everything B1.5 and B1.6 stated   *)
+(*  survives the promotion instead of being quietly dropped.            *)
+(*                                                                     *)
+(*  `fixture_1_prefix_runs_once` stays as a regression test on cost and *)
+(*  is still not offered as the semantic statement.                     *)
 (* ------------------------------------------------------------------ *)
 
 let pconverges (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
@@ -4403,6 +4576,174 @@ let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
   pobs_le lk apply c1 c2 /\ pobs_le lk apply c2 c1
 
 (* ------------------------------------------------------------------ *)
+(*  B1.8: THE TRACE-AWARE OBSERVATION                                  *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **Convergence to a trace AND a value -- gate condition 1.**
+ *
+ * Written as "there EXISTS a step count", not at a fixed fuel, and that is gate
+ * condition 3: no concrete number occurs in the definition, so no law stated
+ * through it can be satisfied by an implementation that merely agrees up to some
+ * particular budget. Comparing `prun n` at one chosen `n` would have been such a
+ * statement, and `fixture_11` against `fixture_12` -- both at fuel 400 -- is
+ * exactly that weaker thing.
+ *
+ * `PDone` is the only end that counts as convergence. Stuck, rejected and paused
+ * ends are NOT convergence and two computations that both fail are not thereby
+ * related by anything below; they are simply outside the relation's antecedent,
+ * as they were under `pconverges`.
+ *
+ * The existential is only a definition because of `lemma_prun_stable`: once the
+ * run has reached a terminal state, more fuel changes neither the configuration
+ * nor the trace. `lemma_pconverges_tr_unique` is that fact in the form this
+ * definition needs -- a configuration converges to AT MOST ONE trace and at most
+ * one value -- and without it "the trace of `cf`" would not denote.
+ *)
+let pconverges_tr (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                  (cf: pconf v cl) (tr: list string) (x: pval v) : GTot prop =
+  exists (n: nat).
+    (fst (prun lk apply n cf)).st == PDone x /\ snd (prun lk apply n cf) == tr
+
+(**
+ * **The observation converges to at most one trace and at most one value.**
+ * PROVED, from `lemma_prun_stable` alone.
+ *
+ * Two witnesses `n1` and `n2` are given; the smaller one has already reached
+ * `PDone`, so stability carries its whole result -- configuration and trace --
+ * forward to the larger, and the two readings coincide. This is the lemma that
+ * makes the existential in `pconverges_tr` a definition of an observable rather
+ * than a claim that SOME reading of the run looks like this.
+ *)
+let lemma_pconverges_tr_unique (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr1 tr2: list string) (x1 x2: pval v)
+  : Lemma (requires pconverges_tr lk apply cf tr1 x1 /\ pconverges_tr lk apply cf tr2 x2)
+          (ensures tr1 == tr2 /\ x1 == x2)
+  = eliminate exists (n1: nat).
+        (fst (prun lk apply n1 cf)).st == PDone x1 /\ snd (prun lk apply n1 cf) == tr1
+    with
+      (eliminate exists (n2: nat).
+           (fst (prun lk apply n2 cf)).st == PDone x2 /\ snd (prun lk apply n2 cf) == tr2
+       with
+         (if n1 <= n2
+          then lemma_prun_stable lk apply n1 (n2 - n1) cf
+          else lemma_prun_stable lk apply n2 (n1 - n2) cf))
+
+(**
+ * **THE TRACE-AWARE ORDERING -- gate condition 2.**
+ *
+ * It is `pobs_le` with the observable widened. Everything B1.7 established about
+ * the quantification is kept verbatim and for the same reasons: both sides start
+ * from the SAME stack, the SAME store and the SAME allocation counter, so an
+ * implementation cannot pass by allocating differently, and the store is ranged
+ * over because a computation mentioning a handle means nothing without one.
+ *
+ * What is added is `tr`. The consequent demands the same trace, so a program
+ * that emits the same events in a different ORDER, or one more time, or one time
+ * fewer, is not below anything that does not. That is the whole of the gate:
+ * under `pobs_le` a prefix-replaying implementation is indistinguishable from a
+ * residual one, and under this it is not.
+ *
+ * `x` is still quantified, so this is AT LEAST AS STRONG as `pobs_le` and not
+ * merely different -- `lemma_pobs_tr_le_forget` proves that direction.
+ *
+ * **Not "strictly" stronger, and the difference is not pedantic.** Strictness
+ * would need a witness: a pair related by `pobs_eq` and not by `pobs_tr_eq`.
+ * `prog_traced` and `prog_susp` are the obvious candidates and this file does
+ * NOT establish them as one -- see the header, which records that
+ * `pobs_eq flook fapply prog_traced prog_susp` is neither claimed nor checked.
+ * What is proved is the implication one way; the converse failing is expected
+ * and unwitnessed.
+ *)
+let pobs_tr_le (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+               (c1 c2: pcomp v cl) : GTot prop =
+  forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+         (tr: list string) (x: pval v).
+    pconverges_tr lk apply ({ st = PStep c1 k; store = sto; next = n0 }) tr x ==>
+    pconverges_tr lk apply ({ st = PStep c2 k; store = sto; next = n0 }) tr x
+
+(** **The trace-aware equivalence**: convergence to the same trace and the same
+    value is preserved in BOTH directions, from every stack, store and counter.
+    This is what the five laws are stated over from B1.8 on. *)
+let pobs_tr_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+               (c1 c2: pcomp v cl) : GTot prop =
+  pobs_tr_le lk apply c1 c2 /\ pobs_tr_le lk apply c2 c1
+
+(**
+ * **Forgetting the trace -- gate condition 4, at the level of convergence.**
+ * PROVED, and the proof is `lemma_prun_erase`: the witness that works for the
+ * trace-aware convergence is the same number, and erasure turns `prun`'s first
+ * component into `psteps`.
+ *)
+let lemma_pconverges_tr_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr: list string) (x: pval v)
+  : Lemma (requires pconverges_tr lk apply cf tr x)
+          (ensures pconverges lk apply cf x)
+  = eliminate exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\ snd (prun lk apply n cf) == tr
+    with
+      (lemma_prun_erase lk apply n cf;
+       introduce exists (m: nat). (psteps lk apply m cf).st == PDone x
+       with n and ())
+
+(**
+ * **The converse direction, which is what the implication needs.** PROVED. Given
+ * a value-only convergence, the run at that same fuel HAS a trace -- namely
+ * `snd (prun lk apply n cf)` -- so the trace-aware convergence holds at it, and
+ * a trace-aware ordering can be applied.
+ *)
+let lemma_pconverges_has_trace (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (x: pval v)
+  : Lemma (requires pconverges lk apply cf x)
+          (ensures exists (tr: list string). pconverges_tr lk apply cf tr x)
+  = eliminate exists (n: nat). (psteps lk apply n cf).st == PDone x
+    with
+      (lemma_prun_erase lk apply n cf;
+       assert (pconverges_tr lk apply cf (snd (prun lk apply n cf)) x);
+       introduce exists (tr: list string). pconverges_tr lk apply cf tr x
+       with (snd (prun lk apply n cf)) and ())
+
+(**
+ * **GATE CONDITION 4: the trace-aware ordering IMPLIES the value-only one.**
+ * PROVED.
+ *
+ * This is what makes the promotion a promotion. Every law that B1.6 and B1.7
+ * stated over `pobs_eq` is a consequence of the corresponding law over
+ * `pobs_tr_eq`, so retargeting the five laws does not abandon a single one of
+ * the obligations they carried -- it adds to them. If the implication had gone
+ * the other way, or neither way, the retarget would have been a change of
+ * subject rather than a strengthening, and it would have had to be argued
+ * separately that the old claims still held.
+ *)
+let lemma_pobs_tr_le_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (c1 c2: pcomp v cl)
+  : Lemma (requires pobs_tr_le lk apply c1 c2)
+          (ensures pobs_le lk apply c1 c2)
+  = introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat) (x: pval v).
+      pconverges lk apply ({ st = PStep c1 k; store = sto; next = n0 }) x ==>
+      pconverges lk apply ({ st = PStep c2 k; store = sto; next = n0 }) x
+    with
+      (introduce
+         pconverges lk apply ({ st = PStep c1 k; store = sto; next = n0 }) x ==>
+         pconverges lk apply ({ st = PStep c2 k; store = sto; next = n0 }) x
+       with
+         (lemma_pconverges_has_trace lk apply
+            ({ st = PStep c1 k; store = sto; next = n0 }) x;
+          eliminate exists (tr: list string).
+              pconverges_tr lk apply ({ st = PStep c1 k; store = sto; next = n0 }) tr x
+          with
+            lemma_pconverges_tr_forget lk apply
+              ({ st = PStep c2 k; store = sto; next = n0 }) tr x))
+
+(** The same, for the equivalences. PROVED. *)
+let lemma_pobs_tr_eq_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (c1 c2: pcomp v cl)
+  : Lemma (requires pobs_tr_eq lk apply c1 c2)
+          (ensures pobs_eq lk apply c1 c2)
+  = lemma_pobs_tr_le_forget lk apply c1 c2;
+    lemma_pobs_tr_le_forget lk apply c2 c1
+
+(* ------------------------------------------------------------------ *)
 (*  The laws -- DEFINED, not proved                                    *)
 (*                                                                     *)
 (*  Each is a DEFINITION whose type is `prop`. None is a `val` without  *)
@@ -4432,6 +4773,28 @@ let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
 (*  operations -- and not all four may, or the laws would say no more   *)
 (*  than `ops == ref_ops`.                                             *)
 (*                                                                     *)
+(*  WHAT B1.8 CHANGED, AND IT IS ONE WORD IN EACH OF THE FIVE.          *)
+(*                                                                     *)
+(*  Every law below is stated over `pobs_tr_eq` and not over `pobs_eq`. *)
+(*  The reason is recorded at `prun` and at the observation section: a  *)
+(*  value-only relation is satisfied by an implementation that replays  *)
+(*  the protected prefix, so under `pobs_eq` these five propositions    *)
+(*  did not constrain the one thing the residual representation exists  *)
+(*  to buy. They now do -- an implementation that emits an event twice  *)
+(*  where the reference emits it once falsifies them, and               *)
+(*  `guard_trace_separates_residual_from_suspension` is the instance of *)
+(*  exactly that separation, checked.                                   *)
+(*                                                                     *)
+(*  NOTHING IS GIVEN UP BY THE RETARGET. `lemma_pobs_tr_eq_forget`      *)
+(*  proves `pobs_tr_eq ==> pobs_eq`, so each law over the trace-aware   *)
+(*  relation IMPLIES the same law over the value-only one, and every    *)
+(*  obligation B1.5 and B1.6 wrote down is still an obligation here.    *)
+(*  The five are now HARDER to prove than they were, which is the       *)
+(*  point and is B2b's problem: this gate's business is that they are   *)
+(*  still WELL TYPED, and it does not claim they hold. What is checked  *)
+(*  below is that each definition type-checks at `prop` against the new *)
+(*  relation, and nothing beyond that.                                  *)
+(*                                                                     *)
 (*  WHAT B1.6 CHANGED, AND IT IS THE SHAPE OF EVERY STATEMENT.          *)
 (*                                                                     *)
 (*  B1.5's laws read "produce a context, then consume it", with the     *)
@@ -4457,10 +4820,13 @@ let pobs_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
 (*  into the SAME arbitrary stack `k`, and an operation the plan does   *)
 (*  not handle is then found by the same `pfind_prompt` walk on both    *)
 (*  sides -- so an unhandled operation can no longer make one side      *)
-(*  stuck while the other proceeds. What the laws now quantify over     *)
-(*  therefore includes every ambient handler context, which is strictly *)
-(*  more than B1.5 stated. Whether they HOLD there is B2b's, and this   *)
-(*  file does not claim it.                                            *)
+(*  stuck while the other proceeds. The statements therefore COVER the  *)
+(*  ambient-handler cases B1.5's `settles` premise excluded: those      *)
+(*  configurations are now inside the obligation rather than outside    *)
+(*  it. That is a claim about the domain the laws speak of, not a claim *)
+(*  that they are logically stronger -- no pair is exhibited that the   *)
+(*  earlier statements joined and these do not. Whether they HOLD there *)
+(*  is B2b's, and this file does not claim it.                         *)
 (*                                                                     *)
 (*  Two further laws belong to B3. `law_transparent_agrees` below is    *)
 (*  one of them and is stated, unproved, because gate condition 6 asks  *)
@@ -4498,7 +4864,7 @@ let law_left_identity
     (x: pval v)
     (g: pval v -> pcomp v cl)
   : GTot prop
-  = pobs_eq lk apply
+  = pobs_tr_eq lk apply
       (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_extend pl cx g))
       (ops.o_enter pl (g x))
 
@@ -4533,7 +4899,7 @@ let law_right_identity
     (pl: plan v cl)
     (c: pcomp v cl)
   : GTot prop
-  = pobs_eq lk apply
+  = pobs_tr_eq lk apply
       (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
       (ops.o_enter pl c)
 
@@ -4590,11 +4956,11 @@ let law_assoc
     (g h: pval v -> pcomp v cl)
   : GTot prop
   = // the algebraic half -- at the context `cx` NAMES, both sides built from `ops`
-    pobs_eq lk apply
+    pobs_tr_eq lk apply
       (pbind (ops.o_extend_ctx pl cx g) (fun cy -> ops.o_extend pl cy h))
       (ops.o_extend pl cx (fun x -> pbind (g x) h))
     /\ // the anchored half -- one crossing of THIS plan, and no other
-    pobs_eq lk apply
+    pobs_tr_eq lk apply
       (pbind (ops.o_enter_ctx pl c)
              (fun c0 -> pbind (ops.o_extend_ctx pl c0 g)
                               (fun cy -> ops.o_extend pl cy h)))
@@ -4632,7 +4998,7 @@ let law_resume_matches_continuation
     (x: pval v)
     (k: pval v -> pcomp v cl)
   : GTot prop
-  = pobs_eq lk apply
+  = pobs_tr_eq lk apply
       (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_resume pl cx k))
       (PSplice (plan_resume_frames pl) (k x))
 
@@ -4661,7 +5027,7 @@ let law_transparent_agrees
     (pl: plan v cl)
     (c: pcomp v cl)
   : GTot prop
-  = pobs_eq lk apply
+  = pobs_tr_eq lk apply
       (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
       (PSplice (plan_enter_frames pl) c)
 
@@ -4712,6 +5078,7 @@ type fcl =
   | FRetry                       (* resume again only if the first answer says  *)
   | FBetween                     (* resume, perform, resume                     *)
   | FWrap                        (* resume, then WRAP -- pending frames below   *)
+  | FEmits                       (* resume twice, EMITTING around each -- B1.8  *)
 
 let fneeds_retry (x: fv) : bool = match x with | FS "retry" -> true | _ -> false
 
@@ -4745,6 +5112,16 @@ let fseen (h: pval fv) : fv =
   | PV x -> x
   | PCtxKey i -> FL [FS "ctx"; FI i]
 
+(** The two inner layers of B1.8's emitting clause, NAMED. They are top-level so
+    that `lemma_femits_wb` can peel the well-scopedness judgement one node at a
+    time; written inline, the nesting is five index decrements deep and the
+    judgement would need enough fuel to unfold all five at once. *)
+let femits_out (r1: pval fv) (r2: pval fv) : pcomp fv fcl
+  = PEmit "cl-out" (fret (FL [fseen r1; fseen r2]))
+
+let femits_mid (kf: pval fv -> pcomp fv fcl) (r1: pval fv) : pcomp fv fcl
+  = PEmit "cl-mid" (POp (kf (fpv (FS "e2"))) (femits_out r1))
+
 let fapply : papply_t fv fcl = fun c payload k ->
   match c with
   | FEcho -> (match payload with | x :: _ -> k x | [] -> k (fpv FU))
@@ -4765,6 +5142,13 @@ let fapply : papply_t fv fcl = fun c payload k ->
   // to come back through. `FEcho` has none, which is why it cannot be used to
   // check requirement 6.
   | FWrap -> POp (k (fpv (FS "outer-ans"))) (fun r -> fret (FL [FS "wrap"; fseen r]))
+  // **B1.8, for gate condition 6.** The only clause here whose body contains a
+  // `PEmit`. Three events of the CLAUSE INTERPRETER's own, in order, with a
+  // resumption between each pair -- so a fixture over it reads both the order of
+  // the interpreter's emissions and the multiplicity of everything the
+  // resumptions re-run. Without it, "an emission raised by `apply` is recorded"
+  // would rest on reading `pstep_tr` rather than on running anything.
+  | FEmits -> PEmit "cl-in" (POp (k (fpv (FS "e1"))) (femits_mid k))
 
 let fclause (c: fcl) : found_clause fcl = { body = c; kind = KFull }
 
@@ -4782,6 +5166,7 @@ let flook : plookup_t fcl = fun tbl eff _ ->
       | "Echo" -> Some (fclause FEcho)
       | "T" -> Some (fclause FEcho)
       | "Out" -> Some (fclause FWrap)
+      | "Ev" -> Some (fclause FEmits)
       | _ -> None)
   else None
 
@@ -4799,6 +5184,12 @@ let ftbl : ptable fcl = { hs = fhs; binds = ["Two"; "Abort"; "Retry"; "Betw"; "E
     operation of that effect performed inside a scope is refused by every plan
     prompt and by the owner, and is taken here. *)
 let ftbl_out : ptable fcl = { hs = fhs; binds = ["Out"] }
+
+(** The table B1.8's condition-6 fixtures hang on an AMBIENT prompt: `"Ev"` and
+    nothing else, so the emitting clause is reached by an operation no plan
+    prompt and no owner will take. It is a separate table rather than an entry
+    added to `ftbl`, so that not one existing fixture's run changes. *)
+let ftbl_ev : ptable fcl = { hs = fhs; binds = ["Ev"] }
 
 let fown_ret : option (pval fv -> pcomp fv fcl) =
   Some (fun x -> fret (FL [FS "own"; fseen x]))
@@ -4831,6 +5222,61 @@ let fresult (cf: pconf fv fcl) : option fv =
 (** **The trace of a whole run**, which is the observable requirements 1 to 4 are
     stated in. It is the driver's second result and comes from nowhere else. *)
 let ftrace (fuel: nat) (c: pcomp fv fcl) : list string = snd (prun flook fapply fuel (pload c))
+
+(** **How often an event occurs in a trace.** Multiplicity is half of gate
+    condition 6. A list equation fixes order and multiplicity together, which is
+    the stronger statement and the one the fixtures below make; this exists so
+    that "exactly once" can also be said on its own, of a trace whose full shape
+    is not the point. *)
+let rec fcount (ev: string) (tr: list string) : Tot nat (decreases tr)
+  = match tr with
+    | [] -> 0
+    | e :: rest -> (if e = ev then 1 else 0) + fcount ev rest
+
+(* ---- B1.8: reading a run as a trace-aware CONVERGENCE ------------- *)
+
+(** The configuration a traced run ends in. It is `frun` -- PROVED, by trace
+    erasure, so the fixtures that read `frun` and the ones that read `ftrace` are
+    reading the same run and not two runs that happen to agree. *)
+let fend (fuel: nat) (c: pcomp fv fcl) : pconf fv fcl
+  = fst (prun flook fapply fuel (pload c))
+
+let lemma_fend_is_frun (fuel: nat) (c: pcomp fv fcl)
+  : Lemma (ensures fend fuel c == frun fuel c)
+  = lemma_prun_erase flook fapply fuel (pload c)
+
+(** The answer as a `pval fv`, total, so that a witness for `pconverges_tr` can be
+    WRITTEN DOWN without the fixture having to spell the value out. `fresult`
+    renders through `fseen` and is for reading; this is for quantifying. *)
+let fdone (cf: pconf fv fcl) : pval fv
+  = match cf.st with | PDone y -> y | _ -> PV FU
+
+let lemma_fdone (cf: pconf fv fcl)
+  : Lemma (requires PDone? cf.st) (ensures cf.st == PDone (fdone cf))
+  = ()
+
+(** **A concrete run, read as a trace-aware convergence.** PROVED. `fuel` occurs
+    in the HYPOTHESIS -- it is how the witness is found -- and not in the
+    conclusion, which is `pconverges_tr` and quantifies the step count away. That
+    is the shape gate condition 3 asks for: a guard may name a fuel to exhibit a
+    witness, the RELATION may not name one at all. *)
+let lemma_fconverges_tr (c: pcomp fv fcl) (fuel: nat) (tr: list string)
+  : Lemma (requires PDone? (fend fuel c).st /\ ftrace fuel c == tr)
+          (ensures pconverges_tr flook fapply (pload c) tr (fdone (fend fuel c)))
+  = lemma_fdone (fend fuel c);
+    introduce exists (n: nat).
+        (fst (prun flook fapply n (pload c))).st == PDone (fdone (fend fuel c))
+        /\ snd (prun flook fapply n (pload c)) == tr
+    with fuel and ()
+
+(** The same run read as a VALUE-only convergence, which is what makes "their
+    values agree" a checked statement rather than an aside. PROVED. *)
+let lemma_fconverges (c: pcomp fv fcl) (fuel: nat) (x: pval fv)
+  : Lemma (requires (fend fuel c).st == PDone x)
+          (ensures pconverges flook fapply (pload c) x)
+  = lemma_prun_erase flook fapply fuel (pload c);
+    introduce exists (n: nat). (psteps flook fapply n (pload c)).st == PDone x
+    with fuel and ()
 
 (** **The store a run ends with**, which is how the store-integrity and
     persistence fixtures look at allocation. Nothing in the machine reads this;
@@ -5445,6 +5891,191 @@ let fixture_12_suspension_emits_twice () : Lemma
   = assert_norm (ftrace 400 prog_susp == ["prefix"; "c1"; "prefix"; "c2"]);
     assert_norm (ftrace 400 prog_traced == ["prefix"; "c1"; "c2"])
 
+(* ---- 12b. THE SAME TWO PROGRAMS, AS A STATEMENT ABOUT THE RELATION.
+   GATE CONDITION 5. -------------------------------------------------
+
+   `fixture_11` and `fixture_12` are two RUNS at one fixed fuel. That was B1.6's
+   whole answer, and by itself it constrains nothing: a relation is what the laws
+   are stated over, and neither fixture is a fact about any relation. What
+   follows is.
+
+   The values agree -- checked, below, and it is the reason this could not have
+   been done under `pobs_eq`. The traces do not, and `pconverges_tr` converges to
+   at most one trace, so the residual program is not below the suspension one and
+   the suspension one is not below the residual one. Neither ordering holds, so
+   the equivalence does not either, at ANY fuel: the fuel 400 appears only in
+   finding the witnesses.
+
+   What this does NOT say, and the distinction matters: it does not say
+   `pobs_eq flook fapply prog_traced prog_susp` HOLDS. That is a statement about
+   every stack, every store and every counter, and this file does not prove it.
+   What is checked is the weaker and sufficient thing -- that at the
+   configuration where the traces separate them, the VALUES do not, so the
+   separation is not one the value-only relation could have made here. ---- *)
+
+let guard_susp_agrees_on_value () : Lemma
+  (ensures pconverges flook fapply (pload prog_traced) (fdone (fend 400 prog_traced))
+        /\ pconverges flook fapply (pload prog_susp) (fdone (fend 400 prog_traced)))
+  = assert_norm (PDone? (fend 400 prog_traced).st);
+    assert_norm (PDone? (fend 400 prog_susp).st);
+    assert_norm (fdone (fend 400 prog_traced) == fdone (fend 400 prog_susp));
+    lemma_fdone (fend 400 prog_traced);
+    lemma_fdone (fend 400 prog_susp);
+    lemma_fconverges prog_traced 400 (fdone (fend 400 prog_traced));
+    lemma_fconverges prog_susp 400 (fdone (fend 400 prog_traced))
+
+(** The two trace-aware convergences the separation is read off. PROVED. *)
+let guard_traced_converges_tr () : Lemma
+  (ensures pconverges_tr flook fapply (pload prog_traced)
+             ["prefix"; "c1"; "c2"] (fdone (fend 400 prog_traced)))
+  = assert_norm (PDone? (fend 400 prog_traced).st);
+    assert_norm (ftrace 400 prog_traced == ["prefix"; "c1"; "c2"]);
+    lemma_fconverges_tr prog_traced 400 ["prefix"; "c1"; "c2"]
+
+let guard_susp_converges_tr () : Lemma
+  (ensures pconverges_tr flook fapply (pload prog_susp)
+             ["prefix"; "c1"; "prefix"; "c2"] (fdone (fend 400 prog_susp)))
+  = assert_norm (PDone? (fend 400 prog_susp).st);
+    assert_norm (ftrace 400 prog_susp == ["prefix"; "c1"; "prefix"; "c2"]);
+    lemma_fconverges_tr prog_susp 400 ["prefix"; "c1"; "prefix"; "c2"]
+
+(** **The residual program is NOT below the suspension one.** PROVED. Assume it
+    is; the residual's convergence at the trace `["prefix"; "c1"; "c2"]` is then
+    also the suspension's, and the suspension already converges at
+    `["prefix"; "c1"; "prefix"; "c2"]` -- two traces for one configuration, which
+    `lemma_pconverges_tr_unique` forbids. *)
+let guard_traced_not_below_susp () : Lemma
+  (ensures ~(pobs_tr_le flook fapply prog_traced prog_susp))
+  = guard_traced_converges_tr ();
+    guard_susp_converges_tr ();
+    introduce pobs_tr_le flook fapply prog_traced prog_susp ==> False
+    with
+      lemma_pconverges_tr_unique flook fapply (pload prog_susp)
+        ["prefix"; "c1"; "c2"] ["prefix"; "c1"; "prefix"; "c2"]
+        (fdone (fend 400 prog_traced)) (fdone (fend 400 prog_susp))
+
+(** And not above it either. PROVED, by the same argument in the other
+    direction. *)
+let guard_susp_not_below_traced () : Lemma
+  (ensures ~(pobs_tr_le flook fapply prog_susp prog_traced))
+  = guard_traced_converges_tr ();
+    guard_susp_converges_tr ();
+    introduce pobs_tr_le flook fapply prog_susp prog_traced ==> False
+    with
+      lemma_pconverges_tr_unique flook fapply (pload prog_traced)
+        ["prefix"; "c1"; "prefix"; "c2"] ["prefix"; "c1"; "c2"]
+        (fdone (fend 400 prog_susp)) (fdone (fend 400 prog_traced))
+
+(**
+ * **GATE CONDITION 5, AS A THEOREM ABOUT THE RELATION.** PROVED.
+ *
+ * The residual representation and the withdrawn suspension representation are
+ * NOT equivalent under the trace-aware relation, in either direction, while
+ * `guard_susp_agrees_on_value` checks that they converge to the SAME VALUE. So
+ * the separation is genuinely the trace's doing: it is the observable the
+ * value-only relation does not have, and it is why retargeting the laws is a
+ * strengthening with content rather than a change of notation.
+ *)
+let guard_trace_separates_residual_from_suspension () : Lemma
+  (ensures ~(pobs_tr_eq flook fapply prog_traced prog_susp)
+        /\ ~(pobs_tr_eq flook fapply prog_susp prog_traced))
+  = guard_traced_not_below_susp ();
+    guard_susp_not_below_traced ()
+
+(* ---- 12c. EMISSIONS RAISED BY THE AMBIENT STACK AND BY THE CLAUSE
+   INTERPRETER, WITH ORDER AND MULTIPLICITY. GATE CONDITION 6. --------
+
+   `pstep_tr` intercepts the `PEmit` NODE and does not ask where the node came
+   from, so it is tempting to call this condition true by construction. It is
+   not enough: "by construction" is a reading of a definition, and what is asked
+   for is ORDER and MULTIPLICITY, which no reading of `pstep_tr` supplies. Both
+   are properties of the list `prun` builds with `@`, and the only way to have
+   them is to run something.
+
+   Neither emission below is reachable from the term the program wrote. One is
+   produced by `apply` -- the `FEmits` clause, whose body emits `"cl-in"`,
+   `"cl-mid"` and `"cl-out"` in that order around two resumptions. The other is
+   produced by the value rule at a prompt frame, from an AMBIENT prompt's return
+   clause. A program that named either directly would be testing nothing.
+
+     - `prog_clause_emits` has no return clause, so its trace is the
+       interpreter's three events with the resumed body's `"leaf"` between them.
+       The interpreter's order and the resumption's multiplicity, separately
+       legible.
+     - `prog_ambient_emits` adds the emitting return clause, and `"amb-ret"`
+       appears TWICE -- once per resumption, because `pfind_prompt` captures the
+       prompt along with the segment and a resumption re-installs it. The
+       multiplicity of an ambient emission is the multiplicity of the resumption
+       that caused it, and the trace says so.
+     - `prog_amb_scope` puts a whole scope between the operation and the ambient
+       handler. The scope's consumer emits `"c2"` and it appears twice, for the
+       same reason and one level out: the captured segment contains the scope
+       floor, so resuming re-installs the entire scope above the ambient
+       handler's pending frames. That is B1.6's requirement 6 read on the trace
+       instead of on the answer -- and note that this is a prefix that runs
+       twice WITHOUT any residual being consumed twice. It is the ambient
+       handler that asked for it, so it is not the defect `fixture_11` is about;
+       `guard_amb_scope_prefix_once` records the difference. ---- *)
+
+let body_amb : pcomp fv fcl =
+  POp (PPerform "Ev" "e" [fpv (FS "v")])
+      (fun x -> PEmit "leaf" (fret (FL [FS "leaf"; fseen x])))
+
+(** An AMBIENT prompt's return clause that emits. It is the only `pret` in this
+    file with a `PEmit` in it, and it is what makes "the stack raised it" a case
+    distinct from "the program did". *)
+let famb_ret : option (pval fv -> pcomp fv fcl) =
+  Some (fun x -> PEmit "amb-ret" (fret (FL [FS "amb-ret"; fseen x])))
+
+let prog_clause_emits : pcomp fv fcl = PHandle ftbl_ev None PMono body_amb
+let prog_ambient_emits : pcomp fv fcl = PHandle ftbl_ev famb_ret PMono body_amb
+let prog_amb_scope : pcomp fv fcl =
+  PHandle ftbl_ev famb_ret PMono
+    (fscope plan_L body_amb (fun cx -> resume_at_C plan_L cx fc2))
+
+let fixture_23_ambient_and_clause_emissions () : Lemma
+  (ensures ftrace 200 prog_clause_emits
+             == ["cl-in"; "leaf"; "cl-mid"; "leaf"; "cl-out"]
+        /\ ftrace 200 prog_ambient_emits
+             == ["cl-in"; "leaf"; "amb-ret"; "cl-mid"; "leaf"; "amb-ret"; "cl-out"]
+        /\ ftrace 800 prog_amb_scope
+             == ["cl-in"; "leaf"; "c2"; "amb-ret";
+                 "cl-mid"; "leaf"; "c2"; "amb-ret"; "cl-out"])
+  = assert_norm (ftrace 200 prog_clause_emits
+                 == ["cl-in"; "leaf"; "cl-mid"; "leaf"; "cl-out"]);
+    assert_norm (ftrace 200 prog_ambient_emits
+                 == ["cl-in"; "leaf"; "amb-ret"; "cl-mid"; "leaf"; "amb-ret"; "cl-out"]);
+    assert_norm (ftrace 800 prog_amb_scope
+                 == ["cl-in"; "leaf"; "c2"; "amb-ret";
+                     "cl-mid"; "leaf"; "c2"; "amb-ret"; "cl-out"])
+
+(** **The multiplicities, independently.** PROVED, as counts on the trace:
+    `"leaf"` -- the last thing the protected prefix does before the token is
+    produced -- appears exactly as often as the ambient handler resumed, and
+    each of the clause's own events appears the number of times it should.
+    Counts are checked here rather than asserted in prose.
+
+    **What a count cannot show, and where that comes from instead.** These
+    equations say how many of each event the whole run emitted. They do not say
+    WHERE the events fell, so they do not on their own establish that no single
+    production contains two `"leaf"`s. That is an ordering fact and it comes
+    from `fixture_23`'s exact trace, which pins the whole sequence; this guard
+    fixes the multiplicities beside it. The two together are what say "once per
+    production" -- neither says it alone. *)
+let guard_amb_scope_prefix_once () : Lemma
+  (ensures fcount "leaf" (ftrace 800 prog_amb_scope) == 2
+        /\ fcount "c2" (ftrace 800 prog_amb_scope) == 2
+        /\ fcount "cl-in" (ftrace 800 prog_amb_scope) == 1
+        /\ fcount "cl-mid" (ftrace 800 prog_amb_scope) == 1
+        /\ fcount "cl-out" (ftrace 800 prog_amb_scope) == 1
+        /\ fcount "amb-ret" (ftrace 800 prog_amb_scope) == 2)
+  = assert_norm (fcount "leaf" (ftrace 800 prog_amb_scope) == 2);
+    assert_norm (fcount "c2" (ftrace 800 prog_amb_scope) == 2);
+    assert_norm (fcount "cl-in" (ftrace 800 prog_amb_scope) == 1);
+    assert_norm (fcount "cl-mid" (ftrace 800 prog_amb_scope) == 1);
+    assert_norm (fcount "cl-out" (ftrace 800 prog_amb_scope) == 1);
+    assert_norm (fcount "amb-ret" (ftrace 800 prog_amb_scope) == 2)
+
 (* ---- 13. The same, with a layer that resumes TWICE: the check that requirement
    3 is not an artefact of a tail-resumptive layer.
 
@@ -6049,6 +6680,25 @@ let guard_fouter_ret_wb () : Lemma (pret_wb fouter_ret) = ()
  * no real clause has one, because a clause has no frames to splice that the
  * machine did not hand it as `kf`.
  *)
+(** **The emitting clause satisfies the condition too.** PROVED, by peeling the
+    judgement one node at a time with the defining equations rather than by
+    asking for enough fuel to unfold five of them at once. `PEmit` is a
+    node like any other here: it constrains nothing and passes the judgement
+    straight through to its body, which is why an emitting interpreter is not a
+    special case of anything. *)
+let lemma_femits_wb (kf: pval fv -> pcomp fv fcl)
+  : Lemma (requires forall (x: pval fv). pterm_wb (kf x))
+          (ensures pterm_wb (PEmit "cl-in" (POp (kf (fpv (FS "e1"))) (femits_mid kf))))
+  = introduce forall (r1: pval fv). pterm_wb (femits_mid kf r1)
+    with
+      (introduce forall (r2: pval fv). pterm_wb (femits_out r1 r2)
+       with lemma_wb_emit_bwd #fv #fcl "cl-out" (fret (FL [fseen r1; fseen r2]));
+       lemma_wb_op_bwd (kf (fpv (FS "e2"))) (femits_out r1);
+       lemma_wb_emit_bwd #fv #fcl "cl-mid"
+         (POp (kf (fpv (FS "e2"))) (femits_out r1)));
+    lemma_wb_op_bwd (kf (fpv (FS "e1"))) (femits_mid kf);
+    lemma_wb_emit_bwd #fv #fcl "cl-in" (POp (kf (fpv (FS "e1"))) (femits_mid kf))
+
 let lemma_fapply_wb_at (c: fcl) (payload: list (pval fv)) (kf: pval fv -> pcomp fv fcl)
   : Lemma (requires forall (x: pval fv). pterm_wb (kf x))
           (ensures pterm_wb (fapply c payload kf))
@@ -6059,6 +6709,7 @@ let lemma_fapply_wb_at (c: fcl) (payload: list (pval fv)) (kf: pval fv -> pcomp 
     | FRetry -> ()
     | FBetween -> ()
     | FWrap -> ()
+    | FEmits -> lemma_femits_wb kf
 
 let guard_fapply_wb () : Lemma (papply_wb fapply)
   = introduce forall (c: fcl) (payload: list (pval fv)) (kf: (pval fv -> pcomp fv fcl)).
@@ -6219,6 +6870,40 @@ let guard_wb_prog9_resume () : Lemma (pterm_wb (resume_at_C plan_L (PCtxKey 0) f
 let guard_wb_prog9_extend () : Lemma (pterm_wb (extend_at_C plan_L (PCtxKey 0) fk)) = ()
 let guard_wb_prog9_extend_ctx ()
   : Lemma (pterm_wb (extend_ctx_at_C plan_L (PCtxKey 0) fk)) = ()
+
+(* ---- B1.8's three condition-6 programs, and the emitting return
+   clause they hang on. The `PEmit` inside `famb_ret` is why these get
+   the defining equations by hand rather than a bare `()`: the
+   judgement has to be peeled through the emission node, and the
+   default fuel unfolds two levels, not three. ---------------------- *)
+
+let guard_famb_ret_wb () : Lemma (pret_wb famb_ret)
+  = introduce forall (x: pval fv). pterm_wb (PEmit "amb-ret" (fret (FL [FS "amb-ret"; fseen x])))
+    with lemma_wb_emit_bwd #fv #fcl "amb-ret" (fret (FL [FS "amb-ret"; fseen x]));
+    lemma_wb_ret_some_bwd (fun (x: pval fv) ->
+      PEmit "amb-ret" (fret (FL [FS "amb-ret"; fseen x])))
+
+let guard_wb_body_amb () : Lemma (pterm_wb body_amb)
+  = introduce forall (x: pval fv). pterm_wb (PEmit "leaf" (fret (FL [FS "leaf"; fseen x])))
+    with lemma_wb_emit_bwd #fv #fcl "leaf" (fret (FL [FS "leaf"; fseen x]));
+    lemma_wb_op_bwd (PPerform "Ev" "e" [fpv (FS "v")])
+                    (fun (x: pval fv) -> PEmit "leaf" (fret (FL [FS "leaf"; fseen x])))
+
+let guard_wb_prog_clause_emits () : Lemma (pterm_wb prog_clause_emits)
+  = guard_wb_body_amb ();
+    lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_handle_bwd ftbl_ev None PMono body_amb
+
+let guard_wb_prog_ambient_emits () : Lemma (pterm_wb prog_ambient_emits)
+  = guard_wb_body_amb ();
+    guard_famb_ret_wb ();
+    lemma_wb_handle_bwd ftbl_ev famb_ret PMono body_amb
+
+let guard_wb_prog_amb_scope () : Lemma (pterm_wb prog_amb_scope)
+  = guard_famb_ret_wb ();
+    lemma_wb_handle_bwd ftbl_ev famb_ret PMono
+      (fscope plan_L body_amb (fun cx -> resume_at_C plan_L cx fc2))
+
 (* ---- The list, so that the claim is one statement ---------------- *)
 
 let rec pterm_wb_all (#v #cl: Type) (l: list (pcomp v cl)) : Tot prop (decreases l)
@@ -6260,6 +6945,16 @@ let fprogs_5 : list (pcomp fv fcl) =
     extend_at_C plan_L (PCtxKey 0) fk;
     extend_ctx_at_C plan_L (PCtxKey 0) fk ]
 
+(** B1.8's three, added to the ledger BECAUSE THEY BELONG IN IT: each is a closed
+    program that `ftrace` runs, which is the ledger's admission criterion. The
+    only fixture terms B1.8 adds that are NOT here are `femits_out` and
+    `femits_mid`, and they are deliberately absent -- they are fragments of a
+    CLAUSE BODY, produced by `apply` and never loaded by `pload`, so the
+    initial-term condition is not the condition that applies to them.
+    `guard_fapply_wb` is, and `lemma_femits_wb` discharges it. *)
+let fprogs_6 : list (pcomp fv fcl) =
+  [ prog_clause_emits; prog_ambient_emits; prog_amb_scope ]
+
 (** **The fixture programs, named in one place -- a MANUALLY MAINTAINED
     LEDGER.**
 
@@ -6272,7 +6967,7 @@ let fprogs_5 : list (pcomp fv fcl) =
     exists to make omission detectable. Keeping the ledger honest is a
     reviewer's job, not the type checker's. *)
 let fixture_programs : list (pcomp fv fcl) =
-  fprogs_1 @ fprogs_2 @ fprogs_3 @ fprogs_4 @ fprogs_5
+  fprogs_1 @ fprogs_2 @ fprogs_3 @ fprogs_4 @ fprogs_5 @ fprogs_6
 
 (* The fuel is for `pterm_wb_all` and for nothing else: a nine-element block
    needs nine unfoldings of a list recursion, and the default is two. Every
@@ -6304,6 +6999,10 @@ let guard_fprogs_4_wb () : Lemma (pterm_wb_all fprogs_4)
 let guard_fprogs_5_wb () : Lemma (pterm_wb_all fprogs_5)
   = guard_wb_prog21_handles (); guard_wb_prog21_consume (); guard_wb_prog_sep ();
     guard_wb_prog9_resume (); guard_wb_prog9_extend (); guard_wb_prog9_extend_ctx ()
+
+let guard_fprogs_6_wb () : Lemma (pterm_wb_all fprogs_6)
+  = guard_wb_prog_clause_emits (); guard_wb_prog_ambient_emits ();
+    guard_wb_prog_amb_scope ()
 #pop-options
 
 (** **EVERY FIXTURE PROGRAM SATISFIES THE INITIAL-TERM CONDITION.** PROVED, from
@@ -6312,11 +7011,13 @@ let guard_fprogs_5_wb () : Lemma (pterm_wb_all fprogs_5)
     `guard_wb_prog1old` are each proved for EVERY `n`. *)
 let guard_fixture_programs_wb () : Lemma (pterm_wb_all fixture_programs)
   = guard_fprogs_1_wb (); guard_fprogs_2_wb (); guard_fprogs_3_wb ();
-    guard_fprogs_4_wb (); guard_fprogs_5_wb ();
-    lemma_pterm_wb_all_append fprogs_4 fprogs_5;
-    lemma_pterm_wb_all_append fprogs_3 (fprogs_4 @ fprogs_5);
-    lemma_pterm_wb_all_append fprogs_2 (fprogs_3 @ (fprogs_4 @ fprogs_5));
-    lemma_pterm_wb_all_append fprogs_1 (fprogs_2 @ (fprogs_3 @ (fprogs_4 @ fprogs_5)))
+    guard_fprogs_4_wb (); guard_fprogs_5_wb (); guard_fprogs_6_wb ();
+    lemma_pterm_wb_all_append fprogs_5 fprogs_6;
+    lemma_pterm_wb_all_append fprogs_4 (fprogs_5 @ fprogs_6);
+    lemma_pterm_wb_all_append fprogs_3 (fprogs_4 @ (fprogs_5 @ fprogs_6));
+    lemma_pterm_wb_all_append fprogs_2 (fprogs_3 @ (fprogs_4 @ (fprogs_5 @ fprogs_6)));
+    lemma_pterm_wb_all_append fprogs_1
+      (fprogs_2 @ (fprogs_3 @ (fprogs_4 @ (fprogs_5 @ fprogs_6))))
 
 (* ---- The `PWeave` clause, which no program here reaches ---------- *)
 
