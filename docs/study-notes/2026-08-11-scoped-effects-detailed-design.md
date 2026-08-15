@@ -4278,6 +4278,86 @@ this consumer sits inside the computation being observed.
 Transparency stays out of this. It shares no production with either side, so
 nothing about the restatement's success carries to it.
 
+#### The marker candidate, adjudicated: closed four times over
+
+494 lines appended, `z3rlimit` still zero. **Not a refutation**, and the
+adjudication did not stop at the first NO it could have:
+
+| | result |
+|---|---|
+| writable as data | **yes** — and the hand-written responders are `assert_norm`-equal to the ones `ctx_drive` builds, not lookalikes |
+| produced by a yield | **never** — at every configuration, reachable or not, well formed or not |
+| `pconf_ok` | **fails**, and the failing conjunct is localised: `pstore_resid_wf`, via `presid_wf`'s `pno_mode` |
+| reachable from `pload` | **no** — proved with *no hypothesis at all*: any fuel, key, lookup, interpreter, and also along the instrumented run `prun` uses |
+
+The third row is the strong one, and it is stronger than unreachability because
+it does not mention reachability:
+
+> For the yield to fire, `pfind_mode rest == None` puts a floor **nearer than
+> any marker**; `pcut_scope` cuts at **that same floor**; so the stored segment
+> is exactly the part the mode search already walked without meeting a marker.
+> "Beneath a floor" and "in the residual" are two sides of one floor.
+
+**That is B2a-1's nearest-cut / nearest-search interlock, doing work months
+after it was proved.** Proximity being a *semantic requirement* rather than a
+normal form is exactly what forecloses a candidate nobody had thought of when it
+was established. A good instance of an earlier proof functioning as a reusable
+invariant rather than a one-off.
+
+The limitation to keep, so the result is not read for more than it is:
+
+> What is ruled out is the specific marker-bearing stored-context mechanism
+> formalised by the candidate predicate. The broader claim that every route by
+> which a responder might reach the store factors through such a marker remains
+> a syntactic observation, not a theorem.
+
+#### The observation relation's domain: well-formed equivariant
+
+`guard_cand_domain_gap` shows the gap is **not empty**: `pnobs_tr_le` demands
+equivariance and freshness of the initial store but **not** `pstore_resid_wf`,
+so it quantifies over initial stores the machine could never have built. The
+three candidates:
+
+| domain | assessment |
+|---|---|
+| all equivariant configurations | includes broken stores the machine cannot build, so every future spurious candidate has to be excluded by hand, one at a time |
+| reachable configurations only | most accurate, but reachability depends on the program, the interpreter and the execution history — poorly compositional, and too heavy as the domain of a law or a logical relation |
+| **well-formed equivariant configurations** | contains the reachable ones, excludes junk that breaks a machine invariant, and is a *local* predicate, so it survives induction and composition |
+
+**Well-formed is the right middle.** But do not rewrite `pnobs_tr_le` first —
+gate it:
+
+1. the target programs, from `pload`, are well formed;
+2. the boundary interpreter preserves well-formedness;
+3. both sides' machine transitions preserve it;
+4. B2b.2's fundamental theorem and its observation corollary lift to the
+   restricted domain;
+5. the intended positives and negatives all survive.
+
+This may require a `papply_wb`-equivalent field in `pboundary`. If so, **state
+it as a new boundary condition** rather than letting it be derived implicitly
+from equivariance — the same discipline `b_down` was given.
+
+#### The `PBindF` candidate, and why it waits
+
+The marker route is closed; the `PBindF` route is **named and not adjudicated**.
+The left side runs `POp (POp (PVar z) PVar) xg` where the right runs
+`POp (PVar z) xg`, so the left pushes one extra `PBindF PVar` frame — and
+`pno_mode`, which closed the marker candidate, does not look at `PBindF` at all.
+A different answer is possible.
+
+It waits for the domain decision, because otherwise the same "real refutation or
+junk configuration?" adjudication has to be redone from scratch. The order is
+the one that worked here: writable as data → well formed → reachable →
+producible by the machine → observationally different.
+
+Its two possible outcomes are both informative:
+
+- if the captured difference is only `c >>= pure` against `c`, it is **the**
+  canonical example the computation-level administrative relation exists to
+  absorb;
+- if a legitimate consumer can tell the results apart, it is a genuine
+  refutation of the restated right identity.
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

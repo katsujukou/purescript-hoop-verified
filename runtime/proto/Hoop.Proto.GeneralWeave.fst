@@ -17495,3 +17495,497 @@ let guard_ri_ext_midpoint_no_world_nonvacuous ()
 (*     UNTOUCHED.  B2b.5 appends;                                       *)
 (*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
 (* ================================================================== *)
+(*  B2b.6 -- ADJUDICATION GATE: THE AMBIENT-FLOOR CANDIDATE            *)
+(*                                                                     *)
+(*  Everything below is ADDITIVE.  `pcrel`, `padm_stack`,              *)
+(*  `pnobs_tr_le`, `law_right_identity_nom`,                           *)
+(*  `law_right_identity_ext_nom` and every other definition above is   *)
+(*  UNTOUCHED.                                                          *)
+(*                                                                     *)
+(*  THE CANDIDATE, in the words B2b.5's ledger left it in:             *)
+(*                                                                     *)
+(*    `pnobs_tr_le` admits ambient stacks containing a `PScopeF`.  If  *)
+(*    a drive's `PModeF MExtend` marker gets beneath a floor and is    *)
+(*    CAUGHT BY A YIELD, the responders' difference -- left            *)
+(*    `fun z -> pbind (pbind (post z) PVar) g`, right                  *)
+(*    `fun z -> pbind (post z) g` -- becomes a difference between      *)
+(*    STORED CONTEXTS, and `guard_ri_ext_midpoint_no_world`'s negative *)
+(*    turns into an actual refutation of                               *)
+(*    `law_right_identity_ext_nom`.                                    *)
+(*                                                                     *)
+(*  Five questions are asked of it below, in order.  The gate stops at *)
+(*  the first NO.                                                       *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 0 (the candidate's premise, and it is TRUE)               *)
+(* ------------------------------------------------------------------ *)
+
+(** The ambient stack the candidate needs: one that carries a scope floor. *)
+let qcand_flk : pstack fv fcl = [PScopeF]
+
+(**
+ * **THE PREMISE HOLDS: `pnobs_tr_le` REALLY DOES ADMIT AN AMBIENT STACK WITH A
+ * FLOOR ON IT.** PROVED. The stack `[PScopeF]` satisfies the one condition
+ * `pnobs_tr_le` puts on `k` -- anchor-relative equivariance -- so nothing in
+ * the observation relation excludes it, and the candidate is not stopped here.
+ *)
+let guard_cand_floor_stack_admitted ()
+  : Lemma (pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl)) qcand_flk /\
+           memP (PScopeF <: pframe fv fcl) qcand_flk)
+  = introduce forall (w: pworld).
+        (pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl))
+         ==> pkrel fcl_rel w qcand_flk qcand_flk)
+    with (introduce _ ==> _ with
+            (introduce forall (n: nat). pframes_rel fcl_rel n w qcand_flk qcand_flk
+             with ()))
+
+(* ------------------------------------------------------------------ *)
+(*  THE CANDIDATE AS A PREDICATE ON A STORED CONTEXT                   *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **What "the responders' difference becomes a difference between stored
+ * contexts" MEANS, written as a decidable predicate.**
+ *
+ * The responder `ctx_drive` builds occurs in exactly one place in the machine:
+ * the `PModeF m respond` frame `ctx_drive` appends beneath the residual. It is
+ * never written into a `post` -- `pyield` writes `PVar` there and
+ * `extend_ctx_C` composes the CONSUMER's function onto it, not the drive's
+ * responder. So a stored context can carry a drive responder in one way only:
+ * by carrying a `PModeF` frame INSIDE ITS RESIDUAL.
+ *
+ * This predicate is that condition, and the whole of the candidate reduces to
+ * asking whether a store can ever satisfy it.
+ *)
+let pcand_marker_in_ctx (#v #cl: Type) (cx: pctx v cl) : bool
+  = match cx with
+    | PCtxDone _ -> false
+    | PCtxRequests _ r _ -> not (pno_mode r)
+
+(** And the same, of a whole store at a key. *)
+let pcand_at (#v #cl: Type) (i: nat) (sto: pstore v cl) : bool
+  = match pstore_lookup i sto with
+    | None -> false
+    | Some cx -> pcand_marker_in_ctx cx
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 1 -- IS IT WRITABLE AS A WELL-TYPED CONFIGURATION?        *)
+(* ------------------------------------------------------------------ *)
+
+(** The two responders the candidate names, VERBATIM, at the mid-point pair
+    `guard_ri_ext_midpoint_no_world` stands on: `post` is `PVar` there, the
+    left's extension is `PVar` (the `pure` the restatement adds) and `g` is
+    `xg`. *)
+let qcand_respl : pval fv -> pcomp fv fcl
+  = fun z -> pbind (pbind (PVar z) (PVar #fv #fcl)) xg
+let qcand_respr : pval fv -> pcomp fv fcl
+  = fun z -> pbind (PVar z) xg
+
+(** They are the responders `ctx_drive` actually builds from `qext` and
+    `qprod`, and not lookalikes written by hand. PROVED by normalisation:
+    `ctx_drive` builds its responder lambda internally, so this is
+    `assert_norm` and not `assert`. *)
+let guard_cand_responders_are_the_drives ()
+  : Lemma (ctx_drive MExtend qext xg
+             == PSplice (qresid0 @ [PModeF MExtend qcand_respl]) (PVar fone) /\
+           ctx_drive MExtend qprod xg
+             == PSplice (qresid0 @ [PModeF MExtend qcand_respr]) (PVar fone))
+  = assert_norm (ctx_drive MExtend qext xg
+                 == PSplice (qresid0 @ [PModeF MExtend qcand_respl]) (PVar fone));
+    assert_norm (ctx_drive MExtend qprod xg
+                 == PSplice (qresid0 @ [PModeF MExtend qcand_respr]) (PVar fone))
+
+(** **And the two responders genuinely differ**, at the very first value they
+    are handed. PROVED, by constructor disjointness after normalisation. This is
+    question 4's content, recorded here because it costs one line and because
+    the gate must not be read as stopping for want of it. *)
+let guard_cand_responders_differ ()
+  : Lemma (~(qcand_respl (fpv FU) == qcand_respr (fpv FU)))
+  = assert_norm (qcand_respl (fpv FU)
+                 == POp (POp (PVar (fpv FU)) (PVar #fv #fcl)) xg);
+    assert_norm (qcand_respr (fpv FU) == POp (PVar (fpv FU)) xg)
+
+(** The residual the candidate needs in the store: a boundary head -- which is
+    what `pyield` always writes -- with the drive's marker beneath it. This is
+    the SHORTEST such residual; nothing below depends on its length. *)
+let qcand_resid_l : pstack fv fcl = [PBoundaryF; PModeF MExtend qcand_respl]
+let qcand_resid_r : pstack fv fcl = [PBoundaryF; PModeF MExtend qcand_respr]
+
+let qcand_ctx_l : pctx fv fcl = PCtxRequests fone qcand_resid_l (PVar #fv #fcl)
+let qcand_ctx_r : pctx fv fcl = PCtxRequests fone qcand_resid_r (PVar #fv #fcl)
+
+let qcand_sto_l : pstore fv fcl = [(0, qcand_ctx_l)]
+let qcand_sto_r : pstore fv fcl = [(0, qcand_ctx_r)]
+
+(** The configuration: the candidate's store, on the candidate's ambient stack,
+    with a handle to it in the value position. *)
+let qcand_cf_l : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) qcand_flk; store = qcand_sto_l; next = 1 }
+let qcand_cf_r : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) qcand_flk; store = qcand_sto_r; next = 1 }
+
+(**
+ * **QUESTION 1: YES.** PROVED. The candidate IS writable as a well-typed
+ * configuration: `qcand_cf_l` and `qcand_cf_r` elaborate, they stand on an
+ * ambient stack carrying a floor, and each store holds, at key 0, a context
+ * whose residual carries the drive's `PModeF MExtend` marker with the
+ * responder that side's drive would install.
+ *
+ * So the candidate is not stopped at question 1, and the two sides' stores
+ * differ in exactly the place the candidate says they would.
+ *)
+let guard_cand_q1_writable ()
+  : Lemma (pcand_at 0 qcand_sto_l == true /\
+           pcand_at 0 qcand_sto_r == true /\
+           pstore_lookup 0 qcand_sto_l == Some qcand_ctx_l /\
+           pstore_lookup 0 qcand_sto_r == Some qcand_ctx_r /\
+           ~(qcand_respl (fpv FU) == qcand_respr (fpv FU)))
+  = assert_norm (pcand_at 0 qcand_sto_l == true);
+    assert_norm (pcand_at 0 qcand_sto_r == true);
+    assert_norm (pstore_lookup 0 qcand_sto_l == Some qcand_ctx_l);
+    assert_norm (pstore_lookup 0 qcand_sto_r == Some qcand_ctx_r);
+    guard_cand_responders_differ ()
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 1b -- IS THE MECHANISM WRITABLE?  IT IS NOT.              *)
+(*                                                                     *)
+(*  The configuration above is DATA and can be written down.  What the *)
+(*  candidate asserts is more than data: that a YIELD puts the marker  *)
+(*  there.  That half is refuted outright, and by a fact about the two *)
+(*  searches alone -- no reachability, no well-formedness, no          *)
+(*  hypothesis about which programs are written.                       *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE PORT'S READ, MADE A PROPOSITION AND PROVED.** "A `PSiteF` or
+ * `PBoundaryF` above the marker finds the marker before the floor."
+ *
+ * Stated contrapositively, which is the form that is usable: if the segment a
+ * nearest cut would hand to the store CONTAINS a marker, then the mode search
+ * from the same stack ANSWERS, and `pstep`'s two yield rules are in their
+ * `Some` arm rather than their `None` arm -- so no yield happens at all.
+ *
+ * The proof is `lemma_cut_no_mode` read backwards. Nothing new is assumed.
+ *)
+let lemma_cand_marker_above_floor_is_found (#v #cl: Type) (k: pstack v cl)
+  : Lemma (requires pno_mode (pcut_above (pcut_scope k)) == false)
+          (ensures Some? (pfind_mode k))
+  = if Some? (pfind_mode k) then () else lemma_cut_no_mode k
+
+(** **AND ITS HYPOTHESIS IS SATISFIABLE**, so the statement above is not
+    vacuous. PROVED at a stack that puts the marker exactly where the candidate
+    wants it -- above the floor -- and the mode search answers, which is the
+    whole point. *)
+let qcand_found_k : pstack fv fcl = [PModeF MExtend qcand_respl; PScopeF]
+
+let guard_cand_marker_above_floor_nonvacuous ()
+  : Lemma (pno_mode (pcut_above (pcut_scope qcand_found_k)) == false /\
+           Some? (pfind_mode qcand_found_k))
+  = assert_norm (pno_mode (pcut_above (pcut_scope qcand_found_k)) == false);
+    lemma_cand_marker_above_floor_is_found qcand_found_k
+
+(**
+ * **AND SO THE CANDIDATE'S MECHANISM DOES NOT EXIST: NO YIELD OF THIS MACHINE
+ * EVER STORES A CONTEXT SATISFYING `pcand_marker_in_ctx`.** PROVED, at the
+ * transition, for EVERY configuration -- reachable or not, well formed or not
+ * -- and for every ambient stack, floors included.
+ *
+ * The hypotheses are exactly `lemma_pstep_yield_guard`'s: they are the literal
+ * branch conditions of the two `pstep` value rules that call `pyield`, and are
+ * therefore discharged by the code rather than assumed.
+ *
+ * **Why the candidate is self-defeating, in one sentence.** For the yield to
+ * fire, `pfind_mode rest` must be `None`, which means a floor lies NEARER than
+ * any marker; `pcut_scope` cuts at that same nearest floor, so the segment it
+ * stores is precisely the part of the stack ABOVE the floor -- which is the
+ * part the mode search already walked without meeting a marker. "The marker is
+ * beneath a floor" and "the marker is in the residual" are the two sides of one
+ * floor and cannot both hold.
+ *)
+let lemma_cand_yield_stores_no_marker
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (x: pval v) (hd: pframe v cl) (rest: pstack v cl)
+  : Lemma (requires (PBoundaryF? hd \/ PSiteF? hd) /\
+                    pfind_mode rest == None /\
+                    cf.st == PStep (PVar x) (hd :: rest))
+          (ensures (let cf' = pstep lk apply cf in
+                    match pcut_scope rest with
+                    | None -> PPaused? cf'.st /\ cf'.store == cf.store
+                    | Some (above, below) ->
+                      pcand_at cf.next cf'.store == false /\
+                      cf'.st == PStep (PVar (PCtxKey cf.next)) below))
+  = lemma_pstep_yield_guard lk apply cf x hd rest;
+    lemma_pyield_residual_wf x hd rest cf;
+    lemma_cut_no_floor rest;
+    lemma_cut_no_mode rest
+
+(** **AND THAT LEMMA'S `Some` ARM IS ACTUALLY TAKEN**, so it is not a statement
+    about a branch no configuration reaches. PROVED by running one step of the
+    machine: a value at a boundary with a bare floor beneath it yields, stores a
+    context at key 0, and that context does NOT satisfy the candidate. *)
+let qcand_yield_cf : pconf fv fcl =
+  { st = PStep (PVar fone) [PBoundaryF; PScopeF]; store = []; next = 0 }
+
+let guard_cand_yield_nonvacuous ()
+  : Lemma (pfind_mode ([PScopeF] <: pstack fv fcl) == None /\
+           Some? (pcut_scope ([PScopeF] <: pstack fv fcl)) /\
+           Some? (pstore_lookup 0 (pstep flook xapply qcand_yield_cf).store) /\
+           pcand_at 0 (pstep flook xapply qcand_yield_cf).store == false)
+  = assert_norm (pfind_mode ([PScopeF] <: pstack fv fcl) == None);
+    assert_norm (Some? (pcut_scope ([PScopeF] <: pstack fv fcl)));
+    assert_norm (Some? (pstore_lookup 0 (pstep flook xapply qcand_yield_cf).store));
+    lemma_cand_yield_stores_no_marker flook xapply qcand_yield_cf
+                                      fone PBoundaryF [PScopeF]
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 2 -- DOES THE CANDIDATE SATISFY `pstate_wb` / `pconf_ok`? *)
+(*                                                                     *)
+(*  IT DOES NOT, AND THE FAILING CONJUNCT IS `pstore_resid_wf`.        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE GENERAL FORM FIRST: `pconf_ok` EXCLUDES THE CANDIDATE AT EVERY KEY.**
+ * PROVED, and it needs only the STORE conjunct of the invariant -- neither
+ * `pconf_wf` nor `pstate_wb` is used.
+ *
+ * `presid_wf` demands a boundary or site head AND `pno_mode` of the tail; a
+ * residual with either head therefore has `pno_mode` of the whole, which is
+ * `pcand_marker_in_ctx` false.
+ *)
+let lemma_cand_excluded_by_store_wf
+    (#v #cl: Type) (sto: pstore v cl) (i: nat)
+  : Lemma (requires pstore_resid_wf sto)
+          (ensures pcand_at i sto == false)
+  = lemma_store_resid_lookup i sto
+
+let lemma_cand_excluded_by_conf_ok (#v #cl: Type) (cf: pconf v cl) (i: nat)
+  : Lemma (requires pconf_ok cf) (ensures pcand_at i cf.store == false)
+  = lemma_cand_excluded_by_store_wf cf.store i
+
+(**
+ * **QUESTION 2: NO, AND THE GATE STOPS HERE.** PROVED.
+ *
+ * The failing conjunct is named and the other two are exhibited HOLDING, so
+ * the failure is localised rather than merely reported: `pconf_wf` holds
+ * (key 0 is below `next` 1), `pstate_wb` holds (`[PScopeF]` is `pwb` and
+ * `pframes_wb`, and `PVar (PCtxKey 0)` is `pterm_wb`), and
+ * `pstore_resid_wf` is `false` on BOTH sides' stores.
+ *
+ * So the candidate configuration is well typed and is REJECTED BY THE MACHINE
+ * INVARIANT, at the one conjunct that is about residuals.
+ *)
+let guard_cand_q2_fails_conf_ok ()
+  : Lemma (pconf_wf qcand_cf_l /\ pstate_wb qcand_cf_l.st /\
+           pstore_resid_wf qcand_cf_l.store == false /\
+           ~(pconf_ok qcand_cf_l) /\
+           pconf_wf qcand_cf_r /\ pstate_wb qcand_cf_r.st /\
+           pstore_resid_wf qcand_cf_r.store == false /\
+           ~(pconf_ok qcand_cf_r))
+  = assert_norm (pstore_resid_wf qcand_sto_l == false);
+    assert_norm (pstore_resid_wf qcand_sto_r == false);
+    assert_norm (pwb qcand_flk == true);
+    lemma_wb_trivial (PVar (PCtxKey 0) <: pcomp fv fcl);
+    lemma_wb_frame_inert (PScopeF <: pframe fv fcl);
+    lemma_wb_frames_nil #fv #fcl ();
+    lemma_wb_frames_cons_bwd (PScopeF <: pframe fv fcl) ([] <: pstack fv fcl);
+    introduce forall (i: nat) (cx: pctx fv fcl).
+        (memP (i, cx) qcand_sto_l ==> i < 1)
+    with (introduce _ ==> _ with ());
+    introduce forall (i: nat) (cx: pctx fv fcl).
+        (memP (i, cx) qcand_sto_r ==> i < 1)
+    with (introduce _ ==> _ with ())
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 3 -- ANSWERED ANYWAY, BECAUSE IT COSTS NOTHING AND IT IS  *)
+(*  THE ONE THE ADJUDICATION TURNS ON.                                 *)
+(*                                                                     *)
+(*  Question 2 already said NO.  Question 3 is answered here NOT to    *)
+(*  continue the chain but because "unreachable" is a stronger and     *)
+(*  more useful finding than "ill formed", and because it is PROVED    *)
+(*  rather than merely not-witnessed.                                  *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **NO PROGRAM REACHES THE CANDIDATE FROM `pload`, AT ANY KEY, AT ANY FUEL,
+ * FOR ANY LOOKUP AND ANY CLAUSE INTERPRETER.** PROVED, with NO hypothesis at
+ * all -- not `pterm_wb`, not `papply_wb`. The store layer of the invariant is
+ * preserved unconditionally (`lemma_psteps_store_resid_wf`) and `pload`'s
+ * store is empty.
+ *)
+let lemma_cand_unreachable_from_pload
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (c: pcomp v cl) (i: nat)
+  : Lemma (ensures pcand_at i (psteps lk apply fuel (pload c)).store == false)
+  = lemma_psteps_store_resid_wf lk apply fuel (pload c);
+    lemma_cand_excluded_by_store_wf (psteps lk apply fuel (pload c)).store i
+
+(**
+ * **AND NOT FROM ANY OF THE CONFIGURATIONS `pnobs_tr_le` QUANTIFIES OVER
+ * EITHER, PROVIDED THE INITIAL STORE IS ONE THE MACHINE COULD HAVE BUILT.**
+ * PROVED, with the ambient stack `k` ARBITRARY -- floors included -- the
+ * counter arbitrary and the control computation arbitrary.
+ *
+ * This is the statement that decides the candidate. `pnobs_tr_le` starts its
+ * two runs at `{ st = PStep c k; store = sto; next = n0 }` and puts NO
+ * condition on `sto` beyond equivariance and freshness. Add the one condition
+ * that says `sto` is a store the machine could have produced, and the marker
+ * never enters a residual, whatever `k` is.
+ *)
+let lemma_cand_unreachable_from_wf_store
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl)
+    (n0: nat) (i: nat)
+  : Lemma (requires pstore_resid_wf sto)
+          (ensures (let cf0 = { st = PStep c k; store = sto; next = n0 } in
+                    pcand_at i (psteps lk apply fuel cf0).store == false))
+  = let cf0 : pconf v cl = { st = PStep c k; store = sto; next = n0 } in
+    lemma_psteps_store_resid_wf lk apply fuel cf0;
+    lemma_cand_excluded_by_store_wf (psteps lk apply fuel cf0).store i
+
+(** The same along an INSTRUMENTED run, which is the one `pnconverges` and
+    hence `pnobs_tr_le` actually use. PROVED. *)
+let rec lemma_prun_store_resid_wf
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (cf: pconf v cl)
+  : Lemma (requires pstore_resid_wf cf.store)
+          (ensures pstore_resid_wf (fst (prun lk apply fuel cf)).store)
+          (decreases fuel)
+  = if fuel = 0 then ()
+    else
+      match cf.st with
+      | PStep (PEmit ev body) k ->
+        lemma_prun_store_resid_wf lk apply (fuel - 1) (fst (pstep_tr lk apply cf))
+      | PStep _ _ ->
+        lemma_pstep_store_resid_wf lk apply cf;
+        lemma_prun_store_resid_wf lk apply (fuel - 1) (fst (pstep_tr lk apply cf))
+      | _ -> ()
+
+let lemma_cand_unreachable_along_prun
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl)
+    (n0: nat) (i: nat)
+  : Lemma (requires pstore_resid_wf sto)
+          (ensures (let cf0 = { st = PStep c k; store = sto; next = n0 } in
+                    pcand_at i (fst (prun lk apply fuel cf0)).store == false))
+  = let cf0 : pconf v cl = { st = PStep c k; store = sto; next = n0 } in
+    lemma_prun_store_resid_wf lk apply fuel cf0;
+    lemma_cand_excluded_by_store_wf (fst (prun lk apply fuel cf0)).store i
+
+(** **AND THE Q3 THEOREM IS NOT VACUOUS: IT IS APPLIED AT B2b.5'S OWN
+    FIXTURE.** PROVED. Both of the restated law's runs allocate -- key 2 on the
+    left, key 1 on the right, and `guard_qce_answer_ctx` says those entries are
+    there -- and neither entry satisfies the candidate. Nothing is normalised by
+    hand here: the conclusion comes from the general lemma. *)
+let guard_cand_q3_at_the_ri_ext_fixture ()
+  : Lemma (Some? (pstore_lookup 2 qsl) /\ pcand_at 2 qsl == false /\
+           Some? (pstore_lookup 1 qsr) /\ pcand_at 1 qsr == false)
+  = guard_qce_answer_ctx ();
+    assert_norm (qcf_l == ({ st = PStep qlhs ([] <: pstack fv fcl);
+                             store = ([] <: pstore fv fcl); next = 0 }));
+    assert_norm (qcf_r == ({ st = PStep qrhs ([] <: pstack fv fcl);
+                             store = ([] <: pstore fv fcl); next = 0 }));
+    lemma_cand_unreachable_along_prun flook xapply 60 qlhs
+                                      ([] <: pstack fv fcl)
+                                      ([] <: pstore fv fcl) 0 2;
+    lemma_cand_unreachable_along_prun flook xapply 60 qrhs
+                                      ([] <: pstack fv fcl)
+                                      ([] <: pstore fv fcl) 0 1
+
+(* ------------------------------------------------------------------ *)
+(*  THE ONE GAP THE ANSWER LEAVES, STATED RATHER THAN ARGUED           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **`pnobs_tr_le`'s DOMAIN DOES NOT DEMAND `pstore_resid_wf`, AND THE GAP IS
+ * NOT EMPTY.** PROVED: `qcand_sto_l` is `psfresh` at 1 -- so `pnobs_tr_le`
+ * would accept it as an initial store on that count -- while
+ * `pstore_resid_wf` refuses it.
+ *
+ * Equivariance of that store is NOT claimed here and is not needed for the
+ * point: the freshness conjunct alone shows the two conditions are
+ * independent, and it is the `pstore_resid_wf` condition -- absent from
+ * `pnobs_tr_le` -- that every proof above runs on.
+ *
+ * **What the gap does NOT give the candidate.** A hostile initial store is
+ * handed to BOTH sides of any law by the same quantifier, so it cannot by
+ * itself make the two sides' stores differ; the difference the candidate needs
+ * is between the two DRIVES' responders, and `lemma_cand_yield_stores_no_marker`
+ * closes the only route those have into a store. This is recorded as a
+ * DOMAIN QUESTION about the relation and not as a defect of the law.
+ *)
+let guard_cand_domain_gap ()
+  : Lemma (psfresh qcand_sto_l 1 /\ psfresh qcand_sto_r 1 /\
+           pstore_resid_wf qcand_sto_l == false /\
+           pstore_resid_wf qcand_sto_r == false)
+  = assert_norm (pstore_resid_wf qcand_sto_l == false);
+    assert_norm (pstore_resid_wf qcand_sto_r == false);
+    introduce forall (i: nat) (cx: pctx fv fcl).
+        (memP (i, cx) qcand_sto_l ==> i < 1)
+    with (introduce _ ==> _ with ());
+    introduce forall (i: nat) (cx: pctx fv fcl).
+        (memP (i, cx) qcand_sto_r ==> i < 1)
+    with (introduce _ ==> _ with ())
+
+(* ================================================================== *)
+(*  B2b.6 LEDGER                                                       *)
+(*                                                                     *)
+(*  Q0 (premise): YES.  `guard_cand_floor_stack_admitted` --           *)
+(*  `pnobs_tr_le` admits `[PScopeF]` as an ambient stack.              *)
+(*                                                                     *)
+(*  Q1 (well typed?): YES.  `guard_cand_q1_writable` -- the two        *)
+(*  configurations exist, hold the candidate at key 0, and the two     *)
+(*  responders are distinct (`guard_cand_responders_differ`) and are   *)
+(*  the ones `ctx_drive` builds                                        *)
+(*  (`guard_cand_responders_are_the_drives`).                          *)
+(*                                                                     *)
+(*  Q1b (mechanism writable?): NO.                                     *)
+(*  `lemma_cand_marker_above_floor_is_found` and                       *)
+(*  `lemma_cand_yield_stores_no_marker` -- no stack admits both the    *)
+(*  yield guard and a marker in the segment the cut stores.  This      *)
+(*  holds at EVERY configuration, with no invariant assumed.  Both are *)
+(*  checked non-vacuous:                                               *)
+(*  `guard_cand_marker_above_floor_nonvacuous` exhibits a stack whose  *)
+(*  cut DOES carry a marker (and whose search therefore answers), and  *)
+(*  `guard_cand_yield_nonvacuous` runs one step of a yield that really *)
+(*  allocates.                                                          *)
+(*                                                                     *)
+(*  Q2 (`pconf_ok`?): NO, and the gate stops.                          *)
+(*  `guard_cand_q2_fails_conf_ok` -- `pconf_wf` holds, `pstate_wb`     *)
+(*  holds, `pstore_resid_wf` is FALSE.                                 *)
+(*                                                                     *)
+(*  Q3 (reachable?): NO, and PROVED rather than not-witnessed.         *)
+(*  `lemma_cand_unreachable_from_pload`,                               *)
+(*  `lemma_cand_unreachable_from_wf_store` and                         *)
+(*  `lemma_cand_unreachable_along_prun`, the last of which is applied  *)
+(*  at B2b.5's own two runs by                                         *)
+(*  `guard_cand_q3_at_the_ri_ext_fixture`.                             *)
+(*                                                                     *)
+(*  Q4, Q5: NOT REACHED.  `guard_cand_responders_differ` is the only   *)
+(*  fragment of Q4 recorded, and Q5 is not addressed at all.           *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - `law_right_identity_ext_nom` is NOT PROVED, in general or at    *)
+(*     any new instance.  This gate refutes a REFUTATION CANDIDATE and *)
+(*     nothing more;                                                    *)
+(*   - `guard_ri_ext_midpoint_no_world`'s negative is UNTOUCHED.  It   *)
+(*     still stands, and it is still the reason a proof of the         *)
+(*     restated law cannot go configuration by configuration;          *)
+(*   - equivariance of `qcand_sto_l` is NOT claimed.  The domain gap   *)
+(*     above is exhibited through freshness only;                      *)
+(*   - the OTHER route by which the restatement's extra `pure` could   *)
+(*     reach a store is NOT examined here: the left side runs          *)
+(*     `POp (POp (PVar z) PVar) xg` where the right runs               *)
+(*     `POp (PVar z) xg`, so the left pushes one extra `PBindF PVar`   *)
+(*     frame, and whether THAT frame can be captured into a residual   *)
+(*     is a different question with a different answer.  It is named   *)
+(*     and not adjudicated;                                            *)
+(*   - `pcrel`, `padm_stack`, `pnobs_tr_le`,                           *)
+(*     `law_right_identity_nom`, `law_right_identity_ext_nom` and      *)
+(*     every definition of B2b.5 and earlier are UNTOUCHED.  B2b.6     *)
+(*     appends;                                                         *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
+(* ================================================================== *)
+
+(* ================================================================== *)
