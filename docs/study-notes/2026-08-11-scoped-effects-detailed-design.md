@@ -2897,7 +2897,12 @@ and nothing below the failure point had been checked in the new shape at all.
   nor lost updates. A scheme that solved those is not excluded by anything here.
 - **The non-reclaiming association list is prototype-only.** It is *what makes*
   condition 8 hold. A shipping form needs a reclamation scheme that cannot lose
-  an escaped handle, a lookup cost, and a bounded representation for ids.
+  an escaped handle, a lookup cost, and a bounded representation for ids —
+  and, established later by the nesting/sibling gate, it must also preserve
+  **cross-branch freshness and the stability of live identities**: an id must
+  not be reused while a handle carrying it may still be observable, and two
+  jointly observable branches must not be handed the same id. Reclamation is not
+  forbidden, but it now carries that proof obligation.
 - **`fseen` is fixture instrumentation.** No transition applies it. It does not
   mean handle identity is observable to a user; without it "these two handles
   differ" could not be written as a value and conditions 1, 2 and 8 would be
@@ -3253,8 +3258,8 @@ Every law's left side allocates at least one context and its right side
 allocates none, so an ordinary continuation that produces a context of its own
 and returns the handle reports `PCtxKey 1` on the left and `PCtxKey 0` on the
 right. At `plan_A = Plan [] fowner_plain` laws 1, 2 and 5 have literally the
-same two sides, so one program pair refutes three propositions; `law_resume` is 1 vs 0
-and `law_assoc`'s anchored half is 2 vs 0.
+same two sides, so one program pair refutes three propositions; `law_resume`
+is 1 vs 0 and `law_assoc`'s anchored half is 2 vs 0.
 
 **Both traces are empty.** The trace-aware work contributes nothing to this
 separation — which is worth stating plainly, because it means the previous
@@ -3544,7 +3549,7 @@ All proved, at default rlimit and fuel. Three are worth drawing out.
 differs from the real relation in **one token** — `anchor s1'`, the left run's
 final store, for `anchor s` — and it separates the counterexample.
 Re-anchoring pins the left run's *garbage* key — the context it allocated and
-discarded — as a public name, which collides with the correspondence the answer
+discarded — as a public name, colliding with the correspondence the answer
 needs. Rewriting
 the real `nobs_le` this way breaks `guard_ce_nobs_le`.
 
@@ -3653,6 +3658,115 @@ identity over the current store at each step is the obvious implementation of
 the precise sense that it separates programs that should be equal. The correct
 discipline — starting world, one explicit pair per allocation, nothing else
 — has to be visible in the code rather than merely respected by it.
+
+#### The gate, run: nesting is shallow, siblings are not
+
+Three modules verify from a clean cache; the two earlier ones are byte-identical
+(the new material is a sibling module, so "the existing results survive" is a
+mechanical check rather than a claim). No `admit`, no `assume`, rlimit at most
+10.
+
+**1. Nesting needs monotone extension and nothing else.** All seven conditions
+proved in one example: an outer closure capturing an outer handle, an inner
+scope allocating, an inner closure capturing *both*, escaping, and called later
+after further allocation, with both aliasings preserved. `lemma_fund` and the
+relation layer are **unchanged** — what was missing were four *introduction*
+lemmas, since the base module had only needed elimination. Nesting turned out
+shallower than it looked.
+
+Aliasing preservation is observable rather than asserted: the inner closure
+compares its two captured handles with `veq`, emits a tag, and consumes the
+inner one, so a broken aliasing shows up as **diverging traces**. And the
+example does not take the easy road — `~(equivariant_fn k_amb)` is proved, so
+the ambient continuation is one the old global notion refused and only
+anchor-relativisation admits.
+
+**2. The unconditional re-anchoring policy is refuted by a witness.** Stated
+carefully, because the strong reading is not what was shown:
+
+> In this concrete configuration — one with an escaping nested handle — **no
+> world is compatible with the policy of re-taking the identity mapping over the
+> current store.** So an implementation that re-anchors unconditionally is
+> rejected. Configurations where re-anchoring happens to be consistent (nothing
+> allocated, say) are not ruled out.
+
+```fstar
+guard_A_no_reanchoring_at_the_escape (w:world)
+  : Lemma (requires val_rel w (MKey 9) (MKey 8))
+          (ensures ~(wext w (anchor sl_escape)))
+```
+
+The practical consequence is good: a re-anchor introduced during the port fails
+*as an unprovable goal*, not as a silent behaviour change.
+
+**3. `wcompat` is necessary and sufficient for joining two fixed worlds.**
+
+```fstar
+lemma_wunion_wf         : wcompat wA wB ==> wA @ wB is wf and extends both
+lemma_wcompat_necessary : a wf world extending both exists ==> wcompat wA wB
+```
+
+Being *necessary* is what makes the next item a result rather than a limitation
+of one proof attempt: there is no definitional adjustment that avoids it.
+
+**4. Rolling the allocator back makes sibling branches unjoinable.** Two
+branches from a common anchor, each returning an escaping closure that captured
+what its own branch allocated, join fine — **unless both start from the same
+counter**, which is exactly what a multi-shot resumption does when it restores
+the allocator along with the continuation:
+
+```fstar
+guard_B_fork_no_join (w:world)
+  : Lemma (requires wf_world w /\ wext w wA_fork /\ wext w wB_fork)
+          (ensures False)
+```
+
+The obstruction is neither size nor freshness: the two branches **disagree about
+who owns the right-hand name**, and a world is a bijection, so it cannot hold
+both opinions. The contrast experiment isolates it — same branches, same
+discarding, and the only difference is whether branch B starts from the counter
+branch A left or from the counter branch A started with.
+
+**5. The semantic invariant this yields**, which is *not* "a global counter":
+
+> **Jointly observable branches must allocate distinct, stable identities. An
+> identity must not be reused while any handle carrying it may remain
+> observable, unless one branch is freshened or namespaced before the results
+> are joined.**
+
+**6. The reference implementation's witness.** A global monotone counter, no
+rollback, no reuse. That is fixed as the adoption condition of the *current*
+reference semantics, and the prototype's non-reclaiming association list already
+satisfies it.
+
+**7. Alternatives are not excluded**, given an equivalence proof:
+branch-qualified identities `(branch-id, local-id)`; generation-tagged slots;
+stable object identity kept apart from dense storage; an indirection that
+freshens one side at a merge; and reclamation after proving unreachability from
+every continuation, closure and world. **What is non-negotiable is cross-branch
+freshness and the stability of live identities, not the mechanism** — the
+monotone counter is simply the only witness implemented today in the `nat`-key
+model.
+
+**8. An obligation this adds to B2b.1's structure.** It is not enough for each
+branch to existentially choose its own future world; the results could then not
+be combined afterwards. One of:
+
+- thread a single monotone world/supply shared by sibling computations — the
+  natural choice if the global store and counter are being modelled faithfully;
+- or carry each branch's final world *plus* its `wcompat` and the join, as part
+  of the result.
+
+Designing the laws so that world witnesses are joined after the fact reproduces
+the fork counterexample.
+
+**9. Store enumeration must not be a public observation.** Exposing keys, a
+count, an iteration order or a raw id through the language semantics, the public
+API or a test observation breaks the repair at store granularity, for the same
+reason `Show` on a key breaks it at key granularity. A developer-only diagnostic
+that programs cannot read and that is not part of observational equivalence is
+harmless — **but it becomes a semantic observation the moment its output
+format is promised to users as stable.**
 
 ### What is not decided
 
