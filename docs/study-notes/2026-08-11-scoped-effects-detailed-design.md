@@ -3768,6 +3768,72 @@ that programs cannot read and that is not part of observational equivalence is
 harmless — **but it becomes a semantic observation the moment its output
 format is promised to users as stable.**
 
+### B2b.1, run: the repair works, and its scope is one configuration deep
+
+The module verifies from a clean cache at 8,215 → 11,059 lines, with **no
+`z3rlimit` raised anywhere** — 2,800 added lines at the default. The world
+layer, the step-indexed world-indexed relation (eight mutually recursive
+relations under a lexicographic `%[n; level; size]`), anchor-relative
+equivariance in two-sided form, and a `pboundary` record carrying `cl_rel`
+together with `lookup_equivariant` and `apply_equivariant` are all in place, and
+`prun` / `pstep_tr` / `pconverges_tr` / `pobs_tr_le` were not touched.
+
+**The limitation, stated precisely:**
+
+> B2b.1 proves the repaired relation's consequent for the former counterexample
+> at one concrete configuration. It does not prove `pnobs_tr_eq`, whose
+> universal quantification over equivariant ambient stacks, stores and
+> boundaries requires a fundamental theorem for the whole machine.
+
+So what this gate establishes is that **the repair bites on the concrete
+counterexamples, and does not do so by banishing them from the quantification
+domain** — `guard_nom_fk_new_equivariant` proves the very ambient stack that
+defeated the old relation is admissible under the new one. Whether the repaired
+equivalence holds *as a semantics* is B2b.2's.
+
+Fired independently: relating all keys in `pval_rel` breaks
+`guard_nom_eq_preserves_aliasing`, so the repair does not overshoot. (In the
+scratch model the same mutation was caught inside the fundamental theorem and
+never reached the negatives; here it lands on the negative property itself.)
+
+Two of the ten mutations the port fired did not isolate, and are recorded as not
+counting.
+
+#### `fapply` is not equivariant, and that is the boundary working
+
+`guard_nom_fapply_not_equivariant` **proves the negation**: no
+`pboundary fv fcl` with `b_apply = fapply` exists. The cause is `fseen`, which
+renders `PCtxKey i` complete with its raw name — the same shape as the `Show`
+refusal. This is a **good boundary check, not a stop condition**, and neither
+equivariance nor `fapply` should be bent to accommodate it. The separation to
+keep is:
+
+- **`fapply`, which carries fixture instrumentation** — outside the nominal
+  theorem, by design;
+- **a semantic / shipping interpreter that does not observe raw identity** —
+  must be *proved* to satisfy the boundary discipline, by B3 at the latest.
+
+That the record is inhabitable at all is shown at `ncl`, a clause language that
+**captures handles**: `nboundary` is built, `lookup_equivariant` holds
+constructively of `pref_lookup`, `apply_equivariant` is proved, and the
+one-sided same-clause alternative is refuted there.
+
+### Gate B2b.2: the nominal fundamental theorem
+
+Not leftover work from B2b.1 — a separate gate, asking whether the repaired
+relation closes over the whole machine. Completion conditions:
+
+| # | condition |
+|---|---|
+| 1 | one step of related configurations goes to related configurations, with the corresponding trace and world extension |
+| 2 | that step lifts to finite runs, so `pnobs_tr_le`'s universal quantification is actually derivable |
+| 3 | `guard_nom_ce_related`'s instance is re-proved as a **corollary** of the theorem, not from hand-written witnesses |
+| 4 | the theorem is instantiated at a non-trivial boundary such as `nboundary`, fixing that the boundary hypotheses are not vacuous |
+
+If step compatibility and the lift to finite runs both turn out large, B2b.2 may
+split internally into *transition compatibility* and *fundamental theorem*. One
+row on the roadmap is enough.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
@@ -3854,10 +3920,11 @@ be assumed rather than verified.
   note above true of the code as well as the prose.)
 - The residual-context representation and its identity discipline are settled
   **for the reference semantics** — a shipping store and the shallow `pval`
-  model's boundary both remain. B2a and the trace-aware step are both done;
-  B2b refuted the laws as stated, so what B3 now waits on is B2b.1 — the
-  nominal repair of the observation relation — and then the laws re-attempted
-  over the repaired relation.
+  model's boundary both remain. B2a, the trace-aware step and B2b.1 are done;
+  B2b refuted the laws as stated and B2b.1 repaired the relation at concrete
+  configurations, so what remains before the laws can be re-attempted is
+  B2b.2 — the fundamental theorem that makes the repaired relation a semantics
+  rather than a set of instances.
 
 The order, revised after B2b:
 
@@ -3869,9 +3936,10 @@ The order, revised after B2b:
 | ~~B2a-2~~ | ~~`pconf_wf` over the whole configuration, preserved by every transition~~ — **done** |
 | ~~trace~~ | ~~make the observation relation trace-aware~~ — **done**: five laws retargeted at `pobs_tr_eq` |
 | ~~B2b~~ | ~~the five laws~~ — **all six propositions refuted**: the relation exposed allocator names |
-| B2b.1 | nominal observation — world-indexed partial bijection on handles, anchor-relative equivariance, a `cl_rel` boundary record |
-| B2b redux | the five laws, over the repaired relation — not attempted until B2b.1 lands |
-| B3 | the existing borrow; simulation with the optimised machine; a shipping handle store |
+| ~~B2b.1~~ | ~~nominal observation relation and boundary discipline~~ — **done**: the former counterexamples repaired at concrete configurations |
+| B2b.2 | the nominal fundamental theorem — machine transitions, world extension and observation preserve the relation, for any interpreter meeting the boundary discipline |
+| B2b redux | the five laws, re-proved using B2b.2 |
+| B3 | equivalence with the fast borrow; simulation with the optimised machine; a shipping store; and the shipping interpreter proved to meet the boundary discipline |
 
 The trace step sits between B2a and B2b deliberately, and is not optional
 polish: while `pobs_eq` observes values only, a prefix-replaying implementation

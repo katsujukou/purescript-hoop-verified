@@ -5043,6 +5043,1481 @@ let lemma_not_pobs_tr_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl
           (ensures ~(pobs_tr_eq lk apply c1 c2))
   = ()
 
+(* ================================================================== *)
+(*  B2b.1 -- THE NOMINAL OBSERVATION.  PART 1: THE WORLD LAYER         *)
+(*                                                                     *)
+(*  THE DEFECT THIS REPAIRS, restated in one sentence: `pobs_tr_le`     *)
+(*  fixes the store and the counter at the start and compares a final   *)
+(*  `pval v`; `pval v` contains `PCtxKey i`; `palloc` hands out         *)
+(*  `cf.next`; so THE NAME OF A FRESHLY ALLOCATED HANDLE IS             *)
+(*  OBSERVABLE.  The block comment before the laws and                  *)
+(*  `guard_ce_runs_differ` record the consequence: every law's left     *)
+(*  side allocates a context and its right side does not, so a          *)
+(*  continuation that allocates one of its own reports `PCtxKey 1`      *)
+(*  against `PCtxKey 0` -- both traces empty, nothing forged, one       *)
+(*  `pstep` from `pload`.                                               *)
+(*                                                                     *)
+(*  THE REPAIR IS NOT A WEAKENING OF THE TRACE.  Nothing below touches  *)
+(*  `prun`, `pstep_tr` or `pconverges_tr`; the trace is still compared  *)
+(*  by equality.  What changes is the comparison of the VALUE and of    *)
+(*  the STORE: instead of raw equality on `PCtxKey`, a WORLD -- a       *)
+(*  finite partial bijection between the two runs' keys -- says which   *)
+(*  of the left run's names corresponds to which of the right run's.    *)
+(*                                                                     *)
+(*  A world is a partial BIJECTION and not merely a partial function.   *)
+(*  `pwf_world`'s biconditional IS the aliasing clause: one key to one  *)
+(*  partner, distinct keys to distinct partners, in both directions.    *)
+(*  `guard_nom_eq_preserves_aliasing` below is that read out at the     *)
+(*  value level, and it is what condition 3 asks for.                   *)
+(*                                                                     *)
+(*  THE ORDER OF THIS FILE IS DELIBERATE.  The NEGATIVE that refutes    *)
+(*  the obvious wrong implementation -- re-anchoring, i.e. re-taking    *)
+(*  the identity over the current store instead of carrying the         *)
+(*  starting world plus one pair per allocation -- is proved BEFORE     *)
+(*  any positive result below rests on the discipline it forbids.  It   *)
+(*  catches a plausible mistake rather than confirming an intent, so it *)
+(*  comes first: `guard_nom_no_reanchoring` and                         *)
+(*  `guard_nom_reanchor_pins_the_garbage`.                             *)
+(* ================================================================== *)
+
+(** **A world**: a finite partial correspondence between the LEFT run's keys and
+    the RIGHT run's.  It is a list and not a function for the same reason
+    `pstore` is: the two lookup directions must be things an induction and an
+    `assert_norm` can both reach. *)
+type pworld = list (nat & nat)
+
+let rec pwlookup_l (i: nat) (w: pworld) : Tot (option nat) (decreases w)
+  = match w with
+    | [] -> None
+    | (a, b) :: r -> if a = i then Some b else pwlookup_l i r
+
+let rec pwlookup_r (j: nat) (w: pworld) : Tot (option nat) (decreases w)
+  = match w with
+    | [] -> None
+    | (a, b) :: r -> if b = j then Some a else pwlookup_r j r
+
+(** One unfolding of each lookup, as a QUANTIFIED fact. The SMT encoding of a
+    recursive function on lists does not reach under an outer `forall` on its
+    own, and every world proof below needs it to. *)
+let lemma_pwl_cons (i j: nat) (w: pworld)
+  : Lemma (forall (a: nat).
+             pwlookup_l a ((i, j) :: w) == (if i = a then Some j else pwlookup_l a w))
+  = ()
+
+let lemma_pwr_cons (i j: nat) (w: pworld)
+  : Lemma (forall (b: nat).
+             pwlookup_r b ((i, j) :: w) == (if j = b then Some i else pwlookup_r b w))
+  = ()
+
+(**
+ * **A WORLD IS A PARTIAL BIJECTION**, and the biconditional is the whole of it.
+ *
+ * `pwlookup_l` is a partial function by construction -- first match wins. The
+ * biconditional adds INJECTIVITY and makes the two directions agree, which is
+ * exactly "aliasing is preserved": two handles are the same on the left iff
+ * their partners are the same on the right.
+ *)
+let pwf_world (w: pworld) : prop
+  = forall (i j: nat). (pwlookup_l i w == Some j) <==> (pwlookup_r j w == Some i)
+
+(** **World extension**: `w'` decides everything `w` decided, and the same way.
+    Never "`w'` contains `w` as a sublist" -- the relation is about what the two
+    worlds SAY, so that a world may be reordered or rebuilt without breaking
+    anything that depended on it. *)
+let pwext (w' w: pworld) : prop
+  = forall (i j: nat). pwlookup_l i w == Some j ==> pwlookup_l i w' == Some j
+
+let lemma_pwext_refl (w: pworld) : Lemma (pwext w w) = ()
+
+let lemma_pwext_trans (w3 w2 w1: pworld)
+  : Lemma (requires pwext w3 w2 /\ pwext w2 w1) (ensures pwext w3 w1) = ()
+
+(** Adding one correspondence, between two keys neither side has spoken for.
+    This is the ONLY way any world below grows: one pair, per allocation. *)
+let pwextend (i j: nat) (w: pworld) : pworld = (i, j) :: w
+
+let lemma_pwextend_wf (i j: nat) (w: pworld)
+  : Lemma (requires pwf_world w /\ pwlookup_l i w == None /\ pwlookup_r j w == None)
+          (ensures pwf_world (pwextend i j w) /\ pwext (pwextend i j w) w /\
+                   pwlookup_l i (pwextend i j w) == Some j)
+  = lemma_pwl_cons i j w; lemma_pwr_cons i j w
+
+(** Every key the world speaks for is below the respective counter. This is what
+    makes a freshly allocated key on each side extend the world without
+    colliding with anything already in it -- `palloc` hands out `cf.next`, and
+    `pwbound` says the world has never mentioned it. *)
+let pwbound (w: pworld) (n1 n2: nat) : prop
+  = forall (i j: nat). pwlookup_l i w == Some j ==> i < n1 /\ j < n2
+
+let lemma_pwbound_fresh (w: pworld) (n1 n2: nat)
+  : Lemma (requires pwf_world w /\ pwbound w n1 n2)
+          (ensures pwlookup_l n1 w == None /\ pwlookup_r n2 w == None)
+  = ()
+
+(** The dual, for siblings: everything this world speaks about was created at or
+    after the two counters. See the sibling section below. *)
+let pwabove (w: pworld) (n1 n2: nat) : prop
+  = forall (i j: nat). pwlookup_l i w == Some j ==> i >= n1 /\ j >= n2
+
+(* ---- Freshness of a store for a counter --------------------------- *)
+
+(** The counter is fresh for the store, in the form the world layer uses it.
+    `pconf_wf` is the same fact stated over `memP`; `lemma_wf_absent` above is
+    the bridge, and `lemma_psfresh_of_conf_wf` below is that bridge packaged. *)
+let psfresh (#v #cl: Type) (sto: pstore v cl) (n: nat) : prop
+  = forall (i: nat). i >= n ==> pstore_lookup i sto == None
+
+let lemma_psfresh_of_conf_wf (#v #cl: Type) (cf: pconf v cl)
+  : Lemma (requires pconf_wf cf) (ensures psfresh cf.store cf.next)
+  = introduce forall (i: nat). (i >= cf.next ==> pstore_lookup i cf.store == None)
+    with (introduce _ ==> _ with lemma_wf_absent i cf.store cf.next)
+
+let lemma_pstore_lookup_cons (#v #cl: Type) (j: nat) (cx: pctx v cl) (sto: pstore v cl)
+  : Lemma (forall (i: nat).
+             pstore_lookup i ((j, cx) :: sto) ==
+               (if j = i then Some cx else pstore_lookup i sto))
+  = ()
+
+let lemma_psfresh_alloc (#v #cl: Type) (sto: pstore v cl) (n: nat) (cx: pctx v cl)
+  : Lemma (requires psfresh sto n) (ensures psfresh ((n, cx) :: sto) (n + 1))
+  = lemma_pstore_lookup_cons n cx sto
+
+(* ---- THE ANCHOR --------------------------------------------------- *)
+
+(**
+ * **The anchor**: the identity on the keys the two sides START sharing.
+ *
+ * `panchor sto` pins every key of `sto` to ITSELF. It is what stops the repair
+ * from identifying two distinct handles that were already public when the
+ * comparison began: a world extending the anchor cannot send key 0 anywhere but
+ * to key 0, because it already says so and `pwext` forbids revision.
+ *)
+let rec panchor (#v #cl: Type) (sto: pstore v cl) : Tot pworld (decreases sto)
+  = match sto with
+    | [] -> []
+    | (i, _) :: r -> (i, i) :: panchor r
+
+let rec lemma_panchor_l (#v #cl: Type) (i: nat) (sto: pstore v cl)
+  : Lemma (ensures pwlookup_l i (panchor sto) ==
+                     (if Some? (pstore_lookup i sto) then Some i else None))
+          (decreases sto)
+  = match sto with
+    | [] -> ()
+    | (j, _) :: r -> lemma_panchor_l i r
+
+let rec lemma_panchor_r (#v #cl: Type) (j: nat) (sto: pstore v cl)
+  : Lemma (ensures pwlookup_r j (panchor sto) ==
+                     (if Some? (pstore_lookup j sto) then Some j else None))
+          (decreases sto)
+  = match sto with
+    | [] -> ()
+    | (i, _) :: r -> lemma_panchor_r j r
+
+let lemma_panchor_wf (#v #cl: Type) (sto: pstore v cl)
+  : Lemma (pwf_world (panchor sto))
+  = FStar.Classical.forall_intro_2 (fun (i: nat) (s: pstore v cl) -> lemma_panchor_l i s);
+    FStar.Classical.forall_intro_2 (fun (j: nat) (s: pstore v cl) -> lemma_panchor_r j s)
+
+let lemma_panchor_bound (#v #cl: Type) (sto: pstore v cl) (n: nat)
+  : Lemma (requires psfresh sto n) (ensures pwbound (panchor sto) n n)
+  = FStar.Classical.forall_intro_2 (fun (i: nat) (s: pstore v cl) -> lemma_panchor_l i s)
+
+(** The anchor pins, and pins to the identity. Stated separately because it is
+    the fact conditions 2 and 3 are read off. *)
+let lemma_panchor_pins (#v #cl: Type) (i: nat) (sto: pstore v cl)
+  : Lemma (requires Some? (pstore_lookup i sto))
+          (ensures pwlookup_l i (panchor sto) == Some i)
+  = lemma_panchor_l i sto
+
+(* ================================================================== *)
+(*  THE NEGATIVE, FIRST: RE-ANCHORING IS UNSOUND                       *)
+(*                                                                     *)
+(*  The obvious implementation of "which names correspond" is to        *)
+(*  re-take the identity over the CURRENT store at every step. It is    *)
+(*  wrong, and wrong in a direction that no positive result would       *)
+(*  reveal: it pins a DISCARDED GARBAGE key as a public name, and a     *)
+(*  garbage key is exactly what the two sides of every law differ by.   *)
+(*                                                                     *)
+(*  These two guards are proved before anything positive rests on the   *)
+(*  discipline they forbid.  The concrete instance, at the store the    *)
+(*  counterexample's left run actually ends with, is                    *)
+(*  `guard_nom_ce_not_a_reanchoring` in the B2b section below.          *)
+(* ================================================================== *)
+
+(**
+ * **RE-ANCHORING, REFUTED IN GENERAL.** PROVED.
+ *
+ * If a store holds the key `i` at all, then any world under which the left's
+ * `i` corresponds to a DIFFERENT right-hand key fails to extend that store's
+ * anchor. So a world carried forward across an allocation the two sides do not
+ * share can never be a re-anchoring of the left's store: the two are not merely
+ * different, they are incompatible.
+ *)
+let guard_nom_no_reanchoring (#v #cl: Type) (i j: nat) (sto: pstore v cl) (w: pworld)
+  : Lemma (requires Some? (pstore_lookup i sto) /\
+                    pwlookup_l i w == Some j /\ ~(i == j))
+          (ensures ~(pwext w (panchor sto)))
+  = lemma_panchor_pins i sto
+
+(**
+ * **AND THE KEY IT WOULD PIN IS THE GARBAGE ONE.** PROVED.
+ *
+ * A store that has just taken one allocation the other side did not take holds
+ * a key `n0` that no public handle names. Re-anchoring pins it -- as a PUBLIC
+ * name, mapped to itself -- while the world the run carries is SILENT about it.
+ * The two disagree on that key, so the carried world does not extend the
+ * re-anchoring: they are not interchangeable bookkeeping.
+ *)
+let guard_nom_reanchor_pins_the_garbage
+      (#v #cl: Type) (sto: pstore v cl) (n0: nat) (cx: pctx v cl) (w: pworld)
+  : Lemma (requires psfresh sto n0 /\ pwbound w n0 n0)
+          (ensures pwlookup_l n0 (panchor ((n0, cx) :: sto)) == Some n0 /\
+                   pwlookup_l n0 w == None /\
+                   ~(pwext w (panchor ((n0, cx) :: sto))))
+  = lemma_pstore_lookup_cons n0 cx sto;
+    lemma_panchor_pins n0 ((n0, cx) :: sto)
+
+(** The anchor GROWS monotonically when the store grows by a fresh entry -- which
+    is not licence to USE the grown one: `guard_nom_no_reanchoring` says what
+    using it would cost. *)
+let lemma_panchor_grows (#v #cl: Type) (sto: pstore v cl) (n0: nat) (cx: pctx v cl)
+  : Lemma (requires psfresh sto n0)
+          (ensures panchor ((n0, cx) :: sto) == (n0, n0) :: panchor sto /\
+                   pwext (panchor ((n0, cx) :: sto)) (panchor sto))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (panchor sto) == Some j ==>
+         pwlookup_l i (panchor ((n0, cx) :: sto)) == Some j)
+    with (introduce _ ==> _
+          with (lemma_panchor_l i sto;
+                lemma_pwl_cons n0 n0 (panchor sto)))
+
+(* ================================================================== *)
+(*  VALUES CORRESPOND                                                  *)
+(* ================================================================== *)
+
+(**
+ * **`pval_rel`.** Payloads must be EQUAL -- the repair does not touch anything
+ * a program could compute -- and handles correspond exactly when the world says
+ * so. Note what is absent: no clause relates a payload to a handle, and none
+ * relates handles the world is silent about. A forged or stale handle is a key
+ * no world speaks for, so it is related to nothing, and that is condition 5.
+ *)
+let pval_rel (#v: Type) (w: pworld) (x1 x2: pval v) : prop
+  = match x1, x2 with
+    | PV a, PV b -> a == b
+    | PCtxKey i, PCtxKey j -> pwlookup_l i w == Some j
+    | _, _ -> False
+
+let lemma_pval_rel_mono (#v: Type) (w' w: pworld) (x1 x2: pval v)
+  : Lemma (requires pval_rel w x1 x2 /\ pwext w' w) (ensures pval_rel w' x1 x2)
+  = match x1 with
+    | PV _ -> (match x2 with | PV _ -> () | PCtxKey _ -> ())
+    | PCtxKey _ -> (match x2 with | PV _ -> () | PCtxKey _ -> ())
+
+let rec pvals_rel (#v: Type) (w: pworld) (xs1 xs2: list (pval v))
+  : Tot prop (decreases xs1)
+  = match xs1, xs2 with
+    | [], [] -> True
+    | a :: r1, b :: r2 -> pval_rel w a b /\ pvals_rel w r1 r2
+    | _, _ -> False
+
+let rec lemma_pvals_rel_mono (#v: Type) (w' w: pworld) (xs1 xs2: list (pval v))
+  : Lemma (requires pvals_rel w xs1 xs2 /\ pwext w' w)
+          (ensures pvals_rel w' xs1 xs2)
+          (decreases xs1)
+  = match xs1, xs2 with
+    | a :: r1, b :: r2 -> lemma_pval_rel_mono w' w a b; lemma_pvals_rel_mono w' w r1 r2
+    | _, _ -> ()
+
+(**
+ * **ALIASING IS PRESERVED, AT THE VALUE LEVEL.** PROVED, in BOTH directions.
+ *
+ * Left-to-right is functionality of `pwlookup_l`; the converse is injectivity,
+ * and injectivity is exactly what `pwf_world`'s biconditional buys. This is
+ * condition 3: the relation admits comparing two handles for equality, because
+ * the answer cannot change under renaming.
+ *)
+let guard_nom_eq_preserves_aliasing (#v: Type) (w: pworld) (a1 a2 b1 b2: pval v)
+  : Lemma (requires pwf_world w /\ pval_rel w a1 a2 /\ pval_rel w b1 b2)
+          (ensures (a1 == b1) <==> (a2 == b2))
+  = match a1, a2, b1, b2 with
+    | PCtxKey i1, PCtxKey i2, PCtxKey j1, PCtxKey j2 ->
+      assert (pwlookup_l i1 w == Some i2);
+      assert (pwlookup_l j1 w == Some j2);
+      assert (pwlookup_r i2 w == Some i1);
+      assert (pwlookup_r j2 w == Some j1)
+    | _, _, _, _ -> ()
+
+(**
+ * **TWO DISTINCT LIVE HANDLES ARE NOT COLLAPSED.** PROVED -- condition 2, at
+ * the level of the world.
+ *
+ * If both keys are live in the starting store, the anchor pins each to itself,
+ * and a world extending the anchor is a partial FUNCTION, so it cannot also
+ * send the first to the second. B1.7's two-contexts-alive fixtures are safe
+ * from the repair for this reason and no other.
+ *)
+let guard_nom_distinct_live_handles (#v #cl: Type)
+      (i j: nat) (sto: pstore v cl) (w: pworld)
+  : Lemma (requires Some? (pstore_lookup i sto) /\ Some? (pstore_lookup j sto) /\
+                    ~(i == j) /\ pwext w (panchor sto))
+          (ensures ~(pval_rel #v w (PCtxKey i) (PCtxKey j)))
+  = lemma_panchor_pins i sto
+
+(**
+ * **A HANDLE NO WORLD SPEAKS FOR IS RELATED TO NOTHING.** PROVED -- condition
+ * 5, at the level of the world: there is no fallback to nearness, to numeric
+ * proximity, or to anything else. A forged key is simply outside every world's
+ * domain, and `pval_rel` has no clause for it.
+ *)
+let guard_nom_forged_handle_unrelated (#v: Type) (w: pworld) (i: nat) (x2: pval v)
+  : Lemma (requires pwlookup_l i w == None)
+          (ensures ~(pval_rel #v w (PCtxKey i) x2))
+  = match x2 with | PV _ -> () | PCtxKey _ -> ()
+
+
+(* ================================================================== *)
+(*  B2b.1 -- PART 2: THE STEP-INDEXED, WORLD-INDEXED RELATION          *)
+(*                                                                     *)
+(*  REACHABILITY IS NOT COMPUTABLE HERE, and that is why the relation   *)
+(*  has this shape rather than a simpler one.  A stored                 *)
+(*  `PCtxRequests x resid post` carries a FUNCTION component            *)
+(*  `post: pval v -> pcomp v cl`, and the keys `post` can return cannot *)
+(*  be enumerated, so "the set of handles reachable from a public       *)
+(*  handle" is not a set this module can compute and quotient by.       *)
+(*  Instead relatedness is defined by WHAT THE TWO SIDES PRODUCE: two   *)
+(*  computations are related at a world when they take related          *)
+(*  arguments to related results AT EVERY FUTURE WORLD, and the world   *)
+(*  is extended when a new handle surfaces.                             *)
+(*                                                                     *)
+(*  THE STEP INDEX is what makes that well founded across the function  *)
+(*  components; it is NOT a transition count and never appears in any   *)
+(*  statement about a run.  The LEXICOGRAPHIC second component orders   *)
+(*  the auxiliary relations ABOVE `pcomp_rel` at the SAME index, which  *)
+(*  is what lets a frame, a plan or a context speak about the           *)
+(*  computations its function components produce without spending an    *)
+(*  index -- exactly the `%[n;0]` / `%[n;1]` arrangement the scratch    *)
+(*  model needed for `ctx_rel` over `comp_rel`.  The third component is *)
+(*  a list length, for the two list relations, which recurse at their   *)
+(*  own level and index.                                               *)
+(*                                                                     *)
+(*  `cl` IS ABSTRACT, so a clause is related to a clause by a relation  *)
+(*  the boundary supplies: `pcl_rel_t`.  It is INDEXED BY THE STEP AND  *)
+(*  BY THE WORLD because a clause is an opaque FFI closure in the       *)
+(*  shipped machine and may therefore CAPTURE A LIVE HANDLE.  A         *)
+(*  same-clause condition -- "the two sides hold the very same `cl`" -- *)
+(*  is not merely inconvenient: no handle-capturing clause satisfies    *)
+(*  any single-sided condition at all, for the same reason              *)
+(*  `guard_nom_capture_not_single_sided` below records.  So `cl_rel` is *)
+(*  DATA carried across the boundary, and the two equivariance          *)
+(*  conditions are PROPERTIES OF IT.                                    *)
+(* ================================================================== *)
+
+(** The clause relation the boundary supplies: step- and world-indexed. *)
+let pcl_rel_t (cl: Type) = nat -> pworld -> cl -> cl -> prop
+
+(**
+ * **Handler tables correspond when LOOKUP through them corresponds.** The
+ * `handlers cl` type is abstract in `Hoop.Runtime.Handlers` and is taken as it
+ * ships, so a structural relation on it is not available and would not be
+ * wanted: what the machine does with a table is look a clause up in it, and two
+ * tables that answer with corresponding clauses are indistinguishable to every
+ * transition. The `kind` must agree exactly -- a `KFast` and a `KFull` are
+ * dispatched differently, so relating them would be relating clauses that
+ * BEHAVE differently.
+ *)
+let phandlers_rel (#cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                  (h1 h2: handlers cl) : prop
+  = forall (eff op: string).
+      (match lookup_handler h1 eff op, lookup_handler h2 eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ r n w f1.body f2.body
+       | _, _ -> False)
+
+let ptable_rel (#cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+               (t1 t2: ptable cl) : prop
+  = t1.binds == t2.binds /\ phandlers_rel r n w t1.hs t2.hs
+
+(* ---- The relation proper ------------------------------------------ *)
+
+let rec pcomp_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                  (c1 c2: pcomp v cl)
+  : GTot prop (decreases %[n; 0; 0])
+  = if n = 0 then True
+    else
+      match c1, c2 with
+      | PVar x1, PVar x2 -> pval_rel w x1 x2
+      | POp a1 f1, POp a2 f2 ->
+        pcomp_rel r (n - 1) w a1 a2 /\
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r (n - 1) w' (f1 y1) (f2 y2))
+      | PPerform e1 o1 p1, PPerform e2 o2 p2 ->
+        e1 == e2 /\ o1 == o2 /\ pvals_rel w p1 p2
+      | PHandle t1 ret1 pv1 b1, PHandle t2 ret2 pv2 b2 ->
+        ptable_rel r (n - 1) w t1 t2 /\ pv1 == pv2 /\
+        pcomp_rel r (n - 1) w b1 b2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (w': pworld) (y1 y2: pval v).
+              pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+              pcomp_rel r (n - 1) w' (g1 y1) (g2 y2))
+         | _, _ -> False)
+      | PSplice fs1 b1, PSplice fs2 b2 ->
+        pframes_rel r (n - 1) w fs1 fs2 /\ pcomp_rel r (n - 1) w b1 b2
+      | PEmit e1 b1, PEmit e2 b2 ->
+        e1 == e2 /\ pcomp_rel r (n - 1) w b1 b2
+      | PWeave oe1 oo1 is1 ow1 b1, PWeave oe2 oo2 is2 ow2 b2 ->
+        oe1 == oe2 /\ oo1 == oo2 /\ pframes_rel r (n - 1) w is1 is2 /\
+        powner_rel r (n - 1) w ow1 ow2 /\ pcomp_rel r (n - 1) w b1 b2
+      | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+        pplan_rel r (n - 1) w pl1 pl2 /\ pcomp_rel r (n - 1) w b1 b2
+      | PExtendC pl1 h1 g1, PExtendC pl2 h2 g2 ->
+        pplan_rel r (n - 1) w pl1 pl2 /\ pval_rel w h1 h2 /\
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r (n - 1) w' (g1 y1) (g2 y2))
+      | PExtendCtxC pl1 h1 g1, PExtendCtxC pl2 h2 g2 ->
+        pplan_rel r (n - 1) w pl1 pl2 /\ pval_rel w h1 h2 /\
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r (n - 1) w' (g1 y1) (g2 y2))
+      | PResumeC pl1 h1 k1, PResumeC pl2 h2 k2 ->
+        pplan_rel r (n - 1) w pl1 pl2 /\ pval_rel w h1 h2 /\
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r (n - 1) w' (k1 y1) (k2 y2))
+      | PNewP l1 i1 b1, PNewP l2 i2 b2 ->
+        l1 == l2 /\ pval_rel w i1 i2 /\ pcomp_rel r (n - 1) w b1 b2
+      | PReadP l1, PReadP l2 -> l1 == l2
+      | PWriteP l1 x1, PWriteP l2 x2 -> l1 == l2 /\ pval_rel w x1 x2
+      | _, _ -> False
+
+and powner_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+               (o1 o2: powner v cl)
+  : GTot prop (decreases %[n; 1; 0])
+  = if n = 0 then True
+    else
+      match o1, o2 with
+      | POwner t1 ret1 pv1, POwner t2 ret2 pv2 ->
+        ptable_rel r n w t1 t2 /\ pv1 == pv2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (w': pworld) (y1 y2: pval v).
+              pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+              pcomp_rel r n w' (g1 y1) (g2 y2))
+         | _, _ -> False)
+
+and pframe_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+               (f1 f2: pframe v cl)
+  : GTot prop (decreases %[n; 2; 0])
+  = if n = 0 then True
+    else
+      match f1, f2 with
+      | PBindF g1, PBindF g2 ->
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r n w' (g1 y1) (g2 y2))
+      | PParamF l1 x1, PParamF l2 x2 -> l1 == l2 /\ pval_rel w x1 x2
+      | PPromptF t1 ret1 pv1, PPromptF t2 ret2 pv2 ->
+        ptable_rel r n w t1 t2 /\ pv1 == pv2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (w': pworld) (y1 y2: pval v).
+              pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+              pcomp_rel r n w' (g1 y1) (g2 y2))
+         | _, _ -> False)
+      | PBoundaryF, PBoundaryF -> True
+      | PSiteF g1, PSiteF g2 ->
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r n w' (g1 y1) (g2 y2))
+      | PModeF m1 g1, PModeF m2 g2 ->
+        m1 == m2 /\
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r n w' (g1 y1) (g2 y2))
+      | PScopeF, PScopeF -> True
+      | _, _ -> False
+
+and pitem_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+              (i1 i2: plan_item v cl)
+  : GTot prop (decreases %[n; 2; 1])
+  = if n = 0 then True
+    else
+      match i1, i2 with
+      | PIBind g1, PIBind g2 ->
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r n w' (g1 y1) (g2 y2))
+      | PICell l1 x1, PICell l2 x2 -> l1 == l2 /\ pval_rel w x1 x2
+      | PITransparent t1, PITransparent t2 -> ptable_rel r n w t1 t2
+      | PIReenter t1 ret1, PIReenter t2 ret2 ->
+        ptable_rel r n w t1 t2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (w': pworld) (y1 y2: pval v).
+              pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+              pcomp_rel r n w' (g1 y1) (g2 y2))
+         | _, _ -> False)
+      | _, _ -> False
+
+and pframes_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                (fs1 fs2: list (pframe v cl))
+  : GTot prop (decreases %[n; 3; length fs1])
+  = if n = 0 then True
+    else
+      match fs1, fs2 with
+      | [], [] -> True
+      | a1 :: t1, a2 :: t2 -> pframe_rel r n w a1 a2 /\ pframes_rel r n w t1 t2
+      | _, _ -> False
+
+and pitems_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+               (is1 is2: list (plan_item v cl))
+  : GTot prop (decreases %[n; 3; length is1])
+  = if n = 0 then True
+    else
+      match is1, is2 with
+      | [], [] -> True
+      | a1 :: t1, a2 :: t2 -> pitem_rel r n w a1 a2 /\ pitems_rel r n w t1 t2
+      | _, _ -> False
+
+and pplan_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+              (pl1 pl2: plan v cl)
+  : GTot prop (decreases %[n; 4; 0])
+  = if n = 0 then True
+    else
+      match pl1, pl2 with
+      | Plan ls1 ow1, Plan ls2 ow2 ->
+        pitems_rel r n w ls1 ls2 /\ powner_rel r n w ow1 ow2
+
+(**
+ * **CONTEXTS CORRESPOND BY WHAT THEY DO WHEN CONSUMED.** This is the clause
+ * condition 4 rests on: two store entries whose contexts behave differently are
+ * NOT related, at any world, because `post` must send related arguments to
+ * related computations and the residual frames must correspond frame for frame.
+ *
+ * `PCtxDone` and `PCtxRequests` are kept apart, as they are in the machine. The
+ * note on `pctx` records that the two are operationally the same in one
+ * degenerate case; relating them would make the relation coarser than the
+ * machine and is not done.
+ *)
+let pctx_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+             (cx1 cx2: pctx v cl)
+  : GTot prop
+  = if n = 0 then True
+    else
+      match cx1, cx2 with
+      | PCtxDone y1, PCtxDone y2 -> pval_rel w y1 y2
+      | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+        pval_rel w x1 x2 /\ pframes_rel r n w rs1 rs2 /\
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r n w' (p1 y1) (p2 y2))
+      | _, _ -> False
+
+(** The intersection of the approximants -- the relations the statements below
+    are made of. `pcrel` is over computations, `pxrel` over contexts. *)
+let pcrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (c1 c2: pcomp v cl) : GTot prop
+  = forall (n: nat). pcomp_rel r n w c1 c2
+
+let pxrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (cx1 cx2: pctx v cl) : GTot prop
+  = forall (n: nat). pctx_rel r n w cx1 cx2
+
+let pkrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (k1 k2: pstack v cl) : GTot prop
+  = forall (n: nat). pframes_rel r n w k1 k2
+
+(* ================================================================== *)
+(*  KRIPKE MONOTONICITY                                                *)
+(*                                                                     *)
+(*  Every occurrence of `w` in the bodies above is either inside        *)
+(*  `pval_rel` (monotone), inside `ptable_rel` (monotone if `r` is), or *)
+(*  under a `forall w'` extending `w` (which only weakens as `w`        *)
+(*  grows).  So the whole family is monotone, PROVIDED the clause       *)
+(*  relation the boundary supplied is -- which is why `pcl_mono` is a   *)
+(*  hypothesis and not an assumption.                                   *)
+(* ================================================================== *)
+
+let pcl_mono (#cl: Type) (r: pcl_rel_t cl) : prop
+  = forall (n: nat) (w' w: pworld) (c1 c2: cl).
+      r n w c1 c2 /\ pwext w' w ==> r n w' c1 c2
+
+let lemma_ptable_rel_mono (#cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                          (t1 t2: ptable cl)
+  : Lemma (requires ptable_rel r n w t1 t2 /\ pwext w' w /\ pcl_mono r)
+          (ensures ptable_rel r n w' t1 t2)
+  = introduce forall (eff op: string).
+        (match lookup_handler t1.hs eff op, lookup_handler t2.hs eff op with
+         | None, None -> True
+         | Some f1, Some f2 -> f1.kind == f2.kind /\ r n w' f1.body f2.body
+         | _, _ -> False)
+    with (match lookup_handler t1.hs eff op, lookup_handler t2.hs eff op with
+          | Some f1, Some f2 -> assert (r n w f1.body f2.body)
+          | _, _ -> ())
+
+let rec lemma_pcomp_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                             (c1 c2: pcomp v cl)
+  : Lemma (requires pcomp_rel r n w c1 c2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pcomp_rel r n w' c1 c2)
+          (decreases %[n; 0; 0])
+  = if n = 0 then ()
+    else
+      match c1, c2 with
+      | PVar x1, PVar x2 -> lemma_pval_rel_mono w' w x1 x2
+      | POp a1 _, POp a2 _ -> lemma_pcomp_rel_mono r (n - 1) w' w a1 a2
+      | PPerform _ _ p1, PPerform _ _ p2 -> lemma_pvals_rel_mono w' w p1 p2
+      | PHandle t1 _ _ b1, PHandle t2 _ _ b2 ->
+        lemma_ptable_rel_mono r (n - 1) w' w t1 t2;
+        lemma_pcomp_rel_mono r (n - 1) w' w b1 b2
+      | PSplice fs1 b1, PSplice fs2 b2 ->
+        lemma_pframes_rel_mono r (n - 1) w' w fs1 fs2;
+        lemma_pcomp_rel_mono r (n - 1) w' w b1 b2
+      | PEmit _ b1, PEmit _ b2 -> lemma_pcomp_rel_mono r (n - 1) w' w b1 b2
+      | PWeave _ _ is1 ow1 b1, PWeave _ _ is2 ow2 b2 ->
+        lemma_pframes_rel_mono r (n - 1) w' w is1 is2;
+        lemma_powner_rel_mono r (n - 1) w' w ow1 ow2;
+        lemma_pcomp_rel_mono r (n - 1) w' w b1 b2
+      | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+        lemma_pplan_rel_mono r (n - 1) w' w pl1 pl2;
+        lemma_pcomp_rel_mono r (n - 1) w' w b1 b2
+      | PExtendC pl1 h1 _, PExtendC pl2 h2 _ ->
+        lemma_pplan_rel_mono r (n - 1) w' w pl1 pl2;
+        lemma_pval_rel_mono w' w h1 h2
+      | PExtendCtxC pl1 h1 _, PExtendCtxC pl2 h2 _ ->
+        lemma_pplan_rel_mono r (n - 1) w' w pl1 pl2;
+        lemma_pval_rel_mono w' w h1 h2
+      | PResumeC pl1 h1 _, PResumeC pl2 h2 _ ->
+        lemma_pplan_rel_mono r (n - 1) w' w pl1 pl2;
+        lemma_pval_rel_mono w' w h1 h2
+      | PNewP _ i1 b1, PNewP _ i2 b2 ->
+        lemma_pval_rel_mono w' w i1 i2;
+        lemma_pcomp_rel_mono r (n - 1) w' w b1 b2
+      | PWriteP _ x1, PWriteP _ x2 -> lemma_pval_rel_mono w' w x1 x2
+      | _, _ -> ()
+
+and lemma_powner_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                          (o1 o2: powner v cl)
+  : Lemma (requires powner_rel r n w o1 o2 /\ pwext w' w /\ pcl_mono r)
+          (ensures powner_rel r n w' o1 o2)
+          (decreases %[n; 1; 0])
+  = if n = 0 then ()
+    else
+      match o1, o2 with
+      | POwner t1 _ _, POwner t2 _ _ -> lemma_ptable_rel_mono r n w' w t1 t2
+
+and lemma_pframe_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                          (f1 f2: pframe v cl)
+  : Lemma (requires pframe_rel r n w f1 f2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pframe_rel r n w' f1 f2)
+          (decreases %[n; 2; 0])
+  = if n = 0 then ()
+    else
+      match f1, f2 with
+      | PParamF _ x1, PParamF _ x2 -> lemma_pval_rel_mono w' w x1 x2
+      | PPromptF t1 _ _, PPromptF t2 _ _ -> lemma_ptable_rel_mono r n w' w t1 t2
+      | _, _ -> ()
+
+and lemma_pitem_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                         (i1 i2: plan_item v cl)
+  : Lemma (requires pitem_rel r n w i1 i2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pitem_rel r n w' i1 i2)
+          (decreases %[n; 2; 1])
+  = if n = 0 then ()
+    else
+      match i1, i2 with
+      | PICell _ x1, PICell _ x2 -> lemma_pval_rel_mono w' w x1 x2
+      | PITransparent t1, PITransparent t2 -> lemma_ptable_rel_mono r n w' w t1 t2
+      | PIReenter t1 _, PIReenter t2 _ -> lemma_ptable_rel_mono r n w' w t1 t2
+      | _, _ -> ()
+
+and lemma_pframes_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                           (fs1 fs2: list (pframe v cl))
+  : Lemma (requires pframes_rel r n w fs1 fs2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pframes_rel r n w' fs1 fs2)
+          (decreases %[n; 3; length fs1])
+  = if n = 0 then ()
+    else
+      match fs1, fs2 with
+      | a1 :: t1, a2 :: t2 ->
+        lemma_pframe_rel_mono r n w' w a1 a2;
+        lemma_pframes_rel_mono r n w' w t1 t2
+      | _, _ -> ()
+
+and lemma_pitems_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                          (is1 is2: list (plan_item v cl))
+  : Lemma (requires pitems_rel r n w is1 is2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pitems_rel r n w' is1 is2)
+          (decreases %[n; 3; length is1])
+  = if n = 0 then ()
+    else
+      match is1, is2 with
+      | a1 :: t1, a2 :: t2 ->
+        lemma_pitem_rel_mono r n w' w a1 a2;
+        lemma_pitems_rel_mono r n w' w t1 t2
+      | _, _ -> ()
+
+and lemma_pplan_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                         (pl1 pl2: plan v cl)
+  : Lemma (requires pplan_rel r n w pl1 pl2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pplan_rel r n w' pl1 pl2)
+          (decreases %[n; 4; 0])
+  = if n = 0 then ()
+    else
+      match pl1, pl2 with
+      | Plan ls1 ow1, Plan ls2 ow2 ->
+        lemma_pitems_rel_mono r n w' w ls1 ls2;
+        lemma_powner_rel_mono r n w' w ow1 ow2
+
+let lemma_pctx_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
+                        (cx1 cx2: pctx v cl)
+  : Lemma (requires pctx_rel r n w cx1 cx2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pctx_rel r n w' cx1 cx2)
+  = if n = 0 then ()
+    else
+      match cx1, cx2 with
+      | PCtxDone y1, PCtxDone y2 -> lemma_pval_rel_mono w' w y1 y2
+      | PCtxRequests x1 rs1 _, PCtxRequests x2 rs2 _ ->
+        lemma_pval_rel_mono w' w x1 x2;
+        lemma_pframes_rel_mono r n w' w rs1 rs2
+      | _, _ -> ()
+
+let lemma_pcrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (w' w: pworld)
+                     (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r w c1 c2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pcrel r w' c1 c2)
+  = introduce forall (n: nat). pcomp_rel r n w' c1 c2
+    with lemma_pcomp_rel_mono r n w' w c1 c2
+
+let lemma_pxrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (w' w: pworld)
+                     (cx1 cx2: pctx v cl)
+  : Lemma (requires pxrel r w cx1 cx2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pxrel r w' cx1 cx2)
+  = introduce forall (n: nat). pctx_rel r n w' cx1 cx2
+    with lemma_pctx_rel_mono r n w' w cx1 cx2
+
+let lemma_pkrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (w' w: pworld)
+                     (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w k1 k2 /\ pwext w' w /\ pcl_mono r)
+          (ensures pkrel r w' k1 k2)
+  = introduce forall (n: nat). pframes_rel r n w' k1 k2
+    with lemma_pframes_rel_mono r n w' w k1 k2
+
+(* ================================================================== *)
+(*  B2b.1 -- PART 3: STORES, AND ANCHOR-RELATIVE EQUIVARIANCE          *)
+(* ================================================================== *)
+
+(**
+ * **Reading an entry, with a junk default rather than `Some?.v`.**
+ *
+ * `Some?.v` inside a `prop` typechecks -- the refinement is discharged by the
+ * guarding `Some?` -- and then blocks SMT instantiation, because the proof term
+ * the projector carries is not something the encoding can produce under a
+ * quantifier. The junk is never consulted: every use below is guarded by
+ * `Some?`.
+ *)
+let psget (#v #cl: Type) (i: nat) (sto: pstore v cl) : Tot (pctx v cl)
+  = match pstore_lookup i sto with
+    | Some cx -> cx
+    | None -> PCtxDone (PCtxKey 0)
+
+(**
+ * **STORES CORRESPOND ON THE WORLD'S DOMAIN ONLY** -- condition 6.
+ *
+ * An entry that no public handle names is GARBAGE and is ignored. That is
+ * exactly how the two sides of every law are permitted to hold DIFFERENT
+ * NUMBERS of contexts: the extra one the left allocated is named by no handle
+ * the world speaks for, so `psrel` never looks at it. Note that this is not
+ * "small stores are related to large ones": an entry the world DOES name must
+ * be present on both sides and the two must be `pxrel`-related.
+ *
+ * The `{:pattern}` is not decoration. Without it the trigger F* infers fires
+ * only when both lookups already occur in the goal, and every store proof below
+ * needs to go the other way -- from the world's domain to the two lookups.
+ *)
+let psrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (s1 s2: pstore v cl) : GTot prop
+  = forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+      pwlookup_l i w == Some j ==>
+      (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+       pxrel r w (psget i s1) (psget j s2))
+
+(* ---- ANCHOR-RELATIVE EQUIVARIANCE --------------------------------- *)
+
+(**
+ * **EQUIVARIANCE IS NOT INVARIANCE UNDER EVERY WORLD.  IT IS INVARIANCE UNDER
+ * EVERY FUTURE WORLD EXTENDING THE CORRESPONDENCE THE CLOSURE ALREADY OWNS.**
+ *
+ * `pfn_rel_at w0 f1 f2` is the TWO-SIDED form, and the two-sidedness is
+ * essential rather than a generalisation for its own sake: the two runs hold
+ * DIFFERENT closures, each having captured the handles ITS OWN run allocated.
+ * A one-sided condition -- one closure, related to itself -- cannot even state
+ * that situation, and (see `guard_nom_capture_not_single_sided`) is FALSE of
+ * every handle-capturing closure there is, so restricting to closures that
+ * satisfy it would exclude handle capture outright.
+ *
+ * `w0` is the PROVENANCE the closure carries. It is not a syntactic mark: one
+ * and the same term is equivariant at one anchor and not at another -- that is
+ * `guard_nom_capture_vs_guess` below, and it is the discrimination a globally
+ * quantified notion cannot make.
+ *)
+let pfn_rel_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+               (f1 f2: pval v -> pcomp v cl) : GTot prop
+  = forall (w: pworld) (y1 y2: pval v).
+      pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==> pcrel r w (f1 y1) (f2 y2)
+
+(** The same, for a STACK -- which is what the ambient continuation is in this
+    machine. `pobs_tr_le` plugs both sides into one arbitrary `k`, so the
+    self-relation `pkrel_at w0 k k` is what the observation demands of it. *)
+let pkrel_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld) (k1 k2: pstack v cl)
+  : GTot prop
+  = forall (w: pworld). pwf_world w /\ pwext w w0 ==> pkrel r w k1 k2
+
+let pxrel_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld) (cx1 cx2: pctx v cl)
+  : GTot prop
+  = forall (w: pworld). pwf_world w /\ pwext w w0 ==> pxrel r w cx1 cx2
+
+let pequivariant_k_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld) (k: pstack v cl)
+  : GTot prop
+  = pkrel_at r w0 k k
+
+let pequivariant_ctx_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld) (cx: pctx v cl)
+  : GTot prop
+  = pxrel_at r w0 cx cx
+
+(** A store is equivariant AT ITS OWN ANCHOR: every entry is self-related at
+    every future world extending the identity on the store's own keys. *)
+let pstore_equivariant_at (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl)
+  : GTot prop
+  = forall (i: nat) (cx: pctx v cl).
+      pstore_lookup i sto == Some cx ==> pequivariant_ctx_at r (panchor sto) cx
+
+(** **The GLOBAL notion, kept only for comparison.** It quantifies over EVERY
+    well-formed world, which is strictly more than the observation ever needs,
+    and the excess is not free: it refuses every closure that captured a handle
+    along with the ones that guessed a name. It is exactly the EMPTY-ANCHOR
+    instance of the corrected notion -- so the correction is a genuine
+    RELATIVISATION and not a different predicate. *)
+let pequivariant_k (#v #cl: Type) (r: pcl_rel_t cl) (k: pstack v cl) : GTot prop
+  = forall (w: pworld). pwf_world w ==> pkrel r w k k
+
+let lemma_pglobal_is_empty_anchor (#v #cl: Type) (r: pcl_rel_t cl) (k: pstack v cl)
+  : Lemma (pequivariant_k r k <==> pequivariant_k_at r [] k)
+  = ()
+
+(** Anchor-relative equivariance is WEAKER the larger the anchor, so the global
+    notion implies every anchor-relative one. *)
+let lemma_pglobal_implies_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                             (k: pstack v cl)
+  : Lemma (requires pequivariant_k r k) (ensures pequivariant_k_at r w0 k)
+  = ()
+
+(* ---- Kripke monotonicity of the `_at` forms ------------------------ *)
+
+(** **Equivariance already owned at `w0` is still owned at every world extending
+    `w0`.** So carrying a closure forward through allocations never invalidates
+    its equivariance, and the hypothesis does not have to be re-established at
+    each transition -- which is what makes the discipline "the starting world
+    plus one pair per allocation" sufficient. *)
+let lemma_pfn_rel_at_mono (#v #cl: Type) (r: pcl_rel_t cl) (w1 w0: pworld)
+                          (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pfn_rel_at r w0 f1 f2 /\ pwext w1 w0)
+          (ensures pfn_rel_at r w1 f1 f2)
+  = introduce forall (w: pworld) (y1 y2: pval v).
+        (pwf_world w /\ pwext w w1 /\ pval_rel w y1 y2 ==> pcrel r w (f1 y1) (f2 y2))
+    with (introduce _ ==> _ with lemma_pwext_trans w w1 w0)
+
+let lemma_pkrel_at_mono (#v #cl: Type) (r: pcl_rel_t cl) (w1 w0: pworld)
+                        (k1 k2: pstack v cl)
+  : Lemma (requires pkrel_at r w0 k1 k2 /\ pwext w1 w0)
+          (ensures pkrel_at r w1 k1 k2)
+  = introduce forall (w: pworld). (pwf_world w /\ pwext w w1 ==> pkrel r w k1 k2)
+    with (introduce _ ==> _ with lemma_pwext_trans w w1 w0)
+
+let lemma_pxrel_at_mono (#v #cl: Type) (r: pcl_rel_t cl) (w1 w0: pworld)
+                        (cx1 cx2: pctx v cl)
+  : Lemma (requires pxrel_at r w0 cx1 cx2 /\ pwext w1 w0)
+          (ensures pxrel_at r w1 cx1 cx2)
+  = introduce forall (w: pworld). (pwf_world w /\ pwext w w1 ==> pxrel r w cx1 cx2)
+    with (introduce _ ==> _ with lemma_pwext_trans w w1 w0)
+
+(* ---- The store lemmas the observation needs ------------------------ *)
+
+(** An equivariant store is related to itself at its own anchor. PROVED. *)
+let lemma_psrel_anchor_at (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl)
+  : Lemma (requires pstore_equivariant_at r sto)
+          (ensures psrel r (panchor sto) sto sto)
+  = lemma_panchor_wf sto;
+    lemma_pwext_refl (panchor sto);
+    introduce forall (i j: nat).
+        (pwlookup_l i (panchor sto) == Some j ==>
+         (Some? (pstore_lookup i sto) /\ Some? (pstore_lookup j sto) /\
+          pxrel r (panchor sto) (psget i sto) (psget j sto)))
+    with (introduce _ ==> _
+          with (lemma_panchor_l i sto;
+                match pstore_lookup i sto with
+                | Some cx ->
+                  assert (j == i);
+                  assert (pequivariant_ctx_at r (panchor sto) cx)
+                | None -> ()))
+
+(**
+ * **THE EXTRA ENTRY ONE SIDE ALLOCATED IS GARBAGE.** PROVED, in both
+ * directions: no public handle names it, so it does not appear in the anchor's
+ * domain and the two stores are related despite differing in SIZE. This is the
+ * fact that makes the counterexample's two runs comparable at all.
+ *)
+let lemma_psrel_garbage (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl)
+                        (n0: nat) (cx: pctx v cl)
+  : Lemma (requires pstore_equivariant_at r sto /\ psfresh sto n0)
+          (ensures psrel r (panchor sto) ((n0, cx) :: sto) sto /\
+                   psrel r (panchor sto) sto ((n0, cx) :: sto))
+  = lemma_psrel_anchor_at r sto;
+    lemma_pstore_lookup_cons n0 cx sto;
+    introduce forall (i j: nat).
+        (pwlookup_l i (panchor sto) == Some j ==>
+         (Some? (pstore_lookup i ((n0, cx) :: sto)) /\ Some? (pstore_lookup j sto) /\
+          pxrel r (panchor sto) (psget i ((n0, cx) :: sto)) (psget j sto)))
+    with (introduce _ ==> _
+          with (lemma_panchor_l i sto;
+                assert (Some? (pstore_lookup i sto) /\ Some? (pstore_lookup j sto));
+                assert (i < n0)));
+    introduce forall (i j: nat).
+        (pwlookup_l i (panchor sto) == Some j ==>
+         (Some? (pstore_lookup i sto) /\ Some? (pstore_lookup j ((n0, cx) :: sto)) /\
+          pxrel r (panchor sto) (psget i sto) (psget j ((n0, cx) :: sto))))
+    with (introduce _ ==> _
+          with (lemma_panchor_l i sto;
+                assert (Some? (pstore_lookup i sto) /\ Some? (pstore_lookup j sto));
+                assert (j < n0)))
+
+(**
+ * **A NEW HANDLE SURFACES ON EACH SIDE: THE WORLD IS EXTENDED BY EXACTLY THAT
+ * ONE CORRESPONDENCE.** PROVED.
+ *
+ * This is the discipline in one lemma: the starting world, plus ONE explicit
+ * pair per allocation, and nothing else. Aliasing survives because the
+ * extension is a single pair with a fresh key on each side -- `pwbound` is what
+ * says both are fresh, and `palloc` hands out exactly `cf.next`.
+ *)
+let lemma_psrel_alloc (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (s1 s2: pstore v cl) (m1 m2: nat) (cx1 cx2: pctx v cl)
+  : Lemma (requires pwf_world w /\ psrel r w s1 s2 /\ pwbound w m1 m2 /\
+                    pxrel r w cx1 cx2 /\ pcl_mono r)
+          (ensures (let w' = pwextend m1 m2 w in
+                    pwf_world w' /\ pwext w' w /\
+                    pval_rel #v w' (PCtxKey m1) (PCtxKey m2) /\
+                    psrel r w' ((m1, cx1) :: s1) ((m2, cx2) :: s2) /\
+                    pwbound w' (m1 + 1) (m2 + 1)))
+  = lemma_pwbound_fresh w m1 m2;
+    lemma_pwextend_wf m1 m2 w;
+    lemma_pwl_cons m1 m2 w;
+    lemma_pstore_lookup_cons m1 cx1 s1;
+    lemma_pstore_lookup_cons m2 cx2 s2;
+    let w' = pwextend m1 m2 w in
+    introduce forall (i j: nat).
+        (pwlookup_l i w' == Some j ==>
+         (Some? (pstore_lookup i ((m1, cx1) :: s1)) /\
+          Some? (pstore_lookup j ((m2, cx2) :: s2)) /\
+          pxrel r w' (psget i ((m1, cx1) :: s1)) (psget j ((m2, cx2) :: s2))))
+    with (introduce _ ==> _
+          with (if i = m1
+                then begin
+                  assert (j == m2);
+                  assert (psget i ((m1, cx1) :: s1) == cx1);
+                  assert (psget j ((m2, cx2) :: s2) == cx2);
+                  lemma_pxrel_mono r w' w cx1 cx2
+                end
+                else begin
+                  assert (pwlookup_l i w == Some j);
+                  assert (j < m2);
+                  assert (pstore_lookup i ((m1, cx1) :: s1) == pstore_lookup i s1);
+                  assert (pstore_lookup j ((m2, cx2) :: s2) == pstore_lookup j s2);
+                  assert (psget i ((m1, cx1) :: s1) == psget i s1);
+                  assert (psget j ((m2, cx2) :: s2) == psget j s2);
+                  assert (pxrel r w (psget i s1) (psget j s2));
+                  lemma_pxrel_mono r w' w (psget i s1) (psget j s2)
+                end))
+
+(**
+ * **THE EXTENSION ADDS EXACTLY ONE LEFT KEY.** PROVED. Every left key the
+ * starting world was silent about -- the left run's garbage included -- STAYS
+ * silent. This is "no re-anchoring", stated at the transition rather than at
+ * the end of a run, and it is the positive counterpart of
+ * `guard_nom_no_reanchoring`.
+ *)
+let guard_nom_alloc_extends_by_one_pair (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+      (s1 s2: pstore v cl) (m1 m2: nat) (cx1 cx2: pctx v cl)
+  : Lemma (requires pwf_world w /\ psrel r w s1 s2 /\ pwbound w m1 m2 /\
+                    pxrel r w cx1 cx2 /\ pcl_mono r)
+          (ensures (let w' = pwextend m1 m2 w in
+                    pwf_world w' /\ pwext w' w /\
+                    psrel r w' ((m1, cx1) :: s1) ((m2, cx2) :: s2) /\
+                    (forall (i: nat). pwlookup_l i w == None /\ ~(i == m1) ==>
+                                      pwlookup_l i w' == None)))
+  = lemma_psrel_alloc r w s1 s2 m1 m2 cx1 cx2;
+    lemma_pwl_cons m1 m2 w
+
+(* ================================================================== *)
+(*  SIBLINGS: THE WORLD ALGEBRA                                        *)
+(*                                                                     *)
+(*  Nesting needs only `pwext`, which is a chain.  Two SIBLING          *)
+(*  computations need a JOIN: two extensions of one anchor, chosen      *)
+(*  independently, and one world above both.  That join is not always   *)
+(*  defined.                                                            *)
+(*                                                                     *)
+(*  THE CHOICE THIS MODULE MAKES, and why.  `palloc` reads `cf.next`    *)
+(*  from the ONE configuration and increments it, and `pstep` threads   *)
+(*  that configuration through every rule -- there is no branch of this *)
+(*  machine that restores a saved counter.  So the global store and     *)
+(*  counter are modelled faithfully, and the natural discipline is the  *)
+(*  first of the two the design allows: A SINGLE MONOTONE SUPPLY SHARED *)
+(*  BY SIBLINGS.  `lemma_pwcompat_of_ranges` is that discipline's       *)
+(*  payoff -- compatibility comes for free, because a later branch      *)
+(*  allocates strictly above whatever an earlier one allocated -- and   *)
+(*  `guard_nom_fork_no_join` is the check that the alternative, joining *)
+(*  two independently chosen worlds after the fact, is NOT available:   *)
+(*  two branches that begin at the SAME counter and discard different   *)
+(*  amounts produce two worlds NO well-formed world extends.            *)
+(* ================================================================== *)
+
+let rec lemma_pwl_append (i: nat) (a b: pworld)
+  : Lemma (ensures pwlookup_l i (a @ b) ==
+                     (if Some? (pwlookup_l i a) then pwlookup_l i a else pwlookup_l i b))
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | (p, q) :: rest -> if p = i then () else lemma_pwl_append i rest b
+
+let rec lemma_pwr_append (j: nat) (a b: pworld)
+  : Lemma (ensures pwlookup_r j (a @ b) ==
+                     (if Some? (pwlookup_r j a) then pwlookup_r j a else pwlookup_r j b))
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | (p, q) :: rest -> if q = j then () else lemma_pwr_append j rest b
+
+(**
+ * **COMPATIBILITY.** Two worlds are compatible when they never give one key two
+ * different partners -- ON EITHER SIDE. The second clause is not implied by the
+ * first: `[(11,10)]` and `[(10,10)]` agree on every LEFT key, their left
+ * domains being disjoint, and still cannot be joined, because they disagree
+ * about who owns the RIGHT key 10. That asymmetry is exactly the fork trap
+ * below, so it gets its own clause.
+ *)
+let pwcompat (wA wB: pworld) : prop
+  = (forall (i j1 j2: nat).
+       pwlookup_l i wA == Some j1 /\ pwlookup_l i wB == Some j2 ==> j1 == j2) /\
+    (forall (j i1 i2: nat).
+       pwlookup_r j wA == Some i1 /\ pwlookup_r j wB == Some i2 ==> i1 == i2)
+
+let pwunion (wA wB: pworld) : pworld = wA @ wB
+
+(** **THE JOIN EXISTS EXACTLY WHEN THE TWO EXTENSIONS ARE COMPATIBLE.** PROVED.
+    The union of two compatible well-formed worlds is well formed -- still a
+    partial BIJECTION, so no aliasing was collapsed to obtain it -- and extends
+    both. *)
+let lemma_pwunion_wf (wA wB: pworld)
+  : Lemma (requires pwf_world wA /\ pwf_world wB /\ pwcompat wA wB)
+          (ensures pwf_world (pwunion wA wB) /\
+                   pwext (pwunion wA wB) wA /\ pwext (pwunion wA wB) wB)
+  = let w = pwunion wA wB in
+    introduce forall (i j: nat).
+        (pwlookup_l i w == Some j <==> pwlookup_r j w == Some i)
+    with begin
+      lemma_pwl_append i wA wB;
+      lemma_pwr_append j wA wB;
+      (match pwlookup_l i wA, pwlookup_r j wA with
+       | Some _, _ -> ()
+       | None, Some i' -> assert (pwlookup_l i' wA == Some j)
+       | None, None -> ());
+      (match pwlookup_r j wA, pwlookup_l i wA with
+       | Some _, _ -> ()
+       | None, Some j' -> assert (pwlookup_r j' wA == Some i)
+       | None, None -> ())
+    end;
+    introduce forall (i j: nat). (pwlookup_l i wA == Some j ==> pwlookup_l i w == Some j)
+    with (introduce _ ==> _ with lemma_pwl_append i wA wB);
+    introduce forall (i j: nat). (pwlookup_l i wB == Some j ==> pwlookup_l i w == Some j)
+    with (introduce _ ==> _ with lemma_pwl_append i wA wB)
+
+(** **AND COMPATIBILITY IS NECESSARY, NOT MERELY SUFFICIENT.** PROVED. If ANY
+    well-formed world extends both, the two were compatible to begin with. So
+    `pwcompat` is not a convenient side condition chosen to make a proof go
+    through -- it is exactly the reconcilability of two sibling extensions. *)
+let lemma_pwcompat_necessary (wA wB w: pworld)
+  : Lemma (requires pwf_world wA /\ pwf_world wB /\ pwf_world w /\
+                    pwext w wA /\ pwext w wB)
+          (ensures pwcompat wA wB)
+  = introduce forall (j i1 i2: nat).
+        (pwlookup_r j wA == Some i1 /\ pwlookup_r j wB == Some i2 ==> i1 == i2)
+    with (introduce _ ==> _
+          with begin
+            assert (pwlookup_l i1 wA == Some j);
+            assert (pwlookup_l i2 wB == Some j);
+            assert (pwlookup_l i1 w == Some j);
+            assert (pwlookup_l i2 w == Some j);
+            assert (pwlookup_r j w == Some i1);
+            assert (pwlookup_r j w == Some i2)
+          end)
+
+(** **A MONOTONE ALLOCATOR MAKES SIBLINGS COMPATIBLE FOR FREE.** PROVED. If the
+    first branch's extension mentions only names below the counters the second
+    branch started from, and the second's mentions only names at or above them,
+    compatibility holds VACUOUSLY: the two never speak about the same name at
+    all, on either side. `lemma_alloc_monotone` is what makes this machine's
+    allocator satisfy the hypothesis. *)
+let lemma_pwcompat_of_ranges (wA wB: pworld) (n1 n2: nat)
+  : Lemma (requires pwf_world wA /\ pwf_world wB /\ pwbound wA n1 n2 /\ pwabove wB n1 n2)
+          (ensures pwcompat wA wB)
+  = introduce forall (j i1 i2: nat).
+        (pwlookup_r j wA == Some i1 /\ pwlookup_r j wB == Some i2 ==> i1 == i2)
+    with (introduce _ ==> _
+          with begin
+            assert (pwlookup_l i1 wA == Some j);
+            assert (pwlookup_l i2 wB == Some j)
+          end)
+
+(** **TWO SIBLING CLOSURES, ANCHORED AT TWO INDEPENDENT EXTENSIONS OF ONE
+    ANCHOR, ARE BOTH USABLE AT THE JOIN.** PROVED, and the proof is monotone
+    extension twice: neither closure is re-anchored and neither is re-proved at
+    its creation site. *)
+let guard_nom_siblings_reconcile (#v #cl: Type) (r: pcl_rel_t cl)
+      (w0 wA wB: pworld) (fA1 fA2 fB1 fB2: pval v -> pcomp v cl)
+  : Lemma (requires pwf_world wA /\ pwf_world wB /\ pwext wA w0 /\ pwext wB w0 /\
+                    pwcompat wA wB /\
+                    pfn_rel_at r wA fA1 fA2 /\ pfn_rel_at r wB fB1 fB2)
+          (ensures (let w = pwunion wA wB in
+                    pwf_world w /\ pwext w w0 /\ pwext w wA /\ pwext w wB /\
+                    pfn_rel_at r w fA1 fA2 /\ pfn_rel_at r w fB1 fB2))
+  = lemma_pwunion_wf wA wB;
+    let w = pwunion wA wB in
+    lemma_pwext_trans w wA w0;
+    lemma_pfn_rel_at_mono r w wA fA1 fA2;
+    lemma_pfn_rel_at_mono r w wB fB1 fB2
+
+(** The two worlds a RESET allocator produces: branch A discards one allocation
+    and then allocates the one that matters, so the left's key 11 corresponds to
+    the right's 10; branch B, beginning at the SAME counter, must send the
+    left's 10 to the right's 10. *)
+let pw_fork_A : pworld = [(11, 10)]
+let pw_fork_B : pworld = [(10, 10)]
+
+let guard_nom_fork_worlds_are_each_fine ()
+  : Lemma (pwf_world pw_fork_A /\ pwf_world pw_fork_B)
+  = ()
+
+(**
+ * **NO WELL-FORMED WORLD EXTENDS BOTH.** PROVED. The obstruction is not size or
+ * freshness: the two branches disagree about WHO OWNS the right-hand name 10,
+ * and a world is a bijection, so it cannot hold both opinions. Joining world
+ * witnesses after the fact is therefore not a repair -- which is why this
+ * module threads one monotone supply instead.
+ *)
+let guard_nom_fork_no_join (w: pworld)
+  : Lemma (requires pwf_world w /\ pwext w pw_fork_A /\ pwext w pw_fork_B)
+          (ensures False)
+  = assert_norm (pwlookup_l 11 pw_fork_A == Some 10);
+    assert_norm (pwlookup_l 10 pw_fork_B == Some 10);
+    assert (pwlookup_l 11 w == Some 10);
+    assert (pwlookup_l 10 w == Some 10);
+    assert (pwlookup_r 10 w == Some 11);
+    assert (pwlookup_r 10 w == Some 10)
+
+let guard_nom_fork_incompatible ()
+  : Lemma (~(pwcompat pw_fork_A pw_fork_B))
+  = introduce pwcompat pw_fork_A pw_fork_B ==> False
+    with (lemma_pwunion_wf pw_fork_A pw_fork_B;
+          guard_nom_fork_no_join (pwunion pw_fork_A pw_fork_B))
+
+(** **THE CONTRAST, IN ONE STATEMENT.** PROVED. Same two branches, same garbage
+    disciplines; the ONLY difference is whether the second branch started from
+    the counter the first left behind or from the counter the first started
+    from. In the first case the join exists; in the second no join exists at
+    all. *)
+let pw_fork_B_mono : pworld = [(12, 11)]
+
+let guard_nom_fork_the_contrast ()
+  : Lemma (pwcompat pw_fork_A pw_fork_B_mono /\
+           pwf_world (pwunion pw_fork_A pw_fork_B_mono) /\
+           pwext (pwunion pw_fork_A pw_fork_B_mono) pw_fork_A /\
+           pwext (pwunion pw_fork_A pw_fork_B_mono) pw_fork_B_mono /\
+           ~(pwcompat pw_fork_A pw_fork_B) /\
+           (forall (w: pworld). pwf_world w /\ pwext w pw_fork_A ==>
+                                ~(pwext w pw_fork_B)))
+  = lemma_pwunion_wf pw_fork_A pw_fork_B_mono;
+    guard_nom_fork_incompatible ();
+    introduce forall (w: pworld). (pwf_world w /\ pwext w pw_fork_A ==>
+                                   ~(pwext w pw_fork_B))
+    with (introduce _ ==> _
+          with (introduce pwext w pw_fork_B ==> False
+                with guard_nom_fork_no_join w))
+
+(* ================================================================== *)
+(*  THE BOUNDARY RECORD FOR `cl`                                       *)
+(*                                                                     *)
+(*  `cl` is abstract here and an OPAQUE FFI CLOSURE in the shipped      *)
+(*  machine, so a clause can CAPTURE A LIVE HANDLE.  What crosses the   *)
+(*  boundary is therefore a RELATION on clauses -- data -- together     *)
+(*  with two PROPERTIES OF IT: that the lookup respects it, and that    *)
+(*  the interpreter respects it.  Neither property can be phrased over  *)
+(*  ONE clause value: see `guard_nom_capture_not_single_sided`.         *)
+(* ================================================================== *)
+
+let pclrel (#cl: Type) (r: pcl_rel_t cl) (w: pworld) (c1 c2: cl) : GTot prop
+  = forall (n: nat). r n w c1 c2
+
+(** **The lookup respects the table relation.** Two related tables answer the
+    same question with clauses of the same KIND and related bodies, or both
+    refuse. This is what lets a transition dispatch on either side and stay in
+    the relation. *)
+let plookup_equivariant (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) : GTot prop
+  = forall (n: nat) (w: pworld) (t1 t2: ptable cl) (eff op: string).
+      ptable_rel r n w t1 t2 ==>
+      (match lk t1 eff op, lk t2 eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ r n w f1.body f2.body
+       | _, _ -> False)
+
+(** **The interpreter respects the clause relation.** Two RELATED clauses --
+    which in general are two DIFFERENT values, each having captured what its own
+    run allocated -- applied to related payloads and related continuations,
+    produce related computations. *)
+let papply_equivariant (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+  : GTot prop
+  = forall (w: pworld) (c1 c2: cl) (p1 p2: list (pval v))
+           (k1 k2: pval v -> pcomp v cl).
+      pwf_world w /\ pclrel r w c1 c2 /\ pvals_rel w p1 p2 /\ pfn_rel_at r w k1 k2 ==>
+      pcrel r w (apply c1 p1 k1) (apply c2 p2 k2)
+
+(**
+ * **THE BOUNDARY, AS ONE RECORD.** `b_rel` is DATA; `b_mono`, `b_lookup` and
+ * `b_apply_eq` are properties OF it, carried as `squash`es so that a boundary
+ * is a thing one hands over rather than a set of hypotheses one restates at
+ * every use.
+ *)
+noeq
+type pboundary (v: Type) (cl: Type) = {
+  b_rel: pcl_rel_t cl;
+  b_lk: plookup_t cl;
+  b_apply: papply_t v cl;
+  b_mono: squash (pcl_mono b_rel);
+  b_lookup: squash (plookup_equivariant b_rel b_lk);
+  b_apply_eq: squash (papply_equivariant b_rel b_apply);
+}
+
+(**
+ * **A SINGLE-SIDED CONDITION EXCLUDES HANDLE CAPTURE.** PROVED, and this is why
+ * the boundary carries a relation rather than a predicate.
+ *
+ * Take any closure that returns a handle it captured, `fun _ -> PVar (PCtxKey
+ * i)`. The one-sided condition -- the closure related to ITSELF, at every well
+ * formed world -- forces the world to pin `i` to itself. But a legal world may
+ * send `i` to `i + 1`, and then it does not. So the condition is FALSE of every
+ * handle-capturing closure there is: restricting a boundary to closures
+ * satisfying it does not merely fail to relate two captures, it throws capture
+ * out altogether.
+ *
+ * The anchor-relative notion admits exactly what the global one refuses:
+ * `guard_nom_capture_vs_guess` below is the SAME TERM receiving opposite
+ * verdicts at two anchors.
+ *)
+let pkcap (#v #cl: Type) (i: nat) : pval v -> pcomp v cl
+  = fun _ -> PVar (PCtxKey i)
+
+let guard_nom_capture_not_single_sided (#v #cl: Type) (r: pcl_rel_t cl) (i: nat)
+  : Lemma (~(pfn_rel_at r ([] <: pworld) (pkcap #v #cl i) (pkcap #v #cl i)))
+  = let w : pworld = [(i, i + 1)] in
+    assert (pwlookup_l i w == Some (i + 1));
+    assert (pwf_world w);
+    assert (pval_rel #v w (PCtxKey i) (PCtxKey (i + 1)));
+    introduce pfn_rel_at r ([] <: pworld) (pkcap #v #cl i) (pkcap #v #cl i) ==> False
+    with begin
+      assert (pcrel r w (pkcap #v #cl i (PCtxKey i)) (pkcap #v #cl i (PCtxKey (i + 1))));
+      assert (pcomp_rel r 1 w (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i)))
+    end
+
+(* ================================================================== *)
+(*  B2b.1 -- PART 4: THE NOMINAL OBSERVATION                           *)
+(* ================================================================== *)
+
+(**
+ * **Convergence to a trace, a value AND A FINAL STORE.**
+ *
+ * `pconverges_tr` does not expose the store, and the nominal comparison needs
+ * it: the two sides are permitted to differ in the number of contexts they
+ * hold, and "differ only in garbage" is a statement about the FINAL stores. It
+ * is the same existential over `prun` with one more projection read off, so
+ * nothing about the run or the trace changes -- `lemma_pnconverges_forget`
+ * below proves it implies `pconverges_tr` at the same trace and value.
+ *)
+let pnconverges (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                (cf: pconf v cl) (tr: list string) (x: pval v) (sto': pstore v cl)
+  : GTot prop
+  = exists (n: nat).
+      (fst (prun lk apply n cf)).st == PDone x /\
+      snd (prun lk apply n cf) == tr /\
+      (fst (prun lk apply n cf)).store == sto'
+
+let lemma_pnconverges_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr: list string) (x: pval v) (sto': pstore v cl)
+  : Lemma (requires pnconverges lk apply cf tr x sto')
+          (ensures pconverges_tr lk apply cf tr x)
+  = eliminate exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\
+        snd (prun lk apply n cf) == tr /\
+        (fst (prun lk apply n cf)).store == sto'
+    with
+      (introduce exists (m: nat).
+           (fst (prun lk apply m cf)).st == PDone x /\ snd (prun lk apply m cf) == tr
+       with n and ())
+
+(** **At most one trace, one value and one store.** PROVED, from
+    `lemma_prun_stable` alone and by exactly the argument
+    `lemma_pconverges_tr_unique` uses: the smaller witness has already settled,
+    so stability carries its whole result -- configuration and trace together --
+    forward to the larger. *)
+let lemma_pnconverges_unique (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr1 tr2: list string) (x1 x2: pval v) (s1 s2: pstore v cl)
+  : Lemma (requires pnconverges lk apply cf tr1 x1 s1 /\ pnconverges lk apply cf tr2 x2 s2)
+          (ensures tr1 == tr2 /\ x1 == x2 /\ s1 == s2)
+  = eliminate exists (n1: nat).
+        (fst (prun lk apply n1 cf)).st == PDone x1 /\
+        snd (prun lk apply n1 cf) == tr1 /\
+        (fst (prun lk apply n1 cf)).store == s1
+    with
+      (eliminate exists (n2: nat).
+           (fst (prun lk apply n2 cf)).st == PDone x2 /\
+           snd (prun lk apply n2 cf) == tr2 /\
+           (fst (prun lk apply n2 cf)).store == s2
+       with
+         (if n1 <= n2
+          then lemma_prun_stable lk apply n1 (n2 - n1) cf
+          else lemma_prun_stable lk apply n2 (n1 - n2) cf))
+
+(** A run at a named fuel IS a nominal convergence. PROVED; the witness is the
+    fuel, exactly as in `lemma_pconverges_tr_at`. *)
+let lemma_pnconverges_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (fuel: nat) (tr: list string) (x: pval v) (sto': pstore v cl)
+  : Lemma (requires (fst (prun lk apply fuel cf)).st == PDone x /\
+                    snd (prun lk apply fuel cf) == tr /\
+                    (fst (prun lk apply fuel cf)).store == sto')
+          (ensures pnconverges lk apply cf tr x sto')
+  = introduce exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\
+        snd (prun lk apply n cf) == tr /\
+        (fst (prun lk apply n cf)).store == sto'
+    with fuel and ()
+
+(**
+ * **THE NOMINAL OBSERVATION.**
+ *
+ * Read it against `pobs_tr_le`, which it replaces at the value comparison and
+ * NOWHERE ELSE:
+ *
+ *   - both sides still start in the SAME configuration -- same stack, same
+ *     store, same counter -- so an implementation still cannot pass by
+ *     allocating differently;
+ *   - **the trace must still match EXACTLY**, by equality, on the same
+ *     `pconverges_tr` machinery. Nothing here weakens it, and
+ *     `guard_nom_trace_not_weakened` is the check;
+ *   - the two final VALUES correspond under a world `w` instead of being equal;
+ *   - `w` EXTENDS `panchor sto`, the identity on the keys both sides already
+ *     shared, so a handle that was ALREADY PUBLIC keeps its own name. This is
+ *     what stops the repair from identifying two distinct live handles;
+ *   - `w` is a partial BIJECTION, so aliasing and the order in which handles
+ *     were selected are preserved;
+ *   - the two final STORES correspond ON `w`'S DOMAIN ONLY, so entries no
+ *     public handle names are garbage and are ignored -- which is how the two
+ *     sides may hold different NUMBERS of contexts;
+ *   - the counter is not mentioned anywhere, on either side;
+ *   - the ambient stack and the initial store are quantified over, but only
+ *     among the EQUIVARIANT ones, and the equivariance demanded is
+ *     ANCHOR-RELATIVE: only at worlds extending `panchor sto`, the
+ *     correspondence the stack and the store already own. A stack that returns
+ *     a handle it CAPTURED from the ambient store is admitted; one that returns
+ *     a name it GUESSED is not.
+ *
+ * The step count is NOT mentioned either: each side's is existentially
+ * quantified inside `pnconverges`, independently, so no law can acquire a
+ * per-law transition offset.
+ *)
+let pnobs_tr_le (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl) : GTot prop
+  = forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+           (tr: list string) (x1: pval v) (s1': pstore v cl).
+      (pequivariant_k_at b.b_rel (panchor sto) k /\
+       pstore_equivariant_at b.b_rel sto /\
+       psfresh sto n0 /\
+       pnconverges b.b_lk b.b_apply
+                   ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+      (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+         pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+
+let pnobs_tr_eq (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl) : GTot prop
+  = pnobs_tr_le b c1 c2 /\ pnobs_tr_le b c2 c1
+
+(**
+ * **THE TRACE IS NOT WEAKENED.** PROVED, and it is the one thing about this
+ * definition that has to be checkable rather than argued: the trace `tr` the
+ * antecedent's convergence carries is the SAME `tr` the consequent's
+ * convergence must carry, so a right-hand side that emits one event more, one
+ * fewer, or the same events in another order does not satisfy the relation
+ * however the world is chosen.
+ *)
+let guard_nom_trace_not_weakened (#v #cl: Type) (b: pboundary v cl)
+    (c1 c2: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr1 tr2: list string) (x1 x2: pval v) (s1' s2': pstore v cl)
+  : Lemma (requires pnobs_tr_le b c1 c2 /\
+                    pequivariant_k_at b.b_rel (panchor sto) k /\
+                    pstore_equivariant_at b.b_rel sto /\ psfresh sto n0 /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c1 k; store = sto; next = n0 })
+                                tr1 x1 s1' /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr2 x2 s2')
+          (ensures tr1 == tr2)
+  = eliminate exists (y2: pval v) (t2: pstore v cl) (w: pworld).
+        (pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr1 y2 t2 /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 y2 /\ psrel b.b_rel w s1' t2)
+    with
+      lemma_pnconverges_unique b.b_lk b.b_apply
+        ({ st = PStep c2 k; store = sto; next = n0 }) tr1 tr2 y2 x2 t2 s2'
+
+(**
+ * **ONE CONFIGURATION IS ENOUGH TO ESTABLISH AN INSTANCE.** The shape a
+ * positive result takes: at a given equivariant stack and store, exhibit the
+ * right-hand run and the world. Nothing else has to be supplied -- in
+ * particular no step count, since `pnconverges` hides both sides' independently.
+ *)
+let lemma_pnobs_at (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (x1 x2: pval v) (s1' s2': pstore v cl) (w: pworld)
+  : Lemma (requires pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr x2 s2' /\
+                    pwf_world w /\ pwext w (panchor sto) /\
+                    pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+          (ensures (exists (y2: pval v) (t2: pstore v cl) (ww: pworld).
+                      pnconverges b.b_lk b.b_apply
+                                  ({ st = PStep c2 k; store = sto; next = n0 })
+                                  tr y2 t2 /\
+                      pwf_world ww /\ pwext ww (panchor sto) /\
+                      pval_rel ww x1 y2 /\ psrel b.b_rel ww s1' t2))
+  = introduce exists (y2: pval v) (t2: pstore v cl) (ww: pworld).
+        (pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr y2 t2 /\
+         pwf_world ww /\ pwext ww (panchor sto) /\
+         pval_rel ww x1 y2 /\ psrel b.b_rel ww s1' t2)
+    with x2 s2' w and ()
+
 (* ------------------------------------------------------------------ *)
 (*  The laws -- DEFINED, not proved                                    *)
 (*                                                                     *)
@@ -5433,6 +6908,123 @@ let law_transparent_agrees
   = pobs_tr_eq lk apply
       (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
       (PSplice (plan_enter_frames pl) c)
+
+(* ================================================================== *)
+(*  B2b.1: THE FIVE LAWS, RETARGETED AT THE NOMINAL OBSERVATION        *)
+(*                                                                     *)
+(*  The five above are FALSE of `ref_ops` -- proved, six times, in the  *)
+(*  B2b section -- and the cause is `pobs_tr_eq`'s comparison of a      *)
+(*  `pval v` by equality when `pval v` contains `PCtxKey`.  This block  *)
+(*  states the same five over `pnobs_tr_eq`, which compares the values  *)
+(*  under a WORLD and the stores on that world's domain, and leaves the *)
+(*  trace comparison exactly as it was.                                 *)
+(*                                                                     *)
+(*  BOTH FORMS ARE KEPT, and deliberately.  The `pobs_tr_eq` form is    *)
+(*  what the six refutations refute; deleting it would delete the       *)
+(*  record of the finding, and the guards that establish it would have  *)
+(*  nothing to be about.  The `pnobs_tr_eq` form is the obligation      *)
+(*  B2b.2 inherits.                                                     *)
+(*                                                                     *)
+(*  NOTHING BELOW IS PROVED, AND NO RELATION BETWEEN THE TWO FORMS IS   *)
+(*  CLAIMED.  In particular it is NOT claimed that the nominal form is  *)
+(*  weaker, stronger, or implied by the other: neither implication is   *)
+(*  established here and neither is obvious.  `pobs_tr_eq` demands the  *)
+(*  final values be EQUAL, which the nominal form does not; the nominal *)
+(*  form demands a store correspondence, which `pobs_tr_eq` does not;   *)
+(*  and the two quantify over different sets of ambient stacks, since   *)
+(*  the nominal form admits only equivariant ones.  What IS checked is  *)
+(*  narrower and is in the B2b.1 section below: at the very             *)
+(*  configuration where the six refutations bite, the nominal           *)
+(*  observation's CONSEQUENT holds, with the world exhibited -- and     *)
+(*  that configuration satisfies the nominal observation's hypotheses,  *)
+(*  so the difference is not obtained by excluding it.                  *)
+(*                                                                     *)
+(*  `ops` still appears, unchanged: a law is still a proposition ABOUT  *)
+(*  AN IMPLEMENTATION.  What has moved is `lk` and `apply`, which are   *)
+(*  now fields of the boundary record, because the observation needs    *)
+(*  them together with the clause relation they must respect.           *)
+(* ================================================================== *)
+
+let law_left_identity_nom
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (x: pval v)
+    (g: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_extend pl cx g))
+      (ops.o_enter pl (g x))
+
+let law_right_identity_nom
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
+      (ops.o_enter pl c)
+
+let law_assoc_nom
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+    (cx: pval v)
+    (g h: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq b
+      (pbind (ops.o_extend_ctx pl cx g) (fun cy -> ops.o_extend pl cy h))
+      (ops.o_extend pl cx (fun x -> pbind (g x) h))
+    /\
+    pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl c)
+             (fun c0 -> pbind (ops.o_extend_ctx pl c0 g)
+                              (fun cy -> ops.o_extend pl cy h)))
+      (PSplice (plan_enter_frames pl) (pbind (pbind c g) h))
+
+let law_resume_matches_continuation_nom
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (x: pval v)
+    (k: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_resume pl cx k))
+      (PSplice (plan_resume_frames pl) (k x))
+
+let law_transparent_agrees_nom
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
+      (PSplice (plan_enter_frames pl) c)
+
+(** **The five retargeted statements are WELL TYPED at `prop`, and that is the
+    ONLY thing this states.** They are not proved, not partially proved, and no
+    fixture, transition or other definition in this file depends on any of them
+    holding -- exactly as with the five they are retargeted from. *)
+let guard_nom_laws_are_statable
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (x: pval v) (cxv: pval v) (g h k: pval v -> pcomp v cl)
+  : Lemma (law_left_identity_nom b ops pl x g == law_left_identity_nom b ops pl x g /\
+           law_right_identity_nom b ops pl c == law_right_identity_nom b ops pl c /\
+           law_assoc_nom b ops pl c cxv g h == law_assoc_nom b ops pl c cxv g h /\
+           law_resume_matches_continuation_nom b ops pl x k
+             == law_resume_matches_continuation_nom b ops pl x k /\
+           law_transparent_agrees_nom b ops pl c
+             == law_transparent_agrees_nom b ops pl c)
+  = ()
 
 (* ------------------------------------------------------------------ *)
 (*  FIXTURES -- the gate conditions, CHECKED                           *)
@@ -8022,6 +9614,14 @@ let fprogs_7 : list (pcomp fv fcl) =
     ce_prog_aa_l; ce_prog_aa_r; ce_prog_ac_l; ce_prog_ac_r;
     ce_prog_pw_l; PEnterCtx plan_A (PVar fone) ]
 
+(** **B2b.1 ADDS NOTHING TO THIS LEDGER, and the audit is recorded rather than
+    left implicit.** The nominal layer introduces no closed program that `pload`
+    is applied to: `fk_const`, `fk_const_n` and `fwrap_body` are a CONTINUATION
+    and a CLAUSE-BODY fragment -- deliberately absent for the same reason
+    `femits_out` and `femits_mid` are -- and `ncl` / `napply` are a clause
+    language and its interpreter, which the initial-term condition is not about.
+    The four counterexample pairs' programs were already admitted, as
+    `fprogs_7`. *)
 let fixture_programs : list (pcomp fv fcl) =
   fprogs_1 @ fprogs_2 @ fprogs_3 @ fprogs_4 @ fprogs_5 @ fprogs_6 @ fprogs_7
 
@@ -8213,3 +9813,1247 @@ let guard_fixture_residuals_wf (fuel: nat) (c: pcomp fv fcl) (i: nat)
                     | Some (PCtxRequests _ r _) -> presid_wf r
                     | _ -> True))
   = lemma_reachable_residual_wf flook fapply fuel c i
+
+(* ================================================================== *)
+(*  B2b.1: THE SIX COUNTEREXAMPLES, UNDER THE NOMINAL OBSERVATION      *)
+(*                                                                     *)
+(*  The section above proves the five laws FALSE of `ref_ops` under     *)
+(*  `pobs_tr_eq`, at six statements and four pairs of programs, and     *)
+(*  identifies the cause as the observation rather than the algebra.    *)
+(*  This section carries those same four pairs over to the nominal      *)
+(*  observation and exhibits, FOR EACH, the world under which the two   *)
+(*  runs' answers correspond.                                          *)
+(*                                                                     *)
+(*  WHAT IS ESTABLISHED HERE AND WHAT IS NOT.  For each pair this       *)
+(*  section proves the body of `pnobs_tr_le` AT THE CONFIGURATION THAT  *)
+(*  REFUTES `pobs_tr_le` -- the ambient stack `fk_new`, the store and   *)
+(*  counter the refutation used -- with all three existential           *)
+(*  witnesses supplied explicitly: the right-hand run, the world, and   *)
+(*  the final store.  It ALSO proves that this configuration is inside  *)
+(*  the nominal observation's quantifier: `fk_new` is equivariant and   *)
+(*  the starting store is, so the repair does not work by EXCLUDING     *)
+(*  the continuation that defeated the old relation.                    *)
+(*                                                                     *)
+(*  It does NOT prove `pnobs_tr_eq` itself for any pair.  That is the   *)
+(*  universally quantified statement over EVERY equivariant stack and   *)
+(*  store, and it needs a fundamental theorem for this machine -- a     *)
+(*  simulation over `pstep` relating two configurations related by a    *)
+(*  world.  That theorem is not attempted here and nothing below        *)
+(*  claims it.                                                          *)
+(* ================================================================== *)
+
+(**
+ * **The clause relation the fixtures run under.**
+ *
+ * Equality -- and the reason it is legitimate HERE is a fact about the type
+ * `fcl` and not a convenience: every field of every `fcl` constructor is an
+ * `fv`, and `fv` has no handle constructor, so no fixture clause can capture a
+ * `pval`. `fcl_rel` is therefore not the refuted same-clause condition; it is
+ * that condition's one sound instance, at a clause language in which capture is
+ * not expressible. The general case -- a clause that really does capture a live
+ * handle -- is `ncl` below, whose relation is NOT equality and could not be.
+ *
+ * (That `fv` contains no `pval` is read off the type declaration; it is not a
+ * proposition this module proves.)
+ *)
+let fcl_rel : pcl_rel_t fcl = fun _ _ c1 c2 -> c1 == c2
+
+let lemma_fcl_rel_mono () : Lemma (pcl_mono fcl_rel) = ()
+
+(** Any table is related to itself under an equality clause relation, whatever
+    the abstract `handlers` value inside it turns out to answer. PROVED without
+    knowing anything about `mk_handlers`. *)
+let lemma_ptable_selfrel (n: nat) (w: pworld) (t: ptable fcl)
+  : Lemma (ptable_rel fcl_rel n w t t)
+  = introduce forall (eff op: string).
+      (match lookup_handler t.hs eff op, lookup_handler t.hs eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ fcl_rel n w f1.body f2.body
+       | _, _ -> False)
+    with (match lookup_handler t.hs eff op with | None -> () | Some _ -> ())
+
+(**
+ * **THE FIXTURES' LOOKUP IS EQUIVARIANT.** PROVED. `flook` reads only `binds`
+ * and the effect label, and `ptable_rel` already forces `binds` to agree, so
+ * two related tables answer identically -- which is more than the boundary
+ * condition asks for, and implies it.
+ *)
+let lemma_flook_equivariant () : Lemma (plookup_equivariant fcl_rel flook)
+  = introduce forall (n: nat) (w: pworld) (t1 t2: ptable fcl) (eff op: string).
+      (ptable_rel fcl_rel n w t1 t2 ==>
+       (match flook t1 eff op, flook t2 eff op with
+        | None, None -> True
+        | Some f1, Some f2 -> f1.kind == f2.kind /\ fcl_rel n w f1.body f2.body
+        | _, _ -> False))
+    with (introduce _ ==> _
+          with (assert (t1.binds == t2.binds);
+                assert (flook t1 eff op == flook t2 eff op);
+                match flook t1 eff op with | None -> () | Some _ -> ()))
+
+(* ---- The plan and the ambient stack the counterexample uses -------- *)
+
+#push-options "--fuel 4 --ifuel 2"
+
+let lemma_plan_A_selfrel (n: nat) (w: pworld)
+  : Lemma (pplan_rel fcl_rel n w plan_A plan_A)
+  = if n = 0 then () else lemma_ptable_selfrel n w ftbl
+
+(**
+ * **THE AMBIENT CONTINUATION THAT DEFEATS THE OLD RELATION IS EQUIVARIANT.**
+ * PROVED, and GLOBALLY -- at every well-formed world, hence at every anchor.
+ *
+ * `fk_new` is the stack `[PBindF fnew_ctx]`, and `fnew_ctx` produces a context
+ * of its own and returns its handle. It is the whole of the counterexample that
+ * was not forced, and it is an entirely ordinary program: nothing forged,
+ * nothing smuggled, and the handle it returns is one the run allocated. It
+ * satisfies the nominal observation's hypothesis on the ambient stack, so the
+ * repair below does not work by throwing it out.
+ *)
+let guard_nom_fk_new_equivariant ()
+  : Lemma (pequivariant_k fcl_rel fk_new /\
+           (forall (w0: pworld). pequivariant_k_at fcl_rel w0 fk_new))
+  = introduce forall (w: pworld). (pwf_world w ==> pkrel fcl_rel w fk_new fk_new)
+    with (introduce _ ==> _
+          with (introduce forall (n: nat). pframes_rel fcl_rel n w fk_new fk_new
+                with (if n = 0 then ()
+                      else
+                        introduce forall (w': pworld) (y1 y2: pval fv).
+                            (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                             pcomp_rel fcl_rel n w' (fnew_ctx y1) (fnew_ctx y2))
+                        with (introduce _ ==> _
+                              with lemma_plan_A_selfrel (n - 1) w'))));
+    introduce forall (w0: pworld). pequivariant_k_at fcl_rel w0 fk_new
+    with (introduce forall (w: pworld).
+              (pwf_world w /\ pwext w w0 ==> pkrel fcl_rel w fk_new fk_new)
+          with (introduce _ ==> _ with ()))
+
+(* ---- The store entries the two runs leave behind ------------------- *)
+
+(** The frame list every context these runs build carries: the scope boundary
+    and the plan's single prompt. Named so that the relation proof has one
+    symbol to unfold rather than a literal to match. *)
+let fce_frames : list (pframe fv fcl) = [PBoundaryF; PPromptF ftbl None PFamily]
+
+(** The shape of every entry either run allocates: a request carrying a payload,
+    that frame list, and the identity as its `post`. *)
+let fce_cx (a: fv) : pctx fv fcl
+  = PCtxRequests (PV a) fce_frames (PVar #fv #fcl)
+
+let lemma_fce_frames_selfrel (n: nat) (w: pworld)
+  : Lemma (pframes_rel fcl_rel n w fce_frames fce_frames)
+  = if n = 0 then () else lemma_ptable_selfrel n w ftbl
+
+(** **Every entry these runs leave is self-related, at EVERY world.** PROVED.
+    It holds no handle -- its payload is an `FI` and its `post` is the identity
+    -- so no world can separate it from itself. This is what condition 6 needs
+    on the entries the world's domain DOES name. *)
+let lemma_fce_cx_selfrel (w: pworld) (a: fv)
+  : Lemma (pxrel fcl_rel w (fce_cx a) (fce_cx a))
+  = introduce forall (n: nat). pctx_rel fcl_rel n w (fce_cx a) (fce_cx a)
+    with (if n = 0 then ()
+          else begin
+            lemma_fce_frames_selfrel n w;
+            introduce forall (w': pworld) (y1 y2: pval fv).
+                (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                 pcomp_rel fcl_rel n w' (PVar y1) (PVar y2))
+            with (introduce _ ==> _ with ())
+          end)
+
+#pop-options
+
+(** The starting store of the algebraic half is a store the machine left behind,
+    and it holds exactly one entry, of that same shape. PROVED by running. *)
+let guard_nom_ce_sto ()
+  : Lemma (ce_sto == [(0, fce_cx (FI 1))] /\ ce_nxt == 1)
+  = assert_norm (ce_sto == [(0, fce_cx (FI 1))]);
+    assert_norm (ce_nxt == 1)
+
+(** The initial stores of all four pairs are equivariant, and fresh for their
+    counters. PROVED. The empty store trivially; `ce_sto` because its one entry
+    is self-related at every world. *)
+let guard_nom_initial_stores_ok ()
+  : Lemma (pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+           psfresh ([] <: pstore fv fcl) 0 /\
+           pstore_equivariant_at fcl_rel ce_sto /\
+           psfresh ce_sto 1)
+  = guard_nom_ce_sto ();
+    introduce forall (i: nat) (cx: pctx fv fcl).
+        (pstore_lookup i ce_sto == Some cx ==>
+         pequivariant_ctx_at fcl_rel (panchor ce_sto) cx)
+    with (introduce _ ==> _
+          with (assert (i == 0 /\ cx == fce_cx (FI 1));
+                introduce forall (w: pworld).
+                    (pwf_world w /\ pwext w (panchor ce_sto) ==>
+                     pxrel fcl_rel w cx cx)
+                with (introduce _ ==> _ with lemma_fce_cx_selfrel w (FI 1))))
+
+(* ================================================================== *)
+(*  PAIR 1 -- `ce_l` / `ce_r`, WHICH SERVES THREE OF THE SIX           *)
+(*  (`law_left_identity`, `law_right_identity`,                        *)
+(*   `law_transparent_agrees`)                                         *)
+(* ================================================================== *)
+
+let fce_sl : pstore fv fcl = [(1, fce_cx (FI 2)); (0, fce_cx (FI 1))]
+let fce_sr : pstore fv fcl = [(0, fce_cx (FI 2))]
+
+(** The world the two runs' answers correspond under: the left's key 1 to the
+    right's key 0, and NOTHING ELSE. The left's own key 0 -- the context it
+    allocated and discarded -- is not in the world at all. *)
+let fce_w : pworld = [(1, 0)]
+
+let guard_nom_ce_runs ()
+  : Lemma (pnconverges flook fapply ce_cf_l [] (PCtxKey 1) fce_sl /\
+           pnconverges flook fapply ce_cf_r [] (PCtxKey 0) fce_sr)
+  = assert_norm ((fst (prun flook fapply 200 ce_cf_l)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook fapply 200 ce_cf_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_l)).store == fce_sl);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook fapply 200 ce_cf_r) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_r)).store == fce_sr);
+    lemma_pnconverges_at flook fapply ce_cf_l 200 [] (PCtxKey 1) fce_sl;
+    lemma_pnconverges_at flook fapply ce_cf_r 200 [] (PCtxKey 0) fce_sr
+
+#push-options "--fuel 4 --ifuel 2"
+let guard_nom_ce_world ()
+  : Lemma (pwf_world fce_w /\ pwext fce_w (panchor ([] <: pstore fv fcl)) /\
+           pval_rel #fv fce_w (PCtxKey 1) (PCtxKey 0) /\
+           pwlookup_l 0 fce_w == None /\
+           psrel fcl_rel fce_w fce_sl fce_sr)
+  = assert_norm (pwlookup_l 1 fce_w == Some 0);
+    assert_norm (pwlookup_l 0 fce_w == None);
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    introduce forall (i j: nat).
+        (pwlookup_l i fce_w == Some j ==>
+         (Some? (pstore_lookup i fce_sl) /\ Some? (pstore_lookup j fce_sr) /\
+          pxrel fcl_rel fce_w (psget i fce_sl) (psget j fce_sr)))
+    with (introduce _ ==> _
+          with (assert (i == 1 /\ j == 0);
+                assert_norm (psget 1 fce_sl == fce_cx (FI 2));
+                assert_norm (psget 0 fce_sr == fce_cx (FI 2));
+                lemma_fce_cx_selfrel fce_w (FI 2)))
+#pop-options
+
+(**
+ * **PAIR 1, RELATED.** PROVED, and this conjunction IS the body of
+ * `pnobs_tr_le ce_l ce_r` at `k := fk_new`, `sto := []`, `n0 := 0`, with every
+ * existential witness written down.
+ *
+ * The trace is `[]` on both sides and is compared by EQUALITY -- the separation
+ * the old relation made was never the trace's doing and the repair does not
+ * touch it. The counter is not mentioned. The left run ends holding one context
+ * more than the right; that context is named by no key the world speaks for, so
+ * `psrel` never looks at it.
+ *)
+let guard_nom_ce_related ()
+  : Lemma (
+      // the hypotheses the nominal observation imposes, at this configuration
+      pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl)) fk_new /\
+      pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+      psfresh ([] <: pstore fv fcl) 0 /\
+      // the left run -- the antecedent
+      pnconverges flook fapply ce_cf_l [] (PCtxKey 1) fce_sl /\
+      // the witnesses the consequent demands
+      pnconverges flook fapply ce_cf_r [] (PCtxKey 0) fce_sr /\
+      pwf_world fce_w /\ pwext fce_w (panchor ([] <: pstore fv fcl)) /\
+      pval_rel #fv fce_w (PCtxKey 1) (PCtxKey 0) /\
+      psrel fcl_rel fce_w fce_sl fce_sr)
+  = guard_nom_fk_new_equivariant ();
+    guard_nom_initial_stores_ok ();
+    guard_nom_ce_runs ();
+    guard_nom_ce_world ()
+
+(**
+ * **AND THE WORLD IS NOT A RE-ANCHORING.** PROVED, at the store the left run
+ * actually ends with. `panchor fce_sl` pins the left's garbage key 0 to itself;
+ * `fce_w` is silent about it; and no world under which the two answers
+ * correspond can extend `panchor fce_sl`, because that anchor pins key 1 to
+ * itself while the answers force it to 0.
+ *)
+let guard_nom_ce_not_a_reanchoring ()
+  : Lemma (pwlookup_l 0 (panchor fce_sl) == Some 0 /\
+           pwlookup_l 0 fce_w == None /\
+           pwlookup_l 1 (panchor fce_sl) == Some 1 /\
+           pwlookup_l 1 fce_w == Some 0 /\
+           ~(pwext fce_w (panchor fce_sl)) /\
+           (forall (w: pworld). pval_rel #fv w (PCtxKey 1) (PCtxKey 0) ==>
+                                ~(pwext w (panchor fce_sl))))
+  = assert_norm (Some? (pstore_lookup 0 fce_sl));
+    assert_norm (Some? (pstore_lookup 1 fce_sl));
+    lemma_panchor_pins 0 fce_sl;
+    lemma_panchor_pins 1 fce_sl;
+    assert_norm (pwlookup_l 0 fce_w == None);
+    assert_norm (pwlookup_l 1 fce_w == Some 0);
+    introduce forall (w: pworld).
+        (pval_rel #fv w (PCtxKey 1) (PCtxKey 0) ==> ~(pwext w (panchor fce_sl)))
+    with (introduce _ ==> _ with guard_nom_no_reanchoring 1 0 fce_sl w)
+
+(* ================================================================== *)
+(*  PAIR 2 -- `ce_rm_l` / `ce_rm_r` (`law_resume_matches_continuation`) *)
+(* ================================================================== *)
+
+let guard_nom_ce_rm_related ()
+  : Lemma (
+      pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl)) fk_new /\
+      pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+      psfresh ([] <: pstore fv fcl) 0 /\
+      pnconverges flook fapply ce_cf_rm_l [] (PCtxKey 1) fce_sl /\
+      pnconverges flook fapply ce_cf_rm_r [] (PCtxKey 0) fce_sr /\
+      pwf_world fce_w /\ pwext fce_w (panchor ([] <: pstore fv fcl)) /\
+      pval_rel #fv fce_w (PCtxKey 1) (PCtxKey 0) /\
+      psrel fcl_rel fce_w fce_sl fce_sr)
+  = guard_nom_fk_new_equivariant ();
+    guard_nom_initial_stores_ok ();
+    guard_nom_ce_world ();
+    assert_norm ((fst (prun flook fapply 200 ce_cf_rm_l)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook fapply 200 ce_cf_rm_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_rm_l)).store == fce_sl);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_rm_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook fapply 200 ce_cf_rm_r) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_rm_r)).store == fce_sr);
+    lemma_pnconverges_at flook fapply ce_cf_rm_l 200 [] (PCtxKey 1) fce_sl;
+    lemma_pnconverges_at flook fapply ce_cf_rm_r 200 [] (PCtxKey 0) fce_sr
+
+(* ================================================================== *)
+(*  PAIR 3 -- `ce_aa_l` / `ce_aa_r` (`law_assoc`, ALGEBRAIC HALF)      *)
+(*                                                                     *)
+(*  The one pair whose starting store is NOT empty: it is the store a   *)
+(*  real production left behind, so the anchor is not empty either and  *)
+(*  the world must EXTEND it.  That is condition 2 doing its work in    *)
+(*  the middle of a positive result rather than beside one: the         *)
+(*  already-public key 0 keeps its own name, and only the two freshly   *)
+(*  allocated handles are put in correspondence.                        *)
+(* ================================================================== *)
+
+let fce_aa_sl : pstore fv fcl =
+  [(2, fce_cx (FI 2));
+   (1, PCtxRequests (PV (FI 1)) fce_frames (fun z -> POp (PVar z) (PVar #fv #fcl)));
+   (0, fce_cx (FI 1))]
+let fce_aa_sr : pstore fv fcl = [(1, fce_cx (FI 2)); (0, fce_cx (FI 1))]
+
+(** The starting anchor pins the public key 0; the run adds ONE pair, for the
+    handle each side allocated last. The left's key 1 -- the context
+    `o_extend_ctx` allocated and the right side never built -- is garbage and
+    stays unspoken for. *)
+let fce_aa_w : pworld = [(2, 1); (0, 0)]
+
+#push-options "--fuel 6 --ifuel 2"
+let guard_nom_ce_aa_world ()
+  : Lemma (pwf_world fce_aa_w /\ pwext fce_aa_w (panchor ce_sto) /\
+           pval_rel #fv fce_aa_w (PCtxKey 2) (PCtxKey 1) /\
+           pwlookup_l 1 fce_aa_w == None /\
+           psrel fcl_rel fce_aa_w fce_aa_sl fce_aa_sr)
+  = guard_nom_ce_sto ();
+    assert_norm (panchor ([(0, fce_cx (FI 1))] <: pstore fv fcl) == [(0, 0)]);
+    assert_norm (pwlookup_l 2 fce_aa_w == Some 1);
+    assert_norm (pwlookup_l 1 fce_aa_w == None);
+    assert_norm (pwlookup_l 0 fce_aa_w == Some 0);
+    introduce forall (i j: nat).
+        (pwlookup_l i fce_aa_w == Some j ==>
+         (Some? (pstore_lookup i fce_aa_sl) /\ Some? (pstore_lookup j fce_aa_sr) /\
+          pxrel fcl_rel fce_aa_w (psget i fce_aa_sl) (psget j fce_aa_sr)))
+    with (introduce _ ==> _
+          with (assert ((i == 2 /\ j == 1) \/ (i == 0 /\ j == 0));
+                assert_norm (psget 2 fce_aa_sl == fce_cx (FI 2));
+                assert_norm (psget 1 fce_aa_sr == fce_cx (FI 2));
+                assert_norm (psget 0 fce_aa_sl == fce_cx (FI 1));
+                assert_norm (psget 0 fce_aa_sr == fce_cx (FI 1));
+                lemma_fce_cx_selfrel fce_aa_w (FI 2);
+                lemma_fce_cx_selfrel fce_aa_w (FI 1)))
+#pop-options
+
+let guard_nom_ce_aa_related ()
+  : Lemma (
+      pequivariant_k_at fcl_rel (panchor ce_sto) fk_new /\
+      pstore_equivariant_at fcl_rel ce_sto /\ psfresh ce_sto ce_nxt /\
+      pnconverges flook fapply ce_cf_aa_l [] (PCtxKey 2) fce_aa_sl /\
+      pnconverges flook fapply ce_cf_aa_r [] (PCtxKey 1) fce_aa_sr /\
+      pwf_world fce_aa_w /\ pwext fce_aa_w (panchor ce_sto) /\
+      pval_rel #fv fce_aa_w (PCtxKey 2) (PCtxKey 1) /\
+      psrel fcl_rel fce_aa_w fce_aa_sl fce_aa_sr)
+  = guard_nom_fk_new_equivariant ();
+    guard_nom_initial_stores_ok ();
+    guard_nom_ce_sto ();
+    guard_nom_ce_aa_world ();
+    assert_norm ((fst (prun flook fapply 200 ce_cf_aa_l)).st == PDone (PCtxKey 2));
+    assert_norm (snd (prun flook fapply 200 ce_cf_aa_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_aa_l)).store == fce_aa_sl);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_aa_r)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook fapply 200 ce_cf_aa_r) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_aa_r)).store == fce_aa_sr);
+    lemma_pnconverges_at flook fapply ce_cf_aa_l 200 [] (PCtxKey 2) fce_aa_sl;
+    lemma_pnconverges_at flook fapply ce_cf_aa_r 200 [] (PCtxKey 1) fce_aa_sr
+
+(* ================================================================== *)
+(*  PAIR 4 -- `ce_ac_l` / `ce_ac_r` (`law_assoc`, ANCHORED HALF)       *)
+(*                                                                     *)
+(*  The left allocates TWICE and the right not at all, so the two       *)
+(*  answers are TWO apart rather than one.  The world still adds        *)
+(*  exactly one pair -- one per handle that surfaced ON BOTH SIDES --   *)
+(*  and both of the left's other entries are garbage.                   *)
+(* ================================================================== *)
+
+let fce_ac_w : pworld = [(2, 0)]
+
+#push-options "--fuel 4 --ifuel 2"
+let guard_nom_ce_ac_world ()
+  : Lemma (pwf_world fce_ac_w /\ pwext fce_ac_w (panchor ([] <: pstore fv fcl)) /\
+           pval_rel #fv fce_ac_w (PCtxKey 2) (PCtxKey 0) /\
+           pwlookup_l 1 fce_ac_w == None /\ pwlookup_l 0 fce_ac_w == None /\
+           psrel fcl_rel fce_ac_w fce_aa_sl fce_sr)
+  = assert_norm (pwlookup_l 2 fce_ac_w == Some 0);
+    assert_norm (pwlookup_l 1 fce_ac_w == None);
+    assert_norm (pwlookup_l 0 fce_ac_w == None);
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    introduce forall (i j: nat).
+        (pwlookup_l i fce_ac_w == Some j ==>
+         (Some? (pstore_lookup i fce_aa_sl) /\ Some? (pstore_lookup j fce_sr) /\
+          pxrel fcl_rel fce_ac_w (psget i fce_aa_sl) (psget j fce_sr)))
+    with (introduce _ ==> _
+          with (assert (i == 2 /\ j == 0);
+                assert_norm (psget 2 fce_aa_sl == fce_cx (FI 2));
+                assert_norm (psget 0 fce_sr == fce_cx (FI 2));
+                lemma_fce_cx_selfrel fce_ac_w (FI 2)))
+#pop-options
+
+let guard_nom_ce_ac_related ()
+  : Lemma (
+      pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl)) fk_new /\
+      pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+      psfresh ([] <: pstore fv fcl) 0 /\
+      pnconverges flook fapply ce_cf_ac_l [] (PCtxKey 2) fce_aa_sl /\
+      pnconverges flook fapply ce_cf_ac_r [] (PCtxKey 0) fce_sr /\
+      pwf_world fce_ac_w /\ pwext fce_ac_w (panchor ([] <: pstore fv fcl)) /\
+      pval_rel #fv fce_ac_w (PCtxKey 2) (PCtxKey 0) /\
+      psrel fcl_rel fce_ac_w fce_aa_sl fce_sr)
+  = guard_nom_fk_new_equivariant ();
+    guard_nom_initial_stores_ok ();
+    guard_nom_ce_ac_world ();
+    assert_norm ((fst (prun flook fapply 200 ce_cf_ac_l)).st == PDone (PCtxKey 2));
+    assert_norm (snd (prun flook fapply 200 ce_cf_ac_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_ac_l)).store == fce_aa_sl);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_ac_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook fapply 200 ce_cf_ac_r) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_ac_r)).store == fce_sr);
+    lemma_pnconverges_at flook fapply ce_cf_ac_l 200 [] (PCtxKey 2) fce_aa_sl;
+    lemma_pnconverges_at flook fapply ce_cf_ac_r 200 [] (PCtxKey 0) fce_sr
+
+(**
+ * **THE SIX, IN ONE STATEMENT.** PROVED. Four pairs of programs, six
+ * propositions -- `law_left_identity`, `law_right_identity`,
+ * `law_transparent_agrees` at pair 1, `law_resume_matches_continuation` at pair
+ * 2, and `law_assoc`'s two conjuncts at pairs 3 and 4 -- every one of which is
+ * FALSE under `pobs_tr_eq` (the guards above) and every one of whose two sides
+ * corresponds under a world here.
+ *
+ * In each case the world adds ONE pair per handle that surfaced on both sides,
+ * extends the starting anchor, and is silent about every context only one side
+ * built.
+ *)
+let guard_nom_the_six ()
+  : Lemma (
+      // the three that share pair 1
+      pval_rel #fv fce_w (PCtxKey 1) (PCtxKey 0) /\
+      psrel fcl_rel fce_w fce_sl fce_sr /\
+      pwext fce_w (panchor ([] <: pstore fv fcl)) /\
+      // the fourth
+      pnconverges flook fapply ce_cf_rm_l [] (PCtxKey 1) fce_sl /\
+      pnconverges flook fapply ce_cf_rm_r [] (PCtxKey 0) fce_sr /\
+      // `law_assoc`, algebraic half -- at a NON-EMPTY anchor
+      pval_rel #fv fce_aa_w (PCtxKey 2) (PCtxKey 1) /\
+      psrel fcl_rel fce_aa_w fce_aa_sl fce_aa_sr /\
+      pwext fce_aa_w (panchor ce_sto) /\
+      pwlookup_l 0 fce_aa_w == Some 0 /\
+      // `law_assoc`, anchored half -- two allocations against none
+      pval_rel #fv fce_ac_w (PCtxKey 2) (PCtxKey 0) /\
+      psrel fcl_rel fce_ac_w fce_aa_sl fce_sr /\
+      // and every world above is well formed, hence a bijection
+      pwf_world fce_w /\ pwf_world fce_aa_w /\ pwf_world fce_ac_w)
+  = guard_nom_ce_related ();
+    guard_nom_ce_rm_related ();
+    guard_nom_ce_aa_related ();
+    guard_nom_ce_ac_related ();
+    assert_norm (pwlookup_l 0 fce_aa_w == Some 0)
+
+(* ================================================================== *)
+(*  B2b.1: THE NEGATIVES -- WHAT THE REPAIR MUST NOT RELATE            *)
+(*                                                                     *)
+(*  A repair that related everything would be worthless.  Five things   *)
+(*  must stay separated, and each is checked below rather than argued:  *)
+(*  two genuinely distinct LIVE handles; two entries whose contexts     *)
+(*  BEHAVE differently; a FORGED or STALE handle; a name the run has    *)
+(*  not created; and two programs whose TRACES differ.                  *)
+(* ================================================================== *)
+
+(* ---- CONDITION 2: B1.7's two live handles are not collapsed -------- *)
+
+(**
+ * **THE TWO DISTINCT LIVE HANDLES OF `fixture_17` STAY DISTINCT.** PROVED, at
+ * the store that fixture's own run leaves behind.
+ *
+ * `prog17` produces two scopes and holds both handles at once; the store ends
+ * with two entries, keys 0 and 1. The anchor pins each to ITSELF, and a world
+ * is a partial FUNCTION, so no world extending the anchor can send key 0 to key
+ * 1. Condition 2 is therefore not a property of how the repair happens to be
+ * used: it is unavailable to it.
+ *)
+let fs17 : pstore fv fcl = (frun 800 prog17).store
+
+let guard_nom_fixture_17_handles_live ()
+  : Lemma (Some? (pstore_lookup 0 fs17) /\ Some? (pstore_lookup 1 fs17) /\
+           pwlookup_l 0 (panchor fs17) == Some 0 /\
+           pwlookup_l 1 (panchor fs17) == Some 1)
+  = assert_norm (Some? (pstore_lookup 0 fs17));
+    assert_norm (Some? (pstore_lookup 1 fs17));
+    lemma_panchor_pins 0 fs17;
+    lemma_panchor_pins 1 fs17
+
+let guard_nom_fixture_17_not_collapsed (w: pworld)
+  : Lemma (requires pwext w (panchor fs17))
+          (ensures ~(pval_rel #fv w (PCtxKey 0) (PCtxKey 1)) /\
+                   ~(pval_rel #fv w (PCtxKey 1) (PCtxKey 0)))
+  = guard_nom_fixture_17_handles_live ();
+    guard_nom_distinct_live_handles 0 1 fs17 w;
+    guard_nom_distinct_live_handles 1 0 fs17 w
+
+(* ---- CONDITION 3: aliasing, and the ORDER handles are selected in --- *)
+
+(**
+ * **A WORLD EXTENDING THE ANCHOR IS THE IDENTITY ON EVERY ALREADY-PUBLIC
+ * HANDLE.** PROVED. So a program that selects the FIRST of two handles it was
+ * given is matched by one that selects the first, and not the second: the order
+ * in which handles are selected is preserved because the public ones are not
+ * renamed at all, and the ones created during the run are put in correspondence
+ * one pair at a time, in the order they surfaced.
+ *)
+let guard_nom_selection_order_preserved (#v #cl: Type)
+      (sto: pstore v cl) (w: pworld) (i j: nat)
+  : Lemma (requires pwext w (panchor sto) /\
+                    Some? (pstore_lookup i sto) /\ Some? (pstore_lookup j sto))
+          (ensures pval_rel #v w (PCtxKey i) (PCtxKey i) /\
+                   pval_rel #v w (PCtxKey j) (PCtxKey j) /\
+                   ((i == j) <==> (pwlookup_l i w == pwlookup_l j w)))
+  = lemma_panchor_pins i sto;
+    lemma_panchor_pins j sto
+
+(** And aliasing, at the two handles of `fixture_17`: they are different on the
+    left exactly when their partners are different on the right. PROVED, from
+    `pwf_world`'s biconditional and nothing else. *)
+let guard_nom_fixture_17_aliasing (w: pworld) (a b: pval fv)
+  : Lemma (requires pwf_world w /\ pval_rel #fv w (PCtxKey 0) a /\
+                    pval_rel #fv w (PCtxKey 1) b)
+          (ensures (PCtxKey #fv 0 == PCtxKey #fv 1) <==> (a == b))
+  = guard_nom_eq_preserves_aliasing w (PCtxKey 0) a (PCtxKey 1) b
+
+(* ---- CONDITION 4: contexts that behave differently ----------------- *)
+
+(** A second context shape, identical to `fce_cx` except in what it DOES when
+    consumed: its `post` performs an operation before returning rather than
+    returning at once. *)
+let fce_cx_b (a: fv) : pctx fv fcl
+  = PCtxRequests (PV a) fce_frames (fun z -> POp (PVar z) (PVar #fv #fcl))
+
+(**
+ * **TWO ENTRIES WHOSE CONTEXTS BEHAVE DIFFERENTLY ARE NOT RELATED, AT ANY
+ * WORLD.** PROVED. The `post` components must send related arguments to related
+ * computations, and `PVar y` is not related to `POp (PVar y) PVar` -- different
+ * constructors at the head, and the relation has no clause joining them.
+ *)
+let guard_nom_different_contexts_unrelated (w: pworld) (a: fv)
+  : Lemma (requires pwf_world w)
+          (ensures ~(pxrel fcl_rel w (fce_cx a) (fce_cx_b a)) /\
+                   ~(pxrel fcl_rel w (fce_cx_b a) (fce_cx a)))
+  = introduce pxrel fcl_rel w (fce_cx a) (fce_cx_b a) ==> False
+    with begin
+      assert (pval_rel #fv w (fpv FU) (fpv FU));
+      assert (pctx_rel fcl_rel 1 w (fce_cx a) (fce_cx_b a));
+      assert (pcomp_rel fcl_rel 1 w (PVar (fpv FU))
+                                    (POp (PVar (fpv FU)) (PVar #fv #fcl)))
+    end;
+    introduce pxrel fcl_rel w (fce_cx_b a) (fce_cx a) ==> False
+    with begin
+      assert (pval_rel #fv w (fpv FU) (fpv FU));
+      assert (pctx_rel fcl_rel 1 w (fce_cx_b a) (fce_cx a));
+      assert (pcomp_rel fcl_rel 1 w (POp (PVar (fpv FU)) (PVar #fv #fcl))
+                                    (PVar (fpv FU)))
+    end
+
+(** Nor two entries that merely carry different payloads. PROVED. *)
+let guard_nom_different_payloads_unrelated (w: pworld)
+  : Lemma (~(pxrel fcl_rel w (fce_cx (FI 1)) (fce_cx (FI 2))))
+  = introduce pxrel fcl_rel w (fce_cx (FI 1)) (fce_cx (FI 2)) ==> False
+    with assert (pctx_rel fcl_rel 1 w (fce_cx (FI 1)) (fce_cx (FI 2)))
+
+(**
+ * **AND THE STORE RELATION REFUSES THE PAIR.** PROVED. A world that sent a key
+ * holding one context to a key holding the other would not relate the two
+ * stores -- so the repair cannot buy agreement by mapping a handle onto a
+ * differently behaving one.
+ *)
+let guard_nom_psrel_refuses_different_contexts
+      (w: pworld) (s1 s2: pstore fv fcl) (i j: nat) (a: fv)
+  : Lemma (requires pwf_world w /\ pwlookup_l i w == Some j /\
+                    pstore_lookup i s1 == Some (fce_cx a) /\
+                    pstore_lookup j s2 == Some (fce_cx_b a))
+          (ensures ~(psrel fcl_rel w s1 s2))
+  = guard_nom_different_contexts_unrelated w a;
+    introduce psrel fcl_rel w s1 s2 ==> False
+    with begin
+      assert (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2));
+      assert (psget i s1 == fce_cx a);
+      assert (psget j s2 == fce_cx_b a)
+    end
+
+(* ---- CONDITION 5: forged and stale handles, and future names ------- *)
+
+(**
+ * **A FORGED OR STALE HANDLE IS RELATED TO NOTHING, AND THERE IS NO FALLBACK
+ * TO NEARNESS.** PROVED. `pval_rel` has exactly one clause for handles and it
+ * asks the world; a key the world does not speak for has no partner, and no
+ * clause relates it to a nearby key, to a payload, or to anything else.
+ *
+ * `fixture_19` already shows a forged handle FAILING in the machine --
+ * `presolve` refuses it and the run gets stuck, so it never reaches a value to
+ * be compared. This is the relational half of the same statement.
+ *)
+let guard_nom_forged_stays_forged (w: pworld) (n1 n2 i: nat) (x2: pval fv)
+  : Lemma (requires pwbound w n1 n2 /\ i >= n1)
+          (ensures ~(pval_rel #fv w (PCtxKey i) x2))
+  = guard_nom_forged_handle_unrelated w i x2
+
+(**
+ * **AN ANCHOR NEVER PINS A NAME THE RUN HAS NOT CREATED.** PROVED, and it is
+ * what closes the hole the relativisation could have opened.
+ *
+ * Anchor-relative equivariance is WEAKER than the global notion, so the obvious
+ * worry is that a dishonest closure could pre-own a name. It cannot: an anchor
+ * pins exactly the keys the store ALREADY HOLDS, and the store holds nothing at
+ * or above the counter. Every name the run has not yet created is therefore
+ * still an unowned future name, and a closure that returns one is refused -- at
+ * EVERY anchor whatsoever.
+ *)
+let guard_nom_anchor_never_pins_a_future_name
+      (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl) (n0: nat) (i: nat)
+  : Lemma (requires psfresh sto n0 /\ i >= n0)
+          (ensures pwlookup_l i (panchor sto) == None /\
+                   pwlookup_r (i + 1) (panchor sto) == None /\
+                   ~(pfn_rel_at r (panchor sto) (pkcap #v #cl i) (pkcap #v #cl i)))
+  = lemma_panchor_l i sto;
+    lemma_panchor_r (i + 1) sto;
+    lemma_panchor_wf sto;
+    lemma_pwextend_wf i (i + 1) (panchor sto);
+    let w = pwextend i (i + 1) (panchor sto) in
+    assert (pwf_world w /\ pwext w (panchor sto) /\ pwlookup_l i w == Some (i + 1));
+    assert (pval_rel #v w (PCtxKey i) (PCtxKey (i + 1)));
+    introduce pfn_rel_at r (panchor sto) (pkcap #v #cl i) (pkcap #v #cl i) ==> False
+    with begin
+      assert (pcrel r w (pkcap #v #cl i (PCtxKey i)) (pkcap #v #cl i (PCtxKey (i + 1))));
+      assert (pcomp_rel r 1 w (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i)))
+    end
+
+(**
+ * **THE SAME TERM, TWO ANCHORS, OPPOSITE VERDICTS.** PROVED, and this is what
+ * makes the relativisation carry its weight rather than rename the problem.
+ *
+ * `pkcap i` returns the handle `PCtxKey i`. At an anchor that does not own `i`
+ * -- the empty one, and every anchor of a store not holding `i` -- it is
+ * REFUSED: `i` is an unowned future name and a world is free to rename it. At
+ * an anchor that DOES own `i` it is ADMITTED, because the term is then a
+ * legitimate CAPTURE of a handle the store already holds. The discrimination is
+ * not syntactic; it comes from the provenance the starting world carries.
+ *)
+let guard_nom_capture_vs_guess (#v #cl: Type) (r: pcl_rel_t cl) (i: nat) (w0: pworld)
+  : Lemma (requires pwlookup_l i w0 == Some i)
+          (ensures pfn_rel_at r w0 (pkcap #v #cl i) (pkcap #v #cl i) /\
+                   ~(pfn_rel_at r ([] <: pworld) (pkcap #v #cl i) (pkcap #v #cl i)))
+  = guard_nom_capture_not_single_sided #v #cl r i;
+    introduce forall (w: pworld) (y1 y2: pval v).
+        (pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+         pcrel r w (pkcap #v #cl i y1) (pkcap #v #cl i y2))
+    with (introduce _ ==> _
+          with (assert (pwlookup_l i w == Some i);
+                assert (pval_rel #v w (PCtxKey i) (PCtxKey i));
+                introduce forall (n: nat).
+                    pcomp_rel r n w (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i))
+                with ()))
+
+(**
+ * **AND THE TWO-SIDED FORM, WHICH IS THE WHOLE REASON THE RELATION IS
+ * TWO-SIDED.** PROVED. Two closures capturing the two CORRESPONDING raw keys --
+ * different terms, holding different numbers -- are related at a world that
+ * says the two keys correspond. No single-sided condition can state this, and
+ * (`guard_nom_capture_not_single_sided`) none holds of either closure alone.
+ *)
+let guard_nom_two_captures_related (#v #cl: Type) (r: pcl_rel_t cl)
+      (i j: nat) (w0: pworld)
+  : Lemma (requires pwlookup_l i w0 == Some j)
+          (ensures pfn_rel_at r w0 (pkcap #v #cl i) (pkcap #v #cl j))
+  = introduce forall (w: pworld) (y1 y2: pval v).
+        (pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+         pcrel r w (pkcap #v #cl i y1) (pkcap #v #cl j y2))
+    with (introduce _ ==> _
+          with (assert (pwlookup_l i w == Some j);
+                assert (pval_rel #v w (PCtxKey i) (PCtxKey j));
+                introduce forall (n: nat).
+                    pcomp_rel r n w (PVar (PCtxKey #v i)) (PVar (PCtxKey #v j))
+                with ()))
+
+(* ---- CONDITION 6: only unreachable entries are ignored ------------- *)
+
+(**
+ * **WHAT IS IGNORED, AND WHAT IS NOT.** `psrel` quantifies over the WORLD'S
+ * DOMAIN, so an entry is ignored exactly when no key the world speaks for names
+ * it. Two facts bound that, and both are checked:
+ *
+ *   - `lemma_psrel_garbage` (above): an entry added at the fresh counter, which
+ *     is what an allocation only one side performed leaves, is outside the
+ *     anchor's domain -- and the two stores are then related in BOTH
+ *     directions, which is what makes the ignoring symmetric rather than a
+ *     licence for the left side to hide things;
+ *   - and here, concretely: the entry the world's domain DOES name at the
+ *     counterexample carries no handle at all -- its payload is an ordinary
+ *     value, its residual frames are a boundary and a prompt, and its `post` is
+ *     the identity -- so nothing reachable from the answer names the ignored
+ *     key.
+ *
+ * **What is NOT claimed.** "Reachable" is not a computable predicate here: a
+ * `PCtxRequests` carries a `post` whose returned keys cannot be enumerated,
+ * which is the reason this relation is defined by what the two sides PRODUCE in
+ * the first place. So the general statement "exactly the unreachable entries
+ * are ignored" is not proved; what is proved is the domain restriction and this
+ * instance of it.
+ *)
+let guard_nom_only_garbage_ignored ()
+  : Lemma (PCtxRequests?.value (fce_cx (FI 2)) == PV (FI 2) /\
+           PCtxRequests?.residual (fce_cx (FI 2)) == fce_frames /\
+           PCtxRequests?.post (fce_cx (FI 2)) == (PVar #fv #fcl) /\
+           fce_frames == [PBoundaryF; PPromptF ftbl None PFamily] /\
+           pwlookup_l 0 fce_w == None /\
+           Some? (pstore_lookup 0 fce_sl) /\
+           psrel fcl_rel fce_w fce_sl fce_sr)
+  = guard_nom_ce_world ();
+    assert_norm (pwlookup_l 0 fce_w == None);
+    assert_norm (Some? (pstore_lookup 0 fce_sl))
+
+(* ---- CONDITION 8 / CONDITION 7: the trace, and what survives ------- *)
+
+(**
+ * **THE TRACE-BASED SEPARATION OF THE RESIDUAL FROM THE SUSPENSION SURVIVES.**
+ * PROVED, and in the strongest form: the suspension program does not converge
+ * with the residual program's trace AT ALL, so no choice of world can rescue
+ * it. The world enters the nominal observation only at the VALUE and the STORE;
+ * the trace is compared by equality before any world is chosen.
+ *
+ * The configuration is `pload`'s -- empty stack, empty store, counter zero --
+ * which satisfies every hypothesis the nominal observation imposes, so this is
+ * a separation INSIDE the new relation's quantifier and not outside it.
+ *)
+let guard_nom_trace_separation_survives ()
+  : Lemma ((forall (x2: pval fv) (s2: pstore fv fcl).
+              ~(pnconverges flook fapply (pload prog_susp)
+                            ["prefix"; "c1"; "c2"] x2 s2)) /\
+           (forall (x2: pval fv) (s2: pstore fv fcl).
+              ~(pnconverges flook fapply (pload prog_traced)
+                            ["prefix"; "c1"; "prefix"; "c2"] x2 s2)) /\
+           pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl))
+                             ([] <: pstack fv fcl) /\
+           pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+           psfresh ([] <: pstore fv fcl) 0)
+  = guard_traced_converges_tr ();
+    guard_susp_converges_tr ();
+    introduce forall (x2: pval fv) (s2: pstore fv fcl).
+        ~(pnconverges flook fapply (pload prog_susp) ["prefix"; "c1"; "c2"] x2 s2)
+    with (introduce pnconverges flook fapply (pload prog_susp)
+                                ["prefix"; "c1"; "c2"] x2 s2 ==> False
+          with (lemma_pnconverges_forget flook fapply (pload prog_susp)
+                  ["prefix"; "c1"; "c2"] x2 s2;
+                lemma_pconverges_tr_unique flook fapply (pload prog_susp)
+                  ["prefix"; "c1"; "c2"] ["prefix"; "c1"; "prefix"; "c2"]
+                  x2 (fdone (fend 400 prog_susp))));
+    introduce forall (x2: pval fv) (s2: pstore fv fcl).
+        ~(pnconverges flook fapply (pload prog_traced)
+                      ["prefix"; "c1"; "prefix"; "c2"] x2 s2)
+    with (introduce pnconverges flook fapply (pload prog_traced)
+                                ["prefix"; "c1"; "prefix"; "c2"] x2 s2 ==> False
+          with (lemma_pnconverges_forget flook fapply (pload prog_traced)
+                  ["prefix"; "c1"; "prefix"; "c2"] x2 s2;
+                lemma_pconverges_tr_unique flook fapply (pload prog_traced)
+                  ["prefix"; "c1"; "prefix"; "c2"] ["prefix"; "c1"; "c2"]
+                  x2 (fdone (fend 400 prog_traced))))
+
+(**
+ * **THE NEGATIVES, IN ONE STATEMENT.** PROVED.
+ *)
+let guard_nom_the_negatives ()
+  : Lemma (
+      // 2: two distinct LIVE handles, at B1.7's own fixture
+      (forall (w: pworld). pwext w (panchor fs17) ==>
+         ~(pval_rel #fv w (PCtxKey 0) (PCtxKey 1))) /\
+      // 3: aliasing, from the bijection
+      (forall (w: pworld) (a1 a2 b1 b2: pval fv).
+         pwf_world w /\ pval_rel w a1 a2 /\ pval_rel w b1 b2 ==>
+         ((a1 == b1) <==> (a2 == b2))) /\
+      // 4: contexts that behave differently
+      (forall (w: pworld) (a: fv).
+         pwf_world w ==> ~(pxrel fcl_rel w (fce_cx a) (fce_cx_b a))) /\
+      // 5: forged and stale handles
+      (forall (w: pworld) (n1 n2 i: nat) (x2: pval fv).
+         pwbound w n1 n2 /\ i >= n1 ==> ~(pval_rel #fv w (PCtxKey i) x2)) /\
+      // 8: the trace
+      (forall (x2: pval fv) (s2: pstore fv fcl).
+         ~(pnconverges flook fapply (pload prog_susp)
+                       ["prefix"; "c1"; "c2"] x2 s2)))
+  = introduce forall (w: pworld). (pwext w (panchor fs17) ==>
+                                   ~(pval_rel #fv w (PCtxKey 0) (PCtxKey 1)))
+    with (introduce _ ==> _ with guard_nom_fixture_17_not_collapsed w);
+    introduce forall (w: pworld) (a1 a2 b1 b2: pval fv).
+        (pwf_world w /\ pval_rel w a1 a2 /\ pval_rel w b1 b2 ==>
+         ((a1 == b1) <==> (a2 == b2)))
+    with (introduce _ ==> _ with guard_nom_eq_preserves_aliasing w a1 a2 b1 b2);
+    introduce forall (w: pworld) (a: fv).
+        (pwf_world w ==> ~(pxrel fcl_rel w (fce_cx a) (fce_cx_b a)))
+    with (introduce _ ==> _ with guard_nom_different_contexts_unrelated w a);
+    introduce forall (w: pworld) (n1 n2 i: nat) (x2: pval fv).
+        (pwbound w n1 n2 /\ i >= n1 ==> ~(pval_rel #fv w (PCtxKey i) x2))
+    with (introduce _ ==> _ with guard_nom_forged_stays_forged w n1 n2 i x2);
+    guard_nom_trace_separation_survives ()
+
+(* ================================================================== *)
+(*  B2b.1: THE BOUNDARY, INHABITED -- AND ONE FINDING                  *)
+(* ================================================================== *)
+
+(** A constant continuation, equivariant at every world because it looks at
+    nothing. It is the simplest witness the two negatives below need. *)
+let fk_const (_: pval fv) : pcomp fv fcl = PVar (fpv FU)
+
+let lemma_fk_const_equivariant (w: pworld)
+  : Lemma (pfn_rel_at fcl_rel w fk_const fk_const)
+  = introduce forall (w': pworld) (y1 y2: pval fv).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+         pcrel fcl_rel w' (fk_const y1) (fk_const y2))
+    with (introduce _ ==> _
+          with (introduce forall (n: nat).
+                    pcomp_rel fcl_rel n w' (PVar (fpv FU)) (PVar (fpv FU))
+                with ()))
+
+(** The body `FWrap` wraps its answer in, at top level so that the relation
+    proof has a symbol rather than a lambda inside `fapply` to match. *)
+let fwrap_body (r: pval fv) : pcomp fv fcl = fret (FL [FS "wrap"; fseen r])
+
+let lemma_fapply_wrap_shape ()
+  : Lemma (fapply FWrap [] fk_const == POp (fk_const (fpv (FS "outer-ans"))) fwrap_body)
+  = assert (fapply FWrap [] fk_const
+            == POp (fk_const (fpv (FS "outer-ans"))) fwrap_body)
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%fapply; `%fwrap_body; `%fk_const; `%fret; `%fpv];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(**
+ * **A FINDING: THE FIXTURES' CLAUSE INTERPRETER IS *NOT* EQUIVARIANT, AND THE
+ * REASON IS `fseen`.** PROVED -- the negation is proved.
+ *
+ * `fseen` renders a handle as `FL [FS "ctx"; FI i]`, RAW NAME INCLUDED. That is
+ * deliberate and documented: `fseen` is the fixtures' observer, the thing that
+ * lets a fixture report WHICH context it was given, and the note on it already
+ * says it is not available to the machine. But an interpreter that prints a
+ * handle's name is exactly the `Show`-style exposure a nominal observation must
+ * refuse, and refusing it is not optional: two related handles carry different
+ * numbers, so the rendered answers differ and the two applications are not
+ * related.
+ *
+ * WHAT THIS DOES AND DOES NOT COST. It means no `pboundary fv fcl` can be built
+ * with `b_apply = fapply`, so the nominal observation is not available AT THE
+ * FIXTURES' OWN CLAUSE LANGUAGE. It costs the results above nothing: the four
+ * counterexample pairs perform no operation at all, so `fapply` is never
+ * reached on either side of any of them -- which is why those results are
+ * stated over `flook` and `fapply` directly rather than through a record.
+ *
+ * `nboundary` below is the record built instead, over a clause language that
+ * does not render handles and DOES capture them.
+ *)
+(** The world the refutation uses: it renames the key 0 to 1, which is a thing
+    a legal world may do to a name no anchor owns. Top level, so that
+    `assert_norm` can unfold it. *)
+let fw01 : pworld = [(0, 1)]
+
+#push-options "--fuel 4 --ifuel 2"
+let guard_nom_fapply_not_equivariant ()
+  : Lemma (~(papply_equivariant fcl_rel fapply))
+  = lemma_fapply_wrap_shape ();
+    lemma_fk_const_equivariant ([] <: pworld);
+    assert_norm (pwlookup_l 0 fw01 == Some 1);
+    assert_norm (pwlookup_r 1 fw01 == Some 0);
+    assert (pwf_world ([] <: pworld));
+    assert (pwf_world fw01);
+    assert (pwext fw01 ([] <: pworld));
+    assert (pval_rel #fv fw01 (PCtxKey 0) (PCtxKey 1));
+    assert_norm (fwrap_body (PCtxKey 0)
+                 == PVar (PV (FL [FS "wrap"; FL [FS "ctx"; FI 0]])));
+    assert_norm (fwrap_body (PCtxKey 1)
+                 == PVar (PV (FL [FS "wrap"; FL [FS "ctx"; FI 1]])));
+    assert_norm (FL [FS "wrap"; FL [FS "ctx"; FI 0]]
+                 =!= FL [FS "wrap"; FL [FS "ctx"; FI 1]]);
+    introduce papply_equivariant fcl_rel fapply ==> False
+    with begin
+      assert (pclrel fcl_rel ([] <: pworld) FWrap FWrap);
+      assert (pvals_rel #fv ([] <: pworld) [] []);
+      assert (pcrel fcl_rel ([] <: pworld)
+                (fapply FWrap [] fk_const) (fapply FWrap [] fk_const));
+      assert (pcomp_rel fcl_rel 2 ([] <: pworld)
+                (POp (fk_const (fpv (FS "outer-ans"))) fwrap_body)
+                (POp (fk_const (fpv (FS "outer-ans"))) fwrap_body));
+      assert (pcomp_rel fcl_rel 1 fw01 (fwrap_body (PCtxKey 0)) (fwrap_body (PCtxKey 1)))
+    end
+#pop-options
+
+(* ------------------------------------------------------------------ *)
+(*  A CLAUSE LANGUAGE THAT CAPTURES HANDLES, AND THE RECORD OVER IT    *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The clause language the boundary record is built at.** Three shapes, chosen
+ * so that the two that matter CAPTURE A `pval fv` -- which is to say, may be
+ * holding a live handle -- and so that one of them CONSUMES its capture by
+ * handing it to the continuation. This is the situation the shipped machine is
+ * actually in: `cl` is an opaque PureScript closure and nothing stops it from
+ * having closed over a context handle.
+ *
+ * Nothing here renders a handle. That is the whole difference from `fcl`, and
+ * it is why a record can be built here and not there.
+ *)
+noeq
+type ncl =
+  | NEcho: ncl                    (* resume with the payload's head           *)
+  | NRet: cap:pval fv -> ncl      (* RETURN a captured value -- maybe a handle *)
+  | NResume: cap:pval fv -> ncl   (* RESUME with the captured value           *)
+
+(**
+ * **The clause relation: TWO-SIDED, and world-indexed.** Two clauses correspond
+ * when they are the same shape and their CAPTURES correspond -- which for two
+ * handles means the world says so. `NRet (PCtxKey 5)` and `NRet (PCtxKey 6)`
+ * are DIFFERENT VALUES and are related at a world sending 5 to 6; that is the
+ * whole difficulty, and no relation phrased over one clause value can express
+ * it.
+ *)
+let ncl_rel : pcl_rel_t ncl = fun _ w c1 c2 ->
+  match c1, c2 with
+  | NEcho, NEcho -> True
+  | NRet a, NRet b -> pval_rel w a b
+  | NResume a, NResume b -> pval_rel w a b
+  | _, _ -> False
+
+let napply : papply_t fv ncl = fun c payload k ->
+  match c with
+  | NEcho -> (match payload with | x :: _ -> k x | [] -> k (fpv FU))
+  | NRet cap -> PVar cap
+  | NResume cap -> k cap
+
+(** The same constant continuation at the `ncl` clause language, and its
+    equivariance -- generic in the clause relation, so that both the two-sided
+    relation and the one-sided one below can use it. *)
+let fk_const_n (_: pval fv) : pcomp fv ncl = PVar (fpv FU)
+
+let lemma_fk_const_n_equivariant (r: pcl_rel_t ncl) (w: pworld)
+  : Lemma (pfn_rel_at r w fk_const_n fk_const_n)
+  = introduce forall (w': pworld) (y1 y2: pval fv).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+         pcrel r w' (fk_const_n y1) (fk_const_n y2))
+    with (introduce _ ==> _
+          with (introduce forall (n: nat).
+                    pcomp_rel r n w' (PVar (fpv FU)) (PVar (fpv FU))
+                with ()))
+
+let lemma_ncl_rel_mono () : Lemma (pcl_mono ncl_rel)
+  = introduce forall (n: nat) (w' w: pworld) (c1 c2: ncl).
+        (ncl_rel n w c1 c2 /\ pwext w' w ==> ncl_rel n w' c1 c2)
+    with (introduce _ ==> _
+          with (match c1, c2 with
+                | NRet a, NRet b -> lemma_pval_rel_mono w' w a b
+                | NResume a, NResume b -> lemma_pval_rel_mono w' w a b
+                | _, _ -> ()))
+
+(**
+ * **THE REFERENCE LOOKUP IS EQUIVARIANT BY CONSTRUCTION.** PROVED, and it is
+ * not a coincidence: `ptable_rel` is DEFINED as "`lookup_handler` through the
+ * two tables answers correspondingly", and `pref_lookup` IS `lookup_handler`.
+ * So the boundary condition on the lookup is discharged by unfolding, at every
+ * clause relation whatever.
+ *)
+let lemma_pref_lookup_equivariant (#cl: Type) (r: pcl_rel_t cl)
+  : Lemma (plookup_equivariant r (pref_lookup #cl))
+  = introduce forall (n: nat) (w: pworld) (t1 t2: ptable cl) (eff op: string).
+      (ptable_rel r n w t1 t2 ==>
+       (match pref_lookup t1 eff op, pref_lookup t2 eff op with
+        | None, None -> True
+        | Some f1, Some f2 -> f1.kind == f2.kind /\ r n w f1.body f2.body
+        | _, _ -> False))
+    with (introduce _ ==> _ with ())
+
+(**
+ * **AND THE INTERPRETER IS EQUIVARIANT OVER THE TWO-SIDED RELATION.** PROVED,
+ * for every shape -- INCLUDING the two that capture, and including the one that
+ * hands its captured handle to the continuation.
+ *)
+#push-options "--fuel 3 --ifuel 3"
+let lemma_napply_equivariant () : Lemma (papply_equivariant ncl_rel napply)
+  = introduce forall (w: pworld) (c1 c2: ncl) (p1 p2: list (pval fv))
+                     (k1 k2: pval fv -> pcomp fv ncl).
+      (pwf_world w /\ pclrel ncl_rel w c1 c2 /\ pvals_rel w p1 p2 /\
+       pfn_rel_at ncl_rel w k1 k2 ==>
+       pcrel ncl_rel w (napply c1 p1 k1) (napply c2 p2 k2))
+    with (introduce _ ==> _
+          with (lemma_pwext_refl w;
+                match c1, c2 with
+                | NEcho, NEcho ->
+                  (match p1, p2 with
+                   | x1 :: _, x2 :: _ -> assert (pval_rel w x1 x2)
+                   | [], [] -> assert (pval_rel #fv w (fpv FU) (fpv FU))
+                   | _, _ -> ())
+                | NRet a, NRet b ->
+                  assert (ncl_rel 1 w c1 c2);
+                  introduce forall (n: nat). pcomp_rel ncl_rel n w (PVar a) (PVar b)
+                  with ()
+                | NResume a, NResume b -> assert (ncl_rel 1 w c1 c2)
+                | _, _ -> ()))
+#pop-options
+
+(**
+ * **THE BOUNDARY RECORD, INHABITED.** `ncl_rel` is the data; the three
+ * `squash`es are the properties of it. Nothing is admitted or assumed: each
+ * field is a lemma with a body.
+ *)
+let nboundary : pboundary fv ncl = {
+  b_rel = ncl_rel;
+  b_lk = pref_lookup #ncl;
+  b_apply = napply;
+  b_mono = lemma_ncl_rel_mono ();
+  b_lookup = lemma_pref_lookup_equivariant ncl_rel;
+  b_apply_eq = lemma_napply_equivariant ();
+}
+
+(* ---- and the record is non-vacuous in the way that matters --------- *)
+
+let nw56 : pworld = [(5, 6)]
+
+(**
+ * **THE CAPTURING PAIR IS RELATED, AND THE TWO CLAUSES ARE DIFFERENT VALUES.**
+ * PROVED. This is what a one-sided condition could not even state.
+ *)
+let guard_nom_capturing_clauses_related ()
+  : Lemma (pwf_world nw56 /\
+           (NRet (PCtxKey 5) =!= NRet (PCtxKey 6)) /\
+           pclrel ncl_rel nw56 (NRet (PCtxKey 5)) (NRet (PCtxKey 6)) /\
+           pclrel ncl_rel nw56 (NResume (PCtxKey 5)) (NResume (PCtxKey 6)) /\
+           ~(pclrel ncl_rel ([] <: pworld) (NRet (PCtxKey 5)) (NRet (PCtxKey 6))))
+  = assert_norm (pwlookup_l 5 nw56 == Some 6);
+    introduce forall (n: nat). ncl_rel n nw56 (NRet (PCtxKey 5)) (NRet (PCtxKey 6))
+    with ();
+    introduce forall (n: nat).
+        ncl_rel n nw56 (NResume (PCtxKey 5)) (NResume (PCtxKey 6))
+    with ();
+    introduce pclrel ncl_rel ([] <: pworld) (NRet (PCtxKey 5)) (NRet (PCtxKey 6)) ==> False
+    with assert (ncl_rel 1 ([] <: pworld) (NRet (PCtxKey 5)) (NRet (PCtxKey 6)))
+
+(** And applying that pair produces RELATED computations, at related arguments
+    -- for the shape that returns its capture and for the one that consumes it.
+    PROVED, through the boundary condition. *)
+let guard_nom_capturing_clauses_apply ()
+  : Lemma (pcrel ncl_rel nw56
+             (napply (NRet (PCtxKey 5)) [] fk_const_n)
+             (napply (NRet (PCtxKey 6)) [] fk_const_n))
+  = guard_nom_capturing_clauses_related ();
+    lemma_napply_equivariant ();
+    lemma_fk_const_n_equivariant ncl_rel nw56;
+    assert (pvals_rel #fv nw56 [] [])
+
+(**
+ * **THE SAME-CLAUSE CONDITION IS REFUTED HERE TOO, AND BY A WITNESS.** PROVED.
+ *
+ * Replace the two-sided relation by the one-sided one -- "the two runs hold the
+ * very same clause value" -- and the interpreter is no longer equivariant: a
+ * clause that captured `PCtxKey 5`, related to ITSELF, forces every world to
+ * pin 5 to itself, and a legal world sends it to 6. So the one-sided condition
+ * is not merely unable to relate the pair above: it is FALSE of the clause
+ * language as soon as capture is expressible in it.
+ *)
+let ncl_rel_eq : pcl_rel_t ncl = fun _ _ c1 c2 -> c1 == c2
+
+let guard_nom_samecl_refuted ()
+  : Lemma (~(papply_equivariant ncl_rel_eq napply))
+  = assert_norm (pwlookup_l 5 nw56 == Some 6);
+    assert (pwf_world nw56);
+    lemma_fk_const_n_equivariant ncl_rel_eq nw56;
+    introduce papply_equivariant ncl_rel_eq napply ==> False
+    with begin
+      assert (pclrel ncl_rel_eq nw56 (NRet (PCtxKey 5)) (NRet (PCtxKey 5)));
+      assert (pvals_rel #fv nw56 [] []);
+      assert (pcrel ncl_rel_eq nw56
+                (napply (NRet (PCtxKey 5)) [] fk_const_n)
+                (napply (NRet (PCtxKey 5)) [] fk_const_n));
+      assert (pcomp_rel ncl_rel_eq 1 nw56
+                (PVar (PCtxKey #fv 5)) (PVar (PCtxKey #fv 5)))
+    end
+
+(**
+ * **THE COMPARISON, IN ONE STATEMENT.** PROVED. At one world and one pair of
+ * clauses: the two-sided relation relates them and the interpreter then
+ * produces related results; the one-sided relation does not relate them, and
+ * the one-sided boundary condition is false outright.
+ *)
+let guard_nom_the_boundary_comparison ()
+  : Lemma (papply_equivariant ncl_rel napply /\
+           plookup_equivariant ncl_rel (pref_lookup #ncl) /\
+           pclrel ncl_rel nw56 (NRet (PCtxKey 5)) (NRet (PCtxKey 6)) /\
+           (NRet (PCtxKey 5) =!= NRet (PCtxKey 6)) /\
+           ~(papply_equivariant ncl_rel_eq napply) /\
+           ~(papply_equivariant fcl_rel fapply))
+  = lemma_napply_equivariant ();
+    lemma_pref_lookup_equivariant ncl_rel;
+    guard_nom_capturing_clauses_related ();
+    guard_nom_samecl_refuted ();
+    guard_nom_fapply_not_equivariant ()
+
+(* ================================================================== *)
+(*  B2b.1: WHAT IS CHECKED, AND WHAT IS NOT                            *)
+(*                                                                     *)
+(*  A ledger for the nominal layer, in the same spirit as the header's  *)
+(*  list of what this file states rather than proves.  Every line       *)
+(*  marked PROVED names a definition above with a body; every line      *)
+(*  marked NOT REACHED says why.                                        *)
+(*                                                                     *)
+(*  PROVED                                                              *)
+(*                                                                     *)
+(*   - the world layer: `pwf_world`'s biconditional makes a world a     *)
+(*     partial bijection; `pwextend` adds one pair; `panchor` pins a    *)
+(*     store's own keys to themselves                                   *)
+(*     (`lemma_pwextend_wf`, `lemma_panchor_wf`, `lemma_panchor_pins`); *)
+(*   - re-anchoring is UNSOUND, in general and at the counterexample's  *)
+(*     own final store (`guard_nom_no_reanchoring`,                     *)
+(*     `guard_nom_reanchor_pins_the_garbage`,                           *)
+(*     `guard_nom_ce_not_a_reanchoring`);                               *)
+(*   - the step-indexed, world-indexed relation is Kripke monotone,     *)
+(*     given a monotone clause relation                                 *)
+(*     (`lemma_pcomp_rel_mono` and the six lemmas it recurses with);    *)
+(*   - the store lemmas: garbage is ignored SYMMETRICALLY, an           *)
+(*     allocation extends the world by EXACTLY ONE PAIR and leaves      *)
+(*     every other key unspoken for (`lemma_psrel_garbage`,             *)
+(*     `guard_nom_alloc_extends_by_one_pair`);                          *)
+(*   - the sibling algebra: the join exists exactly when two            *)
+(*     extensions are compatible, compatibility is NECESSARY, a         *)
+(*     monotone allocator delivers it for free, and a reset allocator   *)
+(*     destroys it (`lemma_pwunion_wf`, `lemma_pwcompat_necessary`,     *)
+(*     `lemma_pwcompat_of_ranges`, `guard_nom_fork_no_join`);           *)
+(*   - the boundary record is INHABITED, at a clause language that      *)
+(*     captures handles, and the one-sided alternative is REFUTED       *)
+(*     there (`nboundary`, `guard_nom_the_boundary_comparison`);        *)
+(*   - the four counterexample pairs -- six law statements -- have      *)
+(*     answers that CORRESPOND UNDER AN EXHIBITED WORLD at the          *)
+(*     configurations that refute `pobs_tr_eq`, with the same trace,    *)
+(*     the stores related on the world's domain, and the world          *)
+(*     extending the starting anchor (`guard_nom_the_six`);             *)
+(*   - the configuration is INSIDE the nominal observation's            *)
+(*     quantifier: the ambient stack that defeated the old relation is  *)
+(*     equivariant (`guard_nom_fk_new_equivariant`), so the repair      *)
+(*     does not work by exclusion;                                      *)
+(*   - the negatives (`guard_nom_the_negatives`).                       *)
+(*                                                                     *)
+(*  NOT REACHED, AND NAMED                                              *)
+(*                                                                     *)
+(*   - **`pnobs_tr_eq` IS NOT PROVED OF ANY PAIR.**  What is proved is  *)
+(*     its BODY at one configuration per pair, with the witnesses       *)
+(*     written down.  The universally quantified statement ranges over  *)
+(*     EVERY equivariant ambient stack and store, and reaching it       *)
+(*     needs a FUNDAMENTAL THEOREM for this machine: a simulation over  *)
+(*     `pstep` taking two world-related configurations to two           *)
+(*     world-related configurations, with the world extended by one     *)
+(*     pair at each `palloc`.  That theorem is not attempted here.      *)
+(*     The scratch model it was designed against has it in seventy      *)
+(*     lines for a five-constructor evaluator; this machine has         *)
+(*     fourteen computation constructors, seven frame shapes and a      *)
+(*     stack, and the theorem is a gate of its own.                     *)
+(*   - consequently the five retargeted laws are STATED and not proved, *)
+(*     which is what this gate's scope says they should be;             *)
+(*   - no relation is claimed between `pobs_tr_eq` and `pnobs_tr_eq`,   *)
+(*     in either direction.  Neither implication is established and     *)
+(*     neither is obvious; see the block comment on the retargeted      *)
+(*     laws;                                                            *)
+(*   - "exactly the UNREACHABLE store entries are ignored" is not       *)
+(*     proved in general, and cannot be stated as a computable          *)
+(*     property here: a `PCtxRequests` carries a `post` whose returned  *)
+(*     keys cannot be enumerated.  What is proved is the domain         *)
+(*     restriction, its symmetry, and the instance at the               *)
+(*     counterexample (`guard_nom_only_garbage_ignored`);               *)
+(*   - `fcl_rel` is equality, which is sound HERE because no `fcl`      *)
+(*     constructor carries a `pval` -- a fact read off the type         *)
+(*     declaration, not a proposition proved.  The general case is      *)
+(*     `ncl`, where the relation is not equality and equality is        *)
+(*     REFUTED (`guard_nom_samecl_refuted`);                            *)
+(*   - `fapply` is NOT equivariant and the negation is PROVED           *)
+(*     (`guard_nom_fapply_not_equivariant`).  So no `pboundary fv fcl`  *)
+(*     exists with `b_apply = fapply`, and the nominal observation is   *)
+(*     not available at the fixtures' own clause language.  It costs    *)
+(*     the results above nothing -- none of the four counterexample     *)
+(*     pairs performs an operation, so `fapply` is never reached -- but *)
+(*     it is a real limit and is recorded as one rather than worked     *)
+(*     around.                                                          *)
+(*                                                                     *)
+(*  WHAT DID NOT CHANGE, and is worth saying because a repair to an     *)
+(*  observation is exactly the kind of change that quietly weakens      *)
+(*  things:                                                             *)
+(*                                                                     *)
+(*   - `prun`, `pstep_tr`, `pconverges_tr`, `pobs_tr_le` and            *)
+(*     `pobs_tr_eq` are untouched, so every earlier result stated over  *)
+(*     them means what it meant;                                        *)
+(*   - the trace is compared by EQUALITY in the nominal observation     *)
+(*     too (`guard_nom_trace_not_weakened`), and the residual /         *)
+(*     suspension separation survives in the strong form: the           *)
+(*     suspension does not converge with the residual's trace AT ALL,   *)
+(*     so no world can rescue it (`guard_nom_trace_separation_survives`);*)
+(*   - production is still an object-language transition, `ctx_ops` has *)
+(*     gained no interpreter argument, `presolve` is still given no     *)
+(*     stack, and `lemma_reachable_residual_wf` still has no            *)
+(*     `requires`;                                                      *)
+(*   - the counter is mentioned NOWHERE in the nominal observation, on  *)
+(*     either side, and no machine-specific step constant occurs in any *)
+(*     proof above: each side's step count is existentially quantified  *)
+(*     inside `pnconverges`, independently.                             *)
+(* ================================================================== *)
+
+(**
+ * **THE GATE, IN ONE CHECKED STATEMENT.** PROVED -- every conjunct is one of
+ * the guards above.
+ *)
+let guard_nom_b2b1 ()
+  : Lemma (
+      // 1: the six counterexamples correspond under an exhibited world
+      pval_rel #fv fce_w (PCtxKey 1) (PCtxKey 0) /\
+      psrel fcl_rel fce_w fce_sl fce_sr /\
+      pval_rel #fv fce_aa_w (PCtxKey 2) (PCtxKey 1) /\
+      psrel fcl_rel fce_aa_w fce_aa_sl fce_aa_sr /\
+      pval_rel #fv fce_ac_w (PCtxKey 2) (PCtxKey 0) /\
+      psrel fcl_rel fce_ac_w fce_aa_sl fce_sr /\
+      // ... and the offending ambient continuation is inside the quantifier
+      pequivariant_k fcl_rel fk_new /\
+      // 2: B1.7's two live handles are not collapsed
+      (forall (w: pworld). pwext w (panchor fs17) ==>
+         ~(pval_rel #fv w (PCtxKey 0) (PCtxKey 1))) /\
+      // 3: aliasing
+      (forall (w: pworld) (a1 a2 b1 b2: pval fv).
+         pwf_world w /\ pval_rel w a1 a2 /\ pval_rel w b1 b2 ==>
+         ((a1 == b1) <==> (a2 == b2))) /\
+      // 4: contexts that behave differently
+      (forall (w: pworld) (a: fv).
+         pwf_world w ==> ~(pxrel fcl_rel w (fce_cx a) (fce_cx_b a))) /\
+      // 5: forged and stale handles
+      (forall (w: pworld) (n1 n2 i: nat) (x2: pval fv).
+         pwbound w n1 n2 /\ i >= n1 ==> ~(pval_rel #fv w (PCtxKey i) x2)) /\
+      // 7: the trace-based separation survives
+      (forall (x2: pval fv) (s2: pstore fv fcl).
+         ~(pnconverges flook fapply (pload prog_susp)
+                       ["prefix"; "c1"; "c2"] x2 s2)) /\
+      // and re-anchoring is refuted, before anything positive rests on it
+      ~(pwext fce_w (panchor fce_sl)))
+  = guard_nom_the_six ();
+    guard_nom_fk_new_equivariant ();
+    guard_nom_the_negatives ();
+    guard_nom_ce_not_a_reanchoring ()
