@@ -3768,6 +3768,77 @@ that programs cannot read and that is not part of observational equivalence is
 harmless — **but it becomes a semantic observation the moment its output
 format is promised to users as stable.**
 
+### A discriminating example: `catch` against a prompt-local `Var`
+
+Can the recovery of a `catch` see the protected block's writes — global — or
+the state as it stood before the block ran, transactional? It is a good test of
+what the facility buys, and the answer is sharper than "higher-order effects
+make it possible".
+
+**The semantics is decided by handler composition order, and both are available
+today.**
+
+- **`Var` outside the scoped `catch`.** Its cell is reached through the real
+  stack and is never copied. It is **live**, so the recovery — and everything
+  after the scope — observes the block's writes. That is global semantics.
+- **`Var` inside, so that the scope borrows its prompt and crosses it.** The
+  cell travels in the borrowed segment as a by-value `ParamF`, so the block
+  writes a **snapshot** and the write is gone when the scope's answer comes out.
+  That is transactional semantics.
+
+`test/Scoped.purs` already pins the underlying placement distinction. `stateH`
+is installed inside and
+`ctrH` outside, both at the one reserved scalar label; the block sets the inner
+cell to `999` and bumps the outer to `42`, and the fixture asserts
+`Right [ 200, 999, 200, 42 ]`. The third element is the borrowed cell reverting
+to its snapshot; the fourth is the outer cell staying live. **Both semantics,
+side by side, in one program, decided by where the handler was installed.**
+
+**What the general facility would add** is not the choice itself but its
+*range*: today the borrowed path requires the intervening prompts to be
+all-fast, so the transactional reading is only available across handlers that
+qualify. The general weave **is intended to extend** the same distinction to
+intervening handlers that do not — a reference prototype at B2b.1, with the
+laws and the simulation still open, so it is not a capability that exists yet.
+
+**What a `catch` clause cannot do today is choose dynamically at a fixed
+placement.** `runScope` at a `catch` yields roughly `Either e (ctx x)`, so on
+`Left e` there is **no `ctx` at all** — the failure path carries no context
+through which an intervening `Var`'s state could be passed on or dropped. The
+clause is therefore not free to pick global or transactional per invocation;
+what is choosable is where the handlers sit.
+
+**The two static meanings can be represented by composition.** Beside handler
+ordering, the state can be put into the answer: the `catch` owner's answer
+former is `Either e`, so the distinction to write down is `(Either e a, s)` —
+state survives the failure, global — against `Either e (a, s)` — state sits
+inside the success branch and is discarded on failure, transactional. Both of
+these fix the meaning **statically**, exactly as placement does. Neither gives
+`catch` a new power.
+
+**Dynamic choice at one fixed placement instead requires** one of:
+
+- a **composite handler that takes the policy as an argument** — the choice is
+  then data the handler is given, not a property of how the handlers were
+  arranged;
+- or a **state-aware machine capability**: checkpoint, commit, restore. This is
+  **not** the finalizer-frame mechanism — a finalizer guarantees release on
+  unwind, while a state transaction controls snapshot, commit and rollback. It
+  is an independent capability and should be scoped as one.
+
+*What is implemented where, since these are easy to conflate.* The shipping
+runtime keeps `prepare_scope_fast`'s by-value `ParamF` snapshot; that is what
+the fixture above exercises. `PICell` and `enter_layer_frames` belong to the
+`GeneralWeave` prototype, and the shipped runtime has no general context plan.
+The shipped `catch` clause does weave its recovery, but through the fast borrow.
+
+*Status of the claims.* The snapshot behaviour and the live-cell behaviour are
+both **checked**, by the fixture cited. What is **not** checked is the
+`catch`-specific sequence — write inside the protected block, throw, and read
+in the recovery — for either placement. Two fixtures in a pair, one per
+placement, would fix the distinction at the point where it is most likely to
+be assumed rather than verified.
+
 ### What is not decided
 
 - The classification stays three-way, and B1.5 and B1.6 are reasons to expect it
@@ -3783,10 +3854,12 @@ format is promised to users as stable.**
   note above true of the code as well as the prose.)
 - The residual-context representation and its identity discipline are settled
   **for the reference semantics** — a shipping store and the shallow `pval`
-  model's boundary both remain. B2 and B3 are now blocked on B2a and on making
-  the observation relation trace-aware.
+  model's boundary both remain. B2a and the trace-aware step are both done;
+  B2b refuted the laws as stated, so what B3 now waits on is B2b.1 — the
+  nominal repair of the observation relation — and then the laws re-attempted
+  over the repaired relation.
 
-The order, revised after B1.7:
+The order, revised after B2b:
 
 | gate | what it settles |
 |---|---|
@@ -3796,7 +3869,8 @@ The order, revised after B1.7:
 | ~~B2a-2~~ | ~~`pconf_wf` over the whole configuration, preserved by every transition~~ — **done** |
 | ~~trace~~ | ~~make the observation relation trace-aware~~ — **done**: five laws retargeted at `pobs_tr_eq` |
 | ~~B2b~~ | ~~the five laws~~ — **all six propositions refuted**: the relation exposed allocator names |
-| B2b.1 | nominal observation — world-indexed partial bijection on handles, plus an equivariance discipline |
+| B2b.1 | nominal observation — world-indexed partial bijection on handles, anchor-relative equivariance, a `cl_rel` boundary record |
+| B2b redux | the five laws, over the repaired relation — not attempted until B2b.1 lands |
 | B3 | the existing borrow; simulation with the optimised machine; a shipping handle store |
 
 The trace step sits between B2a and B2b deliberately, and is not optional
@@ -3809,8 +3883,8 @@ One fact about the TCB that constrains the fallback: implementing library-side
 pinning them with fixtures does **not** leave the TCB at zero — a fixture
 observes behaviour at chosen points, it does not prove the callback. The TCB
 stays flat only if F\* interprets the residual protocol, or if the
-descriptor/capability is extracted from F\*. That is a second reason to run
-B1.5 first.
+descriptor/capability is extracted from F\*. That was a second reason for
+running B1.5 before the later gates.
 
 Verifying rather than scratch-building is the point: the risk in a new machine
 is not whether it runs but whether preservation and simulation close over the
