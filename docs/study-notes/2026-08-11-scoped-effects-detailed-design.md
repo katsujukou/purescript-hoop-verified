@@ -4115,6 +4115,169 @@ the boundary between differences that may be hidden and differences that may not
 is now drawn formally rather than by intuition. The open set is strictly smaller
 than it was.
 
+#### The design decision, taken before B2b.3b
+
+The two laws that compare produce against enter need a decision, and it is taken
+**before** the soundness work — because deciding to change the production
+protocol would invalidate proofs about `pfind_prompt` and its neighbours that
+B2b.3b would otherwise have already done.
+
+**Keep the production protocol and the scope-floor rule. Restate the laws.**
+
+The reason is what `o_enter_ctx` actually is. It is **not** a monadic `pure`:
+it allocates a first-class handle, saves a residual, delimits the captured
+region with a `PScopeF`, and yields a context that can be extended and resumed
+later. It is a meaningful reification. The current right identity — "produce a
+context, then extend it by `pure`" equated with "enter directly" — therefore
+assumes silently that **context production is erasable**, and B2b.3a's
+refutation is precisely the news that this assumption is false in this
+semantics.
+
+*Right identity, restated as a law about one produced context:*
+
+```text
+produce c >>= \cx -> extendContext cx pure >>= consume
+```
+
+against
+
+```text
+produce c >>= \cx -> consume cx
+```
+
+Production now happens **once on each side**, so what is asked is genuinely "is
+extension by `pure` an identity?" — which is what a right identity should be
+asking. A gate is running on whether this restatement is viable; if it is
+refuted too, and especially if `xapply` refutes it, the difficulty is not
+phrasing but the meaning of production and extension, and that goes back to
+design.
+
+*Transparency moves out of the algebraic laws entirely.* Its proper home is
+B3's optimisation simulation:
+
+> the general path at a `ContextTransparent` plan is observationally equal to
+> the existing fast borrow.
+
+That is not a retreat but a relocation to where the `ContextTransparent`
+classification was always headed. The class was defined to name the prompts
+the fast path may be used for, and "the fast path agrees with the general one
+there" is a statement about an optimisation, not an algebraic identity.
+
+The revised order is therefore: settle the restated right identity; move
+transparency to B3; keep the protocol and the floor; then B2b.3b against that
+fixed target; then B2b.4.
+
+#### The restatement, gated: a strong candidate, on one non-trivial instance
+
+522 lines appended, nothing existing changed, `z3rlimit` still zero. **The stop
+condition did not fire** — the restated law is not refuted, and `xapply` does
+not refute it.
+
+Keep the two halves of the answer apart:
+
+> **Q3** establishes that the reformulation removes the produce/enter
+> obstruction in one non-trivial `xapply` instance.
+>
+> **Q4** shows that a general proof still requires a **computation-level**
+> administrative relation: the stored `post`s differ by `POp c PVar` against
+> `c`, which is the machine's representation of bind's right identity.
+
+*What Q3 established.* At the same boundary, interpreter, plan, body and
+extension that killed the old form: both sides now go through production, so the
+produce/enter difference is gone; the old refutation's mechanism — residuals
+of length 5 against 2 — becomes 4 against 4, on literally the same context;
+and the differing handle names — `PCtxKey 2` against `PCtxKey 1` — are
+absorbed by the nominal world exactly as they should be. The sharpest form of
+it is one line: `guard_ri_ext_is_the_killers_fixture` proves the restated
+law's **right-hand side is verbatim the left-hand side the old form loses
+on**. The same
+computation, refuted against a direct entry and not refuted against a
+`pure`-extended production.
+
+*What Q4 exposed.* Both sides produce, the residuals are frame-identical, and
+what separates them is one administrative `POp _ PVar` inside a stored closure:
+`extend_ctx_C` records the extension in `post`, so `post` goes from `PVar` to
+`fun z -> POp (PVar z) PVar`, and `pctx_rel` compares `post`s by `pcomp_rel`
+alone. The mid-point computations **are** related, at world `[(1,0)]`; the
+**stores** are related at no world that relates them — proved for every
+well-formed world.
+
+So the reformulation did not hide the problem. It moved the comparison onto the
+right object and exposed what is missing underneath.
+
+#### Q4 is not a failure of B2b.3a — it is the same gap, one level in
+
+The administrative relation was built on **stacks**. Identifying `post` with
+`post >>= pure` needs it lifted along
+
+```text
+pcomp → post closure → pctx → store entry → store
+```
+
+This is the same relation the algebraic half of associativity was already known
+to need — one that absorbs the monad laws of computations. It is not a second
+hole; it is the same one, appearing inside a stored context.
+
+#### Two things to settle before B2b.3b
+
+**1. The `PScopeF` refutation candidate — adjudicate it first.** `pnobs_tr_le`
+admits ambient stacks containing a `PScopeF`. If a drive's `PModeF MExtend`
+marker gets beneath a floor and is caught by a yield, the responders' difference
+becomes a difference between *stored contexts*, and Q4's negative turns into an
+actual refutation. The port read that this cannot happen — a `PSiteF` or
+`PBoundaryF` above the marker finds the marker before the floor — but **read
+it only**: not proved, not even written down as a proposition.
+
+Running the candidate is not enough. Adjudicate in this order:
+
+| # | question |
+|---|---|
+| 1 | is it writable as a well-typed configuration? |
+| 2 | does it satisfy `pstate_wb` / `pconf_ok`? |
+| 3 | is it reachable from `pload` under a preserving interpreter? |
+| 4 | do the two sides genuinely observe differently? |
+| 5 | is the difference from the residual/responder, and not from raw handle names? |
+
+**2 and 3 are the ones that matter.** `pnobs_tr_le` quantifies over every
+equivariant ambient stack, which may well include floor arrangements the machine
+never reaches. If the candidate is ill-formed or unreachable, the fault is not
+in the law but in the **observation relation's domain being too strong** — and
+then the standing stop condition applies: do not push the proof through, decide
+whether the relation belongs over all equivariant configurations, over
+well-formed ones, or over reachable ones. If the candidate is well formed *and*
+reachable, it is a real refutation and the restatement goes back for review.
+
+**2. Consumer equivariance.** The gate restricted the law's consumer to
+`ops.o_extend pl _ g` rather than an arbitrary function, because an arbitrary
+consumer branching on the handle number refutes immediately: a refutation about
+*names*, not about extension. That restriction is sound for checking this
+instance and is **not the final principle**. A consumer that branches on a raw
+handle number is not a legitimate context a user can write; it is an observer
+breaking the nominal abstraction. The semantic condition wanted is
+
+```text
+consumer is anchor-relative equivariant
+```
+
+with both directions required: the canonical `ops.o_extend pl _ g` satisfies it,
+and a consumer that guesses or compares handle numbers does not. With that, the
+syntactic restriction to `o_extend` can go. Note that the existing equivariance
+hypothesis does **not** cover this: it constrains the *ambient stack*, while
+this consumer sits inside the computation being observed.
+
+#### The order from here
+
+1. adjudicate the `PScopeF` candidate — well-formedness, reachability,
+   observational difference;
+2. formulate consumer anchor-relative equivariance;
+3. decide whether to adopt the restated right identity;
+4. design the computation-level administrative relation;
+5. lift it to `pctx` and the store;
+6. then B2b.3b — transitions, finite runs, observational soundness.
+
+Transparency stays out of this. It shares no production with either side, so
+nothing about the restatement's success carries to it.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
@@ -4223,8 +4386,8 @@ The order, revised after B2b:
 | ~~B2b.3a~~ | ~~the administrative relation: granularity and reach~~ — **done**: discriminating on both sides; produce/enter is a real difference |
 | B2b.3b | its soundness — `pfind_prompt`, `pfind_param`, `pcut_scope`, `pset_param`, dispatch, finite runs, and `pnobs_tr_eq` |
 | B2b.4 | the laws that remain candidates, over the administrative relation |
-| — | a design decision on right identity and transparency: production protocol, statement, or narrower condition |
-| B3 | equivalence with the fast borrow; simulation with the optimised machine; a shipping store; and the shipping interpreter proved to meet the boundary discipline |
+| ~~—~~ | ~~the design decision on right identity and transparency~~ — **taken**: keep the protocol, restate right identity, move transparency to B3 |
+| B3 | equivalence with the fast borrow — now including transparency as a simulation obligation; a shipping store; and the shipping interpreter proved to meet the boundary discipline |
 
 The trace step sits between B2a and B2b deliberately, and is not optional
 polish: while `pobs_eq` observes values only, a prefix-replaying implementation

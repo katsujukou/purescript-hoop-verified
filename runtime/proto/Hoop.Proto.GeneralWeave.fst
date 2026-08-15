@@ -16973,3 +16973,525 @@ let guard_adm_assoc_not_pkrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
 (*     replaces;                                                       *)
 (*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.5 -- DECISION GATE: RIGHT IDENTITY, RESTATED AS               *)
+(*  EXTENSION-BY-`pure`                                                *)
+(*                                                                     *)
+(*  Everything below is ADDITIVE.  `law_right_identity_nom`,           *)
+(*  `law_transparent_agrees_nom`, `pcrel`, `padm_stack`,              *)
+(*  `pnobs_tr_le` and every other definition above is UNTOUCHED.      *)
+(*                                                                     *)
+(*  WHAT IS BEING TESTED, AND WHY.  B2b.3 refutes                     *)
+(*  `law_right_identity_nom` of `ref_ops`, and B2b.4 localises the    *)
+(*  reason: that law compares a PRODUCTION against a DIRECT ENTRY,    *)
+(*  and `guard_adm_refuses_produce_vs_enter` proves the mismatch is   *)
+(*  not administrative -- the scope floor keeps the retained          *)
+(*  `PSiteF` from any mode marker, so it yields where the entry       *)
+(*  projection, which never had a site frame, does not.               *)
+(*                                                                     *)
+(*  So the old form silently asks whether PRODUCTION IS ERASABLE.     *)
+(*  `o_enter_ctx` is not a monadic `pure`: it allocates a handle,     *)
+(*  saves a residual and delimits the captured region with a          *)
+(*  `PScopeF`.  The restatement below makes production happen ONCE    *)
+(*  ON EACH SIDE, so that what is asked is only whether EXTENSION BY  *)
+(*  `pure` IS AN IDENTITY.                                            *)
+(*                                                                     *)
+(*  NOTHING BELOW IS A PROOF OF THE RESTATED LAW.  What is checked    *)
+(*  is (a) that it is statable, (b) one INSTANCE, at exactly the      *)
+(*  boundary, plan and interpreter that refute the old form, and (c)  *)
+(*  a NEGATIVE about the intermediate configurations, which is the    *)
+(*  finding.                                                           *)
+(* ================================================================== *)
+
+(**
+ * **RIGHT IDENTITY, RESTATED.** Production appears ONCE ON EACH SIDE; the two
+ * sides differ by exactly one `o_extend_ctx pl _ pure`.
+ *
+ * Read as surface syntax:
+ *
+ * ```text
+ * cx <- runScope pl c;  cy <- bindScope cx pure;  useScope cy g
+ * ```
+ * against
+ * ```text
+ * cx <- runScope pl c;  useScope cx g
+ * ```
+ *
+ * **The consumer is `ops.o_extend`, not an arbitrary function, and that is
+ * deliberate.** A freshly allocated handle has a NAME, and the two sides'
+ * names differ by the extra allocation; an arbitrary `pval v -> pcomp v cl`
+ * may branch on that name and refute the statement for a reason that has
+ * nothing to do with extension. Every one of the five laws above is careful in
+ * the same way: no arbitrary function is ever applied to a handle, only to the
+ * VALUES a context holds. `g` here is such a function.
+ *)
+let law_right_identity_ext_nom
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+    (g: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                              (fun cy -> ops.o_extend pl cy g)))
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g))
+
+(** **The restated statement is WELL TYPED at `prop`, and that is the only
+    thing this states.** Exactly as `guard_nom_laws_are_statable` is for the
+    five. Nothing in this file depends on it holding. *)
+let guard_ri_ext_nom_is_statable
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl)
+  : Lemma (law_right_identity_ext_nom b ops pl c g
+           == law_right_identity_ext_nom b ops pl c g)
+  = ()
+
+(** **AND THE OLD FORM IS NOT AN INSTANCE OF THE NEW ONE, NOR CONVERSELY.**
+    Well typed, not proved: no implication either way is claimed here, and none
+    is used. The right-hand side of the old form is `ops.o_enter pl c`, which
+    mentions no production at all; the right-hand side here produces. *)
+
+(* ------------------------------------------------------------------ *)
+(*  THE INSTANCE, AT THE FIXTURE THAT REFUTES THE OLD FORM             *)
+(*                                                                     *)
+(*  Same boundary `xboundary`, same interpreter `xapply` -- the one    *)
+(*  that resumes a captured continuation inside a scope of its own --   *)
+(*  same plan `xpl`, same extension `xg`, empty ambient stack, empty    *)
+(*  store, counter zero.  The only change is the SHAPE OF THE TWO      *)
+(*  SIDES.                                                              *)
+(*                                                                     *)
+(*  The body is `PVar fone` rather than `xc`.  That is not a           *)
+(*  softening: it is what puts a genuine `PCtxRequests` -- a residual   *)
+(*  of four frames with `PVar` for its `post` -- in the store at the    *)
+(*  point where the extension happens, so that `o_extend_ctx _ pure`   *)
+(*  REALLY REWRITES A CONTEXT rather than being absorbed by a          *)
+(*  `PCtxDone`.  `xg` still performs, so `xapply` still fires, still   *)
+(*  opens its own scope, and the captured `PSiteF` still meets a floor. *)
+(* ================================================================== *)
+
+let qc : pcomp fv fcl = PVar fone
+
+let qlhs : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl qc)
+        (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                         (fun cy -> ref_ops.o_extend xpl cy xg))
+let qrhs : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl qc) (fun cx -> ref_ops.o_extend xpl cx xg)
+
+let qcf_l : pconf fv fcl = { st = PStep qlhs ([] <: pstack fv fcl); store = []; next = 0 }
+let qcf_r : pconf fv fcl = { st = PStep qrhs ([] <: pstack fv fcl); store = []; next = 0 }
+
+let qsl : pstore fv fcl = (fst (prun flook xapply 60 qcf_l)).store
+let qsr : pstore fv fcl = (fst (prun flook xapply 60 qcf_r)).store
+
+(** **BOTH SIDES CONVERGE, SILENTLY, AND ANSWER WITH A HANDLE.** PROVED by
+    running the machine. The left allocates three contexts and the right two --
+    the extra one is the pure extension -- so the two answers are ONE APART. *)
+let guard_qce_runs ()
+  : Lemma (pnconverges flook xapply qcf_l ([] <: list string) (PCtxKey 2) qsl /\
+           pnconverges flook xapply qcf_r ([] <: list string) (PCtxKey 1) qsr)
+  = assert_norm ((fst (prun flook xapply 60 qcf_l)).st == PDone (PCtxKey 2));
+    assert_norm (snd (prun flook xapply 60 qcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 60 qcf_r)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook xapply 60 qcf_r) == ([] <: list string));
+    lemma_pnconverges_at flook xapply qcf_l 60 [] (PCtxKey 2) qsl;
+    lemma_pnconverges_at flook xapply qcf_r 60 [] (PCtxKey 1) qsr
+
+(** The residual the two answers' contexts carry: the `PSiteF` the plan
+    recorded and the layer prompt the dispatch took with it, then the boundary
+    and owner `xapply`'s own scope pushed. Four frames, on BOTH sides. *)
+let qresid : pstack fv fcl =
+  [PSiteF (PVar #fv #fcl); PPromptF xltbl None PFamily;
+   PBoundaryF; PPromptF xtbl0 None PFamily]
+
+(** The context both answers name. `pyield` always writes `PVar` for `post`, so
+    the extension the left performed is NOT in it. *)
+let qcx : pctx fv fcl = PCtxRequests (fpv FU) qresid (PVar #fv #fcl)
+
+(** **AND THE TWO ANSWERS NAME THE SAME CONTEXT, FRAME FOR FRAME AND CLOSURE
+    FOR CLOSURE.** PROVED by running the machine. This is the line the old
+    form's refutation could not have: there the two residuals were five frames
+    against two. *)
+let guard_qce_answer_ctx ()
+  : Lemma (psget 2 qsl == qcx /\ psget 1 qsr == qcx /\
+           Some? (pstore_lookup 2 qsl) /\ Some? (pstore_lookup 1 qsr))
+  = assert_norm (psget 2 qsl == qcx);
+    assert_norm (psget 1 qsr == qcx);
+    assert_norm (Some? (pstore_lookup 2 qsl));
+    assert_norm (Some? (pstore_lookup 1 qsr))
+
+let lemma_qresid_selfrel (n: nat) (w: pworld)
+  : Lemma (pframes_rel fcl_rel n w qresid qresid)
+  = if n = 0 then ()
+    else begin
+      lemma_ptable_selfrel n w xltbl;
+      lemma_ptable_selfrel n w xtbl0;
+      introduce forall (w': pworld) (y1 y2: pval fv).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel fcl_rel n w' (PVar y1) (PVar y2))
+      with (introduce _ ==> _ with ())
+    end
+
+(** **The context both answers name is self-related, at EVERY world.** PROVED.
+    Its payload is `PV FU`, its `post` is the identity, and its residual holds
+    no handle -- so no world can separate it from itself. *)
+let lemma_qcx_selfrel (w: pworld)
+  : Lemma (pxrel fcl_rel w qcx qcx)
+  = introduce forall (n: nat). pctx_rel fcl_rel n w qcx qcx
+    with (if n = 0 then ()
+          else begin
+            lemma_qresid_selfrel n w;
+            introduce forall (w': pworld) (y1 y2: pval fv).
+                (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                 pcomp_rel fcl_rel n w' (PVar y1) (PVar y2))
+            with (introduce _ ==> _ with ())
+          end)
+
+(** The world the two answers correspond under, and the one for the other
+    direction. ONE pair each -- the left's key 2 to the right's key 1 -- and
+    the left's own keys 0 and 1, the produced context and its pure extension,
+    are not in it at all. *)
+let qw : pworld = [(2, 1)]
+let qw' : pworld = [(1, 2)]
+
+let guard_qce_world ()
+  : Lemma (pwf_world qw /\ pwext qw (panchor ([] <: pstore fv fcl)) /\
+           pval_rel #fv qw (PCtxKey 2) (PCtxKey 1) /\
+           psrel fcl_rel qw qsl qsr /\
+           pwf_world qw' /\ pwext qw' (panchor ([] <: pstore fv fcl)) /\
+           pval_rel #fv qw' (PCtxKey 1) (PCtxKey 2) /\
+           psrel fcl_rel qw' qsr qsl)
+  = guard_qce_answer_ctx ();
+    assert_norm (pwlookup_l 2 qw == Some 1);
+    assert_norm (pwlookup_l 1 qw' == Some 2);
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    lemma_qcx_selfrel qw;
+    lemma_qcx_selfrel qw';
+    introduce forall (i j: nat).
+        (pwlookup_l i qw == Some j ==>
+         (Some? (pstore_lookup i qsl) /\ Some? (pstore_lookup j qsr) /\
+          pxrel fcl_rel qw (psget i qsl) (psget j qsr)))
+    with (introduce _ ==> _ with assert (i == 2 /\ j == 1));
+    introduce forall (i j: nat).
+        (pwlookup_l i qw' == Some j ==>
+         (Some? (pstore_lookup i qsr) /\ Some? (pstore_lookup j qsl) /\
+          pxrel fcl_rel qw' (psget i qsr) (psget j qsl)))
+    with (introduce _ ==> _ with assert (i == 1 /\ j == 2))
+
+(**
+ * **THE RESTATED RIGHT IDENTITY SURVIVES `xapply`.** PROVED, and this
+ * conjunction IS the body of `pnobs_tr_eq xboundary` -- both directions of
+ * `pnobs_tr_le` -- at `k := []`, `sto := []`, `n0 := 0`, with every
+ * existential witness written down.
+ *
+ * The three hypotheses the nominal observation puts on the ambient stack, the
+ * store and the counter are `guard_xce_config_ok`'s, unchanged, so the
+ * instance is at a configuration the observation genuinely reaches.
+ *
+ * **This is exactly where the old form dies.** `guard_ref_ops_refutes_right_
+ * identity_nom` stands at this boundary, this interpreter and this plan, and
+ * derives `False` from the residual lengths five and two. Here the two
+ * residuals are four and four -- the same four -- because BOTH sides produced.
+ *
+ * **What this is NOT.** It is ONE ambient stack and ONE body. It is not the
+ * law, which quantifies over every equivariant `k`, every equivariant store,
+ * every counter, every plan and every `c`. Nothing here proves that.
+ *)
+let guard_ri_ext_survives_xapply ()
+  : Lemma (
+      pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl))
+                        ([] <: pstack fv fcl) /\
+      pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+      psfresh ([] <: pstore fv fcl) 0 /\
+      pnconverges flook xapply qcf_l ([] <: list string) (PCtxKey 2) qsl /\
+      pnconverges flook xapply qcf_r ([] <: list string) (PCtxKey 1) qsr /\
+      (exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply qcf_r ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey 2) x2 /\ psrel fcl_rel w qsl s2') /\
+      (exists (x1: pval fv) (s1': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply qcf_l ([] <: list string) x1 s1' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey 1) x1 /\ psrel fcl_rel w qsr s1'))
+  = guard_xce_config_ok ();
+    guard_qce_runs ();
+    guard_qce_world ();
+    introduce exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply qcf_r ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey 2) x2 /\ psrel fcl_rel w qsl s2')
+    with (PCtxKey 1) qsr qw and ();
+    introduce exists (x1: pval fv) (s1': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply qcf_l ([] <: list string) x1 s1' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey 1) x1 /\ psrel fcl_rel w qsr s1')
+    with (PCtxKey 2) qsl qw' and ()
+
+
+(* ------------------------------------------------------------------ *)
+(*  THE FIXTURE IS THE KILLER'S, AND SAYING SO IS ONE LINE             *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE RESTATED LAW'S RIGHT-HAND SIDE IS, VERBATIM, THE LEFT-HAND SIDE THE
+ * OLD FORM LOSES ON.** PROVED, by conversion: `qrhs` IS `xlhs` and `qcf_r` IS
+ * `xcf_l`, the configuration `guard_ref_ops_refutes_left_identity_nom` stands
+ * at.
+ *
+ * So at one and the same boundary, interpreter, plan, body and extension:
+ * comparing this computation against a DIRECT ENTRY (`ref_ops.o_enter xpl
+ * (xg fone)`) is refuted, and comparing it against a PRODUCTION EXTENDED BY
+ * `pure` is not. That is the whole content of the restatement, exhibited on
+ * one pair of runs.
+ *)
+let guard_ri_ext_is_the_killers_fixture ()
+  : Lemma (qrhs == xlhs /\ qcf_r == xcf_l /\
+           ~(law_left_identity_nom xboundary ref_ops xpl fone xg))
+  = assert_norm (qrhs == xlhs);
+    assert_norm (qcf_r == xcf_l);
+    guard_ref_ops_refutes_left_identity_nom ()
+
+(* ================================================================== *)
+(*  JUDGEMENT POINT 2 -- AND IT IS A NEGATIVE                          *)
+(*                                                                     *)
+(*  The instance above holds at the ENDS of the two runs.  It does     *)
+(*  NOT hold in the middle, and the obstruction there is NEW: it is    *)
+(*  not the produce/enter mismatch, which the restatement removed.     *)
+(* ================================================================== *)
+
+(** The residual the PRODUCED context carries: the production boundary, the
+    plan's recorded site frame, the layer prompt and the owner. Four frames --
+    `PBoundaryF :: plan_protocol_frames xpl`. *)
+let qresid0 : pstack fv fcl =
+  [PBoundaryF; PSiteF (PVar #fv #fcl);
+   PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+
+(** The context the common prefix produces, and its extension by `pure`.
+    `extend_ctx_C` COPIES the residual and composes the `post`, so the two
+    differ in one place and one only: `post`. *)
+let qprod : pctx fv fcl = PCtxRequests fone qresid0 (PVar #fv #fcl)
+let qext  : pctx fv fcl = extend_ctx_C xpl qprod (PVar #fv #fcl)
+
+let qmid_sl : pstore fv fcl = [(1, qext); (0, qprod)]
+let qmid_sr : pstore fv fcl = [(0, qprod)]
+
+(**
+ * **THE TWO POST-PREFIX CONFIGURATIONS, READ OFF THE MACHINE.** PROVED by
+ * running it -- seven steps on the left, four on the right, and nothing is
+ * reconstructed by hand.
+ *
+ * The prefix is the same on both sides: `PEnterCtx xpl (PVar fone)` yields at
+ * its own boundary, stores `qprod` at key 0 and answers with its handle. Then
+ * the left takes THREE more steps -- the bind, the `PExtendCtxC` allocation
+ * and the bind that receives the fresh handle -- and the right takes NONE. The
+ * traces are empty at both points, so nothing is hidden in the offset.
+ *)
+let guard_qce_midpoint ()
+  : Lemma ((fst (prun flook xapply 7 qcf_l)).st
+             == PStep (PExtendC xpl (PCtxKey 1) xg) ([] <: pstack fv fcl) /\
+           (fst (prun flook xapply 7 qcf_l)).store == qmid_sl /\
+           snd (prun flook xapply 7 qcf_l) == ([] <: list string) /\
+           (fst (prun flook xapply 4 qcf_r)).st
+             == PStep (PExtendC xpl (PCtxKey 0) xg) ([] <: pstack fv fcl) /\
+           (fst (prun flook xapply 4 qcf_r)).store == qmid_sr /\
+           snd (prun flook xapply 4 qcf_r) == ([] <: list string))
+  = assert_norm ((fst (prun flook xapply 7 qcf_l)).st
+                 == PStep (PExtendC xpl (PCtxKey 1) xg) ([] <: pstack fv fcl));
+    assert_norm ((fst (prun flook xapply 7 qcf_l)).store == qmid_sl);
+    assert_norm (snd (prun flook xapply 7 qcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 4 qcf_r)).st
+                 == PStep (PExtendC xpl (PCtxKey 0) xg) ([] <: pstack fv fcl));
+    assert_norm ((fst (prun flook xapply 4 qcf_r)).store == qmid_sr);
+    assert_norm (snd (prun flook xapply 4 qcf_r) == ([] <: list string))
+
+let lemma_xpl_selfrel (n: nat) (w: pworld)
+  : Lemma (pplan_rel fcl_rel n w xpl xpl)
+  = if n = 0 then ()
+    else begin
+      lemma_ptable_selfrel n w xltbl;
+      lemma_ptable_selfrel n w xtbl0;
+      introduce forall (w': pworld) (y1 y2: pval fv).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel fcl_rel n w' (PVar y1) (PVar y2))
+      with (introduce _ ==> _ with ())
+    end
+
+(** The world the two post-prefix COMPUTATIONS correspond under: the left's
+    fresh handle to the one the right kept. *)
+let qmid_w : pworld = [(1, 0)]
+
+(**
+ * **THE TWO POST-PREFIX COMPUTATIONS *ARE* RELATED, AND BY `pcrel` ITSELF.**
+ * PROVED. So the obstruction below is not in the computations, and it is not
+ * something a coarser relation on computations would fix: the strong lockstep
+ * congruence already reaches here. `padm_comp` agrees, because at `PExtendC`
+ * -- which is neither `PSplice`, `PEnterCtx` nor `PEmit` -- it IS `pcrel`.
+ *)
+let guard_ri_ext_midpoint_comps_related ()
+  : Lemma (pwf_world qmid_w /\ pwlookup_l 1 qmid_w == Some 0 /\
+           pval_rel #fv qmid_w (PCtxKey 1) (PCtxKey 0) /\
+           pcrel fcl_rel qmid_w (PExtendC xpl (PCtxKey 1) xg)
+                                (PExtendC xpl (PCtxKey 0) xg) /\
+           (forall (m: weave_mode) (sh: bool).
+              padm_comp fcl_rel m sh qmid_w (PExtendC xpl (PCtxKey 1) xg)
+                                            (PExtendC xpl (PCtxKey 0) xg)))
+  = assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (pwlookup_r 0 qmid_w == Some 1);
+    lemma_pwextend_wf 1 0 ([] <: pworld);
+    introduce forall (n: nat).
+        pcomp_rel fcl_rel n qmid_w (PExtendC xpl (PCtxKey 1) xg)
+                                   (PExtendC xpl (PCtxKey 0) xg)
+    with (if n = 0 then ()
+          else begin
+            lemma_xpl_selfrel (n - 1) qmid_w;
+            introduce forall (w': pworld) (y1 y2: pval fv).
+                (pwf_world w' /\ pwext w' qmid_w /\ pval_rel w' y1 y2 ==>
+                 pcomp_rel fcl_rel (n - 1) w' (xg y1) (xg y2))
+            with (introduce _ ==> _ with ())
+          end);
+    introduce forall (m: weave_mode) (sh: bool).
+        padm_comp fcl_rel m sh qmid_w (PExtendC xpl (PCtxKey 1) xg)
+                                      (PExtendC xpl (PCtxKey 0) xg)
+    with ()
+
+(**
+ * **A CONTEXT AND ITS EXTENSION BY `pure` ARE NOT RELATED, AT ANY WORLD.**
+ * PROVED, and it is the whole of the negative.
+ *
+ * `extend_ctx_C` records the extension in `post`, so a `post` that was `PVar`
+ * becomes `fun z -> POp (PVar z) PVar`. `pctx_rel` asks the two `post`s to
+ * send related arguments to `pcomp_rel`-related computations, and `PVar y` is
+ * not related to `POp (PVar y) PVar` -- different constructors at the head,
+ * and the relation has no clause joining them. This is
+ * `guard_nom_different_contexts_unrelated`'s fact, at the pair the restated
+ * law actually creates.
+ *)
+let guard_ri_ext_midpoint_unrelated (w: pworld) (x: pval fv) (rs: pstack fv fcl)
+  : Lemma (requires pwf_world w)
+          (ensures
+            ~(pxrel fcl_rel w
+                (extend_ctx_C xpl (PCtxRequests x rs (PVar #fv #fcl)) (PVar #fv #fcl))
+                (PCtxRequests x rs (PVar #fv #fcl))))
+  = introduce
+      pxrel fcl_rel w
+        (extend_ctx_C xpl (PCtxRequests x rs (PVar #fv #fcl)) (PVar #fv #fcl))
+        (PCtxRequests x rs (PVar #fv #fcl)) ==> False
+    with begin
+      lemma_pwext_refl w;
+      assert (pval_rel #fv w (fpv FU) (fpv FU));
+      assert (pctx_rel fcl_rel 1 w
+                (extend_ctx_C xpl (PCtxRequests x rs (PVar #fv #fcl)) (PVar #fv #fcl))
+                (PCtxRequests x rs (PVar #fv #fcl)));
+      assert (pcomp_rel fcl_rel 1 w (POp (PVar (fpv FU)) (PVar #fv #fcl))
+                                    (PVar (fpv FU)))
+    end
+
+(**
+ * **AND SO THE POST-PREFIX CONFIGURATIONS ARE NOT RELATED -- NOT BY `pcrel`,
+ * NOT BY `padm`, NOT BY ANY RELATION THAT PUTS THE TWO STORES UNDER ONE
+ * WORLD.** PROVED, and the quantification is over EVERY well-formed world that
+ * relates the two computations, not over one chosen badly.
+ *
+ * Relating the two computations forces the world to send 1 to 0 -- `pval_rel`
+ * has no other clause for two handles, so this is not a choice -- and at any
+ * world that does, the store relation asks the produced context and its pure
+ * extension to correspond, which the lemma above refuses.
+ *
+ * **THIS IS NOT THE PRODUCE/ENTER MISMATCH.** Both sides produced; both hold
+ * `qresid0`, frame for frame; no `PSiteF` is stranded from a marker anywhere.
+ * What separates them is one administrative `POp _ PVar` sitting INSIDE A
+ * STORED CLOSURE -- the right unit of `pbind` at the level of `pcomp`. That is
+ * the kind of difference `padm_stack` was built to absorb ON THE STACK, and
+ * neither `padm_comp` nor `pctx_rel` absorbs it: `padm_comp` is `pcrel` at
+ * every node but `PSplice`, `PEnterCtx` and `PEmit`, and `pctx_rel` compares
+ * `post` closures by `pcomp_rel` alone.
+ *
+ * **What it does NOT say.** It does not say the restated law is false. The
+ * instance above holds, and holds because by the time either run finishes, no
+ * public handle names either of these two contexts -- the world's domain is
+ * `{2 |-> 1}` and `psrel` never looks at them. What it says is that the
+ * instance cannot be obtained by relating the two runs configuration by
+ * configuration, so a proof of the general statement will need something else.
+ *)
+let guard_ri_ext_midpoint_no_world (w: pworld)
+  : Lemma (requires pwf_world w /\
+                    pcrel fcl_rel w (PExtendC xpl (PCtxKey 1) xg)
+                                    (PExtendC xpl (PCtxKey 0) xg))
+          (ensures ~(psrel fcl_rel w qmid_sl qmid_sr))
+  = lemma_pcrel_extendc_inv fcl_rel w xpl xpl (PCtxKey 1) (PCtxKey 0) xg xg;
+    pval_rel_key_unfold #fv w 1 0 ();
+    guard_ri_ext_midpoint_unrelated w fone qresid0;
+    introduce psrel fcl_rel w qmid_sl qmid_sr ==> False
+    with begin
+      assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+      assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+      assert_norm (psget 1 qmid_sl == qext);
+      assert_norm (psget 0 qmid_sr == qprod);
+      assert (pxrel fcl_rel w (psget 1 qmid_sl) (psget 0 qmid_sr))
+    end
+
+(** **AND THE HYPOTHESIS IS SATISFIABLE**, so the negative above is not
+    vacuous. PROVED: `qmid_w` is such a world. *)
+let guard_ri_ext_midpoint_no_world_nonvacuous ()
+  : Lemma (pwf_world qmid_w /\
+           pcrel fcl_rel qmid_w (PExtendC xpl (PCtxKey 1) xg)
+                                (PExtendC xpl (PCtxKey 0) xg) /\
+           ~(psrel fcl_rel qmid_w qmid_sl qmid_sr))
+  = guard_ri_ext_midpoint_comps_related ();
+    guard_ri_ext_midpoint_no_world qmid_w
+
+(* ================================================================== *)
+(*  B2b.5 LEDGER -- WHAT IS ESTABLISHED, AND WHAT IS NOT              *)
+(*                                                                     *)
+(*  STATABLE: YES.  `law_right_identity_ext_nom` is a `GTot prop`,     *)
+(*  production appears once on each side, and the two sides differ by  *)
+(*  exactly one `o_extend_ctx pl _ pure`                              *)
+(*  (`guard_ri_ext_nom_is_statable`).                                  *)
+(*                                                                     *)
+(*  SURVIVES `xapply`: YES, AT ONE INSTANCE.                          *)
+(*  `guard_ri_ext_survives_xapply` exhibits both directions of         *)
+(*  `pnobs_tr_le` at `k := []`, `sto := []`, `n0 := 0`, with the       *)
+(*  witnesses written down, at the SAME boundary, interpreter and plan *)
+(*  that refute the old form                                          *)
+(*  (`guard_ri_ext_is_the_killers_fixture`).  The two residuals are    *)
+(*  four frames against four -- the same four -- where the old form's  *)
+(*  were five against two.                                             *)
+(*                                                                     *)
+(*  JUDGEMENT POINT 2: NO, AND THAT IS THE FINDING.                   *)
+(*  `guard_ri_ext_midpoint_comps_related` proves the two post-prefix   *)
+(*  COMPUTATIONS related by `pcrel` itself;                            *)
+(*  `guard_ri_ext_midpoint_no_world` proves that at EVERY world which  *)
+(*  relates them the two STORES are not related.  The obstruction is   *)
+(*  the right unit of `pbind` inside a stored `post`, and it is NEW:   *)
+(*  it is not the produce/enter comparison, which the restatement      *)
+(*  removed.                                                            *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - the restated law is NOT PROVED.  One instance, one ambient      *)
+(*     stack, one store, one counter, one plan, one body and one       *)
+(*     extension.  Nothing here quantifies;                            *)
+(*   - no relation between `law_right_identity_ext_nom` and            *)
+(*     `law_right_identity_nom` is claimed in either direction, and    *)
+(*     none is used;                                                    *)
+(*   - `law_transparent_agrees_nom` is NOT ADDRESSED.  It is the same  *)
+(*     proposition as `law_right_identity_nom` at `ref_ops`            *)
+(*     (`guard_align_transparent_is_right_identity`), and the          *)
+(*     restatement does not carry over to it: its right-hand side is   *)
+(*     `PSplice (plan_enter_frames pl) c`, a description with no       *)
+(*     production in it at all;                                        *)
+(*   - the missing ingredient a general proof would need is NOT        *)
+(*     STATED here: a relation on `pcomp` that absorbs `POp c PVar`    *)
+(*     against `c`, together with the proof that `pctx_rel` and hence  *)
+(*     `psrel` may be taken over it.  Whether that is sound for        *)
+(*     `pnobs` is exactly what `padm`'s five conditions asked of the   *)
+(*     stack relation, and nothing here asks it of a computation one;  *)
+(*   - `pcrel`, `pxrel`, `psrel`, `padm_stack`, `pnobs_tr_le`,        *)
+(*     `law_right_identity_nom` and `law_transparent_agrees_nom` are   *)
+(*     UNTOUCHED.  B2b.5 appends;                                       *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
+(* ================================================================== *)
