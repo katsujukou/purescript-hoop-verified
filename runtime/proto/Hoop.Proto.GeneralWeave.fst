@@ -5646,6 +5646,16 @@ let pcl_mono (#cl: Type) (r: pcl_rel_t cl) : prop
   = forall (n: nat) (w' w: pworld) (c1 c2: cl).
       r n w c1 c2 /\ pwext w' w ==> r n w' c1 c2
 
+(** The second admissibility condition on the clause relation itself: downward
+    closure in the step index. Like `pcl_mono` it constrains `r` and nothing
+    else, so the boundary record carries it. It is needed at index ZERO and
+    nowhere else -- `ptable_rel` is the one member of the family that is not
+    trivial at `0`, so a table inverted out of a frame (which speaks only from
+    index 1 up) has to be pushed down one notch. Both inhabited clause
+    relations in this file ignore the index and satisfy it. *)
+let pcl_down (#cl: Type) (r: pcl_rel_t cl) : prop
+  = forall (n: nat) (w: pworld) (c1 c2: cl). r (n + 1) w c1 c2 ==> r n w c1 c2
+
 let lemma_ptable_rel_mono (#cl: Type) (r: pcl_rel_t cl) (n: nat) (w' w: pworld)
                           (t1 t2: ptable cl)
   : Lemma (requires ptable_rel r n w t1 t2 /\ pwext w' w /\ pcl_mono r)
@@ -6293,10 +6303,16 @@ let papply_equivariant (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
       pcrel r w (apply c1 p1 k1) (apply c2 p2 k2)
 
 (**
- * **THE BOUNDARY, AS ONE RECORD.** `b_rel` is DATA; `b_mono`, `b_lookup` and
- * `b_apply_eq` are properties OF it, carried as `squash`es so that a boundary
- * is a thing one hands over rather than a set of hypotheses one restates at
- * every use.
+ * **THE BOUNDARY, AS ONE RECORD.** `b_rel` is DATA; `b_mono`, `b_down`,
+ * `b_lookup` and `b_apply_eq` are properties OF it, carried as `squash`es so
+ * that a boundary is a thing one hands over rather than a set of hypotheses one
+ * restates at every use.
+ *
+ * `b_mono` and `b_down` are admissibility conditions on `b_rel` ALONE -- they
+ * mention neither `b_lk` nor `b_apply` -- and the fundamental theorem and the
+ * observation corollary derived from it both need them, so both live in the
+ * record rather than travelling as loose hypotheses that a future use site
+ * could forget.
  *)
 noeq
 type pboundary (v: Type) (cl: Type) = {
@@ -6304,6 +6320,7 @@ type pboundary (v: Type) (cl: Type) = {
   b_lk: plookup_t cl;
   b_apply: papply_t v cl;
   b_mono: squash (pcl_mono b_rel);
+  b_down: squash (pcl_down b_rel);
   b_lookup: squash (plookup_equivariant b_rel b_lk);
   b_apply_eq: squash (papply_equivariant b_rel b_apply);
 }
@@ -6517,6 +6534,2152 @@ let lemma_pnobs_at (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
          pwf_world ww /\ pwext ww (panchor sto) /\
          pval_rel ww x1 y2 /\ psrel b.b_rel ww s1' t2)
     with x2 s2' w and ()
+
+(* ================================================================== *)
+(*  B2b.2 -- THE FUNDAMENTAL THEOREM                                   *)
+(*                                                                     *)
+(*  WHAT B2b.1 LEFT, IN ONE SENTENCE.  It proved the repaired           *)
+(*  relation's consequent for the former counterexamples at ONE         *)
+(*  CONCRETE CONFIGURATION EACH, with hand-written witnesses: the       *)
+(*  right-hand run by `assert_norm`, the world written down as a        *)
+(*  literal, the store correspondence checked entry by entry.  What it  *)
+(*  did not prove is `pnobs_tr_le`, whose universal quantification over *)
+(*  EVERY equivariant ambient stack and EVERY equivariant initial store *)
+(*  cannot be reached that way.  Reaching it needs a simulation over    *)
+(*  `pstep` for the whole machine, and that is what this section is.    *)
+(*                                                                     *)
+(*  THE SHAPE, in two theorems and nothing else:                        *)
+(*                                                                     *)
+(*    - `lemma_pstep_tr_compat` -- ONE STEP.  Two configurations        *)
+(*      related at `w` step to two configurations related at a world    *)
+(*      EXTENDING `w`, emitting the SAME event list.  It is a case      *)
+(*      analysis on the node, dispatched to one lemma per rule.         *)
+(*                                                                     *)
+(*    - `lemma_prun_compat` -- THE RUN.  The same, for `prun` at any    *)
+(*      fuel, by induction on the fuel.                                 *)
+(*                                                                     *)
+(*  and then `lemma_pnobs_tr_le_of_crel`, which is the observation      *)
+(*  read off the second: two computations related at every well-formed  *)
+(*  world satisfy `pnobs_tr_le`, at every equivariant stack and store   *)
+(*  the definition quantifies over.                                     *)
+(*                                                                     *)
+(*  WHAT THE THEOREM DOES NOT DO, and each is a constraint an earlier   *)
+(*  gate established rather than a preference:                          *)
+(*                                                                     *)
+(*    - IT NEVER RE-ANCHORS.  The world handed back is a `pwext` of the *)
+(*      world handed in, built from it by ONE `pwextend` per `palloc`   *)
+(*      and by nothing else.  Nothing is ever computed from a final     *)
+(*      store; `guard_nom_no_reanchoring` says what that would cost.    *)
+(*                                                                     *)
+(*    - IT RELATES NO TRANSITION COUNTS.  Both sides are run at the     *)
+(*      SAME fuel and the induction is on that fuel, so no `+3` and no  *)
+(*      per-rule offset can appear anywhere.  The counts stay           *)
+(*      existentially quantified inside `pnconverges`, independently on *)
+(*      each side, exactly as B2b.1 left them.                          *)
+(*                                                                     *)
+(*    - IT IS NEVER STATED OVER `fapply`.  The two theorems take an     *)
+(*      ARBITRARY clause relation, lookup and interpreter satisfying    *)
+(*      the conditions a `pboundary` carries, and the observation       *)
+(*      corollary takes an ARBITRARY `pboundary`.                       *)
+(*      `fapply` is PROVED not equivariant, and neither                 *)
+(*      equivariance nor `fapply` is bent to accommodate that: the      *)
+(*      counterexample corollary below runs the two programs under a    *)
+(*      DIFFERENT interpreter and checks -- by running both machines -- *)
+(*      that the runs are literally the same, which they are because    *)
+(*      neither performs an operation.                                  *)
+(*                                                                     *)
+(*  ONE HYPOTHESIS IS NEW, AND `pboundary` NOW CARRIES IT:              *)
+(*  `pcl_down`, downward closure of the clause relation in the step     *)
+(*  index.  It is needed at index ZERO and nowhere else -- `ptable_rel` *)
+(*  is the one member of the family that is not trivially true there,   *)
+(*  so a table inverted out of a frame, which speaks only from index 1  *)
+(*  up, has to be pushed down one notch.  Both clause relations this    *)
+(*  file inhabits ignore the index and satisfy it.                      *)
+(*                                                                     *)
+(*  It is a field, `b_down`, and not a loose hypothesis, for the same   *)
+(*  reason `b_mono` is: it constrains the RELATION alone, mentioning    *)
+(*  neither the lookup nor the interpreter, and both the fundamental    *)
+(*  theorem and the observation corollary need it.  Outside the record  *)
+(*  it could be forgotten at a use site; inside it, a caller holding a  *)
+(*  boundary can apply the theorem with nothing further to discharge.   *)
+(*  It adds no trusted assumption: it is PROVED of both `fcl_rel` and   *)
+(*  `ncl_rel`.                                                          *)
+(*                                                                     *)
+(*  The lemmas stated at a BARE relation -- `lemma_pstep_tr_compat`,    *)
+(*  `lemma_prun_compat` -- keep `pcl_down r` as an explicit hypothesis. *)
+(*  They are deliberately not stated at a `pboundary`, so that the two  *)
+(*  transition theorems can be read, and used, without one.             *)
+(*                                                                     *)
+(*  TWO PROOF-ENGINEERING FACTS THAT COST HOURS AND ARE RECORDED SO     *)
+(*  THEY NEED NOT COST THEM AGAIN.                                      *)
+(*                                                                     *)
+(*    1. A `GTot prop` DEFINITION IS AN ATOM IN A HYPOTHESIS.  A GOAL   *)
+(*       mentioning `psrel r w s1 s2` unfolds; a HYPOTHESIS mentioning  *)
+(*       it does not, and the quantifier inside it -- `{:pattern}` and  *)
+(*       all -- is invisible to the solver.  The `_unfold` casts below  *)
+(*       are the remedy, and they are accepted BY CONVERSION with no    *)
+(*       proof obligation whatever.                                     *)
+(*                                                                     *)
+(*    2. `plookup_equivariant` AND `papply_equivariant` HAVE NO USABLE  *)
+(*       INFERRED TRIGGER.  Every use fails with `incomplete            *)
+(*       quantifiers`, at any fuel and any rlimit.  Neither definition  *)
+(*       is touched: `plookup_eq_p` and `papply_eq_p` are the same      *)
+(*       propositions with an explicit `{:pattern}`, and the casts into *)
+(*       them are conversions.                                          *)
+(*                                                                     *)
+(*  NOTHING IN THIS SECTION RAISES `rlimit` OR ADDS A `#push-options`.  *)
+(* ================================================================== *)
+
+
+(* ================================================================== *)
+(*  THE TWO BOUNDARY CONDITIONS, WITH A TRIGGER                        *)
+(*                                                                     *)
+(*  `plookup_equivariant` and `papply_equivariant` quantify over        *)
+(*  variables that occur only under a `match` scrutinee or only inside  *)
+(*  an auxiliary relation, and the trigger F* infers for such a         *)
+(*  quantifier never fires: every attempt to USE either condition       *)
+(*  fails with `incomplete quantifiers`, at any fuel and any rlimit.    *)
+(*  Neither definition is touched.  What is added is the SAME           *)
+(*  proposition carrying an explicit `{:pattern}`, together with a cast *)
+(*  from the original -- and the cast is accepted BY CONVERSION, with   *)
+(*  no proof obligation at all, because a pattern is an annotation on   *)
+(*  a quantifier and not a change to it.                                *)
+(* ================================================================== *)
+
+let plookup_eq_p (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) : GTot prop
+  = forall (n: nat) (w: pworld) (t1 t2: ptable cl) (eff op: string).
+      {:pattern (lk t1 eff op); (lk t2 eff op); (ptable_rel r n w t1 t2)}
+      ptable_rel r n w t1 t2 ==>
+      (match lk t1 eff op, lk t2 eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ r n w f1.body f2.body
+       | _, _ -> False)
+
+let lk_patterned (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                 (h: squash (plookup_equivariant r lk))
+  : squash (plookup_eq_p r lk)
+  = h
+
+let papply_eq_p (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl) : GTot prop
+  = forall (w: pworld) (c1 c2: cl) (p1 p2: list (pval v))
+           (k1 k2: pval v -> pcomp v cl).
+      {:pattern (apply c1 p1 k1); (apply c2 p2 k2); (pclrel r w c1 c2)}
+      pwf_world w /\ pclrel r w c1 c2 /\ pvals_rel w p1 p2 /\ pfn_rel_at r w k1 k2 ==>
+      pcrel r w (apply c1 p1 k1) (apply c2 p2 k2)
+
+let apply_patterned (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+                    (h: squash (papply_equivariant r apply))
+  : squash (papply_eq_p r apply)
+  = h
+
+(* ---- index-free wrappers ------------------------------------------ *)
+
+let ptrel (#cl: Type) (r: pcl_rel_t cl) (w: pworld) (t1 t2: ptable cl) : GTot prop
+  = forall (n: nat). ptable_rel r n w t1 t2
+
+let pfrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (f1 f2: pframe v cl) : GTot prop
+  = forall (n: nat). pframe_rel r n w f1 f2
+
+let pirel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (i1 i2: plan_item v cl) : GTot prop
+  = forall (n: nat). pitem_rel r n w i1 i2
+
+let plsrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+           (is1 is2: list (plan_item v cl)) : GTot prop
+  = forall (n: nat). pitems_rel r n w is1 is2
+
+let porel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (o1 o2: powner v cl) : GTot prop
+  = forall (n: nat). powner_rel r n w o1 o2
+
+let pplrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (pl1 pl2: plan v cl) : GTot prop
+  = forall (n: nat). pplan_rel r n w pl1 pl2
+
+(* ---- stacks: nil and cons ----------------------------------------- *)
+
+let lemma_pkrel_nil (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+  : Lemma (pkrel r w ([] <: pstack v cl) ([] <: pstack v cl))
+  = introduce forall (n: nat). pframes_rel r n w ([] <: pstack v cl) ([] <: pstack v cl)
+    with ()
+
+let lemma_pkrel_cons (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (f1 f2: pframe v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pfrel r w f1 f2 /\ pkrel r w k1 k2)
+          (ensures pkrel r w (f1 :: k1) (f2 :: k2))
+  = introduce forall (n: nat). pframes_rel r n w (f1 :: k1) (f2 :: k2)
+    with (if n = 0 then () else (assert (pframe_rel r n w f1 f2);
+                                 assert (pframes_rel r n w k1 k2)))
+
+let lemma_pkrel_cons_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (f1 f2: pframe v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w (f1 :: k1) (f2 :: k2))
+          (ensures pfrel r w f1 f2 /\ pkrel r w k1 k2)
+  = introduce forall (n: nat). pframe_rel r n w f1 f2
+    with (if n = 0 then () else assert (pframes_rel r n w (f1 :: k1) (f2 :: k2)));
+    introduce forall (n: nat). pframes_rel r n w k1 k2
+    with (if n = 0 then () else assert (pframes_rel r n w (f1 :: k1) (f2 :: k2)))
+
+(** Related stacks have the same shape: nil against cons is not related. *)
+let lemma_pkrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w k1 k2)
+          (ensures Nil? k1 == Nil? k2)
+  = assert (pframes_rel r 1 w k1 k2)
+
+let rec lemma_pkrel_append (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                           (a1 a2 b1 b2: pstack v cl)
+  : Lemma (requires pkrel r w a1 a2 /\ pkrel r w b1 b2)
+          (ensures pkrel r w (a1 @ b1) (a2 @ b2))
+          (decreases a1)
+  = match a1, a2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      lemma_pkrel_append r w t1 t2 b1 b2;
+      lemma_pkrel_cons r w f1 f2 (t1 @ b1) (t2 @ b2)
+    | _, _ -> lemma_pkrel_shape r w a1 a2
+
+(** `ptable_rel` inherits the clause relation's downward closure. PROVED, and it
+    is the only place index 0 is ever reached from above. *)
+let lemma_ptable_rel_down (#cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                          (t1 t2: ptable cl)
+  : Lemma (requires ptable_rel r (n + 1) w t1 t2 /\ pcl_down r)
+          (ensures ptable_rel r n w t1 t2)
+  = introduce forall (eff op: string).
+        (match lookup_handler t1.hs eff op, lookup_handler t2.hs eff op with
+         | None, None -> True
+         | Some f1, Some f2 -> f1.kind == f2.kind /\ r n w f1.body f2.body
+         | _, _ -> False)
+    with (match lookup_handler t1.hs eff op, lookup_handler t2.hs eff op with
+          | Some f1, Some f2 -> assert (r (n + 1) w f1.body f2.body)
+          | _, _ -> ())
+
+(* ---- return clauses ------------------------------------------------ *)
+
+let pretrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+            (ret1 ret2: option (pval v -> pcomp v cl)) : GTot prop
+  = match ret1, ret2 with
+    | None, None -> True
+    | Some g1, Some g2 -> pfn_rel_at r w g1 g2
+    | _, _ -> False
+
+(* ---- frames, constructed and inverted ------------------------------ *)
+
+let lemma_pfrel_bind (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pfn_rel_at r w g1 g2)
+          (ensures pfrel r w (PBindF g1) (PBindF g2))
+  = introduce forall (n: nat). pframe_rel r n w (PBindF g1) (PBindF g2)
+    with (if n = 0 then ()
+          else introduce forall (w': pworld) (y1 y2: pval v).
+                   (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                    pcomp_rel r n w' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pcrel r w' (g1 y1) (g2 y2))))
+
+let lemma_pfrel_bind_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pfrel r w (PBindF g1) (PBindF g2))
+          (ensures pfn_rel_at r w g1 g2)
+  = introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (pframe_rel r n w (PBindF g1) (PBindF g2))))
+
+let lemma_pfrel_site (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pfn_rel_at r w g1 g2)
+          (ensures pfrel r w (PSiteF g1) (PSiteF g2))
+  = introduce forall (n: nat). pframe_rel r n w (PSiteF g1) (PSiteF g2)
+    with (if n = 0 then ()
+          else introduce forall (w': pworld) (y1 y2: pval v).
+                   (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                    pcomp_rel r n w' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pcrel r w' (g1 y1) (g2 y2))))
+
+let lemma_pfrel_site_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pfrel r w (PSiteF g1) (PSiteF g2))
+          (ensures pfn_rel_at r w g1 g2)
+  = introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (pframe_rel r n w (PSiteF g1) (PSiteF g2))))
+
+let lemma_pfrel_mode (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (m: weave_mode) (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pfn_rel_at r w g1 g2)
+          (ensures pfrel r w (PModeF m g1) (PModeF m g2))
+  = introduce forall (n: nat). pframe_rel r n w (PModeF m g1) (PModeF m g2)
+    with (if n = 0 then ()
+          else introduce forall (w': pworld) (y1 y2: pval v).
+                   (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                    pcomp_rel r n w' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pcrel r w' (g1 y1) (g2 y2))))
+
+let lemma_pfrel_mode_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (m1 m2: weave_mode) (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pfrel r w (PModeF m1 g1) (PModeF m2 g2))
+          (ensures m1 == m2 /\ pfn_rel_at r w g1 g2)
+  = assert (pframe_rel r 1 w (PModeF m1 g1) (PModeF m2 g2));
+    introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (pframe_rel r n w (PModeF m1 g1) (PModeF m2 g2))))
+
+let lemma_pfrel_param (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (l: string) (x1 x2: pval v)
+  : Lemma (requires pval_rel w x1 x2)
+          (ensures pfrel #v #cl r w (PParamF l x1) (PParamF l x2))
+  = introduce forall (n: nat). pframe_rel #v #cl r n w (PParamF l x1) (PParamF l x2)
+    with ()
+
+let lemma_pfrel_param_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (l1 l2: string) (x1 x2: pval v)
+  : Lemma (requires pfrel #v #cl r w (PParamF l1 x1) (PParamF l2 x2))
+          (ensures l1 == l2 /\ pval_rel w x1 x2)
+  = assert (pframe_rel #v #cl r 1 w (PParamF l1 x1) (PParamF l2 x2))
+
+let lemma_pfrel_prompt (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                       (pv: prompt_provenance)
+  : Lemma (requires ptrel r w t1 t2 /\ pretrel r w ret1 ret2)
+          (ensures pfrel r w (PPromptF t1 ret1 pv) (PPromptF t2 ret2 pv))
+  = introduce forall (n: nat). pframe_rel r n w (PPromptF t1 ret1 pv) (PPromptF t2 ret2 pv)
+    with (if n = 0 then ()
+          else begin
+            assert (ptable_rel r n w t1 t2);
+            match ret1, ret2 with
+            | Some g1, Some g2 ->
+              introduce forall (w': pworld) (y1 y2: pval v).
+                  (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                   pcomp_rel r n w' (g1 y1) (g2 y2))
+              with (introduce _ ==> _ with assert (pcrel r w' (g1 y1) (g2 y2)))
+            | _, _ -> ()
+          end)
+
+let lemma_pfrel_prompt_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                           (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                           (pv1 pv2: prompt_provenance)
+  : Lemma (requires pfrel r w (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2) /\ pcl_down r)
+          (ensures ptrel r w t1 t2 /\ pretrel r w ret1 ret2 /\ pv1 == pv2)
+  = assert (pframe_rel r 1 w (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2));
+    assert (ptable_rel r 1 w t1 t2);
+    introduce forall (n: nat). ptable_rel r n w t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 w t1 t2
+          else assert (pframe_rel r n w (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2)));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (w': pworld) (y1 y2: pval v).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+                 with (if n = 0 then ()
+                       else assert (pframe_rel r n w (PPromptF t1 ret1 pv1)
+                                                     (PPromptF t2 ret2 pv2))))
+    | _, _ -> ()
+
+let lemma_pfrel_boundary (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+  : Lemma (pfrel #v #cl r w PBoundaryF PBoundaryF)
+  = introduce forall (n: nat). pframe_rel #v #cl r n w PBoundaryF PBoundaryF with ()
+
+let lemma_pfrel_scope (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+  : Lemma (pfrel #v #cl r w PScopeF PScopeF)
+  = introduce forall (n: nat). pframe_rel #v #cl r n w PScopeF PScopeF with ()
+
+(* ---- computations: the shape, and the components ------------------- *)
+
+(** Related computations are the SAME NODE. Read off index 1, where every
+    mismatched pair is `False`. *)
+let lemma_pcrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r w c1 c2) (ensures pcomp_rel r 1 w c1 c2)
+  = ()
+
+let lemma_pcrel_var (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (x1 x2: pval v)
+  : Lemma (requires pval_rel w x1 x2)
+          (ensures pcrel #v #cl r w (PVar x1) (PVar x2))
+  = introduce forall (n: nat). pcomp_rel #v #cl r n w (PVar x1) (PVar x2) with ()
+
+let lemma_pcrel_var_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (x1 x2: pval v)
+  : Lemma (requires pcrel #v #cl r w (PVar x1) (PVar x2))
+          (ensures pval_rel w x1 x2)
+  = assert (pcomp_rel #v #cl r 1 w (PVar x1) (PVar x2))
+
+let lemma_pcrel_op_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pcrel r w (POp a1 f1) (POp a2 f2))
+          (ensures pcrel r w a1 a2 /\ pfn_rel_at r w f1 f2)
+  = introduce forall (n: nat). pcomp_rel r n w a1 a2
+    with assert (pcomp_rel r (n + 1) w (POp a1 f1) (POp a2 f2));
+    introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (f1 y1) (f2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (f1 y1) (f2 y2)
+               with assert (pcomp_rel r (n + 1) w (POp a1 f1) (POp a2 f2)))
+
+let lemma_pcrel_perform_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                            (e1 o1 e2 o2: string) (p1 p2: list (pval v))
+  : Lemma (requires pcrel #v #cl r w (PPerform e1 o1 p1) (PPerform e2 o2 p2))
+          (ensures e1 == e2 /\ o1 == o2 /\ pvals_rel w p1 p2)
+  = assert (pcomp_rel #v #cl r 1 w (PPerform e1 o1 p1) (PPerform e2 o2 p2))
+
+let lemma_pcrel_handle_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                           (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                           (pv1 pv2: prompt_provenance) (b1 b2: pcomp v cl)
+  : Lemma (requires pcrel r w (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2))
+          (ensures ptrel r w t1 t2 /\ pv1 == pv2 /\ pcrel r w b1 b2 /\
+                   pretrel r w ret1 ret2)
+  = assert (pcomp_rel r 1 w (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2));
+    introduce forall (n: nat). ptable_rel r n w t1 t2
+    with assert (pcomp_rel r (n + 1) w (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2));
+    introduce forall (n: nat). pcomp_rel r n w b1 b2
+    with assert (pcomp_rel r (n + 1) w (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (w': pworld) (y1 y2: pval v).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+                 with assert (pcomp_rel r (n + 1) w
+                                (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2)))
+    | _, _ -> ()
+
+let lemma_pcrel_splice (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pkrel r w fs1 fs2 /\ pcrel r w b1 b2)
+          (ensures pcrel r w (PSplice fs1 b1) (PSplice fs2 b2))
+  = introduce forall (n: nat). pcomp_rel r n w (PSplice fs1 b1) (PSplice fs2 b2)
+    with (if n = 0 then ()
+          else (assert (pframes_rel r (n - 1) w fs1 fs2);
+                assert (pcomp_rel r (n - 1) w b1 b2)))
+
+let lemma_pcrel_splice_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                           (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pcrel r w (PSplice fs1 b1) (PSplice fs2 b2))
+          (ensures pkrel r w fs1 fs2 /\ pcrel r w b1 b2)
+  = introduce forall (n: nat). pframes_rel r n w fs1 fs2
+    with assert (pcomp_rel r (n + 1) w (PSplice fs1 b1) (PSplice fs2 b2));
+    introduce forall (n: nat). pcomp_rel r n w b1 b2
+    with assert (pcomp_rel r (n + 1) w (PSplice fs1 b1) (PSplice fs2 b2))
+
+let lemma_pcrel_emit_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (e1 e2: string) (b1 b2: pcomp v cl)
+  : Lemma (requires pcrel r w (PEmit e1 b1) (PEmit e2 b2))
+          (ensures e1 == e2 /\ pcrel r w b1 b2)
+  = assert (pcomp_rel r 1 w (PEmit e1 b1) (PEmit e2 b2));
+    introduce forall (n: nat). pcomp_rel r n w b1 b2
+    with assert (pcomp_rel r (n + 1) w (PEmit e1 b1) (PEmit e2 b2))
+
+let lemma_pcrel_weave_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (e1 o1 e2 o2: string) (is1 is2: pstack v cl)
+                          (ow1 ow2: powner v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pcrel r w (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2))
+          (ensures e1 == e2 /\ o1 == o2 /\ pkrel r w is1 is2 /\ porel r w ow1 ow2 /\
+                   pcrel r w b1 b2)
+  = assert (pcomp_rel r 1 w (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2));
+    introduce forall (n: nat). pframes_rel r n w is1 is2
+    with assert (pcomp_rel r (n + 1) w (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2));
+    introduce forall (n: nat). powner_rel r n w ow1 ow2
+    with assert (pcomp_rel r (n + 1) w (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2));
+    introduce forall (n: nat). pcomp_rel r n w b1 b2
+    with assert (pcomp_rel r (n + 1) w (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2))
+
+let lemma_pcrel_enterctx_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (pl1 pl2: plan v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pcrel r w (PEnterCtx pl1 b1) (PEnterCtx pl2 b2))
+          (ensures pplrel r w pl1 pl2 /\ pcrel r w b1 b2)
+  = introduce forall (n: nat). pplan_rel r n w pl1 pl2
+    with assert (pcomp_rel r (n + 1) w (PEnterCtx pl1 b1) (PEnterCtx pl2 b2));
+    introduce forall (n: nat). pcomp_rel r n w b1 b2
+    with assert (pcomp_rel r (n + 1) w (PEnterCtx pl1 b1) (PEnterCtx pl2 b2))
+
+let lemma_pcrel_extendc_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                            (pl1 pl2: plan v cl) (h1 h2: pval v)
+                            (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pcrel r w (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2))
+          (ensures pplrel r w pl1 pl2 /\ pval_rel w h1 h2 /\ pfn_rel_at r w g1 g2)
+  = assert (pcomp_rel r 1 w (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2));
+    introduce forall (n: nat). pplan_rel r n w pl1 pl2
+    with assert (pcomp_rel r (n + 1) w (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2));
+    introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+               with assert (pcomp_rel r (n + 1) w (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2)))
+
+let lemma_pcrel_extendctxc_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                               (pl1 pl2: plan v cl) (h1 h2: pval v)
+                               (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pcrel r w (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2))
+          (ensures pplrel r w pl1 pl2 /\ pval_rel w h1 h2 /\ pfn_rel_at r w g1 g2)
+  = assert (pcomp_rel r 1 w (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2));
+    introduce forall (n: nat). pplan_rel r n w pl1 pl2
+    with assert (pcomp_rel r (n + 1) w (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2));
+    introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+               with assert (pcomp_rel r (n + 1) w
+                              (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2)))
+
+let lemma_pcrel_resumec_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                            (pl1 pl2: plan v cl) (h1 h2: pval v)
+                            (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pcrel r w (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2))
+          (ensures pplrel r w pl1 pl2 /\ pval_rel w h1 h2 /\ pfn_rel_at r w g1 g2)
+  = assert (pcomp_rel r 1 w (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2));
+    introduce forall (n: nat). pplan_rel r n w pl1 pl2
+    with assert (pcomp_rel r (n + 1) w (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2));
+    introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+               with assert (pcomp_rel r (n + 1) w (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2)))
+
+let lemma_pcrel_newp_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (l1 l2: string) (i1 i2: pval v) (b1 b2: pcomp v cl)
+  : Lemma (requires pcrel r w (PNewP l1 i1 b1) (PNewP l2 i2 b2))
+          (ensures l1 == l2 /\ pval_rel w i1 i2 /\ pcrel r w b1 b2)
+  = assert (pcomp_rel r 1 w (PNewP l1 i1 b1) (PNewP l2 i2 b2));
+    introduce forall (n: nat). pcomp_rel r n w b1 b2
+    with assert (pcomp_rel r (n + 1) w (PNewP l1 i1 b1) (PNewP l2 i2 b2))
+
+let lemma_pcrel_readp_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (l1 l2: string)
+  : Lemma (requires pcrel #v #cl r w (PReadP l1) (PReadP l2)) (ensures l1 == l2)
+  = assert (pcomp_rel #v #cl r 1 w (PReadP l1) (PReadP l2))
+
+let lemma_pcrel_writep_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                           (l1 l2: string) (x1 x2: pval v)
+  : Lemma (requires pcrel #v #cl r w (PWriteP l1 x1) (PWriteP l2 x2))
+          (ensures l1 == l2 /\ pval_rel w x1 x2)
+  = assert (pcomp_rel #v #cl r 1 w (PWriteP l1 x1) (PWriteP l2 x2))
+
+(* ---- owners, items and plans --------------------------------------- *)
+
+let lemma_porel_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                    (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                    (pv1 pv2: prompt_provenance)
+  : Lemma (requires porel r w (POwner t1 ret1 pv1) (POwner t2 ret2 pv2) /\ pcl_down r)
+          (ensures ptrel r w t1 t2 /\ pretrel r w ret1 ret2 /\ pv1 == pv2)
+  = assert (powner_rel r 1 w (POwner t1 ret1 pv1) (POwner t2 ret2 pv2));
+    assert (ptable_rel r 1 w t1 t2);
+    introduce forall (n: nat). ptable_rel r n w t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 w t1 t2
+          else assert (powner_rel r n w (POwner t1 ret1 pv1) (POwner t2 ret2 pv2)));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (w': pworld) (y1 y2: pval v).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+                 with (if n = 0 then ()
+                       else assert (powner_rel r n w (POwner t1 ret1 pv1)
+                                                     (POwner t2 ret2 pv2))))
+    | _, _ -> ()
+
+let lemma_pplrel_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (ls1 ls2: list (plan_item v cl)) (ow1 ow2: powner v cl)
+  : Lemma (requires pplrel r w (Plan ls1 ow1) (Plan ls2 ow2))
+          (ensures plsrel r w ls1 ls2 /\ porel r w ow1 ow2)
+  = introduce forall (n: nat). pitems_rel r n w ls1 ls2
+    with (if n = 0 then () else assert (pplan_rel r n w (Plan ls1 ow1) (Plan ls2 ow2)));
+    introduce forall (n: nat). powner_rel r n w ow1 ow2
+    with (if n = 0 then () else assert (pplan_rel r n w (Plan ls1 ow1) (Plan ls2 ow2)))
+
+let lemma_plsrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (is1 is2: list (plan_item v cl))
+  : Lemma (requires plsrel r w is1 is2) (ensures Nil? is1 == Nil? is2)
+  = assert (pitems_rel r 1 w is1 is2)
+
+let lemma_plsrel_cons_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (i1 i2: plan_item v cl) (t1 t2: list (plan_item v cl))
+  : Lemma (requires plsrel r w (i1 :: t1) (i2 :: t2))
+          (ensures pirel r w i1 i2 /\ plsrel r w t1 t2)
+  = introduce forall (n: nat). pitem_rel r n w i1 i2
+    with (if n = 0 then () else assert (pitems_rel r n w (i1 :: t1) (i2 :: t2)));
+    introduce forall (n: nat). pitems_rel r n w t1 t2
+    with (if n = 0 then () else assert (pitems_rel r n w (i1 :: t1) (i2 :: t2)))
+
+let lemma_plsrel_cons (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (i1 i2: plan_item v cl) (t1 t2: list (plan_item v cl))
+  : Lemma (requires pirel r w i1 i2 /\ plsrel r w t1 t2)
+          (ensures plsrel r w (i1 :: t1) (i2 :: t2))
+  = introduce forall (n: nat). pitems_rel r n w (i1 :: t1) (i2 :: t2)
+    with (if n = 0 then () else (assert (pitem_rel r n w i1 i2);
+                                 assert (pitems_rel r n w t1 t2)))
+
+let lemma_plsrel_nil (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+  : Lemma (plsrel r w ([] <: list (plan_item v cl)) ([] <: list (plan_item v cl)))
+  = introduce forall (n: nat).
+      pitems_rel r n w ([] <: list (plan_item v cl)) ([] <: list (plan_item v cl))
+    with ()
+
+(* ---- items, constructed and inverted ------------------------------- *)
+
+let lemma_pirel_bind (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pfn_rel_at r w g1 g2) (ensures pirel r w (PIBind g1) (PIBind g2))
+  = introduce forall (n: nat). pitem_rel r n w (PIBind g1) (PIBind g2)
+    with (if n = 0 then ()
+          else introduce forall (w': pworld) (y1 y2: pval v).
+                   (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                    pcomp_rel r n w' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pcrel r w' (g1 y1) (g2 y2))))
+
+let lemma_pirel_bind_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pirel r w (PIBind g1) (PIBind g2)) (ensures pfn_rel_at r w g1 g2)
+  = introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (pitem_rel r n w (PIBind g1) (PIBind g2))))
+
+let lemma_pirel_cell (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (l: string) (x1 x2: pval v)
+  : Lemma (requires pval_rel w x1 x2)
+          (ensures pirel #v #cl r w (PICell l x1) (PICell l x2))
+  = introduce forall (n: nat). pitem_rel #v #cl r n w (PICell l x1) (PICell l x2) with ()
+
+let lemma_pirel_cell_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (l1 l2: string) (x1 x2: pval v)
+  : Lemma (requires pirel #v #cl r w (PICell l1 x1) (PICell l2 x2))
+          (ensures l1 == l2 /\ pval_rel w x1 x2)
+  = assert (pitem_rel #v #cl r 1 w (PICell l1 x1) (PICell l2 x2))
+
+let lemma_pirel_transparent (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                            (t1 t2: ptable cl)
+  : Lemma (requires ptrel r w t1 t2)
+          (ensures pirel #v #cl r w (PITransparent t1) (PITransparent t2))
+  = introduce forall (n: nat). pitem_rel #v #cl r n w (PITransparent t1) (PITransparent t2)
+    with (if n = 0 then () else assert (ptable_rel r n w t1 t2))
+
+let lemma_pirel_transparent_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                (t1 t2: ptable cl)
+  : Lemma (requires pirel #v #cl r w (PITransparent t1) (PITransparent t2) /\ pcl_down r)
+          (ensures ptrel r w t1 t2)
+  = assert (pitem_rel #v #cl r 1 w (PITransparent t1) (PITransparent t2));
+    introduce forall (n: nat). ptable_rel r n w t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 w t1 t2
+          else assert (pitem_rel #v #cl r n w (PITransparent t1) (PITransparent t2)))
+
+let lemma_pirel_reenter (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                        (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+  : Lemma (requires ptrel r w t1 t2 /\ pretrel r w ret1 ret2)
+          (ensures pirel r w (PIReenter t1 ret1) (PIReenter t2 ret2))
+  = introduce forall (n: nat). pitem_rel r n w (PIReenter t1 ret1) (PIReenter t2 ret2)
+    with (if n = 0 then ()
+          else begin
+            assert (ptable_rel r n w t1 t2);
+            match ret1, ret2 with
+            | Some g1, Some g2 ->
+              introduce forall (w': pworld) (y1 y2: pval v).
+                  (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                   pcomp_rel r n w' (g1 y1) (g2 y2))
+              with (introduce _ ==> _ with assert (pcrel r w' (g1 y1) (g2 y2)))
+            | _, _ -> ()
+          end)
+
+let lemma_pirel_reenter_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                            (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+  : Lemma (requires pirel r w (PIReenter t1 ret1) (PIReenter t2 ret2) /\ pcl_down r)
+          (ensures ptrel r w t1 t2 /\ pretrel r w ret1 ret2)
+  = assert (pitem_rel r 1 w (PIReenter t1 ret1) (PIReenter t2 ret2));
+    introduce forall (n: nat). ptable_rel r n w t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 w t1 t2
+          else assert (pitem_rel r n w (PIReenter t1 ret1) (PIReenter t2 ret2)));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (w': pworld) (y1 y2: pval v).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pcomp_rel r n w' (g1 y1) (g2 y2)
+                 with (if n = 0 then ()
+                       else assert (pitem_rel r n w (PIReenter t1 ret1)
+                                                    (PIReenter t2 ret2))))
+    | _, _ -> ()
+
+let lemma_pirel_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (i1 i2: plan_item v cl)
+  : Lemma (requires pirel r w i1 i2) (ensures pitem_rel r 1 w i1 i2)
+  = ()
+
+(* ---- the three projections of a plan ------------------------------- *)
+
+let lemma_owner_frame_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (o1 o2: powner v cl)
+  : Lemma (requires porel r w o1 o2 /\ pcl_down r)
+          (ensures pfrel r w (owner_frame o1) (owner_frame o2))
+  = match o1, o2 with
+    | POwner t1 ret1 pv1, POwner t2 ret2 pv2 ->
+      lemma_porel_inv r w t1 t2 ret1 ret2 pv1 pv2;
+      lemma_pfrel_prompt r w t1 t2 ret1 ret2 pv1
+
+let rec lemma_enter_layer_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                     (ls1 ls2: list (plan_item v cl))
+  : Lemma (requires plsrel r w ls1 ls2 /\ pcl_down r)
+          (ensures pkrel r w (enter_layer_frames ls1) (enter_layer_frames ls2))
+          (decreases ls1)
+  = match ls1, ls2 with
+    | [], [] -> lemma_pkrel_nil #v #cl r w
+    | i1 :: t1, i2 :: t2 ->
+      lemma_plsrel_cons_inv r w i1 i2 t1 t2;
+      lemma_pirel_shape r w i1 i2;
+      lemma_enter_layer_frames_rel r w t1 t2;
+      (match i1, i2 with
+       | PIBind _, PIBind _ -> ()
+       | PICell l x1, PICell l2 x2 ->
+         lemma_pirel_cell_inv r w l l2 x1 x2;
+         lemma_pfrel_param #v #cl r w l x1 x2;
+         lemma_pkrel_cons r w (PParamF l x1) (PParamF l2 x2)
+                              (enter_layer_frames t1) (enter_layer_frames t2)
+       | PITransparent tb1, PITransparent tb2 ->
+         lemma_pirel_transparent_inv #v #cl r w tb1 tb2;
+         lemma_pfrel_prompt #v #cl r w tb1 tb2 None None PMono;
+         lemma_pkrel_cons r w (PPromptF tb1 None PMono) (PPromptF tb2 None PMono)
+                              (enter_layer_frames t1) (enter_layer_frames t2)
+       | PIReenter tb1 rc1, PIReenter tb2 rc2 ->
+         lemma_pirel_reenter_inv r w tb1 tb2 rc1 rc2;
+         lemma_pfrel_prompt r w tb1 tb2 rc1 rc2 PFamily;
+         lemma_pkrel_cons r w (PPromptF tb1 rc1 PFamily) (PPromptF tb2 rc2 PFamily)
+                              (enter_layer_frames t1) (enter_layer_frames t2)
+       | _, _ -> ())
+    | _, _ -> lemma_plsrel_shape r w ls1 ls2
+
+let rec lemma_resume_layer_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                      (ls1 ls2: list (plan_item v cl))
+  : Lemma (requires plsrel r w ls1 ls2 /\ pcl_down r)
+          (ensures pkrel r w (resume_layer_frames ls1) (resume_layer_frames ls2))
+          (decreases ls1)
+  = match ls1, ls2 with
+    | [], [] -> lemma_pkrel_nil #v #cl r w
+    | i1 :: t1, i2 :: t2 ->
+      lemma_plsrel_cons_inv r w i1 i2 t1 t2;
+      lemma_pirel_shape r w i1 i2;
+      lemma_resume_layer_frames_rel r w t1 t2;
+      (match i1, i2 with
+       | PIBind g1, PIBind g2 ->
+         lemma_pirel_bind_inv r w g1 g2;
+         lemma_pfrel_bind r w g1 g2;
+         lemma_pkrel_cons r w (PBindF g1) (PBindF g2)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | PICell l x1, PICell l2 x2 ->
+         lemma_pirel_cell_inv r w l l2 x1 x2;
+         lemma_pfrel_param #v #cl r w l x1 x2;
+         lemma_pkrel_cons r w (PParamF l x1) (PParamF l2 x2)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | PITransparent tb1, PITransparent tb2 ->
+         lemma_pirel_transparent_inv #v #cl r w tb1 tb2;
+         lemma_pfrel_prompt #v #cl r w tb1 tb2 None None PMono;
+         lemma_pkrel_cons r w (PPromptF tb1 None PMono) (PPromptF tb2 None PMono)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | PIReenter tb1 rc1, PIReenter tb2 rc2 ->
+         lemma_pirel_reenter_inv r w tb1 tb2 rc1 rc2;
+         lemma_pfrel_prompt r w tb1 tb2 rc1 rc2 PFamily;
+         lemma_pkrel_cons r w (PPromptF tb1 rc1 PFamily) (PPromptF tb2 rc2 PFamily)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | _, _ -> ())
+    | _, _ -> lemma_plsrel_shape r w ls1 ls2
+
+let rec lemma_protocol_layer_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                        (ls1 ls2: list (plan_item v cl))
+  : Lemma (requires plsrel r w ls1 ls2 /\ pcl_down r)
+          (ensures pkrel r w (protocol_layer_frames ls1) (protocol_layer_frames ls2))
+          (decreases ls1)
+  = match ls1, ls2 with
+    | [], [] -> lemma_pkrel_nil #v #cl r w
+    | i1 :: t1, i2 :: t2 ->
+      lemma_plsrel_cons_inv r w i1 i2 t1 t2;
+      lemma_pirel_shape r w i1 i2;
+      lemma_protocol_layer_frames_rel r w t1 t2;
+      (match i1, i2 with
+       | PIBind g1, PIBind g2 ->
+         lemma_pirel_bind_inv r w g1 g2;
+         lemma_pfrel_site r w g1 g2;
+         lemma_pkrel_cons r w (PSiteF g1) (PSiteF g2)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | PICell l x1, PICell l2 x2 ->
+         lemma_pirel_cell_inv r w l l2 x1 x2;
+         lemma_pfrel_param #v #cl r w l x1 x2;
+         lemma_pkrel_cons r w (PParamF l x1) (PParamF l2 x2)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | PITransparent tb1, PITransparent tb2 ->
+         lemma_pirel_transparent_inv #v #cl r w tb1 tb2;
+         lemma_pfrel_prompt #v #cl r w tb1 tb2 None None PMono;
+         lemma_pkrel_cons r w (PPromptF tb1 None PMono) (PPromptF tb2 None PMono)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | PIReenter tb1 rc1, PIReenter tb2 rc2 ->
+         lemma_pirel_reenter_inv r w tb1 tb2 rc1 rc2;
+         lemma_pfrel_prompt r w tb1 tb2 rc1 rc2 PFamily;
+         lemma_pkrel_cons r w (PPromptF tb1 rc1 PFamily) (PPromptF tb2 rc2 PFamily)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | _, _ -> ())
+    | _, _ -> lemma_plsrel_shape r w ls1 ls2
+
+let lemma_plan_enter_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                (pl1 pl2: plan v cl)
+  : Lemma (requires pplrel r w pl1 pl2 /\ pcl_down r)
+          (ensures pkrel r w (plan_enter_frames pl1) (plan_enter_frames pl2))
+  = match pl1, pl2 with
+    | Plan ls1 ow1, Plan ls2 ow2 ->
+      lemma_pplrel_inv r w ls1 ls2 ow1 ow2;
+      lemma_enter_layer_frames_rel r w ls1 ls2;
+      lemma_owner_frame_rel r w ow1 ow2;
+      lemma_pkrel_nil #v #cl r w;
+      lemma_pkrel_cons r w (owner_frame ow1) (owner_frame ow2) [] [];
+      lemma_pkrel_append r w (enter_layer_frames ls1) (enter_layer_frames ls2)
+                             [owner_frame ow1] [owner_frame ow2]
+
+let lemma_plan_resume_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                 (pl1 pl2: plan v cl)
+  : Lemma (requires pplrel r w pl1 pl2 /\ pcl_down r)
+          (ensures pkrel r w (plan_resume_frames pl1) (plan_resume_frames pl2))
+  = match pl1, pl2 with
+    | Plan ls1 ow1, Plan ls2 ow2 ->
+      lemma_pplrel_inv r w ls1 ls2 ow1 ow2;
+      lemma_resume_layer_frames_rel r w ls1 ls2;
+      lemma_owner_frame_rel r w ow1 ow2;
+      lemma_pkrel_nil #v #cl r w;
+      lemma_pkrel_cons r w (owner_frame ow1) (owner_frame ow2) [] [];
+      lemma_pkrel_append r w (resume_layer_frames ls1) (resume_layer_frames ls2)
+                             [owner_frame ow1] [owner_frame ow2]
+
+let lemma_plan_protocol_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                   (pl1 pl2: plan v cl)
+  : Lemma (requires pplrel r w pl1 pl2 /\ pcl_down r)
+          (ensures pkrel r w (plan_protocol_frames pl1) (plan_protocol_frames pl2))
+  = match pl1, pl2 with
+    | Plan ls1 ow1, Plan ls2 ow2 ->
+      lemma_pplrel_inv r w ls1 ls2 ow1 ow2;
+      lemma_protocol_layer_frames_rel r w ls1 ls2;
+      lemma_owner_frame_rel r w ow1 ow2;
+      lemma_pkrel_nil #v #cl r w;
+      lemma_pkrel_cons r w (owner_frame ow1) (owner_frame ow2) [] [];
+      lemma_pkrel_append r w (protocol_layer_frames ls1) (protocol_layer_frames ls2)
+                             [owner_frame ow1] [owner_frame ow2]
+
+(* ---- what two related tables agree about --------------------------- *)
+
+(** **Two related tables block the same effects, AS A SET.** PROVED, from
+    `blocking_effects`' own refinement, which pins it as a set through
+    `lookup_handler` -- exactly what `ptable_rel` compares. Set and not list:
+    the refinement fixes membership and not order, so two `handlers` that answer
+    every lookup alike may still report the labels in a different order, and no
+    proof can close that gap. *)
+let lemma_blocking_effects_agree (#cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                                 (t1 t2: ptable cl)
+  : Lemma (requires ptable_rel r n w t1 t2)
+          (ensures (forall (e: string).
+                      mem e (blocking_effects t1.hs) <==> mem e (blocking_effects t2.hs)))
+  = introduce forall (e: string).
+        (mem e (blocking_effects t1.hs) <==> mem e (blocking_effects t2.hs))
+    with begin
+      introduce mem e (blocking_effects t1.hs) ==> mem e (blocking_effects t2.hs)
+      with (eliminate exists (op: string) (found: found_clause cl).
+                (lookup_handler t1.hs e op == Some found /\ found.kind =!= KFast)
+            with (match lookup_handler t2.hs e op with
+                  | Some f2 ->
+                    introduce exists (o: string) (f: found_clause cl).
+                        (lookup_handler t2.hs e o == Some f /\ f.kind =!= KFast)
+                    with op f2 and ()
+                  | None -> ()));
+      introduce mem e (blocking_effects t2.hs) ==> mem e (blocking_effects t1.hs)
+      with (eliminate exists (op: string) (found: found_clause cl).
+                (lookup_handler t2.hs e op == Some found /\ found.kind =!= KFast)
+            with (match lookup_handler t1.hs e op with
+                  | Some f1 ->
+                    introduce exists (o: string) (f: found_clause cl).
+                        (lookup_handler t1.hs e o == Some f /\ f.kind =!= KFast)
+                    with op f1 and ()
+                  | None -> ()))
+    end
+
+(** Hence they agree on BORROWABILITY -- which is a `bool`, so here the
+    set-level agreement is enough for an equality. *)
+let lemma_borrowable_agree (#cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                           (t1 t2: ptable cl)
+  : Lemma (requires ptable_rel r n w t1 t2)
+          (ensures borrowable t1.hs == borrowable t2.hs)
+  = lemma_blocking_effects_agree r n w t1 t2;
+    (match blocking_effects t1.hs with
+     | [] -> (match blocking_effects t2.hs with
+              | [] -> ()
+              | a :: rest -> assert (mem a (blocking_effects t2.hs)))
+     | a :: rest ->
+       assert (mem a (blocking_effects t1.hs));
+       (match blocking_effects t2.hs with
+        | [] -> ()
+        | b :: rest2 -> ()))
+
+(** And therefore on the CLASSIFICATION of a prompt. PROVED: `classify_prompt`
+    reads the provenance, whether there is a return clause, and borrowability,
+    and related tables and return clauses agree on all three. *)
+let lemma_classify_agree (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                         (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                         (pv: prompt_provenance)
+  : Lemma (requires ptable_rel r n w t1 t2 /\ pretrel r w ret1 ret2)
+          (ensures classify_prompt pv t1 ret1 == classify_prompt pv t2 ret2)
+  = lemma_borrowable_agree r n w t1 t2
+
+(* ---- rejections ---------------------------------------------------- *)
+
+(**
+ * **Rejections correspond.** Equality everywhere except the blocking labels of
+ * an `UnborrowableScope`, which are compared AS A SET.
+ *
+ * That is not a weakening chosen for convenience: `blocking_effects` is pinned
+ * by its refinement as a SET, so two tables that answer every lookup alike may
+ * report the labels in different orders, and `plan_layers` puts the list it is
+ * given into the rejection verbatim. An equality here would be a proposition
+ * about `Hoop.Runtime.Handlers`' representation that the interface does not
+ * fix. A rejection is terminal and is not a `PDone`, so nothing the nominal
+ * observation looks at can see the difference either way.
+ *)
+let prej_rel (j1 j2: rejection) : prop
+  = match j1, j2 with
+    | ClauseKindMismatch e1 o1 x1 a1, ClauseKindMismatch e2 o2 x2 a2 ->
+      e1 == e2 /\ o1 == o2 /\ x1 == x2 /\ a1 == a2
+    | UnborrowableScope e1 o1 b1, UnborrowableScope e2 o2 b2 ->
+      e1 == e2 /\ o1 == o2 /\ (forall (s: string). mem s b1 <==> mem s b2)
+    | _, _ -> False
+
+(* ---- building the plan --------------------------------------------- *)
+
+let pfailrel (f1 f2: plan_failure) : prop
+  = match f1, f2 with
+    | MonomorphicLayer b1, MonomorphicLayer b2 ->
+      forall (s: string). mem s b1 <==> mem s b2
+
+let rec lemma_plan_layers_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                              (is1 is2: pstack v cl)
+  : Lemma (requires pkrel r w is1 is2 /\ pcl_down r)
+          (ensures (match plan_layers is1, plan_layers is2 with
+                    | Inl e1, Inl e2 -> pfailrel e1 e2
+                    | Inr ls1, Inr ls2 -> plsrel r w ls1 ls2
+                    | _, _ -> False))
+          (decreases is1)
+  = match is1, is2 with
+    | [], [] -> lemma_plsrel_nil #v #cl r w
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      lemma_plan_layers_rel r w t1 t2;
+      (match f1, f2 with
+       | PBindF g1, PBindF g2 ->
+         lemma_pfrel_bind_inv r w g1 g2;
+         lemma_pirel_bind r w g1 g2;
+         (match plan_layers t1, plan_layers t2 with
+          | Inr ls1, Inr ls2 -> lemma_plsrel_cons r w (PIBind g1) (PIBind g2) ls1 ls2
+          | _, _ -> ())
+       | PParamF l x1, PParamF l2 x2 ->
+         lemma_pfrel_param_inv r w l l2 x1 x2;
+         lemma_pirel_cell #v #cl r w l x1 x2;
+         (match plan_layers t1, plan_layers t2 with
+          | Inr ls1, Inr ls2 -> lemma_plsrel_cons r w (PICell l x1) (PICell l2 x2) ls1 ls2
+          | _, _ -> ())
+       | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+         lemma_pfrel_prompt_inv r w tb1 tb2 rc1 rc2 pv1 pv2;
+         assert (ptable_rel r 1 w tb1 tb2);
+         lemma_classify_agree r 1 w tb1 tb2 rc1 rc2 pv1;
+         (match classify_prompt pv1 tb1 rc1 with
+          | Monomorphic -> lemma_blocking_effects_agree r 1 w tb1 tb2
+          | ContextTransparent ->
+            lemma_pirel_transparent #v #cl r w tb1 tb2;
+            (match plan_layers t1, plan_layers t2 with
+             | Inr ls1, Inr ls2 ->
+               lemma_plsrel_cons r w (PITransparent tb1) (PITransparent tb2) ls1 ls2
+             | _, _ -> ())
+          | Family ->
+            lemma_pirel_reenter r w tb1 tb2 rc1 rc2;
+            (match plan_layers t1, plan_layers t2 with
+             | Inr ls1, Inr ls2 ->
+               lemma_plsrel_cons r w (PIReenter tb1 rc1) (PIReenter tb2 rc2) ls1 ls2
+             | _, _ -> ()))
+       | _, _ -> ())
+    | _, _ -> lemma_pkrel_shape r w is1 is2
+
+let lemma_plan_of_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (is1 is2: pstack v cl) (o1 o2: powner v cl)
+  : Lemma (requires pkrel r w is1 is2 /\ porel r w o1 o2 /\ pcl_down r)
+          (ensures (match plan_of is1 o1, plan_of is2 o2 with
+                    | Inl e1, Inl e2 -> pfailrel e1 e2
+                    | Inr pl1, Inr pl2 -> pplrel r w pl1 pl2
+                    | _, _ -> False))
+  = lemma_plan_layers_rel r w is1 is2;
+    match plan_layers is1, plan_layers is2 with
+    | Inr ls1, Inr ls2 ->
+      introduce forall (n: nat). pplan_rel r n w (Plan ls1 o1) (Plan ls2 o2)
+      with (if n = 0 then () else (assert (pitems_rel r n w ls1 ls2);
+                                   assert (powner_rel r n w o1 o2)))
+    | _, _ -> ()
+
+(* ================================================================== *)
+(*  THE FOUR STACK SEARCHES, COMPATIBLE                                *)
+(*                                                                     *)
+(*  Each is a walk down the stack, so each compatibility proof is one   *)
+(*  induction over `pframes_rel`, which recurses at the SAME index --   *)
+(*  no step is spent on the tail of a stack.                            *)
+(* ================================================================== *)
+
+(** **The prompt search.** Two related stacks stop at corresponding frames, with
+    clauses of the same KIND and RELATED bodies, and split into related captured
+    and remaining segments. The lookup's equivariance is where the boundary's
+    `b_lookup` is spent. *)
+(** The boundary's lookup condition, INSTANTIATED. It is a `forall` with no
+    `{:pattern}`, so the trigger F* infers does not fire on a goal that already
+    holds the two tables; the elimination is written out once here and every use
+    below goes through it. *)
+let lemma_lookup_equivariant_at (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                                (n: nat) (w: pworld) (t1 t2: ptable cl) (eff op: string)
+  : Lemma (requires plookup_equivariant r lk /\ ptable_rel r n w t1 t2)
+          (ensures (match lk t1 eff op, lk t2 eff op with
+                    | None, None -> True
+                    | Some f1, Some f2 -> f1.kind == f2.kind /\ r n w f1.body f2.body
+                    | _, _ -> False))
+  = lk_patterned r lk ()
+
+let lemma_lk_rel (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (w: pworld)
+                 (t1 t2: ptable cl) (eff op: string)
+  : Lemma (requires ptrel r w t1 t2 /\ plookup_equivariant r lk)
+          (ensures (match lk t1 eff op, lk t2 eff op with
+                    | None, None -> True
+                    | Some c1, Some c2 -> c1.kind == c2.kind /\ pclrel r w c1.body c2.body
+                    | _, _ -> False))
+  = lemma_lookup_equivariant_at r lk 1 w t1 t2 eff op;
+    match lk t1 eff op, lk t2 eff op with
+    | Some c1, Some c2 ->
+      introduce forall (n: nat). r n w c1.body c2.body
+      with lemma_lookup_equivariant_at r lk n w t1 t2 eff op
+    | _, _ -> ()
+
+
+let rec lemma_pfind_prompt_rel (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                               (w: pworld) (eff op: string) (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w k1 k2 /\ plookup_equivariant r lk /\ pcl_down r)
+          (ensures (match pfind_prompt lk eff op k1, pfind_prompt lk eff op k2 with
+                    | None, None -> True
+                    | Some (cap1, c1, b1), Some (cap2, c2, b2) ->
+                      pkrel r w cap1 cap2 /\ pkrel r w b1 b2 /\
+                      c1.kind == c2.kind /\ pclrel r w c1.body c2.body
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      lemma_pfind_prompt_rel r lk w eff op t1 t2;
+      (match f1, f2 with
+       | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+         lemma_pfrel_prompt_inv r w tb1 tb2 rc1 rc2 pv1 pv2;
+         lemma_lk_rel r lk w tb1 tb2 eff op;
+         (match lk tb1 eff op, lk tb2 eff op with
+          | Some c1, Some c2 ->
+            lemma_pkrel_nil #v #cl r w;
+            lemma_pkrel_cons r w f1 f2 [] []
+          | None, None ->
+            (match pfind_prompt lk eff op t1, pfind_prompt lk eff op t2 with
+             | Some (cap1, _, _), Some (cap2, _, _) -> lemma_pkrel_cons r w f1 f2 cap1 cap2
+             | _, _ -> ())
+          | _, _ -> ())
+       | _, _ ->
+         (match pfind_prompt lk eff op t1, pfind_prompt lk eff op t2 with
+          | Some (cap1, _, _), Some (cap2, _, _) -> lemma_pkrel_cons r w f1 f2 cap1 cap2
+          | _, _ -> ()))
+    | _, _ -> lemma_pkrel_shape r w k1 k2
+
+(** **The cell search.** *)
+let rec lemma_pfind_param_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                              (l: string) (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w k1 k2)
+          (ensures (match pfind_param l k1, pfind_param l k2 with
+                    | None, None -> True
+                    | Some x1, Some x2 -> pval_rel w x1 x2
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      lemma_pfind_param_rel r w l t1 t2;
+      (match f1, f2 with
+       | PParamF l1 x1, PParamF l2 x2 -> lemma_pfrel_param_inv r w l1 l2 x1 x2
+       | _, _ -> ())
+    | _, _ -> lemma_pkrel_shape r w k1 k2
+
+(** **The cell write.** The stack it rebuilds is related frame for frame. *)
+let rec lemma_pset_param_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (l: string) (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w k1 k2 /\ pval_rel w x1 x2)
+          (ensures (match pset_param l x1 k1, pset_param l x2 k2 with
+                    | None, None -> True
+                    | Some k1', Some k2' -> pkrel r w k1' k2'
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      lemma_pset_param_rel r w l x1 x2 t1 t2;
+      (match f1, f2 with
+       | PParamF l1 y1, PParamF l2 y2 ->
+         lemma_pfrel_param_inv r w l1 l2 y1 y2;
+         if l1 = l
+         then (lemma_pfrel_param #v #cl r w l x1 x2;
+               lemma_pkrel_cons r w (PParamF l x1) (PParamF l x2) t1 t2)
+         else (match pset_param l x1 t1, pset_param l x2 t2 with
+               | Some r1, Some r2 -> lemma_pkrel_cons r w f1 f2 r1 r2
+               | _, _ -> ())
+       | _, _ ->
+         (match pset_param l x1 t1, pset_param l x2 t2 with
+          | Some r1, Some r2 -> lemma_pkrel_cons r w f1 f2 r1 r2
+          | _, _ -> ()))
+    | _, _ -> lemma_pkrel_shape r w k1 k2
+
+(** **The mode search.** Corresponding answers: the same mode, and responders
+    that send related values to related computations. *)
+let rec lemma_pfind_mode_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w k1 k2)
+          (ensures (match pfind_mode k1, pfind_mode k2 with
+                    | None, None -> True
+                    | Some (m1, g1), Some (m2, g2) -> m1 == m2 /\ pfn_rel_at r w g1 g2
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      lemma_pfind_mode_rel r w t1 t2;
+      (match f1, f2 with
+       | PModeF m1 g1, PModeF m2 g2 -> lemma_pfrel_mode_inv r w m1 m2 g1 g2
+       | _, _ -> ())
+    | _, _ -> lemma_pkrel_shape r w k1 k2
+
+(** **The scope cut.** Both sides cut at the same position, and both halves are
+    related. *)
+let rec lemma_pcut_scope_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r w k1 k2)
+          (ensures (match pcut_scope k1, pcut_scope k2 with
+                    | None, None -> True
+                    | Some (a1, b1), Some (a2, b2) -> pkrel r w a1 a2 /\ pkrel r w b1 b2
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      lemma_pcut_scope_rel r w t1 t2;
+      (match f1, f2 with
+       | PScopeF, PScopeF -> lemma_pkrel_nil #v #cl r w
+       | _, _ ->
+         (match pcut_scope t1, pcut_scope t2 with
+          | Some (a1, _), Some (a2, _) -> lemma_pkrel_cons r w f1 f2 a1 a2
+          | _, _ -> ()))
+    | _, _ -> lemma_pkrel_shape r w k1 k2
+
+(* ================================================================== *)
+(*  CONTEXTS, THE STORE, AND THE OPERATIONS ON THEM                    *)
+(* ================================================================== *)
+
+let lemma_pcrel_op (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                   (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pcrel r w a1 a2 /\ pfn_rel_at r w f1 f2)
+          (ensures pcrel r w (POp a1 f1) (POp a2 f2))
+  = introduce forall (n: nat). pcomp_rel r n w (POp a1 f1) (POp a2 f2)
+    with (if n = 0 then ()
+          else begin
+            assert (pcomp_rel r (n - 1) w a1 a2);
+            introduce forall (w': pworld) (y1 y2: pval v).
+                (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                 pcomp_rel r (n - 1) w' (f1 y1) (f2 y2))
+            with (introduce _ ==> _ with assert (pcrel r w' (f1 y1) (f2 y2)))
+          end)
+
+(** `pbind` is `POp`, so binding preserves the relation. *)
+let lemma_pcrel_pbind (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pcrel r w a1 a2 /\ pfn_rel_at r w f1 f2)
+          (ensures pcrel r w (pbind a1 f1) (pbind a2 f2))
+  = lemma_pcrel_op r w a1 a2 f1 f2
+
+(** Applying an equivariant function pair, as a call rather than as a trigger. *)
+let lemma_pfn_apply (#v #cl: Type) (r: pcl_rel_t cl) (w0 w: pworld)
+                    (f1 f2: pval v -> pcomp v cl) (y1 y2: pval v)
+  : Lemma (requires pfn_rel_at r w0 f1 f2 /\ pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2)
+          (ensures pcrel r w (f1 y1) (f2 y2))
+  = ()
+
+(* ---- contexts ------------------------------------------------------ *)
+
+let lemma_pxrel_done (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (y1 y2: pval v)
+  : Lemma (requires pval_rel w y1 y2)
+          (ensures pxrel #v #cl r w (PCtxDone y1) (PCtxDone y2))
+  = introduce forall (n: nat). pctx_rel #v #cl r n w (PCtxDone y1) (PCtxDone y2) with ()
+
+let lemma_pxrel_requests (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                         (x1 x2: pval v) (rs1 rs2: pstack v cl)
+                         (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel w x1 x2 /\ pkrel r w rs1 rs2 /\ pfn_rel_at r w p1 p2)
+          (ensures pxrel r w (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2))
+  = introduce forall (n: nat).
+      pctx_rel r n w (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2)
+    with (if n = 0 then ()
+          else begin
+            assert (pframes_rel r n w rs1 rs2);
+            introduce forall (w': pworld) (y1 y2: pval v).
+                (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                 pcomp_rel r n w' (p1 y1) (p2 y2))
+            with (introduce _ ==> _ with assert (pcrel r w' (p1 y1) (p2 y2)))
+          end)
+
+let lemma_pxrel_requests_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (x1 x2: pval v) (rs1 rs2: pstack v cl)
+                             (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pxrel r w (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2))
+          (ensures pval_rel w x1 x2 /\ pkrel r w rs1 rs2 /\ pfn_rel_at r w p1 p2)
+  = assert (pctx_rel r 1 w (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2));
+    introduce forall (n: nat). pframes_rel r n w rs1 rs2
+    with (if n = 0 then ()
+          else assert (pctx_rel r n w (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2)));
+    introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> pcrel r w' (p1 y1) (p2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pcomp_rel r n w' (p1 y1) (p2 y2)
+               with (if n = 0 then ()
+                     else assert (pctx_rel r n w (PCtxRequests x1 rs1 p1)
+                                                 (PCtxRequests x2 rs2 p2))))
+
+let lemma_pxrel_done_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (y1 y2: pval v)
+  : Lemma (requires pxrel #v #cl r w (PCtxDone y1) (PCtxDone y2))
+          (ensures pval_rel w y1 y2)
+  = assert (pctx_rel #v #cl r 1 w (PCtxDone y1) (PCtxDone y2))
+
+let lemma_pxrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (cx1 cx2: pctx v cl)
+  : Lemma (requires pxrel r w cx1 cx2) (ensures pctx_rel r 1 w cx1 cx2)
+  = ()
+
+(* ---- resolving a handle -------------------------------------------- *)
+
+(** **Resolution corresponds.** PROVED. A handle the world speaks for resolves on
+    BOTH sides, to related contexts; a payload resolves on neither. There is no
+    third case, because `pval_rel` has no clause relating a payload to a handle
+    and none relating a handle no world speaks for. *)
+let lemma_presolve_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (s1 s2: pstore v cl) (h1 h2: pval v)
+  : Lemma (requires psrel r w s1 s2 /\ pval_rel w h1 h2)
+          (ensures (match presolve s1 h1, presolve s2 h2 with
+                    | None, None -> True
+                    | Some cx1, Some cx2 -> pxrel r w cx1 cx2
+                    | _, _ -> False))
+  = match h1, h2 with
+    | PCtxKey i, PCtxKey j ->
+      assert (pwlookup_l i w == Some j);
+      // `psrel`'s quantifier answers to the `psget` pair and to nothing else: a
+      // goal that names only the two `Some?`s does not instantiate it. So the
+      // relatedness of the two entries is asked for FIRST, and their presence
+      // comes back with it.
+      assert (pxrel r w (psget i s1) (psget j s2))
+    | _, _ -> ()
+
+(* ---- the continuation handed to a clause --------------------------- *)
+
+let lemma_pkont_of_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (cap1 cap2: pstack v cl)
+  : Lemma (requires pkrel r w cap1 cap2 /\ pcl_mono r)
+          (ensures pfn_rel_at r w (pkont_of cap1) (pkont_of cap2))
+  = introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+         pcrel r w' (pkont_of cap1 y1) (pkont_of cap2 y2))
+    with (introduce _ ==> _
+          with (lemma_pkrel_mono r w' w cap1 cap2;
+                lemma_pcrel_var r w' y1 y2;
+                lemma_pcrel_splice r w' cap1 cap2 (PVar y1) (PVar y2)))
+
+(* ---- driving a residual, and the three consuming meanings ---------- *)
+
+let lemma_ctx_drive_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (m: weave_mode)
+                        (cx1 cx2: pctx v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pxrel r w cx1 cx2 /\ pfn_rel_at r w f1 f2 /\ pcl_mono r)
+          (ensures pcrel r w (ctx_drive m cx1 f1) (ctx_drive m cx2 f2))
+  = lemma_pxrel_shape r w cx1 cx2;
+    match cx1, cx2 with
+    | PCtxDone y1, PCtxDone y2 ->
+      lemma_pxrel_done_inv r w y1 y2;
+      lemma_pcrel_var r w y1 y2
+    | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+      lemma_pxrel_requests_inv r w x1 x2 rs1 rs2 p1 p2;
+      let resp1 = (fun (z: pval v) -> pbind (p1 z) f1) in
+      let resp2 = (fun (z: pval v) -> pbind (p2 z) f2) in
+      introduce forall (w': pworld) (y1 y2: pval v).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcrel r w' (resp1 y1) (resp2 y2))
+      with (introduce _ ==> _
+            with (lemma_pfn_apply r w w' p1 p2 y1 y2;
+                  lemma_pfn_rel_at_mono r w' w f1 f2;
+                  lemma_pcrel_pbind r w' (p1 y1) (p2 y2) f1 f2));
+      lemma_pfrel_mode r w m resp1 resp2;
+      lemma_pkrel_nil #v #cl r w;
+      lemma_pkrel_cons r w (PModeF m resp1) (PModeF m resp2) [] [];
+      lemma_pkrel_append r w rs1 rs2 [PModeF m resp1] [PModeF m resp2];
+      lemma_pcrel_var r w x1 x2;
+      lemma_pcrel_splice r w (rs1 @ [PModeF m resp1]) (rs2 @ [PModeF m resp2])
+                             (PVar x1) (PVar x2);
+      // `assert_norm` and not `assert`, for the reason recorded at
+      // `lemma_ctx_drive_answers_head`: `ctx_drive` BUILDS the responder lambda,
+      // and a lambda occurring inside a definition gets an SMT encoding of its
+      // own, so the equality with the same lambda written here is not something
+      // Z3 can see. Normalising both sides makes the two terms identical.
+      assert_norm (ctx_drive m (PCtxRequests x1 rs1 p1) f1
+                   == PSplice (rs1 @ [PModeF m resp1]) (PVar x1));
+      assert_norm (ctx_drive m (PCtxRequests x2 rs2 p2) f2
+                   == PSplice (rs2 @ [PModeF m resp2]) (PVar x2))
+    | _, _ -> ()
+
+let lemma_extend_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (pl1 pl2: plan v cl) (cx1 cx2: pctx v cl)
+                       (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pxrel r w cx1 cx2 /\ pfn_rel_at r w g1 g2 /\ pcl_mono r)
+          (ensures pcrel r w (extend_C pl1 cx1 g1) (extend_C pl2 cx2 g2))
+  = lemma_ctx_drive_rel r w MExtend cx1 cx2 g1 g2
+
+let lemma_resume_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                       (pl1 pl2: plan v cl) (cx1 cx2: pctx v cl)
+                       (k1 k2: pval v -> pcomp v cl)
+  : Lemma (requires pxrel r w cx1 cx2 /\ pfn_rel_at r w k1 k2 /\ pcl_mono r)
+          (ensures pcrel r w (resume_C pl1 cx1 k1) (resume_C pl2 cx2 k2))
+  = lemma_ctx_drive_rel r w MResume cx1 cx2 k1 k2
+
+let lemma_extend_ctx_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                           (pl1 pl2: plan v cl) (cx1 cx2: pctx v cl)
+                           (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pxrel r w cx1 cx2 /\ pfn_rel_at r w g1 g2 /\ pcl_mono r)
+          (ensures pxrel r w (extend_ctx_C pl1 cx1 g1) (extend_ctx_C pl2 cx2 g2))
+  = lemma_pxrel_shape r w cx1 cx2;
+    match cx1, cx2 with
+    | PCtxDone y1, PCtxDone y2 ->
+      lemma_pxrel_done_inv r w y1 y2;
+      lemma_pxrel_done #v #cl r w y1 y2
+    | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+      lemma_pxrel_requests_inv r w x1 x2 rs1 rs2 p1 p2;
+      let q1 = (fun (z: pval v) -> pbind (p1 z) g1) in
+      let q2 = (fun (z: pval v) -> pbind (p2 z) g2) in
+      introduce forall (w': pworld) (y1 y2: pval v).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcrel r w' (q1 y1) (q2 y2))
+      with (introduce _ ==> _
+            with (lemma_pfn_apply r w w' p1 p2 y1 y2;
+                  lemma_pfn_rel_at_mono r w' w g1 g2;
+                  lemma_pcrel_pbind r w' (p1 y1) (p2 y2) g1 g2));
+      lemma_pxrel_requests r w x1 x2 rs1 rs2 q1 q2
+    | _, _ -> ()
+
+let lemma_enter_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (pl1 pl2: plan v cl) (c1 c2: pcomp v cl)
+  : Lemma (requires pplrel r w pl1 pl2 /\ pcrel r w c1 c2 /\ pcl_down r)
+          (ensures pcrel r w (enter_C pl1 c1) (enter_C pl2 c2))
+  = lemma_plan_enter_frames_rel r w pl1 pl2;
+    lemma_pcrel_splice r w (plan_enter_frames pl1) (plan_enter_frames pl2) c1 c2
+
+(* ================================================================== *)
+(*  CONFIGURATIONS                                                     *)
+(* ================================================================== *)
+
+let pstrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (st1 st2: pstate v cl)
+  : GTot prop
+  = match st1, st2 with
+    | PDone x1, PDone x2 -> pval_rel w x1 x2
+    | PStep c1 k1, PStep c2 k2 -> pcrel r w c1 c2 /\ pkrel r w k1 k2
+    | PPaused x1 rs1, PPaused x2 rs2 -> pval_rel w x1 x2 /\ pkrel r w rs1 rs2
+    | PStuck e1 o1, PStuck e2 o2 -> e1 == e2 /\ o1 == o2
+    | PRejected j1, PRejected j2 -> prej_rel j1 j2
+    | _, _ -> False
+
+let pcfrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = pstrel r w cf1.st cf2.st /\ psrel r w cf1.store cf2.store /\
+    pwbound w cf1.next cf2.next
+
+(**
+ * **Unfolding a hypothesis, by conversion.**
+ *
+ * A `GTot prop` definition applied to arguments is an ATOM to the SMT encoding:
+ * a goal mentioning it unfolds, but a HYPOTHESIS mentioning it does not, and
+ * every quantifier inside it is invisible. That is not a limit of this
+ * development -- it is why `psrel`'s own `{:pattern}` cannot fire from a folded
+ * hypothesis. The cast below is accepted BY CONVERSION, with no proof
+ * obligation, and puts the body in the context where the solver can see it.
+ *)
+let pcfrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (cf1 cf2: pconf v cl)
+                  (h: squash (pcfrel r w cf1 cf2))
+  : squash (pstrel r w cf1.st cf2.st /\ psrel r w cf1.store cf2.store /\
+            pwbound w cf1.next cf2.next)
+  = h
+
+let pstrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (st1 st2: pstate v cl)
+                  (h: squash (pstrel r w st1 st2))
+  : squash (match st1, st2 with
+            | PDone x1, PDone x2 -> pval_rel w x1 x2
+            | PStep c1 k1, PStep c2 k2 -> pcrel r w c1 c2 /\ pkrel r w k1 k2
+            | PPaused x1 rs1, PPaused x2 rs2 -> pval_rel w x1 x2 /\ pkrel r w rs1 rs2
+            | PStuck e1 o1, PStuck e2 o2 -> e1 == e2 /\ o1 == o2
+            | PRejected j1, PRejected j2 -> prej_rel j1 j2
+            | _, _ -> False)
+  = h
+
+(** The conclusion of the transition theorem, named so that the rule-by-rule
+    lemmas and the dispatcher speak of one symbol. *)
+let pstep_compat_at (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                    (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    (exists (w': pworld).
+       pwf_world w' /\ pwext w' w /\
+       pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+
+let pstep_compat_unfold (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                        (h: squash (pstep_compat_at r lk apply w cf1 cf2))
+  : squash (snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+            (exists (w': pworld).
+               pwf_world w' /\ pwext w' w /\
+               pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2))))
+  = h
+
+(* ================================================================== *)
+(*  THE TRANSITION, RULE BY RULE                                       *)
+(* ================================================================== *)
+
+(** A terminal state is a fixed point of the transition, and the trace it emits
+    is empty, so relatedness is carried across unchanged. *)
+let lemma_step_terminal (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcfrel r w cf1 cf2 /\
+                    ~(PStep? cf1.st) /\ ~(PStep? cf2.st))
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pwext_refl w;
+    assert (fst (pstep_tr lk apply cf1) == cf1);
+    assert (fst (pstep_tr lk apply cf2) == cf2);
+    introduce exists (w': pworld).
+        (pwf_world w' /\ pwext w' w /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with w and ()
+
+(** The shared tail of every rule that neither allocates nor emits: exhibit the
+    two successor configurations and the relation at the SAME world. *)
+let lemma_step_same_world (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    pcfrel r w (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pwext_refl w;
+    introduce exists (w': pworld).
+        (pwf_world w' /\ pwext w' w /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with w and ()
+
+let lemma_step_new_world (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                         (apply: papply_t v cl) (w w1: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w1 /\ pwext w1 w /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    pcfrel r w1 (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = introduce exists (w': pworld).
+        (pwf_world w' /\ pwext w' w /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with w1 and ()
+
+(* ---- POp: push a bind frame ---------------------------------------- *)
+
+let lemma_step_op (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                  (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                  (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+                  (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (POp a1 f1) k1 /\ cf2.st == PStep (POp a2 f2) k2 /\
+                    pcrel r w (POp a1 f1) (POp a2 f2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_op_inv r w a1 a2 f1 f2;
+    lemma_pfrel_bind r w f1 f2;
+    lemma_pkrel_cons r w (PBindF f1) (PBindF f2) k1 k2;
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PHandle: push a prompt frame ---------------------------------- *)
+
+let lemma_step_handle (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                      (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                      (pv1 pv2: prompt_provenance) (b1 b2: pcomp v cl)
+                      (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PHandle t1 ret1 pv1 b1) k1 /\
+                    cf2.st == PStep (PHandle t2 ret2 pv2 b2) k2 /\
+                    pcrel r w (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_handle_inv r w t1 t2 ret1 ret2 pv1 pv2 b1 b2;
+    lemma_pfrel_prompt r w t1 t2 ret1 ret2 pv1;
+    lemma_pkrel_cons r w (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2) k1 k2;
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PEmit: the one rule that emits --------------------------------- *)
+
+let lemma_step_emit (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                    (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                    (e1 e2: string) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PEmit e1 b1) k1 /\ cf2.st == PStep (PEmit e2 b2) k2 /\
+                    pcrel r w (PEmit e1 b1) (PEmit e2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_emit_inv r w e1 e2 b1 b2;
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PSplice: push the captured frames ------------------------------ *)
+
+let lemma_step_splice (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                      (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PSplice fs1 b1) k1 /\
+                    cf2.st == PStep (PSplice fs2 b2) k2 /\
+                    pcrel r w (PSplice fs1 b1) (PSplice fs2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_splice_inv r w fs1 fs2 b1 b2;
+    lemma_pkrel_append r w fs1 fs2 k1 k2;
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PNewP: push a cell -------------------------------------------- *)
+
+let lemma_step_newp (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                    (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                    (l1 l2: string) (i1 i2: pval v) (b1 b2: pcomp v cl)
+                    (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PNewP l1 i1 b1) k1 /\
+                    cf2.st == PStep (PNewP l2 i2 b2) k2 /\
+                    pcrel r w (PNewP l1 i1 b1) (PNewP l2 i2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_newp_inv r w l1 l2 i1 i2 b1 b2;
+    lemma_pfrel_param #v #cl r w l1 i1 i2;
+    lemma_pkrel_cons r w (PParamF l1 i1) (PParamF l2 i2) k1 k2;
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PReadP / PWriteP: the cell searches ---------------------------- *)
+
+let lemma_step_readp (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                     (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                     (l1 l2: string) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PReadP l1) k1 /\ cf2.st == PStep (PReadP l2) k2 /\
+                    pcrel #v #cl r w (PReadP l1) (PReadP l2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_readp_inv #v #cl r w l1 l2;
+    lemma_pfind_param_rel r w l1 k1 k2;
+    (match pfind_param l1 k1, pfind_param l2 k2 with
+     | Some x1, Some x2 -> lemma_pcrel_var r w x1 x2
+     | _, _ -> ());
+    lemma_step_same_world r lk apply w cf1 cf2
+
+let lemma_step_writep (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                      (l1 l2: string) (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PWriteP l1 x1) k1 /\
+                    cf2.st == PStep (PWriteP l2 x2) k2 /\
+                    pcrel #v #cl r w (PWriteP l1 x1) (PWriteP l2 x2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_writep_inv #v #cl r w l1 l2 x1 x2;
+    lemma_pset_param_rel r w l1 x1 x2 k1 k2;
+    lemma_pcrel_var r w x1 x2;
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PEnterCtx: production, four frames ----------------------------- *)
+
+let lemma_step_enterctx (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                        (pl1 pl2: plan v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_down r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PEnterCtx pl1 b1) k1 /\
+                    cf2.st == PStep (PEnterCtx pl2 b2) k2 /\
+                    pcrel r w (PEnterCtx pl1 b1) (PEnterCtx pl2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_enterctx_inv r w pl1 pl2 b1 b2;
+    lemma_plan_protocol_frames_rel r w pl1 pl2;
+    lemma_pfrel_scope #v #cl r w;
+    lemma_pkrel_cons r w PScopeF PScopeF k1 k2;
+    lemma_pkrel_append r w (plan_protocol_frames pl1) (plan_protocol_frames pl2)
+                           (PScopeF :: k1) (PScopeF :: k2);
+    lemma_pfrel_boundary #v #cl r w;
+    lemma_pkrel_cons r w PBoundaryF PBoundaryF
+                         (plan_protocol_frames pl1 @ (PScopeF :: k1))
+                         (plan_protocol_frames pl2 @ (PScopeF :: k2));
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PPerform: dispatch, and the clause interpreter ----------------- *)
+
+let lemma_step_perform (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                       (e1 o1 e2 o2: string) (p1 p2: list (pval v))
+                       (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PPerform e1 o1 p1) k1 /\
+                    cf2.st == PStep (PPerform e2 o2 p2) k2 /\
+                    pcrel #v #cl r w (PPerform e1 o1 p1) (PPerform e2 o2 p2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_perform_inv #v #cl r w e1 o1 e2 o2 p1 p2;
+    lemma_pfind_prompt_rel r lk w e1 o1 k1 k2;
+    apply_patterned r apply ();
+    (match pfind_prompt lk e1 o1 k1, pfind_prompt lk e2 o2 k2 with
+     | Some (cap1, c1, b1), Some (cap2, c2, b2) ->
+       lemma_pkont_of_rel r w cap1 cap2;
+       (match c1.kind with
+        | KScoped -> ()
+        | _ -> assert (pcrel r w (apply c1.body p1 (pkont_of cap1))
+                                 (apply c2.body p2 (pkont_of cap2))))
+     | _, _ -> ());
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PWeave: build the plan, or refuse ------------------------------ *)
+
+let lemma_step_weave (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                     (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                     (e1 o1 e2 o2: string) (is1 is2: pstack v cl)
+                     (ow1 ow2: powner v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_down r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PWeave e1 o1 is1 ow1 b1) k1 /\
+                    cf2.st == PStep (PWeave e2 o2 is2 ow2 b2) k2 /\
+                    pcrel r w (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_weave_inv r w e1 o1 e2 o2 is1 is2 ow1 ow2 b1 b2;
+    lemma_plan_of_rel r w is1 is2 ow1 ow2;
+    (match plan_of is1 ow1, plan_of is2 ow2 with
+     | Inr pl1, Inr pl2 -> lemma_enter_C_rel r w pl1 pl2 b1 b2
+     | _, _ -> ());
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PExtendC / PResumeC: resolve, then appeal to the meaning ------- *)
+
+let lemma_step_extendc (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                       (pl1 pl2: plan v cl) (h1 h2: pval v)
+                       (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PExtendC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PExtendC pl2 h2 g2) k2 /\
+                    pcrel r w (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_extendc_inv r w pl1 pl2 h1 h2 g1 g2;
+    lemma_presolve_rel r w cf1.store cf2.store h1 h2;
+    (match presolve cf1.store h1, presolve cf2.store h2 with
+     | Some cx1, Some cx2 -> lemma_extend_C_rel r w pl1 pl2 cx1 cx2 g1 g2
+     | _, _ -> ());
+    lemma_step_same_world r lk apply w cf1 cf2
+
+let lemma_step_resumec (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                       (pl1 pl2: plan v cl) (h1 h2: pval v)
+                       (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PResumeC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PResumeC pl2 h2 g2) k2 /\
+                    pcrel r w (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_resumec_inv r w pl1 pl2 h1 h2 g1 g2;
+    lemma_presolve_rel r w cf1.store cf2.store h1 h2;
+    (match presolve cf1.store h1, presolve cf2.store h2 with
+     | Some cx1, Some cx2 -> lemma_resume_C_rel r w pl1 pl2 cx1 cx2 g1 g2
+     | _, _ -> ());
+    lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- PExtendCtxC: resolve, and ALLOCATE ----------------------------- *)
+
+let lemma_step_extendctxc (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                          (pl1 pl2: plan v cl) (h1 h2: pval v)
+                          (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PExtendCtxC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PExtendCtxC pl2 h2 g2) k2 /\
+                    pcrel r w (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_extendctxc_inv r w pl1 pl2 h1 h2 g1 g2;
+    lemma_presolve_rel r w cf1.store cf2.store h1 h2;
+    match presolve cf1.store h1, presolve cf2.store h2 with
+    | Some cx1, Some cx2 ->
+      lemma_extend_ctx_C_rel r w pl1 pl2 cx1 cx2 g1 g2;
+      let n1 = cf1.next in
+      let n2 = cf2.next in
+      let d1 = extend_ctx_C pl1 cx1 g1 in
+      let d2 = extend_ctx_C pl2 cx2 g2 in
+      let w1 = pwextend n1 n2 w in
+      lemma_psrel_alloc r w cf1.store cf2.store n1 n2 d1 d2;
+      lemma_pkrel_mono r w1 w k1 k2;
+      lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+      lemma_step_new_world r lk apply w w1 cf1 cf2
+    | _, _ -> lemma_step_same_world r lk apply w cf1 cf2
+
+(* ---- The value rules, and production -------------------------------- *)
+
+let lemma_pfn_rel_at_pvar (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+  : Lemma (pfn_rel_at #v #cl r w (PVar #v #cl) (PVar #v #cl))
+  = introduce forall (w': pworld) (y1 y2: pval v).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+         pcrel #v #cl r w' (PVar y1) (PVar y2))
+    with (introduce _ ==> _ with lemma_pcrel_var #v #cl r w' y1 y2)
+
+(**
+ * **PRODUCTION CORRESPONDS, AND THE WORLD GROWS BY EXACTLY ONE PAIR.** PROVED.
+ *
+ * Both sides cut at the same position (`lemma_pcut_scope_rel`), so both store a
+ * residual of the same shape and both go on under related stacks. The world
+ * handed back is the world handed in plus the single pair `(cf1.next, cf2.next)`
+ * -- never anything computed from either final store.
+ *)
+let lemma_pyield_compat (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                        (x1 x2: pval v) (hd1 hd2: pframe v cl)
+                        (rest1 rest2: pstack v cl) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pval_rel w x1 x2 /\
+                    pfrel r w hd1 hd2 /\ pkrel r w rest1 rest2 /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next)
+          (ensures (exists (w': pworld).
+                      pwf_world w' /\ pwext w' w /\
+                      pcfrel r w' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2)))
+  = lemma_pcut_scope_rel r w rest1 rest2;
+    lemma_pwext_refl w;
+    match pcut_scope rest1, pcut_scope rest2 with
+    | None, None ->
+      lemma_pkrel_cons r w hd1 hd2 rest1 rest2;
+      introduce exists (w': pworld).
+          (pwf_world w' /\ pwext w' w /\
+           pcfrel r w' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with w and ()
+    | Some (a1, b1), Some (a2, b2) ->
+      let n1 = cf1.next in
+      let n2 = cf2.next in
+      let w1 = pwextend n1 n2 w in
+      lemma_pkrel_cons r w hd1 hd2 a1 a2;
+      lemma_pfn_rel_at_pvar #v #cl r w;
+      lemma_pxrel_requests r w x1 x2 (hd1 :: a1) (hd2 :: a2) (PVar #v #cl) (PVar #v #cl);
+      lemma_psrel_alloc r w cf1.store cf2.store n1 n2
+                        (PCtxRequests x1 (hd1 :: a1) (PVar #v #cl))
+                        (PCtxRequests x2 (hd2 :: a2) (PVar #v #cl));
+      lemma_pkrel_mono r w1 w b1 b2;
+      lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+      introduce exists (w': pworld).
+          (pwf_world w' /\ pwext w' w /\
+           pcfrel r w' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with w1 and ()
+    | _, _ -> ()
+
+let lemma_step_of_exists (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                         (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    (exists (w': pworld).
+                       pwf_world w' /\ pwext w' w /\
+                       pcfrel r w' (fst (pstep_tr lk apply cf1))
+                                   (fst (pstep_tr lk apply cf2))))
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = ()
+
+(** The boundary arm, standalone: with a consumer in scope the value goes to
+    that consumer's responder; with none, the scope YIELDS and a context is
+    allocated on both sides. *)
+let lemma_step_var_boundary (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                            (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                            (x1 x2: pval v) (t1 t2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) (PBoundaryF :: t1) /\
+                    cf2.st == PStep (PVar x2) (PBoundaryF :: t2) /\
+                    pval_rel w x1 x2 /\ pkrel r w t1 t2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pwext_refl w;
+    lemma_pfind_mode_rel r w t1 t2;
+    match pfind_mode t1, pfind_mode t2 with
+    | None, None ->
+      lemma_pfrel_boundary #v #cl r w;
+      lemma_pyield_compat r w x1 x2 PBoundaryF PBoundaryF t1 t2 cf1 cf2;
+      lemma_step_of_exists r lk apply w cf1 cf2
+    | Some (m1, g1), Some (m2, g2) ->
+      lemma_pfn_apply r w w g1 g2 x1 x2;
+      lemma_step_same_world r lk apply w cf1 cf2
+    | _, _ -> ()
+
+(** The recorded perform-site arm, standalone: under `MResume` the site's own
+    continuation fires, under `MExtend` it is skipped, and with no consumer in
+    scope the scope yields exactly as at a boundary. *)
+let lemma_step_var_site (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                        (x1 x2: pval v) (g1 g2: pval v -> pcomp v cl)
+                        (t1 t2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) (PSiteF g1 :: t1) /\
+                    cf2.st == PStep (PVar x2) (PSiteF g2 :: t2) /\
+                    pval_rel w x1 x2 /\ pfn_rel_at r w g1 g2 /\ pkrel r w t1 t2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pwext_refl w;
+    lemma_pfind_mode_rel r w t1 t2;
+    match pfind_mode t1, pfind_mode t2 with
+    | None, None ->
+      lemma_pfrel_site r w g1 g2;
+      lemma_pyield_compat r w x1 x2 (PSiteF g1) (PSiteF g2) t1 t2 cf1 cf2;
+      lemma_step_of_exists r lk apply w cf1 cf2
+    | Some (m1, _), Some (m2, _) ->
+      (match m1 with
+       | MResume -> lemma_pfn_apply r w w g1 g2 x1 x2
+       | MExtend -> lemma_pcrel_var #v #cl r w x1 x2);
+      lemma_step_same_world r lk apply w cf1 cf2
+    | _, _ -> ()
+
+(**
+ * **THE VALUE RULES.** PROVED, all eight arms.
+ *
+ * Related stacks have related HEAD FRAMES, so the two runs take the same arm;
+ * the two searches the protocol arms perform (`pfind_mode`, and `pcut_scope`
+ * inside `pyield`) answer correspondingly; and the two arms that ALLOCATE --
+ * the scope floor and production -- extend the world by one pair.
+ *)
+let lemma_step_var (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                   (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+                   (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) k1 /\ cf2.st == PStep (PVar x2) k2 /\
+                    pcrel #v #cl r w (PVar x1) (PVar x2) /\ pkrel r w k1 k2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_var_inv #v #cl r w x1 x2;
+    lemma_pkrel_shape r w k1 k2;
+    lemma_pwext_refl w;
+    match k1, k2 with
+    | [], [] -> lemma_step_same_world r lk apply w cf1 cf2
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      (match f1, f2 with
+       | PBindF g1, PBindF g2 ->
+         lemma_pfrel_bind_inv r w g1 g2;
+         lemma_pfn_apply r w w g1 g2 x1 x2;
+         lemma_step_same_world r lk apply w cf1 cf2
+       | PParamF _ _, PParamF _ _ ->
+         lemma_pcrel_var #v #cl r w x1 x2;
+         lemma_step_same_world r lk apply w cf1 cf2
+       | PModeF _ _, PModeF _ _ ->
+         lemma_pcrel_var #v #cl r w x1 x2;
+         lemma_step_same_world r lk apply w cf1 cf2
+       | PScopeF, PScopeF ->
+         let n1 = cf1.next in
+         let n2 = cf2.next in
+         let w1 = pwextend n1 n2 w in
+         lemma_pxrel_done #v #cl r w x1 x2;
+         lemma_psrel_alloc r w cf1.store cf2.store n1 n2 (PCtxDone x1) (PCtxDone x2);
+         lemma_pkrel_mono r w1 w t1 t2;
+         lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+         lemma_step_new_world r lk apply w w1 cf1 cf2
+       | PBoundaryF, PBoundaryF ->
+         lemma_step_var_boundary r lk apply w cf1 cf2 x1 x2 t1 t2
+       | PSiteF g1, PSiteF g2 ->
+         lemma_pfrel_site_inv r w g1 g2;
+         lemma_step_var_site r lk apply w cf1 cf2 x1 x2 g1 g2 t1 t2
+       | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+         lemma_pfrel_prompt_inv r w tb1 tb2 rc1 rc2 pv1 pv2;
+         (match rc1, rc2 with
+          | Some g1, Some g2 -> lemma_pfn_apply r w w g1 g2 x1 x2
+          | None, None -> lemma_pcrel_var #v #cl r w x1 x2
+          | _, _ -> ());
+         lemma_step_same_world r lk apply w cf1 cf2
+       | _, _ -> ())
+    | _, _ -> ()
+
+(* ================================================================== *)
+(*  CONDITION 1: THE TRANSITION TAKES RELATED CONFIGURATIONS TO         *)
+(*  RELATED CONFIGURATIONS                                              *)
+(* ================================================================== *)
+
+(**
+ * **TRANSITION COMPATIBILITY.** PROVED.
+ *
+ * Two configurations related at `w` step to two configurations related at a
+ * world EXTENDING `w`, and the two steps emit the SAME event list. The world is
+ * `w` itself except at the three rules that allocate -- the scope floor,
+ * production, and `bindScope` -- where it is `w` plus exactly one pair.
+ *
+ * No transition count appears: this is one step against one step, and the
+ * dispatcher is a case analysis on the node, not on a number.
+ *)
+let lemma_pstep_tr_compat (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = pcfrel_unfold r w cf1 cf2 ();
+    pstrel_unfold r w cf1.st cf2.st ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      assert (pcomp_rel r 1 w c1 c2);
+      (match c1, c2 with
+       | PVar x1, PVar x2 -> lemma_step_var r lk apply w cf1 cf2 x1 x2 k1 k2
+       | POp a1 f1, POp a2 f2 -> lemma_step_op r lk apply w cf1 cf2 a1 a2 f1 f2 k1 k2
+       | PPerform e1 o1 p1, PPerform e2 o2 p2 ->
+         lemma_step_perform r lk apply w cf1 cf2 e1 o1 e2 o2 p1 p2 k1 k2
+       | PHandle t1 rc1 pv1 b1, PHandle t2 rc2 pv2 b2 ->
+         lemma_step_handle r lk apply w cf1 cf2 t1 t2 rc1 rc2 pv1 pv2 b1 b2 k1 k2
+       | PSplice fs1 b1, PSplice fs2 b2 ->
+         lemma_step_splice r lk apply w cf1 cf2 fs1 fs2 b1 b2 k1 k2
+       | PEmit e1 b1, PEmit e2 b2 -> lemma_step_emit r lk apply w cf1 cf2 e1 e2 b1 b2 k1 k2
+       | PWeave e1 o1 is1 ow1 b1, PWeave e2 o2 is2 ow2 b2 ->
+         lemma_step_weave r lk apply w cf1 cf2 e1 o1 e2 o2 is1 is2 ow1 ow2 b1 b2 k1 k2
+       | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+         lemma_step_enterctx r lk apply w cf1 cf2 pl1 pl2 b1 b2 k1 k2
+       | PExtendC pl1 h1 g1, PExtendC pl2 h2 g2 ->
+         lemma_step_extendc r lk apply w cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PExtendCtxC pl1 h1 g1, PExtendCtxC pl2 h2 g2 ->
+         lemma_step_extendctxc r lk apply w cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PResumeC pl1 h1 g1, PResumeC pl2 h2 g2 ->
+         lemma_step_resumec r lk apply w cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PNewP l1 i1 b1, PNewP l2 i2 b2 ->
+         lemma_step_newp r lk apply w cf1 cf2 l1 l2 i1 i2 b1 b2 k1 k2
+       | PReadP l1, PReadP l2 -> lemma_step_readp r lk apply w cf1 cf2 l1 l2 k1 k2
+       | PWriteP l1 y1, PWriteP l2 y2 ->
+         lemma_step_writep r lk apply w cf1 cf2 l1 l2 y1 y2 k1 k2
+       | _, _ -> ())
+    | PDone _, PDone _ -> lemma_step_terminal r lk apply w cf1 cf2
+    | PPaused _ _, PPaused _ _ -> lemma_step_terminal r lk apply w cf1 cf2
+    | PStuck _ _, PStuck _ _ -> lemma_step_terminal r lk apply w cf1 cf2
+    | PRejected _, PRejected _ -> lemma_step_terminal r lk apply w cf1 cf2
+    | _, _ -> ()
+
+(* ================================================================== *)
+(*  CONDITION 2: ONE STEP LIFTS TO A FINITE RUN                        *)
+(* ================================================================== *)
+
+(**
+ * **THE FUNDAMENTAL THEOREM.** PROVED.
+ *
+ * Related configurations, run for THE SAME FUEL, produce the SAME TRACE and two
+ * configurations related at a world extending the one they started in.
+ *
+ * Three things this statement does NOT do, each deliberate:
+ *
+ *   - it never re-anchors: the world handed back is a `pwext` of the world
+ *     handed in, built from it by one `pwextend` per allocation, and nothing is
+ *     ever computed from a final store;
+ *   - it relates no transition counts: both sides are run at the SAME fuel and
+ *     the induction is on that fuel, so no offset can appear -- and the fuel is
+ *     not observable, since `pnconverges` quantifies it away independently on
+ *     each side;
+ *   - it says nothing about termination. If one side diverges so does the
+ *     other, and the two unfinished configurations are still related.
+ *)
+let rec lemma_prun_compat (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (fuel: nat) (w: pworld)
+                          (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (w': pworld).
+                      pwf_world w' /\ pwext w' w /\
+                      pcfrel r w' (fst (prun lk apply fuel cf1))
+                                  (fst (prun lk apply fuel cf2))))
+          (decreases fuel)
+  = lemma_pwext_refl w;
+    pcfrel_unfold r w cf1 cf2 ();
+    pstrel_unfold r w cf1.st cf2.st ();
+    if fuel = 0
+    then introduce exists (w': pworld).
+             (pwf_world w' /\ pwext w' w /\
+              pcfrel r w' (fst (prun lk apply fuel cf1)) (fst (prun lk apply fuel cf2)))
+         with w and ()
+    else begin
+      let f1r : nat = fuel - 1 in
+      match cf1.st, cf2.st with
+      | PStep c1 k1, PStep c2 k2 ->
+        lemma_pstep_tr_compat r lk apply w cf1 cf2;
+        pstep_compat_unfold r lk apply w cf1 cf2 ();
+        let d1 = fst (pstep_tr lk apply cf1) in
+        let d2 = fst (pstep_tr lk apply cf2) in
+        eliminate exists (w1: pworld). (pwf_world w1 /\ pwext w1 w /\ pcfrel r w1 d1 d2)
+        with (lemma_prun_compat r lk apply f1r w1 d1 d2;
+              eliminate exists (w2: pworld).
+                  (pwf_world w2 /\ pwext w2 w1 /\
+                   pcfrel r w2 (fst (prun lk apply f1r d1))
+                               (fst (prun lk apply f1r d2)))
+              with (lemma_pwext_trans w2 w1 w;
+                    introduce exists (w': pworld).
+                        (pwf_world w' /\ pwext w' w /\
+                         pcfrel r w' (fst (prun lk apply fuel cf1))
+                                     (fst (prun lk apply fuel cf2)))
+                    with w2 and ()))
+      | _, _ ->
+        introduce exists (w': pworld).
+            (pwf_world w' /\ pwext w' w /\
+             pcfrel r w' (fst (prun lk apply fuel cf1)) (fst (prun lk apply fuel cf2)))
+        with w and ()
+    end
+
+(* ================================================================== *)
+(*  THE NOMINAL OBSERVATION, DERIVED                                   *)
+(* ================================================================== *)
+
+let pequivariant_k_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                             (k: pstack v cl)
+                             (h: squash (pequivariant_k_at r w0 k))
+  : squash (forall (w: pworld). pwf_world w /\ pwext w w0 ==> pkrel r w k k)
+  = h
+
+let pnconverges_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                       (cf: pconf v cl) (tr: list string) (x: pval v)
+                       (sto': pstore v cl)
+                       (h: squash (pnconverges lk apply cf tr x sto'))
+  : squash (exists (n: nat).
+              (fst (prun lk apply n cf)).st == PDone x /\
+              snd (prun lk apply n cf) == tr /\
+              (fst (prun lk apply n cf)).store == sto')
+  = h
+
+let lemma_pstrel_done_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (x1: pval v) (st2: pstate v cl)
+  : Lemma (requires pstrel r w (PDone x1) st2)
+          (ensures PDone? st2 /\ pval_rel w x1 (PDone?.value st2))
+  = pstrel_unfold r w (PDone x1) st2 ()
+
+(**
+ * **CONDITION 2, DELIVERED: `pnobs_tr_le` IS DERIVABLE.** PROVED.
+ *
+ * Two computations related at every well-formed world are in the nominal
+ * observation relation -- at EVERY equivariant ambient stack, EVERY equivariant
+ * initial store and every counter fresh for it, which is the universal
+ * quantification B2b.1 could not reach.
+ *
+ * The proof is the fundamental theorem and nothing else: run both sides at the
+ * fuel the left run's convergence supplies, read the trace equality off, and
+ * read the value and store correspondence off the world the theorem hands back.
+ * That world is the witness the consequent's existential wants, and it was never
+ * written down by hand.
+ *)
+let lemma_pnobs_tr_le_of_crel (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+  : Lemma (requires forall (w: pworld). pwf_world w ==> pcrel b.b_rel w c1 c2)
+          (ensures pnobs_tr_le b c1 c2)
+  = let _ : squash (pcl_mono b.b_rel) = b.b_mono in
+    let _ : squash (pcl_down b.b_rel) = b.b_down in
+    let _ : squash (plookup_equivariant b.b_rel b.b_lk) = b.b_lookup in
+    let _ : squash (papply_equivariant b.b_rel b.b_apply) = b.b_apply_eq in
+    introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (tr: list string) (x1: pval v) (s1': pstore v cl).
+        ((pequivariant_k_at b.b_rel (panchor sto) k /\
+          pstore_equivariant_at b.b_rel sto /\
+          psfresh sto n0 /\
+          pnconverges b.b_lk b.b_apply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+         (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+            pnconverges b.b_lk b.b_apply
+                        ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+            pwf_world w /\ pwext w (panchor sto) /\
+            pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+    with
+      (introduce _ ==> _
+       with begin
+         let w0 = panchor sto in
+         let cf1 : pconf v cl = { st = PStep c1 k; store = sto; next = n0 } in
+         let cf2 : pconf v cl = { st = PStep c2 k; store = sto; next = n0 } in
+         lemma_panchor_wf sto;
+         lemma_panchor_bound sto n0;
+         lemma_psrel_anchor_at b.b_rel sto;
+         lemma_pwext_refl w0;
+         pequivariant_k_at_unfold b.b_rel w0 k ();
+         assert (pkrel b.b_rel w0 k k);
+         assert (pcrel b.b_rel w0 c1 c2);
+         assert (pcfrel b.b_rel w0 cf1 cf2);
+         pnconverges_unfold b.b_lk b.b_apply cf1 tr x1 s1' ();
+         eliminate exists (n: nat).
+             ((fst (prun b.b_lk b.b_apply n cf1)).st == PDone x1 /\
+              snd (prun b.b_lk b.b_apply n cf1) == tr /\
+              (fst (prun b.b_lk b.b_apply n cf1)).store == s1')
+         with
+           (lemma_prun_compat b.b_rel b.b_lk b.b_apply n w0 cf1 cf2;
+            eliminate exists (w': pworld).
+                (pwf_world w' /\ pwext w' w0 /\
+                 pcfrel b.b_rel w' (fst (prun b.b_lk b.b_apply n cf1))
+                                   (fst (prun b.b_lk b.b_apply n cf2)))
+            with begin
+              let e1 = fst (prun b.b_lk b.b_apply n cf1) in
+              let e2 = fst (prun b.b_lk b.b_apply n cf2) in
+              pcfrel_unfold b.b_rel w' e1 e2 ();
+              lemma_pstrel_done_inv b.b_rel w' x1 e2.st;
+              let x2 = PDone?.value e2.st in
+              lemma_pnconverges_at b.b_lk b.b_apply cf2 n tr x2 e2.store;
+              introduce exists (y2: pval v) (t2: pstore v cl) (ww: pworld).
+                  (pnconverges b.b_lk b.b_apply cf2 tr y2 t2 /\
+                   pwf_world ww /\ pwext ww (panchor sto) /\
+                   pval_rel ww x1 y2 /\ psrel b.b_rel ww s1' t2)
+              with x2 e2.store w' and ()
+            end)
+       end)
+
+(* ================================================================== *)
+(*  RUNS COMPOSE                                                       *)
+(* ================================================================== *)
+
+(** **A run of `a + b` transitions is a run of `a` followed by a run of `b`, and
+    its trace is the concatenation.** PROVED, by induction on the first count.
+    This is what lets a result about a COMMON SUFFIX of two runs be composed with
+    a prefix each side takes on its own -- which is how the counterexample pairs
+    are handled below, since their two sides reach the common configuration in
+    DIFFERENT numbers of steps. *)
+let rec lemma_prun_split (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (a b: nat) (cf: pconf v cl)
+  : Lemma (ensures (let (cfa, ta) = prun lk apply a cf in
+                    let (cfb, tb) = prun lk apply b cfa in
+                    prun lk apply (a + b) cf == (cfb, ta @ tb)))
+          (decreases a)
+  = if a = 0 then ()
+    else
+      match cf.st with
+      | PDone _ -> ()
+      | PPaused _ _ -> ()
+      | PStuck _ _ -> ()
+      | PRejected _ -> ()
+      | PStep _ _ ->
+        let (cf', ev) = pstep_tr lk apply cf in
+        lemma_prun_split lk apply (a - 1) b cf';
+        let (cfa, ta) = prun lk apply (a - 1) cf' in
+        let (cfb, tb) = prun lk apply b cfa in
+        append_assoc ev ta tb
+
 
 (* ------------------------------------------------------------------ *)
 (*  The laws -- DEFINED, not proved                                    *)
@@ -10772,6 +12935,11 @@ let lemma_ncl_rel_mono () : Lemma (pcl_mono ncl_rel)
                 | NResume a, NResume b -> lemma_pval_rel_mono w' w a b
                 | _, _ -> ()))
 
+(** `ncl_rel` ignores the step index outright, so downward closure in it is
+    immediate. The boundary record carries this alongside `pcl_mono`, so the
+    proof has to be in hand where `nboundary` is built. *)
+let lemma_ncl_rel_down () : Lemma (pcl_down ncl_rel) = ()
+
 (**
  * **THE REFERENCE LOOKUP IS EQUIVARIANT BY CONSTRUCTION.** PROVED, and it is
  * not a coincidence: `ptable_rel` is DEFINED as "`lookup_handler` through the
@@ -10827,6 +12995,7 @@ let nboundary : pboundary fv ncl = {
   b_lk = pref_lookup #ncl;
   b_apply = napply;
   b_mono = lemma_ncl_rel_mono ();
+  b_down = lemma_ncl_rel_down ();
   b_lookup = lemma_pref_lookup_equivariant ncl_rel;
   b_apply_eq = lemma_napply_equivariant ();
 }
@@ -10914,12 +13083,320 @@ let guard_nom_the_boundary_comparison ()
     guard_nom_fapply_not_equivariant ()
 
 (* ================================================================== *)
-(*  B2b.1: WHAT IS CHECKED, AND WHAT IS NOT                            *)
+(*  B2b.2 -- THE THEOREM, AT THE FIXTURES AND AT THE BOUNDARY          *)
+(*                                                                     *)
+(*  Two instantiations, and each answers a different question about     *)
+(*  the theorem above.                                                  *)
+(*                                                                     *)
+(*    - THE COUNTEREXAMPLE PAIR, AS A COROLLARY.  B2b.1 established     *)
+(*      the consequent of the nominal observation for `ce_l` / `ce_r`   *)
+(*      with every witness written down.  Here the same conjunction is  *)
+(*      DERIVED: the world is not written anywhere, it is whatever the  *)
+(*      theorem's induction accumulated.  What is still computed rather *)
+(*      than proved is the two sides' PREFIXES -- eleven transitions on *)
+(*      the left, two on the right, to a COMMON configuration -- and    *)
+(*      those are runs of the machine, not step constants in a          *)
+(*      relational statement.  `lemma_prun_split` is what composes a    *)
+(*      prefix with the theorem's suffix.                               *)
+(*                                                                     *)
+(*    - THE BOUNDARY.  `nboundary` is the record over a clause language *)
+(*      that CAPTURES HANDLES.  The theorem is discharged at it, at a   *)
+(*      program that produces a context, and then at a PAIR OF RUNS     *)
+(*      HOLDING DIFFERENT NAMES: two clauses that captured `PCtxKey 5`  *)
+(*      and `PCtxKey 6`, dispatched through two related tables, at the  *)
+(*      world `nw56` which is not the identity.  Both runs answer, with *)
+(*      the two different handles, and the theorem relates them.  That  *)
+(*      is what says the boundary hypotheses are not vacuous.           *)
+(* ================================================================== *)
+
+(* ================================================================== *)
+(*  CONDITION 3: THE COUNTEREXAMPLE PAIR, AS A COROLLARY               *)
+(*                                                                     *)
+(*  `guard_nom_ce_related` established the consequent of the nominal    *)
+(*  observation at one configuration with EVERY witness written down:   *)
+(*  the right-hand run by `assert_norm`, the world `fce_w` by hand, and *)
+(*  the store correspondence checked entry by entry.  What follows      *)
+(*  derives the same conjunction from the fundamental theorem, and      *)
+(*  writes down NO world at all.                                        *)
+(*                                                                     *)
+(*  ONE THING IS STILL COMPUTED RATHER THAN PROVED, and it is stated    *)
+(*  rather than hidden: the two sides reach a COMMON configuration in   *)
+(*  DIFFERENT numbers of transitions -- eleven on the left, two on the  *)
+(*  right -- and those two prefixes are checked by running the machine. *)
+(*  They are not step constants in a relational statement: the theorem  *)
+(*  is applied to the common suffix at ONE fuel, and `lemma_prun_split` *)
+(*  is what composes a prefix with it.  Nothing below relates the two   *)
+(*  sides' transition counts.                                           *)
+(*                                                                     *)
+(*  AND THE CLAUSE INTERPRETER IS `fapply0`, NOT `fapply`.  `fapply` is *)
+(*  PROVED not equivariant (`guard_nom_fapply_not_equivariant`), so the *)
+(*  theorem is not available at it and no amount of arrangement would   *)
+(*  make it so.  Neither run performs an operation, so neither ever     *)
+(*  reaches the interpreter, and the two runs are LITERALLY EQUAL --    *)
+(*  checked by running both machines side by side, not argued.          *)
+(* ================================================================== *)
+
+(** A clause interpreter that looks at nothing. Equivariant for the reason
+    `fk_const` is: it returns one closed value. *)
+let fapply0 : papply_t fv fcl = fun _ _ _ -> PVar (fpv FU)
+
+let lemma_fapply0_equivariant () : Lemma (papply_equivariant fcl_rel fapply0)
+  = introduce forall (w: pworld) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (k1 k2: pval fv -> pcomp fv fcl).
+      (pwf_world w /\ pclrel fcl_rel w c1 c2 /\ pvals_rel w p1 p2 /\
+       pfn_rel_at fcl_rel w k1 k2 ==>
+       pcrel fcl_rel w (fapply0 c1 p1 k1) (fapply0 c2 p2 k2))
+    with (introduce _ ==> _
+          with lemma_pcrel_var #fv #fcl fcl_rel w (fpv FU) (fpv FU))
+
+let lemma_fcl_rel_down () : Lemma (pcl_down fcl_rel) = ()
+
+(** The common configuration the two sides reach: the same computation, the same
+    ambient stack, and two stores that differ in ONE ENTRY -- the context the
+    left allocated and threw away. *)
+let ce_cfl : pconf fv fcl =
+  { st = PStep (PVar fone) fk_new; store = [(0, fce_cx (FI 1))]; next = 1 }
+let ce_cfr : pconf fv fcl =
+  { st = PStep (PVar fone) fk_new; store = []; next = 0 }
+
+let guard_nom_ce_prefixes ()
+  : Lemma (prun flook fapply0 11 ce_cf_l == (ce_cfl, []) /\
+           prun flook fapply0 2 ce_cf_r == (ce_cfr, []))
+  = assert_norm (prun flook fapply0 11 ce_cf_l == (ce_cfl, []));
+    assert_norm (prun flook fapply0 2 ce_cf_r == (ce_cfr, []))
+
+(** **The two are RELATED AT THE EMPTY WORLD.** PROVED. The left's extra entry is
+    named by no key the world speaks for, so `psrel` never looks at it -- and the
+    world is `[]`, which is `panchor` of the store both runs started from. *)
+let guard_nom_ce_common_related ()
+  : Lemma (pcfrel fcl_rel ([] <: pworld) ce_cfl ce_cfr)
+  = guard_nom_fk_new_equivariant ();
+    assert (pkrel fcl_rel ([] <: pworld) fk_new fk_new);
+    lemma_pcrel_var #fv #fcl fcl_rel [] fone fone;
+    assert (psrel fcl_rel ([] <: pworld) ce_cfl.store ce_cfr.store)
+
+(**
+ * **PAIR 1, RELATED -- AS A COROLLARY OF THE FUNDAMENTAL THEOREM.** PROVED.
+ *
+ * This is `guard_nom_ce_related`'s conclusion with the witnesses EXISTENTIALLY
+ * QUANTIFIED and supplied by the theorem rather than by hand. The world is not
+ * written anywhere; it is whatever the theorem's induction accumulated, which by
+ * construction is the starting world plus one pair per allocation.
+ *)
+let guard_nom_ce_related_by_theorem ()
+  : Lemma (exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+             pnconverges flook fapply ce_cf_r [] x2 s2' /\
+             pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+             pval_rel w (PCtxKey 1) x2 /\ psrel fcl_rel w fce_sl s2')
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_fapply0_equivariant ();
+    guard_nom_ce_prefixes ();
+    guard_nom_ce_common_related ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    assert_norm ((fst (prun flook fapply0 189 ce_cfl)).st == PDone (PCtxKey 1));
+    assert_norm ((fst (prun flook fapply0 189 ce_cfl)).store == fce_sl);
+    assert_norm (snd (prun flook fapply0 189 ce_cfl) == []);
+    lemma_prun_compat fcl_rel flook fapply0 189 [] ce_cfl ce_cfr;
+    eliminate exists (w': pworld).
+        (pwf_world w' /\ pwext w' ([] <: pworld) /\
+         pcfrel fcl_rel w' (fst (prun flook fapply0 189 ce_cfl))
+                           (fst (prun flook fapply0 189 ce_cfr)))
+    with begin
+      let e1 = fst (prun flook fapply0 189 ce_cfl) in
+      let e2 = fst (prun flook fapply0 189 ce_cfr) in
+      pcfrel_unfold fcl_rel w' e1 e2 ();
+      lemma_pstrel_done_inv fcl_rel w' (PCtxKey 1) e2.st;
+      let x2 = PDone?.value e2.st in
+      lemma_prun_split flook fapply0 2 189 ce_cf_r;
+      assert (prun flook fapply0 191 ce_cf_r == (e2, []));
+      assert_norm (prun flook fapply 191 ce_cf_r == prun flook fapply0 191 ce_cf_r);
+      lemma_pnconverges_at flook fapply ce_cf_r 191 [] x2 e2.store;
+      introduce exists (y2: pval fv) (t2: pstore fv fcl) (ww: pworld).
+          (pnconverges flook fapply ce_cf_r [] y2 t2 /\
+           pwf_world ww /\ pwext ww (panchor ([] <: pstore fv fcl)) /\
+           pval_rel ww (PCtxKey 1) y2 /\ psrel fcl_rel ww fce_sl t2)
+      with x2 e2.store w' and ()
+    end
+
+(* ================================================================== *)
+(*  CONDITION 4: THE THEOREM AT `nboundary`                            *)
+(*                                                                     *)
+(*  `lemma_ncl_rel_down` is proved further up, beside                  *)
+(*  `lemma_ncl_rel_mono`: `nboundary` carries downward closure as a    *)
+(*  field, so the proof is needed before the record is built.          *)
+(* ================================================================== *)
+
+(** A table with no clauses at all, at the capturing clause language. Its lookups
+    are `None` everywhere -- read off `mk_handlers`' refinement and
+    `assoc_clause []` -- so it is related to itself at every world. *)
+let ntbl0 : ptable ncl = { hs = mk_handlers (fun (_: ncl) -> KFast) []; binds = [] }
+
+let lemma_ntbl0_selfrel (n: nat) (w: pworld)
+  : Lemma (ptable_rel ncl_rel n w ntbl0 ntbl0)
+  = introduce forall (eff op: string).
+      (match lookup_handler ntbl0.hs eff op, lookup_handler ntbl0.hs eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ ncl_rel n w f1.body f2.body
+       | _, _ -> False)
+    with assert (lookup_handler ntbl0.hs eff op == None)
+
+(** The smallest plan, at `ncl`: no layers, an owner with no return clause. *)
+let nplan : plan fv ncl = Plan [] (POwner ntbl0 None PFamily)
+
+let lemma_nplan_selfrel (n: nat) (w: pworld)
+  : Lemma (pplan_rel ncl_rel n w nplan nplan)
+  = if n = 0 then () else lemma_ntbl0_selfrel n w
+
+(** A program that PRODUCES A CONTEXT: it enters a scope, and the scope's floor
+    allocates. Nothing in it mentions a handle, so it is related to itself at
+    every world. *)
+let nprog : pcomp fv ncl = PEnterCtx nplan (PVar (fpv (FI 1)))
+
+let lemma_nprog_selfrel (w: pworld) : Lemma (pcrel ncl_rel w nprog nprog)
+  = introduce forall (n: nat). pcomp_rel ncl_rel n w nprog nprog
+    with (if n = 0 then () else lemma_nplan_selfrel (n - 1) w)
+
+(**
+ * **THE THEOREM, INSTANTIATED AT `nboundary`.** PROVED.
+ *
+ * `nboundary` is the record over a clause language that CAPTURES HANDLES, and
+ * the four conditions it carries -- monotonicity, downward closure, the lookup,
+ * the interpreter -- are exactly the ones the fundamental theorem consumes.
+ * Discharging the theorem's hypotheses at it is what says they are not vacuous.
+ *
+ * Nothing is left over: the only hypothesis this guard supplies is that `nprog`
+ * is related to itself, which is a fact about the PROGRAM, not about the
+ * boundary.
+ *)
+let guard_nom_fund_at_nboundary ()
+  : Lemma (pnobs_tr_le nboundary nprog nprog)
+  = introduce forall (w: pworld). (pwf_world w ==> pcrel ncl_rel w nprog nprog)
+    with (introduce _ ==> _ with lemma_nprog_selfrel w);
+    lemma_pnobs_tr_le_of_crel nboundary nprog nprog
+
+(* ---- and at a pair of runs that hold DIFFERENT NAMES ---------------- *)
+
+(** A table with one clause, and the clause CAPTURES a value -- a handle, in the
+    instance below. Two such tables are related exactly when the world relates
+    their captures: `ncl_rel` on `NRet` IS `pval_rel`. *)
+let ncap_tbl (cap: pval fv) : ptable ncl =
+  { hs = mk_handlers (fun (_: ncl) -> KFast) [("E", "op", NRet cap)]; binds = ["E"] }
+
+let lemma_ncap_tbl_rel (n: nat) (w: pworld) (a b: pval fv)
+  : Lemma (requires pval_rel w a b)
+          (ensures ptable_rel ncl_rel n w (ncap_tbl a) (ncap_tbl b))
+  = introduce forall (eff op: string).
+      (match lookup_handler (ncap_tbl a).hs eff op, lookup_handler (ncap_tbl b).hs eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ ncl_rel n w f1.body f2.body
+       | _, _ -> False)
+    with (assert (lookup_handler (ncap_tbl a).hs eff op
+                  == map_opt (found_of (fun (_: ncl) -> KFast))
+                             (assoc_clause [("E", "op", NRet a)] eff op));
+          assert (lookup_handler (ncap_tbl b).hs eff op
+                  == map_opt (found_of (fun (_: ncl) -> KFast))
+                             (assoc_clause [("E", "op", NRet b)] eff op)))
+
+let ncap_k (cap: pval fv) : pstack fv ncl = [PPromptF (ncap_tbl cap) None PMono]
+
+let ncap_cf (cap: pval fv) (sto: pstore fv ncl) (nx: nat) : pconf fv ncl =
+  { st = PStep (PPerform "E" "op" []) (ncap_k cap); store = sto; next = nx }
+
+let ncap_s1 : pstore fv ncl = [(5, PCtxDone (fpv FU))]
+let ncap_s2 : pstore fv ncl = [(6, PCtxDone (fpv FU))]
+
+let ncap_cf1 : pconf fv ncl = ncap_cf (PCtxKey 5) ncap_s1 6
+let ncap_cf2 : pconf fv ncl = ncap_cf (PCtxKey 6) ncap_s2 7
+
+(** **Two configurations that hold DIFFERENT HANDLES, related by a world that is
+    not the identity.** PROVED. The clause on the left captured the key `5`, the
+    one on the right captured `6`, and `nw56` is what says they correspond. *)
+let guard_nom_nboundary_capture_related ()
+  : Lemma (pwf_world nw56 /\ pcfrel ncl_rel nw56 ncap_cf1 ncap_cf2)
+  = assert_norm (pwlookup_l 5 nw56 == Some 6);
+    assert_norm (pwlookup_r 6 nw56 == Some 5);
+    assert (pwf_world nw56);
+    assert (pval_rel #fv nw56 (PCtxKey 5) (PCtxKey 6));
+    lemma_ncap_tbl_rel 0 nw56 (PCtxKey 5) (PCtxKey 6);
+    introduce forall (n: nat). ptable_rel ncl_rel n nw56 (ncap_tbl (PCtxKey 5))
+                                                         (ncap_tbl (PCtxKey 6))
+    with lemma_ncap_tbl_rel n nw56 (PCtxKey 5) (PCtxKey 6);
+    lemma_pfrel_prompt #fv #ncl ncl_rel nw56 (ncap_tbl (PCtxKey 5)) (ncap_tbl (PCtxKey 6))
+                       None None PMono;
+    lemma_pkrel_nil #fv #ncl ncl_rel nw56;
+    lemma_pkrel_cons ncl_rel nw56 (PPromptF (ncap_tbl (PCtxKey 5)) None PMono)
+                                  (PPromptF (ncap_tbl (PCtxKey 6)) None PMono)
+                                  ([] <: pstack fv ncl) ([] <: pstack fv ncl);
+    introduce forall (n: nat).
+      pcomp_rel #fv #ncl ncl_rel n nw56 (PPerform "E" "op" []) (PPerform "E" "op" [])
+    with ();
+    lemma_pxrel_done #fv #ncl ncl_rel nw56 (fpv FU) (fpv FU);
+    introduce forall (i j: nat).
+        (pwlookup_l i nw56 == Some j ==>
+         (Some? (pstore_lookup i ncap_s1) /\ Some? (pstore_lookup j ncap_s2) /\
+          pxrel ncl_rel nw56 (psget i ncap_s1) (psget j ncap_s2)))
+    with (introduce _ ==> _
+          with (assert (i == 5 /\ j == 6);
+                assert_norm (psget 5 ncap_s1 == PCtxDone (fpv FU));
+                assert_norm (psget 6 ncap_s2 == PCtxDone (fpv FU))))
+
+(**
+ * **AND THE THEOREM APPLIES TO THEM, AT EVERY FUEL.** PROVED, at `nboundary`
+ * itself -- its lookup, its interpreter and its clause relation, with the three
+ * conditions the record carries doing the work.
+ *
+ * This is the non-vacuity that matters: the hypotheses are met by a pair of
+ * configurations whose relation is NOT the identity on names, whose clauses are
+ * two DIFFERENT values, and whose dispatch runs the interpreter on them.
+ *)
+let guard_nom_nboundary_capture_runs (fuel: nat)
+  : Lemma (snd (prun nboundary.b_lk nboundary.b_apply fuel ncap_cf1)
+             == snd (prun nboundary.b_lk nboundary.b_apply fuel ncap_cf2) /\
+           (exists (w': pworld).
+              pwf_world w' /\ pwext w' nw56 /\
+              pcfrel ncl_rel w' (fst (prun nboundary.b_lk nboundary.b_apply fuel ncap_cf1))
+                                (fst (prun nboundary.b_lk nboundary.b_apply fuel ncap_cf2))))
+  = let _ : squash (pcl_mono nboundary.b_rel) = nboundary.b_mono in
+    let _ : squash (plookup_equivariant nboundary.b_rel nboundary.b_lk) = nboundary.b_lookup in
+    let _ : squash (papply_equivariant nboundary.b_rel nboundary.b_apply) = nboundary.b_apply_eq in
+    lemma_ncl_rel_down ();
+    guard_nom_nboundary_capture_related ();
+    lemma_prun_compat ncl_rel nboundary.b_lk nboundary.b_apply fuel nw56 ncap_cf1 ncap_cf2
+
+(** **And the two runs really do answer with DIFFERENT NAMES.** PROVED: two
+    transitions on each side -- dispatch through the prompt, then the value --
+    and the answers are the two captured handles, which are two different
+    values. `assert_norm` is not available here (`lookup_handler` and
+    `mk_handlers` are abstract), so the dispatch is read off `mk_handlers`'
+    refinement instead. *)
+let guard_nom_nboundary_capture_answers ()
+  : Lemma ((fst (prun nboundary.b_lk nboundary.b_apply 2 ncap_cf1)).st
+             == PDone (PCtxKey 5) /\
+           (fst (prun nboundary.b_lk nboundary.b_apply 2 ncap_cf2)).st
+             == PDone (PCtxKey 6) /\
+           snd (prun nboundary.b_lk nboundary.b_apply 2 ncap_cf1) == [] /\
+           (PCtxKey #fv 5 =!= PCtxKey #fv 6))
+  = assert (lookup_handler (ncap_tbl (PCtxKey 5)).hs "E" "op"
+            == map_opt (found_of (fun (_: ncl) -> KFast))
+                       (assoc_clause [("E", "op", NRet (PCtxKey 5))] "E" "op"));
+    assert (lookup_handler (ncap_tbl (PCtxKey 6)).hs "E" "op"
+            == map_opt (found_of (fun (_: ncl) -> KFast))
+                       (assoc_clause [("E", "op", NRet (PCtxKey 6))] "E" "op"));
+    assert (nboundary.b_lk (ncap_tbl (PCtxKey 5)) "E" "op"
+            == Some ({ body = NRet (PCtxKey 5); kind = KFast }));
+    assert (nboundary.b_lk (ncap_tbl (PCtxKey 6)) "E" "op"
+            == Some ({ body = NRet (PCtxKey 6); kind = KFast }))
+
+(* ================================================================== *)
+(*  B2b.1 AND B2b.2: WHAT IS CHECKED, AND WHAT IS NOT                  *)
 (*                                                                     *)
 (*  A ledger for the nominal layer, in the same spirit as the header's  *)
 (*  list of what this file states rather than proves.  Every line       *)
 (*  marked PROVED names a definition above with a body; every line      *)
-(*  marked NOT REACHED says why.                                        *)
+(*  marked NOT REACHED says why.  The B2b.2 entries are marked as such; *)
+(*  everything else is B2b.1's and is unchanged.                        *)
 (*                                                                     *)
 (*  PROVED                                                              *)
 (*                                                                     *)
@@ -10957,22 +13434,112 @@ let guard_nom_the_boundary_comparison ()
 (*     does not work by exclusion;                                      *)
 (*   - the negatives (`guard_nom_the_negatives`).                       *)
 (*                                                                     *)
+(*  PROVED IN B2b.2 -- THE FUNDAMENTAL THEOREM                          *)
+(*                                                                     *)
+(*   - TRANSITION COMPATIBILITY, for every rule of the machine:         *)
+(*     two configurations related at `w` step to two configurations     *)
+(*     related at a world EXTENDING `w`, and the two steps emit the     *)
+(*     SAME event list (`lemma_pstep_tr_compat`, and the rule lemmas   *)
+(*     it dispatches to -- one per node, and two more beneath the       *)
+(*     value rule).  The world grows by exactly one pair at each of     *)
+(*     the three rules that allocate -- the scope                       *)
+(*     floor, production (`lemma_pyield_compat`) and `bindScope`        *)
+(*     (`lemma_step_extendctxc`) -- and by nothing anywhere else;       *)
+(*   - THE FUNDAMENTAL THEOREM: the same, for `prun` at any fuel, with  *)
+(*     the trace compared by EQUALITY (`lemma_prun_compat`).  The       *)
+(*     induction is on the fuel BOTH sides are run at, so no transition *)
+(*     count is related to any other and no step constant appears;      *)
+(*   - **`pnobs_tr_le` IS NOW DERIVABLE**: two computations related at  *)
+(*     every well-formed world satisfy it, AT EVERY equivariant ambient *)
+(*     stack, every equivariant initial store and every counter fresh   *)
+(*     for it -- the universal quantification B2b.1 could not reach     *)
+(*     (`lemma_pnobs_tr_le_of_crel`).  It requires NOTHING BEYOND THE   *)
+(*     BOUNDARY RECORD: downward closure is the field `b_down`, so a    *)
+(*     caller holding a `pboundary` and a relatedness proof has no      *)
+(*     further hypothesis to discharge;                                 *)
+(*   - the auxiliary compatibilities the rules are made of, each an     *)
+(*     induction of its own: the four stack searches                    *)
+(*     (`lemma_pfind_prompt_rel`, `lemma_pfind_param_rel`,              *)
+(*     `lemma_pset_param_rel`, `lemma_pfind_mode_rel`,                  *)
+(*     `lemma_pcut_scope_rel`), plan construction and its three         *)
+(*     projections (`lemma_plan_of_rel`, `lemma_plan_enter_frames_rel`  *)
+(*     and the two beside it), handle resolution                        *)
+(*     (`lemma_presolve_rel`) and the three consuming meanings          *)
+(*     (`lemma_ctx_drive_rel`, `lemma_extend_ctx_C_rel`);               *)
+(*   - two RELATED TABLES BLOCK THE SAME EFFECTS and therefore agree on *)
+(*     borrowability and on the classification of a prompt              *)
+(*     (`lemma_blocking_effects_agree`, `lemma_classify_agree`);        *)
+(*   - runs compose: `a + b` transitions are `a` then `b`, and the      *)
+(*     trace is the concatenation (`lemma_prun_split`);                 *)
+(*   - THE COUNTEREXAMPLE PAIR AS A COROLLARY: the conjunction          *)
+(*     `guard_nom_ce_related` established by hand is DERIVED from the   *)
+(*     theorem, with the world existentially quantified and supplied by *)
+(*     the induction rather than written down                           *)
+(*     (`guard_nom_ce_related_by_theorem`);                             *)
+(*   - THE THEOREM AT `nboundary`: discharged at a program that         *)
+(*     produces a context (`guard_nom_fund_at_nboundary`), and at a     *)
+(*     PAIR OF RUNS HOLDING DIFFERENT NAMES -- two clauses that         *)
+(*     captured `PCtxKey 5` and `PCtxKey 6`, dispatched through two     *)
+(*     related tables at a world that is not the identity, both         *)
+(*     answering with their own handle                                  *)
+(*     (`guard_nom_nboundary_capture_related`,                          *)
+(*     `guard_nom_nboundary_capture_runs`,                              *)
+(*     `guard_nom_nboundary_capture_answers`).                          *)
+(*                                                                     *)
 (*  NOT REACHED, AND NAMED                                              *)
 (*                                                                     *)
-(*   - **`pnobs_tr_eq` IS NOT PROVED OF ANY PAIR.**  What is proved is  *)
-(*     its BODY at one configuration per pair, with the witnesses       *)
-(*     written down.  The universally quantified statement ranges over  *)
-(*     EVERY equivariant ambient stack and store, and reaching it       *)
-(*     needs a FUNDAMENTAL THEOREM for this machine: a simulation over  *)
-(*     `pstep` taking two world-related configurations to two           *)
-(*     world-related configurations, with the world extended by one     *)
-(*     pair at each `palloc`.  That theorem is not attempted here.      *)
-(*     The scratch model it was designed against has it in seventy      *)
-(*     lines for a five-constructor evaluator; this machine has         *)
-(*     fourteen computation constructors, seven frame shapes and a      *)
-(*     stack, and the theorem is a gate of its own.                     *)
+(*   - **`pnobs_tr_eq` IS STILL NOT PROVED OF ANY PAIR, AND NEITHER IS  *)
+(*     `pnobs_tr_le`.**  What B2b.2 proves is the IMPLICATION:          *)
+(*     relatedness at every world gives the observation.  The two sides *)
+(*     of a LAW are not related as computations -- they are different   *)
+(*     nodes, and `pcomp_rel` relates a node only to the same node --   *)
+(*     so obtaining `pnobs_tr_le` for a law's two sides means reducing  *)
+(*     both to a common configuration first.  That is done for the      *)
+(*     counterexample pair AT ONE CONFIGURATION                         *)
+(*     (`guard_nom_ce_related_by_theorem`) and NOT in general: the      *)
+(*     general version needs the two prefixes stepped SYMBOLICALLY, in  *)
+(*     an arbitrary ambient stack and store, which is the next gate and *)
+(*     is exactly "proving the laws";                                   *)
 (*   - consequently the five retargeted laws are STATED and not proved, *)
 (*     which is what this gate's scope says they should be;             *)
+(*   - WHETHER `pcl_down` IS DERIVABLE from the other three conditions  *)
+(*     the record carries is NOT SETTLED here, in either direction.     *)
+(*     The record now carries it as `b_down` -- it constrains the       *)
+(*     RELATION alone, exactly as `b_mono` does, and both the           *)
+(*     fundamental theorem and the observation corollary need it, so    *)
+(*     leaving it loose meant a use site could forget it.  It is used   *)
+(*     at index ZERO only, where `ptable_rel` is not trivial and a      *)
+(*     table inverted out of a frame speaks only from index 1 up, and   *)
+(*     it is PROVED of both inhabited clause relations                  *)
+(*     (`lemma_fcl_rel_down`, `lemma_ncl_rel_down`), which ignore the   *)
+(*     index -- so the field adds no trusted assumption.  Should it     *)
+(*     turn out derivable, `b_down` becomes redundant rather than       *)
+(*     wrong.  The two transition theorems are STILL STATED AT A BARE   *)
+(*     RELATION (`lemma_pstep_tr_compat`, `lemma_prun_compat`) and      *)
+(*     still take `pcl_down r` explicitly: they are usable without a    *)
+(*     boundary, and that is deliberate;                                *)
+(*   - REJECTIONS ARE COMPARED WITH THE BLOCKING LABELS AS A SET, not   *)
+(*     as a list (`prej_rel`).  `blocking_effects` is pinned by its     *)
+(*     refinement as a SET, so two tables that answer every lookup      *)
+(*     alike may report the labels in a different order and no proof    *)
+(*     can close that gap; `plan_layers` puts the list it is given into *)
+(*     the rejection verbatim.  A rejection is terminal and is not a    *)
+(*     `PDone`, so nothing `pnconverges` looks at can see the           *)
+(*     difference -- but the transition theorem's conclusion is         *)
+(*     therefore weaker on that one state than equality would be, and   *)
+(*     that is recorded rather than glossed;                            *)
+(*   - the counterexample corollary runs the two programs under         *)
+(*     `fapply0`, a constant interpreter, and not under `fapply`, which *)
+(*     is PROVED not equivariant.  The two runs are checked to be       *)
+(*     LITERALLY EQUAL at the fuel used, by running both machines; that *)
+(*     is a computation on two closed programs and not an argument      *)
+(*     about which clauses are reachable in general;                    *)
+(*   - the two PREFIXES in that corollary -- eleven transitions on the  *)
+(*     left, two on the right -- are computed by `assert_norm` rather   *)
+(*     than derived.  They are runs of the machine on closed            *)
+(*     configurations; no relational statement below mentions either    *)
+(*     number, and `lemma_prun_split` is what joins a prefix to the     *)
+(*     theorem's suffix;                                                *)
 (*   - no relation is claimed between `pobs_tr_eq` and `pnobs_tr_eq`,   *)
 (*     in either direction.  Neither implication is established and     *)
 (*     neither is obvious; see the block comment on the retargeted      *)
@@ -11017,6 +13584,20 @@ let guard_nom_the_boundary_comparison ()
 (*     either side, and no machine-specific step constant occurs in any *)
 (*     proof above: each side's step count is existentially quantified  *)
 (*     inside `pnconverges`, independently.                             *)
+(*                                                                     *)
+(*  AND WHAT B2b.2 DID NOT CHANGE:                                      *)
+(*                                                                     *)
+(*   - no definition of B2b.1 or earlier was edited.  The relation,     *)
+(*     the world, the anchor, the boundary record and the observation   *)
+(*     are the ones B2b.1 left.  The two `_p` propositions are the      *)
+(*     same propositions with a `{:pattern}`, and every `_unfold` is    *)
+(*     the same proposition unfolded; each is related to its original   *)
+(*     BY CONVERSION -- the casts have no proof obligation at all, so   *)
+(*     there is no room for a discrepancy between them;                 *)
+(*   - no `rlimit`, `fuel` or `ifuel` was raised anywhere in B2b.2:     *)
+(*     the section adds no `#push-options` at all;                      *)
+(*   - `prun`, `pstep`, `pstep_tr` and `pconf` are untouched, so the    *)
+(*     theorem is about the machine the rest of the file runs.          *)
 (* ================================================================== *)
 
 (**
@@ -11057,3 +13638,72 @@ let guard_nom_b2b1 ()
     guard_nom_fk_new_equivariant ();
     guard_nom_the_negatives ();
     guard_nom_ce_not_a_reanchoring ()
+
+(**
+ * **B2b.2, IN ONE CHECKED STATEMENT.** PROVED -- the two theorems, at an
+ * arbitrary clause relation, lookup and interpreter satisfying the boundary's
+ * conditions, together with the derivability of the nominal observation from
+ * relatedness. Nothing here is specific to a fixture, and nothing here mentions
+ * a transition count.
+ *)
+let guard_nom_b2b2 (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                   (apply: papply_t v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply)
+          (ensures
+            // 1: one step of related configurations goes to related
+            //    configurations, with the same trace and a world extension
+            (forall (w: pworld) (cf1 cf2: pconf v cl).
+               pwf_world w /\ pcfrel r w cf1 cf2 ==>
+               pstep_compat_at r lk apply w cf1 cf2) /\
+            // 2: and that lifts to finite runs
+            (forall (fuel: nat) (w: pworld) (cf1 cf2: pconf v cl).
+               pwf_world w /\ pcfrel r w cf1 cf2 ==>
+               (snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                (exists (w': pworld).
+                   pwf_world w' /\ pwext w' w /\
+                   pcfrel r w' (fst (prun lk apply fuel cf1))
+                               (fst (prun lk apply fuel cf2))))) /\
+            // 2': so `pnobs_tr_le`'s universal quantification is derivable
+            (forall (b: pboundary v cl) (c1 c2: pcomp v cl).
+               (forall (w: pworld). pwf_world w ==> pcrel b.b_rel w c1 c2) ==>
+               pnobs_tr_le b c1 c2))
+  = introduce forall (w: pworld) (cf1 cf2: pconf v cl).
+        (pwf_world w /\ pcfrel r w cf1 cf2 ==> pstep_compat_at r lk apply w cf1 cf2)
+    with (introduce _ ==> _ with lemma_pstep_tr_compat r lk apply w cf1 cf2);
+    introduce forall (fuel: nat) (w: pworld) (cf1 cf2: pconf v cl).
+        (pwf_world w /\ pcfrel r w cf1 cf2 ==>
+         (snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+          (exists (w': pworld).
+             pwf_world w' /\ pwext w' w /\
+             pcfrel r w' (fst (prun lk apply fuel cf1))
+                         (fst (prun lk apply fuel cf2)))))
+    with (introduce _ ==> _ with lemma_prun_compat r lk apply fuel w cf1 cf2);
+    introduce forall (b: pboundary v cl) (c1 c2: pcomp v cl).
+        ((forall (w: pworld). pwf_world w ==> pcrel b.b_rel w c1 c2) ==>
+         pnobs_tr_le b c1 c2)
+    with (introduce _ ==> _ with lemma_pnobs_tr_le_of_crel b c1 c2)
+
+(**
+ * **AND THE TWO INSTANTIATIONS, IN ONE CHECKED STATEMENT.** PROVED: the
+ * counterexample pair's consequent derived rather than written down, and the
+ * theorem at `nboundary` -- at a producing program, and at two runs that answer
+ * with two different handles under a world that is not the identity.
+ *)
+let guard_nom_b2b2_instances ()
+  : Lemma (
+      // 3: the counterexample instance, as a corollary
+      (exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+         pnconverges flook fapply ce_cf_r [] x2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey 1) x2 /\ psrel fcl_rel w fce_sl s2') /\
+      // 4: the theorem at the capturing boundary
+      pnobs_tr_le nboundary nprog nprog /\
+      pwf_world nw56 /\ pcfrel ncl_rel nw56 ncap_cf1 ncap_cf2 /\
+      (fst (prun nboundary.b_lk nboundary.b_apply 2 ncap_cf1)).st == PDone (PCtxKey 5) /\
+      (fst (prun nboundary.b_lk nboundary.b_apply 2 ncap_cf2)).st == PDone (PCtxKey 6) /\
+      (PCtxKey #fv 5 =!= PCtxKey #fv 6))
+  = guard_nom_ce_related_by_theorem ();
+    guard_nom_fund_at_nboundary ();
+    guard_nom_nboundary_capture_related ();
+    guard_nom_nboundary_capture_answers ()

@@ -3834,6 +3834,69 @@ If step compatibility and the lift to finite runs both turn out large, B2b.2 may
 split internally into *transition compatibility* and *fundamental theorem*. One
 row on the roadmap is enough.
 
+### B2b.2, run: the fundamental theorem holds
+
+11,059 → 13,673 lines, verifying from a clean cache in ~31s, and — as in
+B2b.1 — **with no `z3rlimit` anywhere in the file**. No stop condition fired.
+
+What is established, stated at the level each result actually reaches:
+
+| result | scope |
+|---|---|
+| transition compatibility (`lemma_pstep_tr_compat`) | **universally quantified, proved** |
+| finite-run compatibility (`lemma_prun_compat`) | **universally quantified, proved** |
+| `pcrel` ⟹ `pnobs_tr_le` (`lemma_pnobs_tr_le_of_crel`) | **universally quantified, proved** |
+| the former counterexample | **proved as a corollary** of the theorem |
+| relating the two sides of a law | **not proved** — B2b redux |
+
+The step theorem gives trace **equality** and a world that is a `pwext` of the
+one it was handed; the world grows by exactly one pair, and only at the three
+rules that allocate. The lift runs both sides at the **same fuel** and inducts
+on it. **No re-anchoring and no fixed offset anywhere** — nothing computes a
+world from a final store.
+
+Independently fired: removing `pcl_down` from the step theorem's hypotheses
+fails at `lemma_step_var`. The hypothesis is load-bearing, not decorative.
+
+*Three limits, reported by the port rather than found in review.*
+`prej_rel` compares an `UnborrowableScope`'s blocker labels **as a set**, because
+`blocking_effects`'s refinement pins only the set; rejection is invisible to
+`pnconverges`, so this weakens the step theorem's conclusion at that one state
+and nowhere else. Condition 3 is an instance at one configuration. And the two
+sides of a law are not related *as computations* — `pcomp_rel` relates only
+matching nodes — so the universal form requires advancing both prefixes
+symbolically, which is what proving the laws means.
+
+**`pcl_down` moves into the boundary record.** It is an admissibility condition
+on `b_rel` itself, exactly like `b_mono`, and both the fundamental theorem and
+the observation theorem need it — so leaving it outside means a caller holding a
+discipline-satisfying `pboundary` still cannot apply the theorem, and a future
+use site can forget it. It is already proved of `fcl_rel` and `ncl_rel`, so
+carrying it as `b_down` adds no trusted assumption. Done before the laws, where
+it is cheapest. Lemmas stated at a bare relation rather than a boundary —
+`lemma_pstep_tr_compat`, `lemma_prun_compat` — keep it as an explicit
+hypothesis, deliberately: they are usable without a boundary.
+
+Whether `pcl_down` is **derivable** from the other three conditions is not
+settled in either direction. It is needed at index zero only, the one place
+`ptable_rel` is not trivial, since a table inverted out of a frame speaks only
+from index one up. Should it turn out derivable, the field becomes redundant
+rather than wrong.
+
+**An obligation left for B3:**
+
+> If shipping rejection diagnostics expose blocker order, either canonicalise
+> that order or prove that it is not a semantic or public observation. The
+> prototype currently justifies only set equality.
+
+*An F\* fact worth carrying to the next machine change.* A `GTot prop`
+definition applied in **hypothesis** position is atomic — the quantifiers inside
+it are invisible, `{:pattern}` or not — while in goal position it unfolds. This
+is why `PPerform` was the hardest rule: `plookup_equivariant` and
+`papply_equivariant` would not trigger. The repair is a `{:pattern}`-carrying
+restatement plus a cast that goes through **by conversion alone, with no proof
+obligation** — no definition had to change.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
@@ -3920,11 +3983,11 @@ be assumed rather than verified.
   note above true of the code as well as the prose.)
 - The residual-context representation and its identity discipline are settled
   **for the reference semantics** — a shipping store and the shallow `pval`
-  model's boundary both remain. B2a, the trace-aware step and B2b.1 are done;
-  B2b refuted the laws as stated and B2b.1 repaired the relation at concrete
-  configurations, so what remains before the laws can be re-attempted is
-  B2b.2 — the fundamental theorem that makes the repaired relation a semantics
-  rather than a set of instances.
+  model's boundary both remain. B2a, the trace-aware step, B2b.1 and B2b.2
+  are all done: B2b refuted the laws as stated, B2b.1 repaired the relation,
+  and B2b.2 made that repair a semantics rather than a set of instances. What
+  is left is B2b redux — relating the two sides of each law as computations,
+  which is what "proving a law" now means.
 
 The order, revised after B2b:
 
@@ -3937,8 +4000,8 @@ The order, revised after B2b:
 | ~~trace~~ | ~~make the observation relation trace-aware~~ — **done**: five laws retargeted at `pobs_tr_eq` |
 | ~~B2b~~ | ~~the five laws~~ — **all six propositions refuted**: the relation exposed allocator names |
 | ~~B2b.1~~ | ~~nominal observation relation and boundary discipline~~ — **done**: the former counterexamples repaired at concrete configurations |
-| B2b.2 | the nominal fundamental theorem — machine transitions, world extension and observation preserve the relation, for any interpreter meeting the boundary discipline |
-| B2b redux | the five laws, re-proved using B2b.2 |
+| ~~B2b.2~~ | ~~the nominal fundamental theorem~~ — **done**: transition and finite-run compatibility, and `pcrel` ⟹ `pnobs_tr_le`, all universally quantified |
+| B2b redux | the five laws, re-proved using B2b.2 — the remaining work is relating the two sides of each law as computations |
 | B3 | equivalence with the fast borrow; simulation with the optimised machine; a shipping store; and the shipping interpreter proved to meet the boundary discipline |
 
 The trace step sits between B2a and B2b deliberately, and is not optional
