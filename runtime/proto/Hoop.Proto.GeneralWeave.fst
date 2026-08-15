@@ -15996,3 +15996,980 @@ let guard_nom_b2b3_verdict ()
 (*     INDEPENDENT parameters and applies the theorem at one fuel to    *)
 (*     the common pair.                                                 *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.4 -- FEASIBILITY GATE: THE ADMINISTRATIVE MIDDLE LAYER         *)
+(*                                                                     *)
+(*  Everything below is ADDITIVE.  `pcrel`, `pframes_rel`,             *)
+(*  `pnobs_tr_le` and every other definition above is untouched; the   *)
+(*  new relation is BUILT OUT OF `pframe_rel` and `pframes_rel`        *)
+(*  rather than replacing them, so the fundamental theorem still       *)
+(*  means what it meant.                                               *)
+(*                                                                     *)
+(*  WHAT IS BEING TESTED.  Between the strong lockstep congruence the  *)
+(*  fundamental theorem carries (`pcrel`) and the weak observation     *)
+(*  the laws are stated over (`pnobs_tr_eq`) there is room for ONE     *)
+(*  more relation, whose job is to absorb the transitions the machine  *)
+(*  takes for its own bookkeeping.  This section states such a         *)
+(*  relation and checks five things about it.  IT DOES NOT PROVE       *)
+(*  OBSERVATIONAL SOUNDNESS and it attempts NO LAW.                    *)
+(*                                                                     *)
+(*  WHAT MAKES A FRAME ADMINISTRATIVE, read off the value rules of     *)
+(*  `pstep` and from nowhere else:                                     *)
+(*                                                                     *)
+(*   - `PSiteF g` under a live `MExtend` marker steps to `PVar value`  *)
+(*     under the rest -- it is NOTHING;                                *)
+(*   - `PSiteF g` under a live `MResume` marker steps to `g value`     *)
+(*     under the rest -- it is `PBindF g`.                             *)
+(*                                                                     *)
+(*  Those two lines are the whole of the erasure, and the mode is      *)
+(*  what decides between them, so the relation is MODE-INDEXED and     *)
+(*  the two modes cannot be collapsed: at `MExtend` the site frame is  *)
+(*  matched against NO frame at all, at `MResume` against a `PBindF`.  *)
+(*                                                                     *)
+(*  WHAT IS *NOT* ADMINISTRATIVE, and each is refused rather than      *)
+(*  argued away:                                                       *)
+(*                                                                     *)
+(*   - `PScopeF` ALLOCATES.  A value reaching a floor stores a         *)
+(*     `PCtxDone` and goes on with a handle.  It is never erased and   *)
+(*     it BLOCKS the mode search, which is why `padm_marked` stops at  *)
+(*     one;                                                            *)
+(*   - `PBoundaryF` hands the value to the marker's responder, or      *)
+(*     YIELDS if there is none.  It is matched only against another    *)
+(*     `PBoundaryF`, and only when both sides reach THE SAME marker;   *)
+(*   - `PModeF m resp` CARRIES A RESPONDER.  It is deleted only in     *)
+(*     the regime where nothing above it can reach the responder --    *)
+(*     the relation earns that by structure (`sh = false` forbids      *)
+(*     `PBoundaryF` outright, and a `PSiteF` reads the MODE and never  *)
+(*     the responder), not by fiat.                                    *)
+(* ================================================================== *)
+
+(** **A frame a value passes without consulting anything else on the stack**,
+    and which `pfind_mode` walks straight through. `PScopeF` is absent because it
+    allocates and blocks the search; `PBoundaryF`, `PSiteF` and `PModeF` are
+    absent because each of them is exactly what the protocol is made of. *)
+let padm_inert (#v #cl: Type) (f: pframe v cl) : bool
+  = match f with
+    | PBindF _ -> true
+    | PParamF _ _ -> true
+    | PPromptF _ _ _ -> true
+    | _ -> false
+
+(**
+ * **The stack reaches a live marker for `m`.** This is `pfind_mode`'s walk,
+ * written as a boolean over the mode alone, and it is the SIDE CONDITION that
+ * makes erasing a `PSiteF` sound: a site frame is `PBindF`-or-nothing only when
+ * the search beneath it actually answers, and answers with `m`.
+ *)
+let rec padm_marked (#v #cl: Type) (m: weave_mode) (k: pstack v cl)
+  : Tot bool (decreases k)
+  = match k with
+    | [] -> false
+    | PModeF m1 _ :: _ -> m1 = m
+    | PScopeF :: _ -> false
+    | PBoundaryF :: t -> padm_marked m t
+    | PSiteF _ :: t -> padm_marked m t
+    | f :: t -> padm_inert f && padm_marked m t
+
+(** **`padm_marked` is `pfind_mode`, answered.** PROVED, by induction; the two
+    walks have the same clauses in the same order. *)
+let rec lemma_padm_marked_finds (#v #cl: Type) (m: weave_mode) (k: pstack v cl)
+  : Lemma (requires padm_marked m k)
+          (ensures pmode_of (pfind_mode k) == Some m)
+          (decreases k)
+  = match k with
+    | PModeF _ _ :: _ -> ()
+    | PBoundaryF :: t -> lemma_padm_marked_finds m t
+    | PSiteF _ :: t -> lemma_padm_marked_finds m t
+    | PScopeF :: _ -> ()
+    | [] -> ()
+    | _ :: t -> lemma_padm_marked_finds m t
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 1: THE RELATION                                          *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE MODE-INDEXED ADMINISTRATIVE STACK RELATION.**
+ *
+ * `m` is the mode in scope. `sh` says which marker regime the two sides are in:
+ *
+ *   - `sh = false` -- the LEFT carries the consumer's marker and the RIGHT has
+ *     none. This is the regime the two projections differ in: a residual driven
+ *     by a consumer against an independent description that never had a consumer.
+ *     `PBoundaryF` is REFUSED here, because a boundary on the left would reach
+ *     the marker and a boundary on the right would reach whatever is beneath the
+ *     ambient stack, and those are not the same responder.
+ *
+ *   - `sh = true` -- BOTH sides carry the same marker, which is what
+ *     `ctx_drive` produces when the same consumer drives two residuals. Here a
+ *     `PBoundaryF` is matched against a `PBoundaryF` and the two responders are
+ *     related because the two markers are.
+ *
+ * The clauses, in order:
+ *
+ *   - `[]` against `[]`. Nothing left to say.
+ *   - a marker on the left. Either deleted (`sh = false`, and the rest of the
+ *     left must be `pframes_rel` to the whole of the right) or shared
+ *     (`sh = true`, and the two markers must be related frames).
+ *   - a `PSiteF` on the left, WITH the mode search beneath it answering `m`.
+ *     Under `MExtend` it matches nothing; under `MResume` it matches a `PBindF`
+ *     carrying a related function.
+ *   - a `PBoundaryF`, only in the shared regime and only against a `PBoundaryF`.
+ *   - a `PBindF`, either frame for frame OR -- and this is the clause the
+ *     algebraic half needs -- TWO of them against ONE carrying their
+ *     composition. `PBindF f :: PBindF g` and `PBindF (fun x -> f x >>= g)` take
+ *     a value to the same configuration, the second one transition later.
+ *   - any other inert frame, frame for frame.
+ *
+ * Everything else -- a `PScopeF` anywhere, a `PBoundaryF` in the deleted
+ * regime, a `PSiteF` with no marker beneath it -- is `False`, and `False` is the
+ * right answer for each: those are the frames the machine does REAL work at.
+ *)
+let rec padm_stack (#v #cl: Type) (r: pcl_rel_t cl) (m: weave_mode) (sh: bool)
+                   (n: nat) (w: pworld) (k1 k2: pstack v cl)
+  : GTot prop (decreases k1)
+  = match k1 with
+    | [] -> (match k2 with | [] -> True | _ -> False)
+    | PModeF m1 resp1 :: t1 ->
+      m1 == m /\
+      (if sh
+       then (match k2 with
+             | PModeF m2 resp2 :: t2 ->
+               m2 == m /\
+               pframe_rel r n w (PModeF m1 resp1) (PModeF m2 resp2) /\
+               pframes_rel r n w t1 t2
+             | _ -> False)
+       else pframes_rel r n w t1 k2)
+    | PSiteF g1 :: t1 ->
+      b2t (padm_marked m t1) /\
+      (match m with
+       | MExtend -> padm_stack r m sh n w t1 k2
+       | MResume ->
+         (match k2 with
+          | PBindF g2 :: t2 ->
+            pframe_rel r n w (PSiteF g1) (PSiteF g2) /\ padm_stack r m sh n w t1 t2
+          | _ -> False))
+    | PBoundaryF :: t1 ->
+      b2t sh /\ b2t (padm_marked m t1) /\
+      (match k2 with
+       | PBoundaryF :: t2 -> padm_stack r m sh n w t1 t2
+       | _ -> False)
+    | PBindF f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 -> pframe_rel r n w (PBindF f1) f2 /\ padm_stack r m sh n w t1 t2
+       | [] -> False)
+      \/
+      (match t1 with
+       | PBindF g1 :: t1' ->
+         (match k2 with
+          | PBindF h2 :: t2 ->
+            pframe_rel r n w (PBindF (fun x -> pbind (f1 x) g1)) (PBindF h2) /\
+            padm_stack r m sh n w t1' t2
+          | _ -> False)
+       | _ -> False)
+    | f1 :: t1 ->
+      b2t (padm_inert f1) /\
+      (match k2 with
+       | f2 :: t2 -> pframe_rel r n w f1 f2 /\ padm_stack r m sh n w t1 t2
+       | [] -> False)
+
+(** The intersection of the approximants, exactly as `pkrel` is taken from
+    `pframes_rel`. This is the relation the five conditions are about. *)
+let padm (#v #cl: Type) (r: pcl_rel_t cl) (m: weave_mode) (sh: bool) (w: pworld)
+         (k1 k2: pstack v cl) : GTot prop
+  = forall (n: nat). padm_stack r m sh n w k1 k2
+
+(** **The administrative relation on COMPUTATIONS.** It is `pcrel` everywhere
+    except at the three nodes that carry a stack or a body a residual can be
+    reached through -- `PSplice`, which is what a captured continuation IS, and
+    `PEnterCtx` and `PEmit`, which a clause interpreter wraps one around. *)
+let rec padm_comp (#v #cl: Type) (r: pcl_rel_t cl) (m: weave_mode) (sh: bool)
+                  (w: pworld) (c1 c2: pcomp v cl)
+  : GTot prop (decreases c1)
+  = match c1 with
+    | PSplice fs1 b1 ->
+      (match c2 with
+       | PSplice fs2 b2 -> padm r m sh w fs1 fs2 /\ padm_comp r m sh w b1 b2
+       | _ -> False)
+    | PEnterCtx pl1 b1 ->
+      (match c2 with
+       | PEnterCtx pl2 b2 -> pplrel r w pl1 pl2 /\ padm_comp r m sh w b1 b2
+       | _ -> False)
+    | PEmit e1 b1 ->
+      (match c2 with
+       | PEmit e2 b2 -> e1 == e2 /\ padm_comp r m sh w b1 b2
+       | _ -> False)
+    | _ -> pcrel r w c1 c2
+
+let padm_fn_at (#v #cl: Type) (r: pcl_rel_t cl) (m: weave_mode) (sh: bool)
+               (w0: pworld) (f1 f2: pval v -> pcomp v cl) : GTot prop
+  = forall (w: pworld) (y1 y2: pval v).
+      pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==> padm_comp r m sh w (f1 y1) (f2 y2)
+
+(** **The condition 4 asks about**: `papply_equivariant` with `pcrel` replaced by
+    the administrative relation on both sides. An interpreter satisfies it when
+    it cannot tell two administratively equal continuations apart. *)
+let padm_apply_pres (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+  : GTot prop
+  = forall (m: weave_mode) (sh: bool) (w: pworld) (c1 c2: cl)
+           (p1 p2: list (pval v)) (kk1 kk2: pval v -> pcomp v cl).
+      pwf_world w /\ pclrel r w c1 c2 /\ pvals_rel w p1 p2 /\
+      padm_fn_at r m sh w kk1 kk2 ==>
+      padm_comp r m sh w (apply c1 p1 kk1) (apply c2 p2 kk2)
+
+let padm_apply_pres_inst (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+    (m: weave_mode) (sh: bool) (w: pworld) (c1 c2: cl) (p1 p2: list (pval v))
+    (kk1 kk2: pval v -> pcomp v cl)
+  : Lemma (requires padm_apply_pres r apply /\ pwf_world w /\ pclrel r w c1 c2 /\
+                    pvals_rel w p1 p2 /\ padm_fn_at r m sh w kk1 kk2)
+          (ensures padm_comp r m sh w (apply c1 p1 kk1) (apply c2 p2 kk2))
+  = ()
+
+(* ---- CONDITION 1: the two modes are genuinely different ----------- *)
+
+(**
+ * **`MExtend` AND `MResume` DO NOT COLLAPSE.** PROVED, at one two-frame stack
+ * and its two candidate right-hand sides.
+ *
+ * The same left stack is related to the EMPTY stack at `MExtend` and to
+ * `[PBindF PVar]` at `MResume`, and to neither at the other mode. So the mode
+ * index is doing work: it is not a parameter the relation could be quantified
+ * over and forgotten.
+ *)
+let guard_adm_modes_differ (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (resp: pval v -> pcomp v cl)
+  : Lemma (padm r MExtend false w
+             ([PSiteF (PVar #v #cl); PModeF MExtend resp] <: pstack v cl)
+             ([] <: pstack v cl)
+           /\
+           ~(padm r MResume false w
+               ([PSiteF (PVar #v #cl); PModeF MResume resp] <: pstack v cl)
+               ([] <: pstack v cl))
+           /\
+           ~(padm r MExtend false w
+               ([PSiteF (PVar #v #cl); PModeF MExtend resp] <: pstack v cl)
+               ([PBindF (PVar #v #cl)] <: pstack v cl)))
+  = introduce forall (n: nat).
+        padm_stack r MExtend false n w
+          ([PSiteF (PVar #v #cl); PModeF MExtend resp] <: pstack v cl)
+          ([] <: pstack v cl)
+    with begin
+      assert (padm_marked MExtend ([PModeF MExtend resp] <: pstack v cl));
+      assert (pframes_rel r n w ([] <: pstack v cl) ([] <: pstack v cl));
+      assert (padm_stack r MExtend false n w
+                ([PModeF MExtend resp] <: pstack v cl) ([] <: pstack v cl))
+    end;
+    introduce padm r MResume false w
+                ([PSiteF (PVar #v #cl); PModeF MResume resp] <: pstack v cl)
+                ([] <: pstack v cl) ==> False
+    with assert (padm_stack r MResume false 1 w
+                   ([PSiteF (PVar #v #cl); PModeF MResume resp] <: pstack v cl)
+                   ([] <: pstack v cl));
+    introduce padm r MExtend false w
+                ([PSiteF (PVar #v #cl); PModeF MExtend resp] <: pstack v cl)
+                ([PBindF (PVar #v #cl)] <: pstack v cl) ==> False
+    with assert (padm_stack r MExtend false 1 w
+                   ([PSiteF (PVar #v #cl); PModeF MExtend resp] <: pstack v cl)
+                   ([PBindF (PVar #v #cl)] <: pstack v cl))
+
+(** The `MResume` side of the same fact: there the site frame IS the bind frame,
+    and the empty stack is refused. PROVED. *)
+let guard_adm_resume_is_bind (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (resp: pval v -> pcomp v cl)
+  : Lemma (padm r MResume false w
+             ([PSiteF (PVar #v #cl); PModeF MResume resp] <: pstack v cl)
+             ([PBindF (PVar #v #cl)] <: pstack v cl))
+  = lemma_pfn_rel_at_pvar #v #cl r w;
+    lemma_pfrel_site r w (PVar #v #cl) (PVar #v #cl);
+    introduce forall (n: nat).
+        padm_stack r MResume false n w
+          ([PSiteF (PVar #v #cl); PModeF MResume resp] <: pstack v cl)
+          ([PBindF (PVar #v #cl)] <: pstack v cl)
+    with begin
+      assert (padm_marked MResume ([PModeF MResume resp] <: pstack v cl));
+      assert (pframe_rel r n w (PSiteF (PVar #v #cl)) (PSiteF (PVar #v #cl)));
+      assert (pframes_rel r n w ([] <: pstack v cl) ([] <: pstack v cl));
+      assert (padm_stack r MResume false n w
+                ([PModeF MResume resp] <: pstack v cl) ([] <: pstack v cl))
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 2: THE FOUR MISMATCHES OF THE REDUX                      *)
+(* ------------------------------------------------------------------ *)
+
+(** The protocol projection is inert-or-site all the way down, so it never
+    stops a mode search. PROVED, by induction on the plan's items. *)
+let rec lemma_padm_marked_protocol (#v #cl: Type) (m: weave_mode)
+    (ls: list (plan_item v cl)) (t: pstack v cl)
+  : Lemma (requires padm_marked m t)
+          (ensures padm_marked m (protocol_layer_frames ls @ t))
+          (decreases ls)
+  = match ls with
+    | [] -> ()
+    | _ :: rest -> lemma_padm_marked_protocol m rest t
+
+(** And it never REACHES a marker either, if what is beneath it does not.
+    PROVED, and this is what refuses the two production mismatches. *)
+let rec lemma_padm_unmarked_protocol (#v #cl: Type) (m: weave_mode)
+    (ls: list (plan_item v cl)) (t: pstack v cl)
+  : Lemma (requires ~(b2t (padm_marked m t)))
+          (ensures ~(b2t (padm_marked m (protocol_layer_frames ls @ t))))
+          (decreases ls)
+  = match ls with
+    | [] -> ()
+    | _ :: rest -> lemma_padm_unmarked_protocol m rest t
+
+(**
+ * **PROTOCOL AGAINST ENTER, UNDER `MExtend`: RELATED.** PROVED, by induction on
+ * the plan's items.
+ *
+ * This is the length obstruction `lemma_plan_frames_lengths` measures, absorbed:
+ * every `PIBind` the protocol projection keeps as a dormant `PSiteF` is matched
+ * against NO frame at all on the enter side, because that is what the machine
+ * does with it when the marker beneath says `MExtend`.
+ *)
+let rec lemma_padm_layers_extend (#v #cl: Type) (r: pcl_rel_t cl) (sh: bool)
+    (n: nat) (w: pworld) (ls: list (plan_item v cl)) (t1 t2: pstack v cl)
+  : Lemma (requires pitems_rel r n w ls ls /\ padm_marked MExtend t1 /\
+                    padm_stack r MExtend sh n w t1 t2)
+          (ensures padm_stack r MExtend sh n w
+                     (protocol_layer_frames ls @ t1) (enter_layer_frames ls @ t2))
+          (decreases ls)
+  = match ls with
+    | [] -> ()
+    | i :: rest ->
+      lemma_padm_layers_extend r sh n w rest t1 t2;
+      lemma_padm_marked_protocol MExtend rest t1;
+      (match i with
+       | PIBind _ -> ()
+       | PICell _ _ -> ()
+       | PITransparent _ -> ()
+       | PIReenter _ _ -> ())
+
+(**
+ * **PROTOCOL AGAINST RESUME, UNDER `MResume`: RELATED.** PROVED, by the same
+ * induction. Here the two projections have the SAME LENGTH and the `PSiteF`
+ * matches the `PBindF` it was recorded from, which is the other half of what
+ * makes one projection stand for both.
+ *)
+let rec lemma_padm_layers_resume (#v #cl: Type) (r: pcl_rel_t cl) (sh: bool)
+    (n: nat) (w: pworld) (ls: list (plan_item v cl)) (t1 t2: pstack v cl)
+  : Lemma (requires pitems_rel r n w ls ls /\ padm_marked MResume t1 /\
+                    padm_stack r MResume sh n w t1 t2)
+          (ensures padm_stack r MResume sh n w
+                     (protocol_layer_frames ls @ t1) (resume_layer_frames ls @ t2))
+          (decreases ls)
+  = match ls with
+    | [] -> ()
+    | i :: rest ->
+      lemma_padm_layers_resume r sh n w rest t1 t2;
+      lemma_padm_marked_protocol MResume rest t1;
+      (match i with
+       | PIBind _ -> ()
+       | PICell _ _ -> ()
+       | PITransparent _ -> ()
+       | PIReenter _ _ -> ())
+
+(**
+ * **`guard_align_marker_vs_enter`'S TWO STACKS ARE ADMINISTRATIVELY RELATED.**
+ * PROVED, at every plan self-related at every index, every responder and every
+ * self-related ambient stack.
+ *
+ * This is the third of the redux's four mismatches, and it is the one the
+ * middle layer exists for: the consumer's marker is deleted, the dormant site
+ * frames vanish with it, and what is left on both sides is the enter projection
+ * over the same ambient stack.
+ *)
+let lemma_padm_marker_vs_enter (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (resp: pval v -> pcomp v cl) (amb: pstack v cl)
+  : Lemma (requires pplrel r w pl pl /\ pkrel r w amb amb)
+          (ensures padm r MExtend false w
+                     (plan_protocol_frames pl @ (PModeF MExtend resp :: amb))
+                     (plan_enter_frames pl @ amb))
+  = let ls = Plan?.layers pl in
+    let ow = Plan?.owner pl in
+    append_assoc (protocol_layer_frames ls) ([owner_frame ow] <: pstack v cl)
+                 ((PModeF MExtend resp :: amb) <: pstack v cl);
+    append_assoc (enter_layer_frames ls) ([owner_frame ow] <: pstack v cl) amb;
+    introduce forall (n: nat).
+        padm_stack r MExtend false n w
+          (plan_protocol_frames pl @ (PModeF MExtend resp :: amb))
+          (plan_enter_frames pl @ amb)
+    with begin
+      assert (pplan_rel r n w pl pl);
+      lemma_padm_layers_extend r false n w ls
+        ((owner_frame ow :: PModeF MExtend resp :: amb) <: pstack v cl)
+        ((owner_frame ow :: amb) <: pstack v cl)
+    end
+
+(**
+ * **`guard_align_marker_vs_resume`'S TWO STACKS ARE ADMINISTRATIVELY RELATED.**
+ * PROVED, and this is the fourth mismatch. The two segments had equal length
+ * already; what separated them was the marker, and the marker is what the
+ * deleted regime deletes.
+ *)
+let lemma_padm_marker_vs_resume (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (resp: pval v -> pcomp v cl) (amb: pstack v cl)
+  : Lemma (requires pplrel r w pl pl /\ pkrel r w amb amb)
+          (ensures padm r MResume false w
+                     (plan_protocol_frames pl @ (PModeF MResume resp :: amb))
+                     (plan_resume_frames pl @ amb))
+  = let ls = Plan?.layers pl in
+    let ow = Plan?.owner pl in
+    append_assoc (protocol_layer_frames ls) ([owner_frame ow] <: pstack v cl)
+                 ((PModeF MResume resp :: amb) <: pstack v cl);
+    append_assoc (resume_layer_frames ls) ([owner_frame ow] <: pstack v cl) amb;
+    introduce forall (n: nat).
+        padm_stack r MResume false n w
+          (plan_protocol_frames pl @ (PModeF MResume resp :: amb))
+          (plan_resume_frames pl @ amb)
+    with begin
+      assert (pplan_rel r n w pl pl);
+      lemma_padm_layers_resume r false n w ls
+        ((owner_frame ow :: PModeF MResume resp :: amb) <: pstack v cl)
+        ((owner_frame ow :: amb) <: pstack v cl)
+    end
+
+(**
+ * **AND THE OTHER TWO ARE REFUSED, AT EVERY MODE AND IN BOTH REGIMES.**
+ * PROVED, and the refusal is a FINDING and not a gap.
+ *
+ * `guard_align_produce_vs_enter` and `..._bind2` put the PRODUCTION stack on the
+ * left: a `PBoundaryF` on top, the protocol projection, and then a `PScopeF`.
+ * The floor stops the mode search, so those `PSiteF`s have NO marker to ask, and
+ * a `PSiteF` with no marker in scope does not vanish and does not fire -- IT
+ * YIELDS, storing a context the other side has no counterpart for.
+ *
+ * That is not a shortcoming of this relation. It is exactly the mechanism
+ * `xapply` exploits (`guard_nom_b2b3_verdict` above), and a middle layer that
+ * related these two stacks would be UNSOUND for `pnobs`. The produce/enter
+ * mismatch is not administrative; it is real.
+ *)
+let guard_adm_refuses_produce_vs_enter (#v #cl: Type) (r: pcl_rel_t cl)
+    (m: weave_mode) (sh: bool) (w: pworld) (pl: plan v cl)
+    (f: pval v -> pcomp v cl) (amb: pstack v cl) (rhs: pstack v cl)
+  : Lemma (~(padm r m sh w
+               (PBoundaryF :: (plan_protocol_frames pl
+                               @ (PScopeF :: PBindF f :: amb)))
+               rhs))
+  = let ls = Plan?.layers pl in
+    let ow = Plan?.owner pl in
+    append_assoc (protocol_layer_frames ls) ([owner_frame ow] <: pstack v cl)
+                 ((PScopeF :: PBindF f :: amb) <: pstack v cl);
+    lemma_padm_unmarked_protocol m ls
+      ((owner_frame ow :: PScopeF :: PBindF f :: amb) <: pstack v cl);
+    introduce padm r m sh w
+                (PBoundaryF :: (plan_protocol_frames pl
+                                @ (PScopeF :: PBindF f :: amb)))
+                rhs ==> False
+    with assert (padm_stack r m sh 1 w
+                   (PBoundaryF :: (plan_protocol_frames pl
+                                   @ (PScopeF :: PBindF f :: amb)))
+                   rhs)
+
+(**
+ * **AND THE MIDDLE LAYER IS STRICTLY BETWEEN THE TWO.** PROVED, at every plan,
+ * responder and ambient stack, and in BOTH directions of the enter/resume
+ * distinction.
+ *
+ * The very same two stacks that `guard_align_marker_vs_enter` and
+ * `guard_align_marker_vs_resume` proved `pkrel` REFUSES are related by `padm`.
+ * That is what "middle layer" has to mean, and it is why nothing above needed
+ * weakening: `pcrel` is left exactly as it was and still refuses, and the new
+ * relation is the one that does not.
+ *)
+let guard_adm_strictly_coarser (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (resp: pval v -> pcomp v cl) (amb: pstack v cl)
+  : Lemma (requires pplrel r w pl pl /\ pkrel r w amb amb)
+          (ensures
+            padm r MExtend false w
+              (plan_protocol_frames pl @ (PModeF MExtend resp :: amb))
+              (plan_enter_frames pl @ amb) /\
+            ~(pkrel r w
+                (plan_protocol_frames pl @ (PModeF MExtend resp :: amb))
+                (plan_enter_frames pl @ amb)) /\
+            padm r MResume false w
+              (plan_protocol_frames pl @ (PModeF MResume resp :: amb))
+              (plan_resume_frames pl @ amb) /\
+            ~(pkrel r w
+                (plan_protocol_frames pl @ (PModeF MResume resp :: amb))
+                (plan_resume_frames pl @ amb)))
+  = lemma_padm_marker_vs_enter r w pl resp amb;
+    guard_align_marker_vs_enter r w pl MExtend resp amb;
+    lemma_padm_marker_vs_resume r w pl resp amb;
+    guard_align_marker_vs_resume r w pl MResume resp amb
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 3: CONSUMING TWO RELATED RESIDUALS IN THE SAME MODE      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE SHARED MARKER IS FOUND ON BOTH SIDES, AND THE TWO RESPONDERS ARE
+ * RELATED.** PROVED, by induction on the left stack, at every index from 1 up.
+ *
+ * This is what makes a `PBoundaryF` inside a residual behave the same way on
+ * both sides: the boundary hands the value to whatever `pfind_mode` answers, and
+ * `pfind_mode` answers with related responders at the same mode.
+ *)
+let rec lemma_padm_shared_marker (#v #cl: Type) (r: pcl_rel_t cl) (m: weave_mode)
+    (n: nat) (w: pworld) (k1 k2: pstack v cl)
+  : Lemma (requires n >= 1 /\ padm_marked m k1 /\ padm_stack r m true n w k1 k2)
+          (ensures (match pfind_mode k1, pfind_mode k2 with
+                    | Some (m1, resp1), Some (m2, resp2) ->
+                      m1 == m /\ m2 == m /\
+                      pframe_rel r n w (PModeF m resp1) (PModeF m resp2)
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1 with
+    | [] -> ()
+    | PModeF _ _ :: _ -> ()
+    | PSiteF _ :: t1 ->
+      (match m with
+       | MExtend -> lemma_padm_shared_marker r m n w t1 k2
+       | MResume ->
+         (match k2 with
+          | PBindF _ :: t2 -> lemma_padm_shared_marker r m n w t1 t2
+          | _ -> ()))
+    | PBoundaryF :: t1 ->
+      (match k2 with
+       | PBoundaryF :: t2 -> lemma_padm_shared_marker r m n w t1 t2
+       | _ -> ())
+    | PBindF f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 ->
+         FStar.Classical.move_requires (lemma_padm_shared_marker r m n w t1) t2;
+         (match t1 with
+          | PBindF _ :: t1' ->
+            FStar.Classical.move_requires (lemma_padm_shared_marker r m n w t1') t2
+          | _ -> ())
+       | [] -> ())
+    | PParamF _ _ :: t1 ->
+      (match k2 with
+       | _ :: t2 -> lemma_padm_shared_marker r m n w t1 t2
+       | [] -> ())
+    | PPromptF _ _ _ :: t1 ->
+      (match k2 with
+       | _ :: t2 -> lemma_padm_shared_marker r m n w t1 t2
+       | [] -> ())
+    | PScopeF :: _ -> ()
+
+(**
+ * **THE `MExtend` ADMINISTRATIVE STEP IS SILENT, AND THE RELATION SURVIVES IT.**
+ * PROVED, at every stack, store and counter, and for any lookup and interpreter.
+ *
+ * The left takes ONE transition, EMITS NOTHING, and arrives at the same value
+ * under the tail; the right stands still; and the two are still related. This is
+ * the step `pframes_rel` cannot take, and it is the only thing the length
+ * mismatch of the two projections is made of.
+ *)
+let lemma_padm_step_site_extend (#v #cl: Type) (r: pcl_rel_t cl) (sh: bool)
+    (w: pworld) (lk: plookup_t cl) (apply: papply_t v cl)
+    (g1: pval v -> pcomp v cl) (t1 k2: pstack v cl) (x: pval v)
+    (sto: pstore v cl) (n0: nat)
+  : Lemma (requires padm r MExtend sh w (PSiteF g1 :: t1) k2)
+          (ensures
+            (let cf : pconf v cl =
+               { st = PStep (PVar x) (PSiteF g1 :: t1); store = sto; next = n0 } in
+             pstep_tr lk apply cf
+             == (({ st = PStep (PVar x) t1; store = sto; next = n0 } <: pconf v cl),
+                 ([] <: list string)) /\
+             padm r MExtend sh w t1 k2))
+  = assert (padm_stack r MExtend sh 1 w (PSiteF g1 :: t1) k2);
+    lemma_padm_marked_finds MExtend t1;
+    introduce forall (n: nat). padm_stack r MExtend sh n w t1 k2
+    with assert (padm_stack r MExtend sh n w (PSiteF g1 :: t1) k2);
+    assert (padm r MExtend sh w t1 k2)
+
+(**
+ * **THE `MResume` ADMINISTRATIVE STEP IS SILENT ON BOTH SIDES, AND LANDS ON
+ * RELATED COMPUTATIONS.** PROVED.
+ *
+ * Here BOTH sides move, each by one transition and each emitting nothing: the
+ * site frame fires as the bind frame it was recorded from, and the two functions
+ * are related because the relation asked for it when it matched them.
+ *)
+let lemma_padm_step_site_resume (#v #cl: Type) (r: pcl_rel_t cl) (sh: bool)
+    (w: pworld) (lk: plookup_t cl) (apply: papply_t v cl)
+    (g1 g2: pval v -> pcomp v cl) (t1 t2: pstack v cl) (x1 x2: pval v)
+    (sto1 sto2: pstore v cl) (n1 n2: nat)
+  : Lemma (requires padm r MResume sh w (PSiteF g1 :: t1) (PBindF g2 :: t2) /\
+                    pwf_world w /\ pval_rel w x1 x2)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PSiteF g1 :: t1); store = sto1; next = n1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PBindF g2 :: t2); store = sto2; next = n2 } in
+             pstep_tr lk apply cf1
+             == (({ st = PStep (g1 x1) t1; store = sto1; next = n1 } <: pconf v cl),
+                 ([] <: list string)) /\
+             pstep_tr lk apply cf2
+             == (({ st = PStep (g2 x2) t2; store = sto2; next = n2 } <: pconf v cl),
+                 ([] <: list string)) /\
+             padm r MResume sh w t1 t2 /\
+             pcrel r w (g1 x1) (g2 x2)))
+  = assert (padm_stack r MResume sh 1 w (PSiteF g1 :: t1) (PBindF g2 :: t2));
+    lemma_padm_marked_finds MResume t1;
+    lemma_pwext_refl w;
+    introduce forall (n: nat). padm_stack r MResume sh n w t1 t2
+    with assert (padm_stack r MResume sh n w (PSiteF g1 :: t1) (PBindF g2 :: t2));
+    introduce forall (n: nat). pcomp_rel r n w (g1 x1) (g2 x2)
+    with (if n = 0 then ()
+          else assert (padm_stack r MResume sh n w (PSiteF g1 :: t1) (PBindF g2 :: t2)));
+    assert (padm r MResume sh w t1 t2);
+    assert (pcrel r w (g1 x1) (g2 x2))
+
+(* ---- and a positive OBSERVATIONAL instance, run ------------------- *)
+
+(** Two residuals that differ by exactly one dormant site frame. Both are
+    `presid_wf`-shaped -- a boundary on top -- and they are driven by ONE
+    consumer, in ONE mode, with the same `post` and the same extension. *)
+let aresid1 : pstack fv fcl = [PBoundaryF; PSiteF (PVar #fv #fcl)]
+let aresid2 : pstack fv fcl = [PBoundaryF]
+let apost : pval fv -> pcomp fv fcl = PVar #fv #fcl
+let af : pval fv -> pcomp fv fcl = PVar #fv #fcl
+let aR : pval fv -> pcomp fv fcl = fun z -> pbind (apost z) af
+
+let acf1 : pconf fv fcl =
+  { st = PStep (ctx_drive MExtend (PCtxRequests fone aresid1 apost) af)
+               ([] <: pstack fv fcl);
+    store = []; next = 0 }
+let acf2 : pconf fv fcl =
+  { st = PStep (ctx_drive MExtend (PCtxRequests fone aresid2 apost) af)
+               ([] <: pstack fv fcl);
+    store = []; next = 0 }
+
+(** The marker `ctx_drive` appends is self-related, which is all the relation
+    asks of the shared regime. PROVED. *)
+let lemma_aR_selfrel (w: pworld) (n: nat)
+  : Lemma (pframe_rel fcl_rel n w (PModeF MExtend aR) (PModeF MExtend aR))
+  = if n = 0 then ()
+    else begin
+      introduce forall (w': pworld) (y1 y2: pval fv).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel fcl_rel n w' (aR y1) (aR y2))
+      with (introduce _ ==> _
+            with begin
+              lemma_pcrel_var fcl_rel w' y1 y2;
+              lemma_pfn_rel_at_pvar #fv #fcl fcl_rel w';
+              lemma_pcrel_pbind fcl_rel w' (PVar y1) (PVar y2)
+                                (PVar #fv #fcl) (PVar #fv #fcl);
+              assert (pcrel fcl_rel w' (aR y1) (aR y2))
+            end);
+      assert (pframe_rel fcl_rel n w (PModeF MExtend aR) (PModeF MExtend aR))
+    end
+
+(** **THE TWO DRIVEN RESIDUALS ARE ADMINISTRATIVELY RELATED, IN THE SHARED
+    REGIME.** PROVED. `ctx_drive` puts the SAME marker under both. *)
+let guard_adm_residuals_related (w: pworld)
+  : Lemma (padm fcl_rel MExtend true w
+             (aresid1 @ [PModeF MExtend aR]) (aresid2 @ [PModeF MExtend aR]))
+  = introduce forall (n: nat).
+        padm_stack fcl_rel MExtend true n w
+          (aresid1 @ [PModeF MExtend aR]) (aresid2 @ [PModeF MExtend aR])
+    with lemma_aR_selfrel w n
+
+(**
+ * **CONSUMED IN THE SAME MODE, THEY GIVE THE SAME TRACE, EQUAL VALUES AND EQUAL
+ * STORES.** PROVED, by running the machine.
+ *
+ * Both traces are empty, both answers are `fone`, and neither run allocates --
+ * the extra site frame on the left costs exactly one silent transition. This is
+ * ONE instance and is labelled as one: the general statement is the NEXT gate's,
+ * and nothing here stands in for it.
+ *)
+let guard_adm_consume_same_mode ()
+  : Lemma ((fst (prun flook xapply 20 acf1)).st == PDone fone /\
+           snd (prun flook xapply 20 acf1) == ([] <: list string) /\
+           (fst (prun flook xapply 20 acf1)).store == ([] <: pstore fv fcl) /\
+           (fst (prun flook xapply 20 acf2)).st == PDone fone /\
+           snd (prun flook xapply 20 acf2) == ([] <: list string) /\
+           (fst (prun flook xapply 20 acf2)).store == ([] <: pstore fv fcl))
+  = assert_norm ((fst (prun flook xapply 20 acf1)).st == PDone fone);
+    assert_norm (snd (prun flook xapply 20 acf1) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 20 acf1)).store == ([] <: pstore fv fcl));
+    assert_norm ((fst (prun flook xapply 20 acf2)).st == PDone fone);
+    assert_norm (snd (prun flook xapply 20 acf2) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 20 acf2)).store == ([] <: pstore fv fcl))
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 4: THE DECISION POINT                                    *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **`xapply` PRESERVES THE ADMINISTRATIVE RELATION.** PROVED.
+ *
+ * `xapply` is the interpreter the four counterexamples are taken at: it opens a
+ * scope of its own and APPLIES the continuation it was handed, which is what an
+ * ordinary handler does. It cannot tell two administratively equal continuations
+ * apart, because it never looks at one -- it calls it.
+ *
+ * This is the half of condition 4 that says the relation is not too fine. An
+ * administrative relation that `xapply` broke would be excluding general
+ * higher-order handlers for the laws' convenience.
+ *)
+let guard_adm_xapply_preserved ()
+  : Lemma (padm_apply_pres fcl_rel xapply)
+  = introduce forall (m: weave_mode) (sh: bool) (w: pworld) (c1 c2: fcl)
+                     (p1 p2: list (pval fv)) (kk1 kk2: pval fv -> pcomp fv fcl).
+      (pwf_world w /\ pclrel fcl_rel w c1 c2 /\ pvals_rel w p1 p2 /\
+       padm_fn_at fcl_rel m sh w kk1 kk2 ==>
+       padm_comp fcl_rel m sh w (xapply c1 p1 kk1) (xapply c2 p2 kk2))
+    with (introduce _ ==> _
+          with begin
+            lemma_pwext_refl w;
+            assert (pval_rel #fv w (fpv FU) (fpv FU));
+            assert (padm_comp fcl_rel m sh w (kk1 (fpv FU)) (kk2 (fpv FU)));
+            introduce forall (n: nat). pplan_rel fcl_rel n w xplan xplan
+            with lemma_xplan_selfrel n w;
+            assert (pplrel fcl_rel w xplan xplan)
+          end)
+
+(** Two continuations that differ by exactly one dormant site frame and the
+    marker that answers it -- administratively equal, and of different LENGTH. *)
+let akk1 : pval fv -> pcomp fv fcl
+  = fun x -> PSplice [PSiteF (PVar #fv #fcl); PModeF MExtend (PVar #fv #fcl)] (PVar x)
+let akk2 : pval fv -> pcomp fv fcl
+  = fun x -> PSplice ([] <: pstack fv fcl) (PVar x)
+
+let lemma_akk_padm (w: pworld)
+  : Lemma (padm_fn_at fcl_rel MExtend false w akk1 akk2)
+  = introduce forall (w': pworld) (y1 y2: pval fv).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+         padm_comp fcl_rel MExtend false w' (akk1 y1) (akk2 y2))
+    with (introduce _ ==> _
+          with begin
+            lemma_pcrel_var fcl_rel w' y1 y2;
+            introduce forall (n: nat).
+                padm_stack fcl_rel MExtend false n w'
+                  ([PSiteF (PVar #fv #fcl); PModeF MExtend (PVar #fv #fcl)]
+                   <: pstack fv fcl)
+                  ([] <: pstack fv fcl)
+            with ();
+            assert (padm fcl_rel MExtend false w'
+                     ([PSiteF (PVar #fv #fcl); PModeF MExtend (PVar #fv #fcl)]
+                      <: pstack fv fcl)
+                     ([] <: pstack fv fcl))
+          end)
+
+(**
+ * **`xapply2` IS REFUSED.** PROVED, at every well-formed world and every clause.
+ *
+ * `xapply2` READS THE LENGTH of the segment its continuation would splice back.
+ * Handed two administratively equal continuations it answers `FI 2` and `FI 0`,
+ * and those are not related values at any world.
+ *
+ * This is the half of condition 4 that says the relation is not too coarse. An
+ * administrative relation `xapply2` preserved would be one that had thrown the
+ * frame count away, and the frame count is what the four counterexamples above
+ * are made of.
+ *)
+let guard_adm_xapply2_refused (w: pworld) (c: fcl)
+  : Lemma (requires pwf_world w)
+          (ensures ~(padm_apply_pres fcl_rel xapply2))
+  = lemma_akk_padm w;
+    introduce padm_apply_pres fcl_rel xapply2 ==> False
+    with begin
+      padm_apply_pres_inst fcl_rel xapply2 MExtend false w c c
+        ([] <: list (pval fv)) ([] <: list (pval fv)) akk1 akk2;
+      assert_norm (xapply2 c ([] <: list (pval fv)) akk1 == PVar (PV (FI 2)));
+      assert_norm (xapply2 c ([] <: list (pval fv)) akk2 == PVar (PV (FI 0)));
+      assert (pcrel fcl_rel w (PVar #fv #fcl (PV (FI 2))) (PVar #fv #fcl (PV (FI 0))));
+      assert (pcomp_rel fcl_rel 1 w (PVar #fv #fcl (PV (FI 2)))
+                                    (PVar #fv #fcl (PV (FI 0))))
+    end
+
+(**
+ * **THE DECISION, AS ONE STATEMENT.** PROVED, and stated against
+ * `papply_equivariant` so that the separation is visible.
+ *
+ * BOTH interpreters satisfy the boundary's condition -- `papply_equivariant` is
+ * proved of each above, and neither is weakened. The administrative demand
+ * separates them: `xapply`, which only APPLIES its continuation, meets it;
+ * `xapply2`, which READS THE LENGTH of the segment it was handed, does not.
+ *
+ * So `padm_apply_pres` is STRICTLY STRONGER than `papply_equivariant`, and the
+ * line it draws is exactly the line between calling a continuation and
+ * inspecting one. The granularity is right in both directions: an
+ * administrative relation `xapply` broke would be too fine (it would exclude
+ * ordinary higher-order handlers), and one `xapply2` preserved would be too
+ * coarse (it would have thrown away the frame count the four counterexamples
+ * are made of).
+ *)
+let guard_adm_condition_4 (w: pworld) (c: fcl)
+  : Lemma (requires pwf_world w)
+          (ensures papply_equivariant fcl_rel xapply /\
+                   padm_apply_pres fcl_rel xapply /\
+                   papply_equivariant fcl_rel xapply2 /\
+                   ~(padm_apply_pres fcl_rel xapply2))
+  = lemma_xapply_equivariant ();
+    lemma_xapply2_equivariant ();
+    guard_adm_xapply_preserved ();
+    guard_adm_xapply2_refused w c
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 5: A SMALL POSITIVE INSTANCE OF `pbind` ASSOCIATIVITY    *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE TWO BRACKETINGS PUT ADMINISTRATIVELY EQUAL STACKS UP.** PROVED, at
+ * `f = g = PVar` over the empty ambient stack.
+ *
+ * `pbind (pbind c f) g` takes TWO transitions to reach `c` under
+ * `PBindF f :: PBindF g`; `pbind c (fun x -> pbind (f x) g)` takes ONE to reach
+ * `c` under a single bind frame carrying the composition. `pframes_rel` refuses
+ * the two stacks on LENGTH -- which is `guard_align_bracketing`'s obstruction
+ * seen from the stack rather than from the responder -- and the administrative
+ * relation matches them, because a value takes both to the same configuration.
+ *)
+let guard_adm_pbind_assoc_small (#v #cl: Type) (r: pcl_rel_t cl) (m: weave_mode)
+    (sh: bool) (w: pworld)
+  : Lemma (padm r m sh w
+             ([PBindF (PVar #v #cl); PBindF (PVar #v #cl)] <: pstack v cl)
+             ([PBindF (fun (x: pval v) -> pbind (PVar #v #cl x) (PVar #v #cl))]
+              <: pstack v cl))
+  = introduce forall (n: nat).
+        padm_stack r m sh n w
+          ([PBindF (PVar #v #cl); PBindF (PVar #v #cl)] <: pstack v cl)
+          ([PBindF (fun (x: pval v) -> pbind (PVar #v #cl x) (PVar #v #cl))]
+           <: pstack v cl)
+    with (if n = 0 then ()
+          else begin
+            introduce forall (w': pworld) (y1 y2: pval v).
+                (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                 pcomp_rel r n w' (pbind (PVar #v #cl y1) (PVar #v #cl))
+                                  (pbind (PVar #v #cl y2) (PVar #v #cl)))
+            with (introduce _ ==> _
+                  with begin
+                    lemma_pcrel_var r w' y1 y2;
+                    lemma_pfn_rel_at_pvar #v #cl r w';
+                    lemma_pcrel_pbind r w' (PVar y1) (PVar y2)
+                                      (PVar #v #cl) (PVar #v #cl);
+                    assert (pcrel r w' (pbind (PVar #v #cl y1) (PVar #v #cl))
+                                       (pbind (PVar #v #cl y2) (PVar #v #cl)))
+                  end);
+            assert (pframe_rel r n w
+                      (PBindF (fun (x: pval v) -> pbind (PVar #v #cl x) (PVar #v #cl)))
+                      (PBindF (fun (x: pval v) -> pbind (PVar #v #cl x) (PVar #v #cl))));
+            assert (padm_stack r m sh n w ([] <: pstack v cl) ([] <: pstack v cl))
+          end)
+
+(** And the two stacks the two bracketings actually put up are NOT `pkrel`
+    related, at any world -- so the clause above is doing work and is not a
+    restatement of something `pframes_rel` already had. PROVED, on length. *)
+let guard_adm_assoc_not_pkrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (f g h: pval v -> pcomp v cl)
+  : Lemma (~(pkrel r w ([PBindF f; PBindF g] <: pstack v cl)
+                       ([PBindF h] <: pstack v cl)))
+  = introduce pkrel r w ([PBindF f; PBindF g] <: pstack v cl)
+                        ([PBindF h] <: pstack v cl) ==> False
+    with lemma_pkrel_length r w ([PBindF f; PBindF g] <: pstack v cl)
+                                ([PBindF h] <: pstack v cl)
+
+(* ================================================================== *)
+(*  B2b.4 LEDGER                                                       *)
+(*                                                                     *)
+(*  CONDITION 4 FIRST, BECAUSE IT IS THE DECISION POINT.                *)
+(*                                                                     *)
+(*   - `xapply` IS PRESERVED (`guard_adm_xapply_preserved`) and        *)
+(*     `xapply2` IS REFUSED (`guard_adm_xapply2_refused`), both        *)
+(*     PROVED, and the pair is `guard_adm_condition_4`, which states   *)
+(*     it against `papply_equivariant`: BOTH interpreters satisfy the  *)
+(*     boundary's condition, and only one satisfies the               *)
+(*     administrative one.  So `padm_apply_pres` is STRICTLY STRONGER  *)
+(*     than `papply_equivariant` and the line it draws is exactly the  *)
+(*     line between CALLING a continuation and INSPECTING one.         *)
+(*                                                                     *)
+(*     The granularity is therefore the one the question asked for:    *)
+(*     coarse enough that an interpreter which only APPLIES its        *)
+(*     continuation cannot see the difference, fine enough that one    *)
+(*     which READS THE LENGTH of the segment it was handed can.        *)
+(*     Neither outcome was engineered: `xapply` is preserved because   *)
+(*     it never inspects the continuation, and `xapply2` is refused    *)
+(*     because the erased site frame and its marker are two frames     *)
+(*     and `xklen` counts them.                                        *)
+(*                                                                     *)
+(*  CONDITION 1: MET.  `padm_stack` is a total `GTot prop`, indexed    *)
+(*  by the mode and by the marker regime.  The two modes do NOT        *)
+(*  collapse (`guard_adm_modes_differ`, `guard_adm_resume_is_bind`):   *)
+(*  one left stack is related to the EMPTY stack at `MExtend` and to   *)
+(*  `[PBindF PVar]` at `MResume`, and to neither at the other mode.    *)
+(*                                                                     *)
+(*  CONDITION 2: MET FOR TWO OF THE FOUR, AND THE OTHER TWO ARE        *)
+(*  REFUSED FOR A REASON.                                              *)
+(*                                                                     *)
+(*   - `guard_align_marker_vs_enter`'s two stacks: RELATED, at every   *)
+(*     plan, responder and ambient stack (`lemma_padm_marker_vs_       *)
+(*     enter`);                                                         *)
+(*   - `guard_align_marker_vs_resume`'s: RELATED, likewise             *)
+(*     (`lemma_padm_marker_vs_resume`); and `guard_adm_strictly_`      *)
+(*     `coarser` puts the two facts beside the two REFUSALS the redux  *)
+(*     proved of the very same pairs, which is what makes this a       *)
+(*     middle layer rather than a second name for `pkrel`;             *)
+(*   - `guard_align_produce_vs_enter`'s and `..._bind2`'s: REFUSED,    *)
+(*     at EVERY mode, in BOTH regimes, and against ANY right-hand      *)
+(*     side (`guard_adm_refuses_produce_vs_enter`).  The reason is     *)
+(*     `PScopeF`: production installs a floor, the floor stops the     *)
+(*     mode search, and a `PSiteF` with no marker in scope neither     *)
+(*     vanishes nor fires -- IT YIELDS.  Relating those two stacks     *)
+(*     would be unsound for `pnobs`, and `xapply` is the witness       *)
+(*     (`guard_nom_b2b3_verdict`).  So the produce/enter mismatch is   *)
+(*     NOT administrative.  That is a finding about the laws' shape,   *)
+(*     not a gap in the relation: right identity and transparency      *)
+(*     will not be recovered by a middle layer at the stack level.     *)
+(*                                                                     *)
+(*  CONDITION 3: MET IN THREE PIECES, AND THE GENERAL OBSERVATIONAL    *)
+(*  STATEMENT IS NOT ATTEMPTED -- it is the next gate's.                *)
+(*                                                                     *)
+(*   - the `MExtend` administrative step is SILENT and the relation    *)
+(*     survives it, at every stack, store and counter                  *)
+(*     (`lemma_padm_step_site_extend`);                                *)
+(*   - the `MResume` step is silent on BOTH sides and lands on         *)
+(*     `pcrel`-related computations (`lemma_padm_step_site_resume`);   *)
+(*   - a shared marker is found on both sides with related responders  *)
+(*     (`lemma_padm_shared_marker`), which is what makes a             *)
+(*     `PBoundaryF` inside a residual behave alike on the two sides;   *)
+(*   - and ONE observational instance is RUN: two residuals differing  *)
+(*     by exactly one dormant site frame, driven by one consumer in    *)
+(*     one mode, give the SAME TRACE (empty), EQUAL VALUES (`fone`)    *)
+(*     and EQUAL STORES (empty) (`guard_adm_residuals_related`,        *)
+(*     `guard_adm_consume_same_mode`).                                 *)
+(*                                                                     *)
+(*  Nothing in condition 3 relates two residuals consumed in           *)
+(*  DIFFERENT modes, and the relation could not state it: the mode is  *)
+(*  an index on the relation and both sides read the same one.        *)
+(*                                                                     *)
+(*  CONDITION 5: MET, AT ONE INSTANCE.  `guard_adm_pbind_assoc_small`  *)
+(*  relates `[PBindF PVar; PBindF PVar]` to the single bind frame      *)
+(*  carrying their composition, and `guard_adm_assoc_not_pkrel`        *)
+(*  checks that `pkrel` refuses the same pair on LENGTH -- so the      *)
+(*  two-bind clause is not a restatement of something already there.   *)
+(*  What is NOT established is that the clause suffices for the        *)
+(*  algebraic half: `guard_align_bracketing` refutes at the level of   *)
+(*  the marker's RESPONDER, and absorbing that would need the same     *)
+(*  re-bracketing inside `pframe_rel`, which is not done here.         *)
+(*                                                                     *)
+(*  WHAT WAS NOT DONE, AND IS NAMED                                    *)
+(*                                                                     *)
+(*   - NO law is attempted, wholly or partly;                          *)
+(*   - `padm` is NOT proved sound for `pnobs_tr_eq`.  Three of its     *)
+(*     ingredients are proved -- the two silent-step lemmas and the    *)
+(*     shared-marker lemma -- and one instance is run, and that is     *)
+(*     all;                                                            *)
+(*   - and the ingredient NOT even stated is the one a soundness       *)
+(*     proof will have to face first: `PPerform` dispatches by         *)
+(*     `pfind_prompt`, which CAPTURES THE SEGMENT above the matching   *)
+(*     prompt, and two `padm`-related stacks hand DIFFERENT segments   *)
+(*     to the clause -- related administratively, but not equal, and   *)
+(*     not of equal length.  Whether `padm` is preserved across a      *)
+(*     dispatch is exactly what `padm_apply_pres` was written to ask,  *)
+(*     and condition 4 answers it only for the two interpreters this   *)
+(*     file has.  Nothing here shows `pfind_prompt` itself respects    *)
+(*     the relation, and `pfind_param`, `pcut_scope` and               *)
+(*     `pset_param`, which also walk the stack, are equally untouched; *)
+(*   - `pcrel`, `pframes_rel`, `pnobs_tr_le` and every definition of   *)
+(*     B2b.3 and earlier are UNTOUCHED.  `padm_stack` is built out of  *)
+(*     `pframe_rel` and `pframes_rel`, so it inherits rather than      *)
+(*     replaces;                                                       *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
+(* ================================================================== *)

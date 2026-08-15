@@ -4024,6 +4024,97 @@ hidden as unreachable.
 is too fine and it is excluding general higher-order handlers for the laws'
 convenience. If `xapply2` passes, the relation is too coarse.
 
+#### B2b.3a, run: the relation discriminates on both sides
+
+977 lines, **all appended**, with no existing line removed or changed, and
+still with zero `z3rlimit`. No stop condition fired.
+
+**Condition 4 came out in the intended direction, and neither half was
+arranged.**
+
+```fstar
+guard_adm_condition_4 w c
+  : Lemma (requires pwf_world w)
+          (ensures papply_equivariant fcl_rel xapply  /\ padm_apply_pres fcl_rel xapply /\
+                   papply_equivariant fcl_rel xapply2 /\ ~(padm_apply_pres fcl_rel xapply2))
+```
+
+Both interpreters satisfy `papply_equivariant`; only one satisfies the
+administrative demand. **The line the relation draws is exactly the line between
+*calling* a continuation and *inspecting* one** — `xapply`, which builds one
+`PEnterCtx` and applies the continuation it was handed, survives; `xapply2`,
+which reads the length of the segment, does not. Turning the refusal into a
+positive claim fails, so it is a real refusal.
+
+So the relation is discriminating on **both** sides — it accepts an ordinary
+higher-order handler, refuses one that observes the internal representation,
+judges marker/enter and marker/resume administrative, and refuses produce/enter
+as a genuine difference in meaning. `guard_adm_strictly_coarser` proves both
+halves of that on the *same* pair — related by `padm`, refused by `pkrel` —
+so the middle layer is not a second name for the lockstep relation.
+
+*The erasures are earned, not assumed.* A `PSiteF` is erased only under the side
+condition `padm_marked m t1` — only where the machine's own value rule says it
+is `PBindF`-or-nothing. A `PModeF` is deleted only in the `sh = false` regime,
+where the relation has **structurally forbidden** the two frames that could
+reach the responder.
+
+#### The finding: produce/enter is not administrative
+
+Two of the four mismatches are related at every plan, responder and ambient
+stack. The other two are **refused**, at every mode, in both marker regimes, and
+against *any* right-hand side. Stated at exactly the strength proved:
+
+> Under the current production protocol and scope-floor semantics, the
+> produce/enter pair is not an administrative discrepancy: the floor prevents the
+> retained `PSiteF` from reaching a mode marker, so it can yield a context that
+> direct entry does not. Therefore the current right-identity and transparency
+> statements cannot be recovered merely by inserting a stack-level administrative
+> relation.
+
+This is **not** "right identity and transparency are impossible". It is that
+they are unrecoverable while all three of these hold together: the current
+production protocol, the rule that a search stops at a `PScopeF`, and the
+current statement of the laws. The way forward is therefore not a stronger
+middle relation but one of:
+
+1. change the production protocol;
+2. change the statements of right identity and transparency;
+3. stop asking these two of a general context, and make them laws under a
+   narrower condition.
+
+What this gate has correctly removed is the option of pushing through with a
+simple erasure.
+
+#### `padm_apply_pres` is a candidate boundary condition, not an adopted one
+
+What is proved is that the necessary discriminating power **exists**, is **not
+vacuous**, and separates `xapply` from `xapply2` as intended. It can be taken
+into the boundary record only once it is shown to be preserved by the stack
+searches and updates and by the machine's transitions as a whole.
+
+*The obstacle that will be met first*, and the port named it itself:
+`PPerform` dispatches through `pfind_prompt`, which **captures the segment**
+above the matching prompt — so two `padm`-related stacks hand the clause
+**different** segments, administratively related but neither equal nor of equal
+length. Whether `padm` survives a dispatch is what `padm_apply_pres` asks, and
+condition 4 answers it only for this file's two interpreters. `pfind_prompt` is
+not shown to respect the relation, and `pfind_param`, `pcut_scope` and
+`pset_param` are untouched.
+
+#### How the laws now divide, going into B2b.4
+
+| law | prospect |
+|---|---|
+| left identity, resumption, anchored associativity | separated by a **marker** — candidates for recovery by the administrative relation |
+| algebraic associativity | separated by a **re-bracketing of the responder** — needs a relation absorbing the monad laws of computations, which this gate did not build |
+| right identity, transparency | compare **produce against enter** — not candidates under the current statements; back to a design decision |
+
+**This is not stagnation.** The missing middle layer turned out to be real, and
+the boundary between differences that may be hidden and differences that may not
+is now drawn formally rather than by intuition. The open set is strictly smaller
+than it was.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
@@ -4129,8 +4220,10 @@ The order, revised after B2b:
 | ~~B2b.1~~ | ~~nominal observation relation and boundary discipline~~ — **done**: the former counterexamples repaired at concrete configurations |
 | ~~B2b.2~~ | ~~the nominal fundamental theorem~~ — **done**: transition and finite-run compatibility, and `pcrel` ⟹ `pnobs_tr_le`, all universally quantified |
 | ~~B2b redux~~ | ~~the five laws, re-proved using B2b.2~~ — **refuted again**: the laws are stated across two projections of one plan |
-| B2b.3 | a mode-indexed administrative equivalence, and its observational soundness — the missing middle layer |
-| B2b.4 | the five laws, over the administrative relation |
+| ~~B2b.3a~~ | ~~the administrative relation: granularity and reach~~ — **done**: discriminating on both sides; produce/enter is a real difference |
+| B2b.3b | its soundness — `pfind_prompt`, `pfind_param`, `pcut_scope`, `pset_param`, dispatch, finite runs, and `pnobs_tr_eq` |
+| B2b.4 | the laws that remain candidates, over the administrative relation |
+| — | a design decision on right identity and transparency: production protocol, statement, or narrower condition |
 | B3 | equivalence with the fast borrow; simulation with the optimised machine; a shipping store; and the shipping interpreter proved to meet the boundary discipline |
 
 The trace step sits between B2a and B2b deliberately, and is not optional
