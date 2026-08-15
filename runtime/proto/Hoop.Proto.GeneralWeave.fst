@@ -6313,6 +6313,26 @@ let papply_equivariant (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
  * observation corollary derived from it both need them, so both live in the
  * record rather than travelling as loose hypotheses that a future use site
  * could forget.
+ *
+ * **B2b.7 ADDS `b_apply_wb`, AND FOR EXACTLY THE REASON `b_down` IS HERE.**
+ * `b_apply_eq` says the interpreter respects the clause RELATION; `b_apply_wb`
+ * says it respects the machine INVARIANT -- a clause handed a judged
+ * continuation builds a judged computation (`papply_wb`, B2a strand 2). The
+ * restricted observation `pnobs_tr_le_wf` of B2b.7 has WELL-FORMED
+ * configurations as its domain, and the only way to know that a configuration
+ * in that domain STAYS in it as the machine runs is
+ * `lemma_prun_conf_ok`, whose one hypothesis is `papply_wb`. It is an
+ * admissibility condition the theory needs from a boundary, so it belongs in
+ * the record and not in a loose hypothesis a caller could forget -- the
+ * discipline `b_down` was given. `lemma_pnobs_dom_prun` is the use.
+ *
+ * **It is NOT derivable from `b_apply_eq`, and that is PROVED rather than
+ * argued**: `guard_apply_wb_independent_of_apply_eq`, at the end of B2b.7,
+ * exhibits an interpreter that splices a frame list of its own -- one bare
+ * boundary with nothing beneath it to answer -- and shows it is equivariant
+ * and is not `papply_wb`. Equivariance is a statement about two runs of the
+ * same interpreter and cannot see a frame shape. The two conditions are about
+ * different things, which is why both are carried.
  *)
 noeq
 type pboundary (v: Type) (cl: Type) = {
@@ -6323,6 +6343,7 @@ type pboundary (v: Type) (cl: Type) = {
   b_down: squash (pcl_down b_rel);
   b_lookup: squash (plookup_equivariant b_rel b_lk);
   b_apply_eq: squash (papply_equivariant b_rel b_apply);
+  b_apply_wb: squash (papply_wb b_apply);
 }
 
 (**
@@ -13002,6 +13023,29 @@ let lemma_napply_equivariant () : Lemma (papply_equivariant ncl_rel napply)
 #pop-options
 
 (**
+ * **AND IT PRESERVES THE MACHINE INVARIANT.** PROVED, and by cases on the
+ * clause: `NEcho` and `NResume` APPLY the continuation they were handed, which
+ * is judged by hypothesis; `NRet` returns a captured value, and a `PVar` is
+ * judged unconditionally. No clause of `napply` builds a `PSplice`, which is
+ * the only node `pterm_wb` constrains -- so the record's `b_apply_wb` costs a
+ * three-line case split, exactly as `guard_fapply_wb` did at `fcl`.
+ *)
+let lemma_napply_wb_at (c: ncl) (payload: list (pval fv)) (k: pval fv -> pcomp fv ncl)
+  : Lemma (requires forall (x: pval fv). pterm_wb (k x))
+          (ensures pterm_wb (napply c payload k))
+  = match c with
+    | NEcho -> (match payload with | x :: _ -> () | [] -> ())
+    | NRet cap -> lemma_wb_trivial (PVar cap <: pcomp fv ncl)
+    | NResume cap -> ()
+
+let lemma_napply_wb () : Lemma (papply_wb napply)
+  = introduce forall (c: ncl) (payload: list (pval fv)) (k: (pval fv -> pcomp fv ncl)).
+      (forall (x: pval fv). pterm_wb (k x)) ==> pterm_wb (napply c payload k)
+    with (introduce (forall (x: pval fv). pterm_wb (k x))
+                    ==> pterm_wb (napply c payload k)
+          with lemma_napply_wb_at c payload k)
+
+(**
  * **THE BOUNDARY RECORD, INHABITED.** `ncl_rel` is the data; the three
  * `squash`es are the properties of it. Nothing is admitted or assumed: each
  * field is a lemma with a body.
@@ -13014,6 +13058,7 @@ let nboundary : pboundary fv ncl = {
   b_down = lemma_ncl_rel_down ();
   b_lookup = lemma_pref_lookup_equivariant ncl_rel;
   b_apply_eq = lemma_napply_equivariant ();
+  b_apply_wb = lemma_napply_wb ();
 }
 
 (* ---- and the record is non-vacuous in the way that matters --------- *)
@@ -15086,7 +15131,17 @@ let lemma_xapply_equivariant () : Lemma (papply_equivariant fcl_rel xapply)
                                                             (kk2 (fpv FU)))))
           end)
 
-(** The boundary this counterexample stands at. Every one of the four conditions
+(** **AND IT PRESERVES THE MACHINE INVARIANT.** PROVED. `xapply` builds a
+    `PEnterCtx`, and `pterm_wb` asks nothing of one -- the interpreter never
+    splices a frame list of its own, which is the only thing the judgement
+    constrains. *)
+let lemma_xapply_wb () : Lemma (papply_wb xapply)
+  = introduce forall (c: fcl) (payload: list (pval fv)) (kk: (pval fv -> pcomp fv fcl)).
+      (forall (x: pval fv). pterm_wb (kk x)) ==> pterm_wb (xapply c payload kk)
+    with (introduce _ ==> _
+          with lemma_wb_trivial (PEnterCtx xplan (kk (fpv FU)) <: pcomp fv fcl))
+
+(** The boundary this counterexample stands at. Every one of the five conditions
     is discharged; none of them is weakened. *)
 let xboundary : pboundary fv fcl = {
   b_rel = fcl_rel;
@@ -15096,6 +15151,7 @@ let xboundary : pboundary fv fcl = {
   b_down = lemma_fcl_rel_down ();
   b_lookup = lemma_flook_equivariant ();
   b_apply_eq = lemma_xapply_equivariant ();
+  b_apply_wb = lemma_xapply_wb ();
 }
 
 (** The extension: perform the effect the layer prompt binds. *)
@@ -15583,6 +15639,18 @@ let lemma_xapply2_equivariant () : Lemma (papply_equivariant fcl_rel xapply2)
                                       (PV (FI (xklen (kk2 (fpv FU)))))
           end)
 
+(** **THE MEASURING INTERPRETER PRESERVES THE MACHINE INVARIANT TOO.** PROVED,
+    and worth a sentence: reading the length of the segment it was handed is a
+    stronger CAPABILITY than the other interpreter has, and it is still not the
+    capability `papply_wb` rules out. What the judgement forbids is BUILDING a
+    `PSplice` of one's own; `xapply2` builds a `PVar` carrying a number. *)
+let lemma_xapply2_wb () : Lemma (papply_wb xapply2)
+  = introduce forall (c: fcl) (payload: list (pval fv)) (kk: (pval fv -> pcomp fv fcl)).
+      (forall (x: pval fv). pterm_wb (kk x)) ==> pterm_wb (xapply2 c payload kk)
+    with (introduce _ ==> _
+          with lemma_wb_trivial
+                 (PVar (PV (FI (xklen (kk (fpv FU))))) <: pcomp fv fcl))
+
 let x2boundary : pboundary fv fcl = {
   b_rel = fcl_rel;
   b_lk = flook;
@@ -15591,6 +15659,7 @@ let x2boundary : pboundary fv fcl = {
   b_down = lemma_fcl_rel_down ();
   b_lookup = lemma_flook_equivariant ();
   b_apply_eq = lemma_xapply2_equivariant ();
+  b_apply_wb = lemma_xapply2_wb ();
 }
 
 (** A stored context whose `post` PERFORMS. Nothing about it is exotic: the two
@@ -17495,6 +17564,8 @@ let guard_ri_ext_midpoint_no_world_nonvacuous ()
 (*     UNTOUCHED.  B2b.5 appends;                                       *)
 (*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
 (*  B2b.6 -- ADJUDICATION GATE: THE AMBIENT-FLOOR CANDIDATE            *)
 (*                                                                     *)
 (*  Everything below is ADDITIVE.  `pcrel`, `padm_stack`,              *)
@@ -17988,4 +18059,1028 @@ let guard_cand_domain_gap ()
 (*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
 (* ================================================================== *)
 
+(* ================================================================== *)
+(*  B2b.7 -- THE DOMAIN GATE                                           *)
+(*                                                                     *)
+(*  B2b.6 left one gap NAMED rather than closed.  `pnobs_tr_le`        *)
+(*  quantifies over every EQUIVARIANT ambient stack and store and      *)
+(*  demands `psfresh` of the store -- but NOT `pstore_resid_wf`.  So   *)
+(*  it ranges over initial stores the machine could never have built,  *)
+(*  and `guard_cand_domain_gap` exhibits one.  The cost showed up at   *)
+(*  once: a refutation candidate had to be excluded BY HAND, with four *)
+(*  separate arguments, because the relation admitted a configuration  *)
+(*  the machine cannot construct.                                      *)
+(*                                                                     *)
+(*  THE DOMAIN CHOSEN, AND WHY THAT ONE.  Three were compared:         *)
+(*                                                                     *)
+(*    - EVERY equivariant configuration -- what `pnobs_tr_le` has.     *)
+(*      The gap is exactly this;                                       *)
+(*    - REACHABLE configurations only -- more ACCURATE, and too heavy  *)
+(*      to be the domain of a law: "reachable" depends on the program, *)
+(*      on the interpreter and on the execution history, so it is not  *)
+(*      a predicate one can check of a configuration in hand, and it   *)
+(*      is not preserved by anything statable locally;                 *)
+(*    - WELL-FORMED equivariant configurations -- `pconf_ok`.  It      *)
+(*      is CLOSED under the machine, so it contains every              *)
+(*      configuration reachable from one of its own                    *)
+(*      (`lemma_prun_conf_ok`, and `lemma_pnobs_dom_prun` at the       *)
+(*      domain); it EXCLUDES the junk that breaks a machine invariant  *)
+(*      (`guard_nobs_dom_excludes_the_gap`); and it is LOCAL -- a      *)
+(*      predicate of the configuration in hand and of nothing else --  *)
+(*      so it survives induction and composition.  This is the choice. *)
+(*                                                                     *)
+(*      That "reachable configurations only" is too heavy to be the    *)
+(*      domain of a law is STATED here, not proved: no formalisation   *)
+(*      of reachability is attempted in this file, which is itself     *)
+(*      part of the point.                                             *)
+(*                                                                     *)
+(*  THE RESTRICTED RELATION IS ADDED BESIDE `pnobs_tr_le`, NOT IN      *)
+(*  PLACE OF IT, so that what the restriction costs and buys is        *)
+(*  PROVABLE rather than asserted -- the reason `equivariant_fn` was   *)
+(*  kept beside `equivariant_fn_at`.  `lemma_pnobs_tr_le_wf_of_le` is  *)
+(*  the containment; `guard_nobs_dom_excludes_the_gap` is the          *)
+(*  configuration the restriction drops; and the six refutations are   *)
+(*  RE-RUN at the restricted relation rather than inherited, because   *)
+(*  a narrower domain makes a universally quantified statement EASIER  *)
+(*  and a refutation could otherwise go vacuous unnoticed.             *)
+(*                                                                     *)
+(*  `pnobs_tr_le`, `pnobs_tr_eq`, `pcrel`, the five `law_*_nom` and    *)
+(*  every definition of B2b.6 and earlier are UNTOUCHED.  The ONE      *)
+(*  in-place change in the file is `pboundary`'s new field             *)
+(*  `b_apply_wb`, which all three constructions supply.                *)
+(*                                                                     *)
+(*  NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.          *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  THE DOMAIN                                                         *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE DOMAIN OF THE RESTRICTED OBSERVATION.**
+ *
+ * The first three conjuncts are `pnobs_tr_le`'s own hypotheses, VERBATIM: the
+ * ambient stack is equivariant at the store's anchor, the store is equivariant
+ * at its own anchor, and the counter is fresh for the store. The fourth is what
+ * B2b.6 found missing.
+ *
+ * `pconf_ok` is the machine invariant of B2a, and taking it whole rather than
+ * taking only its `pstore_resid_wf` conjunct is deliberate. It is the predicate
+ * that `pload` establishes (`lemma_pload_ok`), that every transition preserves
+ * (`lemma_pstep_conf_ok`), and that every run preserves
+ * (`lemma_prun_conf_ok`) -- so the domain is closed under exactly the operation
+ * the observation performs, and each of its three conjuncts is discharged by a
+ * lemma that already exists. Restricting to `pstore_resid_wf` alone would close
+ * the gap B2b.6 exhibited and leave the stack layer ranging over stacks with a
+ * stranded boundary, which is the same defect one layer up.
+ *
+ * **It is stated of ONE side.** The relation below asks it of BOTH, and that is
+ * where it belongs: a law relates two computations at one context, and each has
+ * its own control component.
+ *)
+let pnobs_dom (#v #cl: Type) (b: pboundary v cl)
+              (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : GTot prop
+  = pequivariant_k_at b.b_rel (panchor sto) k /\
+    pstore_equivariant_at b.b_rel sto /\
+    psfresh sto n0 /\
+    pconf_ok ({ st = PStep c k; store = sto; next = n0 })
+
+(** A `GTot prop` applied in HYPOTHESIS position is an atom to the SMT encoding.
+    This cast puts the body in the context; it has no proof obligation at all
+    and goes through by conversion. *)
+let pnobs_dom_unfold (#v #cl: Type) (b: pboundary v cl)
+                     (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (h: squash (pnobs_dom b c k sto n0))
+  : squash (pequivariant_k_at b.b_rel (panchor sto) k /\
+            pstore_equivariant_at b.b_rel sto /\
+            psfresh sto n0 /\
+            pconf_ok ({ st = PStep c k; store = sto; next = n0 }))
+  = h
+
+(** The other direction, so that a guard can BUILD a domain membership out of
+    the pieces it has. By conversion as well. *)
+let pnobs_dom_fold (#v #cl: Type) (b: pboundary v cl)
+                   (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                   (h: squash (pequivariant_k_at b.b_rel (panchor sto) k /\
+                               pstore_equivariant_at b.b_rel sto /\
+                               psfresh sto n0 /\
+                               pconf_ok ({ st = PStep c k; store = sto; next = n0 })))
+  : squash (pnobs_dom b c k sto n0)
+  = h
+
+(**
+ * **THE RESTRICTED NOMINAL OBSERVATION.**
+ *
+ * Read it against `pnobs_tr_le`, which it differs from in ONE place and nowhere
+ * else: the three hypotheses on `(k, sto, n0)` are replaced by `pnobs_dom` at
+ * BOTH computations. Everything else -- the shared initial configuration, the
+ * exact trace equality, the anchored world, the partial bijection, the
+ * store correspondence on the world's domain only, the two independently
+ * existential step counts -- is copied unchanged.
+ *
+ * `guard_nom_trace_not_weakened_wf` re-checks the trace, because that is the
+ * one thing about the definition that has to be checkable rather than argued.
+ *)
+let pnobs_tr_le_wf (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+           (tr: list string) (x1: pval v) (s1': pstore v cl).
+      (pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+       pnconverges b.b_lk b.b_apply
+                   ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+      (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+         pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+
+let pnobs_tr_eq_wf (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+  : GTot prop
+  = pnobs_tr_le_wf b c1 c2 /\ pnobs_tr_le_wf b c2 c1
+
+let pnobs_tr_le_wf_unfold (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+                          (h: squash (pnobs_tr_le_wf b c1 c2))
+  : squash (forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                   (tr: list string) (x1: pval v) (s1': pstore v cl).
+              (pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+               pnconverges b.b_lk b.b_apply
+                           ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+              (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                 pnconverges b.b_lk b.b_apply
+                             ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+                 pwf_world w /\ pwext w (panchor sto) /\
+                 pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = h
+
+(**
+ * **THE TRACE IS STILL NOT WEAKENED.** PROVED, by the same argument as
+ * `guard_nom_trace_not_weakened`: the trace the antecedent's convergence
+ * carries is the SAME one the consequent's must carry, and the right run's
+ * convergence is unique. Narrowing the domain moved nothing here.
+ *)
+let guard_nom_trace_not_weakened_wf (#v #cl: Type) (b: pboundary v cl)
+    (c1 c2: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr1 tr2: list string) (x1 x2: pval v) (s1' s2': pstore v cl)
+  : Lemma (requires pnobs_tr_le_wf b c1 c2 /\
+                    pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c1 k; store = sto; next = n0 })
+                                tr1 x1 s1' /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr2 x2 s2')
+          (ensures tr1 == tr2)
+  = pnobs_tr_le_wf_unfold b c1 c2 ();
+    eliminate exists (y2: pval v) (t2: pstore v cl) (w: pworld).
+        (pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr1 y2 t2 /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 y2 /\ psrel b.b_rel w s1' t2)
+    with
+      lemma_pnconverges_unique b.b_lk b.b_apply
+        ({ st = PStep c2 k; store = sto; next = n0 }) tr1 tr2 y2 x2 t2 s2'
+
+(* ------------------------------------------------------------------ *)
+(*  WHAT THE RESTRICTION COSTS AND WHAT IT BUYS, BOTH PROVED           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE RESTRICTION ONLY WEAKENS: `pnobs_tr_le` IMPLIES `pnobs_tr_le_wf`.**
+ * PROVED. Every configuration the restricted relation speaks about is one the
+ * unrestricted relation already spoke about, so nothing that HELD is lost.
+ *
+ * This is the direction that makes every positive result transfer for free, and
+ * it is also the direction that makes a REFUTATION not transfer -- which is why
+ * the six below are re-run rather than inherited.
+ *)
+let lemma_pnobs_tr_le_wf_of_le (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_le b c1 c2) (ensures pnobs_tr_le_wf b c1 c2)
+  = pnobs_tr_le_unfold b c1 c2 ();
+    introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (tr: list string) (x1: pval v) (s1': pstore v cl).
+        ((pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+          pnconverges b.b_lk b.b_apply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+         (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+            pnconverges b.b_lk b.b_apply
+                        ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+            pwf_world w /\ pwext w (panchor sto) /\
+            pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+    with
+      (introduce (pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                  pnconverges b.b_lk b.b_apply
+                              ({ st = PStep c1 k; store = sto; next = n0 })
+                              tr x1 s1')
+                 ==>
+                 (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr x2 s2' /\
+                    pwf_world w /\ pwext w (panchor sto) /\
+                    pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+       with pnobs_dom_unfold b c1 k sto n0 ())
+
+let lemma_pnobs_tr_eq_wf_of_eq (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_eq b c1 c2) (ensures pnobs_tr_eq_wf b c1 c2)
+  = lemma_pnobs_tr_le_wf_of_le b c1 c2;
+    lemma_pnobs_tr_le_wf_of_le b c2 c1
+
+(**
+ * **AND THE CONFIGURATION B2b.6 EXHIBITED IS OUTSIDE IT.** PROVED, and this is
+ * the gap closed rather than described: `qcand_sto_l` and `qcand_sto_r` are
+ * `psfresh` at 1 -- so `pnobs_tr_le` accepts them as initial stores -- and
+ * `pnobs_dom` refuses them, AT EVERY boundary, EVERY control computation,
+ * EVERY ambient stack and EVERY counter, because `pstore_resid_wf` is false of
+ * them and `pconf_ok` reads it off the store alone.
+ *
+ * That is the whole of the repair the candidate needed. B2b.6 excluded it with
+ * four separate arguments; `guard_nobs_dom_kills_the_candidate` below excludes
+ * it in one line, from the domain.
+ *)
+let guard_nobs_dom_excludes_the_gap
+    (b: pboundary fv fcl) (c: pcomp fv fcl) (k: pstack fv fcl) (n0: nat)
+  : Lemma (psfresh qcand_sto_l 1 /\ psfresh qcand_sto_r 1 /\
+           ~(pnobs_dom b c k qcand_sto_l n0) /\
+           ~(pnobs_dom b c k qcand_sto_r n0))
+  = guard_cand_domain_gap ();
+    introduce pnobs_dom b c k qcand_sto_l n0 ==> False
+    with (pnobs_dom_unfold b c k qcand_sto_l n0 ());
+    introduce pnobs_dom b c k qcand_sto_r n0 ==> False
+    with (pnobs_dom_unfold b c k qcand_sto_r n0 ())
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 1 -- THE TARGET PROGRAMS, STARTED FROM `pload`, ARE IN THE   *)
+(*  DOMAIN                                                             *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **A PROGRAM SATISFYING THE INITIAL-TERM CONDITION IS IN THE DOMAIN AT THE
+ * CONFIGURATION `pload` BUILDS.** PROVED, at EVERY boundary, from `pterm_wb`
+ * and nothing else.
+ *
+ * The empty stack is equivariant at every world (`lemma_pkrel_nil`), the empty
+ * store is equivariant vacuously, zero is fresh for it, and `lemma_pload_ok` is
+ * the fourth conjunct. So the restriction excludes no program the machine can
+ * be started on: `pnobs_tr_le_wf` is a statement ABOUT the programs B2a admits.
+ *)
+let lemma_pnobs_dom_of_pload (#v #cl: Type) (b: pboundary v cl) (c: pcomp v cl)
+  : Lemma (requires pterm_wb c)
+          (ensures pnobs_dom b c ([] <: pstack v cl) ([] <: pstore v cl) 0)
+  = lemma_pload_ok c;
+    assert (pload c == ({ st = PStep c ([] <: pstack v cl);
+                          store = ([] <: pstore v cl); next = 0 }));
+    assert_norm (panchor ([] <: pstore v cl) == ([] <: pworld));
+    introduce forall (w: pworld).
+        pkrel b.b_rel w ([] <: pstack v cl) ([] <: pstack v cl)
+    with lemma_pkrel_nil #v #cl b.b_rel w;
+    pnobs_dom_fold b c ([] <: pstack v cl) ([] <: pstore v cl) 0 ()
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 2 -- THE BOUNDARY INTERPRETER PRESERVES WELL-FORMEDNESS      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **EVERY BOUNDARY'S INTERPRETER SATISFIES `papply_wb`.** PROVED -- by reading
+ * the field off the record, which is the point of putting it there.
+ *
+ * Without this the domain would not be preserved by the machine and
+ * `pnobs_dom` would be a predicate that holds at the start of a run and says
+ * nothing about the rest of it. `lemma_pstep_state_wb`'s `PPerform` arm is the
+ * one place the hypothesis is consumed, and it is consumed on EVERY run of
+ * EVERY program that performs.
+ *)
+let lemma_pboundary_apply_wb (#v #cl: Type) (b: pboundary v cl)
+  : Lemma (papply_wb b.b_apply)
+  = b.b_apply_wb
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 3 -- BOTH SIDES' MACHINE TRANSITIONS PRESERVE IT             *)
+(* ------------------------------------------------------------------ *)
+
+(** ONE instrumented transition out of a domain configuration lands in a
+    well-formed configuration. PROVED, from the domain and the boundary's own
+    `b_apply_wb`. *)
+let lemma_pnobs_dom_pstep (#v #cl: Type) (b: pboundary v cl)
+    (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires pnobs_dom b c k sto n0)
+          (ensures (let cf0 : pconf v cl =
+                      { st = PStep c k; store = sto; next = n0 } in
+                    pconf_ok (fst (pstep_tr b.b_lk b.b_apply cf0))))
+  = pnobs_dom_unfold b c k sto n0 ();
+    lemma_pboundary_apply_wb b;
+    lemma_pstep_tr_conf_ok b.b_lk b.b_apply
+      ({ st = PStep c k; store = sto; next = n0 })
+
+(** And a whole INSTRUMENTED RUN, at any fuel -- which is the transition
+    sequence `pnconverges`, and hence the observation itself, actually
+    performs. PROVED. *)
+let lemma_pnobs_dom_prun (#v #cl: Type) (b: pboundary v cl)
+    (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat) (fuel: nat)
+  : Lemma (requires pnobs_dom b c k sto n0)
+          (ensures (let cf0 : pconf v cl =
+                      { st = PStep c k; store = sto; next = n0 } in
+                    pconf_ok (fst (prun b.b_lk b.b_apply fuel cf0))))
+  = pnobs_dom_unfold b c k sto n0 ();
+    lemma_pboundary_apply_wb b;
+    lemma_prun_conf_ok b.b_lk b.b_apply fuel
+      ({ st = PStep c k; store = sto; next = n0 })
+
+(** **BOTH SIDES, which is what the relation asks the domain of.** PROVED. The
+    two runs are independent -- different fuels are permitted, and
+    `pnconverges` hides both -- so this is the pair of the previous lemma and
+    is stated only so that no use site has to assemble it. *)
+let lemma_pnobs_dom_prun_both (#v #cl: Type) (b: pboundary v cl)
+    (c1 c2: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (f1 f2: nat)
+  : Lemma (requires pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0)
+          (ensures (let cf1 : pconf v cl =
+                      { st = PStep c1 k; store = sto; next = n0 } in
+                    let cf2 : pconf v cl =
+                      { st = PStep c2 k; store = sto; next = n0 } in
+                    pconf_ok (fst (prun b.b_lk b.b_apply f1 cf1)) /\
+                    pconf_ok (fst (prun b.b_lk b.b_apply f2 cf2))))
+  = lemma_pnobs_dom_prun b c1 k sto n0 f1;
+    lemma_pnobs_dom_prun b c2 k sto n0 f2
+
+(**
+ * **THE PAYOFF, AND IT IS THE ONE B2b.6 PAID FOR BY HAND.** PROVED, in one
+ * line: from anywhere in the domain, at any fuel, at any key, the refutation
+ * candidate is absent from the store the run leaves.
+ *
+ * B2b.6 needed `lemma_cand_marker_above_floor_is_found`,
+ * `lemma_cand_yield_stores_no_marker`, `guard_cand_q2_fails_conf_ok` and
+ * `lemma_cand_unreachable_along_prun` to say this, and had to say it about ONE
+ * candidate. This says it about the candidate from the DOMAIN, and any future
+ * candidate excluded by a machine invariant is excluded the same way.
+ *)
+let guard_nobs_dom_kills_the_candidate (#v #cl: Type) (b: pboundary v cl)
+    (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (fuel: nat) (i: nat)
+  : Lemma (requires pnobs_dom b c k sto n0)
+          (ensures (let cf0 : pconf v cl =
+                      { st = PStep c k; store = sto; next = n0 } in
+                    pcand_at i (fst (prun b.b_lk b.b_apply fuel cf0)).store == false))
+  = pnobs_dom_unfold b c k sto n0 ();
+    lemma_cand_unreachable_along_prun b.b_lk b.b_apply fuel c k sto n0 i
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 4 -- B2b.2'S FUNDAMENTAL THEOREM AND ITS OBSERVATION         *)
+(*  COROLLARY LIFT, WITH NO WEAKENING OF THE STATEMENT                 *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **CONDITION 2, AT THE RESTRICTED RELATION.** PROVED, with the SAME hypothesis
+ * as `lemma_pnobs_tr_le_of_crel`: two computations related at every well-formed
+ * world satisfy the restricted nominal observation.
+ *
+ * Nothing is weakened and nothing new is assumed. The hypothesis is unchanged,
+ * the conclusion is at the narrower relation, and the proof is the B2b.2
+ * corollary composed with the containment -- the fundamental theorem is not
+ * re-run and is not re-stated.
+ *)
+let lemma_pnobs_tr_le_wf_of_crel (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+  : Lemma (requires forall (w: pworld). pwf_world w ==> pcrel b.b_rel w c1 c2)
+          (ensures pnobs_tr_le_wf b c1 c2)
+  = lemma_pnobs_tr_le_of_crel b c1 c2;
+    lemma_pnobs_tr_le_wf_of_le b c1 c2
+
+(** **AND IT IS NOT VACUOUS: THE INSTANCE AT `nboundary` SURVIVES.** PROVED, at
+    the boundary over a clause language that CAPTURES HANDLES, and `nboundary`
+    now supplies `b_apply_wb` as well as the four conditions it already
+    carried. *)
+let guard_nom_fund_at_nboundary_wf ()
+  : Lemma (pnobs_tr_le_wf nboundary nprog nprog)
+  = guard_nom_fund_at_nboundary ();
+    lemma_pnobs_tr_le_wf_of_le nboundary nprog nprog
+
+(** **AND THE POSITIVE STANDS AT A CONFIGURATION INSIDE THE DOMAIN.** PROVED --
+    which is the check that the previous guard is a statement about a run and
+    not a vacuous quantification. `nprog` is a `PEnterCtx`, which `pterm_wb`
+    asks nothing of, so `lemma_pnobs_dom_of_pload` applies. *)
+let guard_nom_fund_at_nboundary_dom ()
+  : Lemma (pnobs_dom nboundary nprog ([] <: pstack fv ncl)
+                     ([] <: pstore fv ncl) 0)
+  = lemma_wb_trivial (nprog <: pcomp fv ncl);
+    lemma_pnobs_dom_of_pload nboundary nprog
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 5 -- THE INTENDED POSITIVES AND NEGATIVES ALL SURVIVE        *)
+(*                                                                     *)
+(*  THIS IS THE CHECK THAT CAN QUIETLY GO WRONG.  A NARROWER DOMAIN    *)
+(*  MAKES A UNIVERSALLY QUANTIFIED STATEMENT EASIER, so a refutation   *)
+(*  could become VACUOUS without anyone noticing -- the restricted     *)
+(*  relation would hold for want of a configuration to fail at, and    *)
+(*  `~(law ...)` would stop being provable.                            *)
+(*                                                                     *)
+(*  Nothing below is inherited.  For each of the six refutations, the  *)
+(*  configuration it stands at is proved to be INSIDE the restricted   *)
+(*  domain, and the negation is then re-derived AT the restricted      *)
+(*  relation.  The positive is handled the other way round -- it       *)
+(*  transfers by `lemma_pnobs_tr_le_wf_of_le` -- and is separately     *)
+(*  checked non-vacuous by `guard_nom_fund_at_nboundary_dom` above.    *)
+(*                                                                     *)
+(*  THE FOUR `ref_ops` REFUTATIONS AND THE TRANSPARENCY ONE stand at   *)
+(*  `k := []`, `sto := []`, `n0 := 0`, which is `pload`'s own          *)
+(*  configuration: the store layer of the invariant is trivial there,  *)
+(*  and the only new obligation is `pterm_wb` of the two computations. *)
+(*  THE ALGEBRAIC ONE stands at a NON-EMPTY store and a non-empty      *)
+(*  ambient stack, and that store IS `pstore_resid_wf` -- the residual *)
+(*  it holds is `[PBoundaryF]`, whose head is a boundary with no floor *)
+(*  and no marker above it.  That is the interesting case, and it is   *)
+(*  checked rather than assumed (`guard_bce_dom`).                     *)
+(* ------------------------------------------------------------------ *)
+
+(* ---- the two frame lists `xpl` renders, judged ------------------- *)
+
+(** `plan_enter_frames xpl` is two prompts with no return clause, so the two
+    conditions a `PSplice` carries hold of it. PROVED. *)
+let lemma_wb_xpl_enter_frames ()
+  : Lemma (pframes_wb (plan_enter_frames xpl) /\
+           pwb (plan_enter_frames xpl) /\
+           panswered (plan_enter_frames xpl) == false)
+  = lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_frames_two_prompts xltbl None PFamily xtbl0 None PFamily;
+    assert_norm (plan_enter_frames xpl
+                 == [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]);
+    assert_norm (pwb (plan_enter_frames xpl));
+    assert_norm (panswered (plan_enter_frames xpl) == false)
+
+(** `plan_resume_frames xpl` is the same with the recorded bind site rendered as
+    the `PBindF` it was. PROVED; the bind frame's function is `PVar`, which is
+    judged at every argument, and the two prompts beneath it answer nothing, so
+    the frame really does carry the obligation rather than escaping it. *)
+let lemma_wb_xpl_resume_frames ()
+  : Lemma (pframes_wb (plan_resume_frames xpl) /\
+           pwb (plan_resume_frames xpl) /\
+           panswered (plan_resume_frames xpl) == false)
+  = lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_frames_two_prompts xltbl None PFamily xtbl0 None PFamily;
+    lemma_wb_frame_bind_bwd (PVar #fv #fcl);
+    lemma_wb_frames_cons_bwd #fv #fcl (PBindF (PVar #fv #fcl))
+      [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+    assert_norm (plan_resume_frames xpl
+                 == [PBindF (PVar #fv #fcl);
+                     PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]);
+    assert_norm (pwb (plan_resume_frames xpl));
+    assert_norm (panswered (plan_resume_frames xpl) == false)
+
+(* ---- the ten computations the six refutations run, judged --------- *)
+
+(** The five left-hand sides are binds of scope nodes, and `pterm_wb` asks
+    nothing of a scope node, so each discharges by the rewrite rules alone.
+    PROVED. *)
+let guard_wb_xlhs () : Lemma (pterm_wb xlhs) = ()
+let guard_wb_ylhs () : Lemma (pterm_wb ylhs) = ()
+let guard_wb_zlhs () : Lemma (pterm_wb zlhs) = ()
+let guard_wb_alhs () : Lemma (pterm_wb alhs) = ()
+let guard_wb_blhs () : Lemma (pterm_wb blhs) = ()
+let guard_wb_brhs () : Lemma (pterm_wb brhs) = ()
+
+(** The four right-hand sides are raw `PSplice`s -- which is the ONE node the
+    judgement constrains -- so each needs the frame list judged and the body
+    judged. PROVED, all four. *)
+let guard_wb_xrhs () : Lemma (pterm_wb xrhs)
+  = lemma_wb_xpl_enter_frames ();
+    lemma_wb_splice_bwd (plan_enter_frames xpl) (xg fone);
+    assert_norm (xrhs == PSplice (plan_enter_frames xpl) (xg fone))
+
+let guard_wb_yrhs () : Lemma (pterm_wb yrhs)
+  = lemma_wb_xpl_enter_frames ();
+    lemma_wb_splice_bwd (plan_enter_frames xpl) xc;
+    assert_norm (yrhs == PSplice (plan_enter_frames xpl) xc)
+
+let guard_wb_zrhs () : Lemma (pterm_wb zrhs)
+  = lemma_wb_xpl_resume_frames ();
+    lemma_wb_splice_bwd (plan_resume_frames xpl) (xg fone);
+    assert_norm (zrhs == PSplice (plan_resume_frames xpl) (xg fone))
+
+let guard_wb_arhs () : Lemma (pterm_wb arhs)
+  = lemma_wb_xpl_enter_frames ();
+    lemma_wb_splice_bwd (plan_enter_frames xpl)
+                        (pbind (pbind xc (PVar #fv #fcl)) (PVar #fv #fcl));
+    assert_norm (arhs == PSplice (plan_enter_frames xpl)
+                                 (pbind (pbind xc (PVar #fv #fcl))
+                                        (PVar #fv #fcl)))
+
+(* ---- the two configurations, PROVED to be inside the domain ------- *)
+
+(** **THE FOUR `pload`-SHAPED REFUTATIONS STAND INSIDE THE DOMAIN.** PROVED,
+    from `lemma_pnobs_dom_of_pload` and the judgement of the computation --
+    nothing else is needed, because `{ st = PStep c []; store = []; next = 0 }`
+    IS `pload c`. *)
+let guard_xce_dom (c: pcomp fv fcl)
+  : Lemma (requires pterm_wb c)
+          (ensures pnobs_dom xboundary c ([] <: pstack fv fcl)
+                             ([] <: pstore fv fcl) 0)
+  = lemma_pnobs_dom_of_pload xboundary c
+
+(**
+ * **AND SO DOES THE ALGEBRAIC ONE, AT A NON-EMPTY STORE.** PROVED, and this is
+ * the case the restriction could have destroyed.
+ *
+ * `guard_bce_config_ok` already supplied the three hypotheses `pnobs_tr_le`
+ * demanded. What is new is `pconf_ok`, and all three of its conjuncts hold:
+ * key 0 is below the counter 1; the stored residual is `[PBoundaryF]`, whose
+ * head is a boundary with neither a floor nor a marker above it, which is
+ * exactly `presid_wf`; and the ambient stack is one family prompt, which is
+ * `pwb`, whose return clause is absent, and which answers nothing -- so the
+ * control computation carries the judgement, and it has it.
+ *)
+let guard_bce_dom (c: pcomp fv fcl)
+  : Lemma (requires pterm_wb c)
+          (ensures pnobs_dom x2boundary c xamb xsto 1)
+  = guard_bce_config_ok ();
+    assert_norm (pstore_resid_wf xsto == true);
+    assert_norm (pwb xamb == true);
+    assert_norm (panswered xamb == false);
+    lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_frames_nil #fv #fcl ();
+    lemma_wb_frame_prompt_bwd #fv #fcl xltbl None PFamily;
+    lemma_wb_frames_cons_bwd #fv #fcl (PPromptF xltbl None PFamily)
+                             ([] <: pstack fv fcl);
+    introduce forall (i: nat) (cx: pctx fv fcl). (memP (i, cx) xsto ==> i < 1)
+    with (introduce _ ==> _ with ());
+    pnobs_dom_fold x2boundary c xamb xsto 1 ()
+
+(**
+ * **CHECK 3, AT A CONCRETE RUN.** PROVED, and it is the check that
+ * `lemma_pnobs_dom_prun` is a statement about runs rather than a vacuous
+ * quantification over a domain nothing inhabits.
+ *
+ * Both of B2b.3's left-hand runs start inside the domain, and both are
+ * `pconf_ok` at the fuel their convergence uses -- including the one that
+ * PERFORMS, which is the arm of `lemma_pstep_state_wb` that consumes
+ * `papply_wb` and therefore the arm that consumes the boundary's new field.
+ *)
+let guard_dom_prun_at_the_fixtures ()
+  : Lemma (pconf_ok (fst (prun flook xapply 30 xcf_l)) /\
+           pconf_ok (fst (prun flook xapply2 40 bcf_l)))
+  = guard_xce_config_ok ();
+    guard_bce_config_ok ();
+    guard_wb_xlhs ();
+    guard_wb_blhs ();
+    guard_xce_dom xlhs;
+    guard_bce_dom blhs;
+    lemma_pnobs_dom_prun xboundary xlhs ([] <: pstack fv fcl)
+                         ([] <: pstore fv fcl) 0 30;
+    lemma_pnobs_dom_prun x2boundary blhs xamb xsto 1 40
+
+(* ---- the refutation argument, once, at the restricted relation ---- *)
+
+(**
+ * **THE REFUTATION ARGUMENT, RE-RUN.** PROVED. It is `lemma_le_refuted` with
+ * two changes and no others: the hypothesis is `pnobs_tr_le_wf` instead of
+ * `pnobs_tr_le`, and the two computations must be judged -- which is what puts
+ * the configuration inside the restricted domain and is therefore the whole of
+ * what the restriction costs here.
+ *
+ * The consequent is unchanged, so `lemma_ce_no_world` is reused verbatim.
+ *)
+let lemma_le_wf_refuted (c1 c2: pcomp fv fcl) (sl sr: pstore fv fcl) (i j: nat)
+  : Lemma (requires
+             (let cfl : pconf fv fcl =
+                { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+              let cfr : pconf fv fcl =
+                { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+              pnobs_tr_le_wf xboundary c1 c2 /\
+              pterm_wb c1 /\ pterm_wb c2 /\
+              pnconverges flook xapply cfl ([] <: list string) (PCtxKey i) sl /\
+              pnconverges flook xapply cfr ([] <: list string) (PCtxKey j) sr /\
+              Some? (pstore_lookup i sl) /\ Some? (pstore_lookup j sr) /\
+              ~(length (presid_of (psget i sl))
+                == length (presid_of (psget j sr)))))
+          (ensures False)
+  = guard_xce_config_ok ();
+    guard_xce_dom c1;
+    guard_xce_dom c2;
+    let cfl : pconf fv fcl =
+      { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let cfr : pconf fv fcl =
+      { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let hle : squash (pnobs_tr_le_wf xboundary c1 c2) = () in
+    pnobs_tr_le_wf_unfold xboundary c1 c2 hle;
+    assert (pnconverges xboundary.b_lk xboundary.b_apply cfl
+                        ([] <: list string) (PCtxKey i) sl);
+    eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply cfr ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey i) x2 /\ psrel fcl_rel w sl s2')
+    with lemma_ce_no_world cfr sl sr i j w x2 s2'
+
+(* ---- the six negations, at the restricted relation ---------------- *)
+
+(** **LEFT IDENTITY IS STILL REFUTED.** PROVED, at the restricted relation, at
+    the same configuration -- which `guard_xce_dom` puts inside the domain. *)
+let guard_ref_ops_refutes_left_identity_nom_wf ()
+  : Lemma (~(pnobs_tr_le_wf xboundary xlhs xrhs))
+  = guard_xce_runs ();
+    guard_wb_xlhs (); guard_wb_xrhs ();
+    lemma_pnconverges_at flook xapply xcf_l 30 [] (PCtxKey 1) xsl;
+    lemma_pnconverges_at flook xapply xcf_r 30 [] (PCtxKey 0) xsr;
+    guard_xce_residuals ();
+    assert_norm (Some? (pstore_lookup 1 xsl));
+    assert_norm (Some? (pstore_lookup 0 xsr));
+    introduce pnobs_tr_le_wf xboundary xlhs xrhs ==> False
+    with lemma_le_wf_refuted xlhs xrhs xsl xsr 1 0
+
+(** **RIGHT IDENTITY IS STILL REFUTED.** PROVED, likewise. *)
+let guard_ref_ops_refutes_right_identity_nom_wf ()
+  : Lemma (~(pnobs_tr_le_wf xboundary ylhs yrhs))
+  = guard_yce_runs ();
+    guard_wb_ylhs (); guard_wb_yrhs ();
+    lemma_pnconverges_at flook xapply ycf_l 40 [] (PCtxKey 0) ysl;
+    lemma_pnconverges_at flook xapply ycf_r 40 [] (PCtxKey 0) ysr;
+    assert_norm (Some? (pstore_lookup 0 ysl));
+    assert_norm (Some? (pstore_lookup 0 ysr));
+    introduce pnobs_tr_le_wf xboundary ylhs yrhs ==> False
+    with lemma_le_wf_refuted ylhs yrhs ysl ysr 0 0
+
+(** **RESUME IS STILL REFUTED.** PROVED. *)
+let guard_ref_ops_refutes_resume_nom_wf ()
+  : Lemma (~(pnobs_tr_le_wf xboundary zlhs zrhs))
+  = guard_zce_runs ();
+    guard_wb_zlhs (); guard_wb_zrhs ();
+    lemma_pnconverges_at flook xapply zcf_l 40 [] (PCtxKey 1) zsl;
+    lemma_pnconverges_at flook xapply zcf_r 40 [] (PCtxKey 0) zsr;
+    assert_norm (Some? (pstore_lookup 1 zsl));
+    assert_norm (Some? (pstore_lookup 0 zsr));
+    introduce pnobs_tr_le_wf xboundary zlhs zrhs ==> False
+    with lemma_le_wf_refuted zlhs zrhs zsl zsr 1 0
+
+(** **THE ANCHORED HALF OF ASSOCIATIVITY IS STILL REFUTED.** PROVED. *)
+let guard_ref_ops_refutes_assoc_nom_wf ()
+  : Lemma (~(pnobs_tr_le_wf xboundary alhs arhs))
+  = guard_ace_runs ();
+    guard_wb_alhs (); guard_wb_arhs ();
+    lemma_pnconverges_at flook xapply acf_l 40 [] (PCtxKey 0) asl;
+    lemma_pnconverges_at flook xapply acf_r 40 [] (PCtxKey 0) asr;
+    assert_norm (Some? (pstore_lookup 0 asl));
+    assert_norm (Some? (pstore_lookup 0 asr));
+    introduce pnobs_tr_le_wf xboundary alhs arhs ==> False
+    with lemma_le_wf_refuted alhs arhs asl asr 0 0
+
+(**
+ * **AND THE ALGEBRAIC HALF IS STILL REFUTED, AT THE NON-EMPTY STORE.** PROVED.
+ *
+ * This is the one whose configuration is not `pload`'s, and it is the one the
+ * restriction had a real chance of destroying: had `xsto` failed
+ * `pstore_resid_wf`, the refutation would have gone VACUOUS -- the restricted
+ * relation would have held for want of a configuration to fail at -- and the
+ * gate would have stopped here. It does not: `guard_bce_dom` proves the store
+ * is one the machine could have built.
+ *)
+let guard_ref_ops_refutes_assoc_algebraic_nom_wf ()
+  : Lemma (~(pnobs_tr_le_wf x2boundary blhs brhs))
+  = guard_bce_runs ();
+    guard_bce_config_ok ();
+    guard_wb_blhs (); guard_wb_brhs ();
+    guard_bce_dom blhs;
+    guard_bce_dom brhs;
+    lemma_pnconverges_at flook xapply2 bcf_l 40 [] (PV (FI 4)) bsl;
+    lemma_pnconverges_at flook xapply2 bcf_r 40 [] (PV (FI 3)) bsr;
+    introduce pnobs_tr_le_wf x2boundary blhs brhs ==> False
+    with begin
+      pnobs_tr_le_wf_unfold x2boundary blhs brhs ();
+      assert (pnconverges x2boundary.b_lk x2boundary.b_apply
+                ({ st = PStep blhs xamb; store = xsto; next = 1 })
+                ([] <: list string) (PV (FI 4)) bsl);
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply2 bcf_r ([] <: list string) x2 s2' /\
+           pwf_world w /\ pwext w (panchor xsto) /\
+           pval_rel w (PV (FI 4)) x2 /\ psrel fcl_rel w bsl s2')
+      with lemma_bce_no_world w x2 s2'
+    end
+
+(* ---- and the five laws, restated at the restricted relation ------- *)
+
+(**
+ * **THE FIVE STATEMENTS, RETARGETED ONCE MORE.** They differ from the
+ * `law_*_nom` of B2b.1 in ONE symbol -- `pnobs_tr_eq_wf` for `pnobs_tr_eq` --
+ * and in nothing else: the same `ctx_ops`, the same plan, the same two sides.
+ * The five they are retargeted from are UNTOUCHED and are still in the file.
+ *
+ * They are stated here so that the verdict can be recorded at the LAW and not
+ * only at the relation: a reader asking whether the domain restriction rescued
+ * any of the six propositions gets an answer of the same shape as B2b.3's.
+ *)
+let law_left_identity_nom_wf
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (x: pval v) (g: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq_wf b
+      (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_extend pl cx g))
+      (ops.o_enter pl (g x))
+
+let law_right_identity_nom_wf
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq_wf b
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
+      (ops.o_enter pl c)
+
+let law_assoc_nom_wf
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (cx: pval v) (g h: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq_wf b
+      (pbind (ops.o_extend_ctx pl cx g) (fun cy -> ops.o_extend pl cy h))
+      (ops.o_extend pl cx (fun x -> pbind (g x) h))
+    /\
+    pnobs_tr_eq_wf b
+      (pbind (ops.o_enter_ctx pl c)
+             (fun c0 -> pbind (ops.o_extend_ctx pl c0 g)
+                              (fun cy -> ops.o_extend pl cy h)))
+      (PSplice (plan_enter_frames pl) (pbind (pbind c g) h))
+
+let law_resume_matches_continuation_nom_wf
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (x: pval v) (k: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq_wf b
+      (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_resume pl cx k))
+      (PSplice (plan_resume_frames pl) (k x))
+
+let law_transparent_agrees_nom_wf
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq_wf b
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
+      (PSplice (plan_enter_frames pl) c)
+
+(** **TRANSPARENCY IS STILL RIGHT IDENTITY AT `ref_ops`.** PROVED, and by the
+    same equality of propositions as `guard_align_transparent_is_right_identity`
+    -- retargeting the relation did not disturb it, because it is a fact about
+    `o_enter` and not about the observation. *)
+let guard_align_transparent_is_right_identity_wf (#v #cl: Type)
+    (b: pboundary v cl) (pl: plan v cl) (c: pcomp v cl)
+  : Lemma (law_transparent_agrees_nom_wf b ref_ops pl c
+           == law_right_identity_nom_wf b ref_ops pl c)
+  = ()
+
+(* ---- the casts, each BY CONVERSION -------------------------------- *)
+
+let law_li_nom_wf_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (x: pval v) (g: pval v -> pcomp v cl)
+    (h: squash (law_left_identity_nom_wf b ops pl x g))
+  : squash (pnobs_tr_le_wf b
+              (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_extend pl cx g))
+              (ops.o_enter pl (g x)))
+  = h
+
+let law_ri_nom_wf_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl)
+    (h: squash (law_right_identity_nom_wf b ops pl c))
+  : squash (pnobs_tr_le_wf b
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
+              (ops.o_enter pl c))
+  = h
+
+let law_rm_nom_wf_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (x: pval v) (kk: pval v -> pcomp v cl)
+    (h: squash (law_resume_matches_continuation_nom_wf b ops pl x kk))
+  : squash (pnobs_tr_le_wf b
+              (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_resume pl cx kk))
+              (PSplice (plan_resume_frames pl) (kk x)))
+  = h
+
+let law_ac_nom_wf_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (cxv: pval v) (g hf: pval v -> pcomp v cl)
+    (h: squash (law_assoc_nom_wf b ops pl c cxv g hf))
+  : squash (pnobs_tr_le_wf b
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun c0 -> pbind (ops.o_extend_ctx pl c0 g)
+                                      (fun cy -> ops.o_extend pl cy hf)))
+              (PSplice (plan_enter_frames pl) (pbind (pbind c g) hf)))
+  = h
+
+let law_aa_nom_wf_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (cxv: pval v) (g hf: pval v -> pcomp v cl)
+    (h: squash (law_assoc_nom_wf b ops pl c cxv g hf))
+  : squash (pnobs_tr_le_wf b
+              (pbind (ops.o_extend_ctx pl cxv g) (fun cy -> ops.o_extend pl cy hf))
+              (ops.o_extend pl cxv (fun x -> pbind (g x) hf)))
+  = h
+
+(* ---- the six verdicts, at the laws --------------------------------- *)
+
+let guard_ref_ops_refutes_left_identity_law_wf ()
+  : Lemma (~(law_left_identity_nom_wf xboundary ref_ops xpl fone xg))
+  = guard_ref_ops_refutes_left_identity_nom_wf ();
+    introduce law_left_identity_nom_wf xboundary ref_ops xpl fone xg ==> False
+    with law_li_nom_wf_unfold xboundary ref_ops xpl fone xg ()
+
+let guard_ref_ops_refutes_right_identity_law_wf ()
+  : Lemma (~(law_right_identity_nom_wf xboundary ref_ops xpl xc))
+  = guard_ref_ops_refutes_right_identity_nom_wf ();
+    introduce law_right_identity_nom_wf xboundary ref_ops xpl xc ==> False
+    with law_ri_nom_wf_unfold xboundary ref_ops xpl xc ()
+
+let guard_ref_ops_refutes_transparent_agrees_law_wf ()
+  : Lemma (~(law_transparent_agrees_nom_wf xboundary ref_ops xpl xc))
+  = guard_align_transparent_is_right_identity_wf xboundary xpl xc;
+    guard_ref_ops_refutes_right_identity_law_wf ()
+
+let guard_ref_ops_refutes_resume_law_wf ()
+  : Lemma (~(law_resume_matches_continuation_nom_wf xboundary ref_ops xpl fone xg))
+  = guard_ref_ops_refutes_resume_nom_wf ();
+    introduce law_resume_matches_continuation_nom_wf xboundary ref_ops xpl fone xg
+              ==> False
+    with law_rm_nom_wf_unfold xboundary ref_ops xpl fone xg ()
+
+let guard_ref_ops_refutes_assoc_law_wf ()
+  : Lemma (~(law_assoc_nom_wf xboundary ref_ops xpl xc fone
+                              (PVar #fv #fcl) (PVar #fv #fcl)))
+  = guard_ref_ops_refutes_assoc_nom_wf ();
+    introduce law_assoc_nom_wf xboundary ref_ops xpl xc fone
+                               (PVar #fv #fcl) (PVar #fv #fcl) ==> False
+    with law_ac_nom_wf_unfold xboundary ref_ops xpl xc fone
+                              (PVar #fv #fcl) (PVar #fv #fcl) ()
+
+let guard_ref_ops_refutes_assoc_algebraic_law_wf ()
+  : Lemma (~(law_assoc_nom_wf x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                              (PVar #fv #fcl) (PVar #fv #fcl)))
+  = guard_ref_ops_refutes_assoc_algebraic_nom_wf ();
+    introduce law_assoc_nom_wf x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                               (PVar #fv #fcl) (PVar #fv #fcl) ==> False
+    with law_aa_nom_wf_unfold x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                              (PVar #fv #fcl) (PVar #fv #fcl) ()
+
+(**
+ * **THE VERDICT, IN ONE PLACE.** PROVED: all six propositions are FALSE of
+ * `ref_ops` under the RESTRICTED observation, exactly as they were under the
+ * unrestricted one. Not one of them was rescued by narrowing the domain, and
+ * not one of them went vacuous.
+ *)
+let guard_nom_b2b7_verdict ()
+  : Lemma (~(law_left_identity_nom_wf xboundary ref_ops xpl fone xg) /\
+           ~(law_right_identity_nom_wf xboundary ref_ops xpl xc) /\
+           ~(law_transparent_agrees_nom_wf xboundary ref_ops xpl xc) /\
+           ~(law_resume_matches_continuation_nom_wf xboundary ref_ops xpl fone xg) /\
+           ~(law_assoc_nom_wf xboundary ref_ops xpl xc fone
+                              (PVar #fv #fcl) (PVar #fv #fcl)) /\
+           ~(law_assoc_nom_wf x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                              (PVar #fv #fcl) (PVar #fv #fcl)))
+  = guard_ref_ops_refutes_left_identity_law_wf ();
+    guard_ref_ops_refutes_right_identity_law_wf ();
+    guard_ref_ops_refutes_transparent_agrees_law_wf ();
+    guard_ref_ops_refutes_resume_law_wf ();
+    guard_ref_ops_refutes_assoc_law_wf ();
+    guard_ref_ops_refutes_assoc_algebraic_law_wf ()
+
+
+(* ------------------------------------------------------------------ *)
+(*  THE NEW BOUNDARY FIELD IS NOT DERIVABLE FROM THE OLD ONES          *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **`papply_wb` IS NOT A CONSEQUENCE OF `papply_equivariant`.** PROVED, by an
+ * interpreter that has the one and not the other -- so `b_apply_wb` is a
+ * GENUINELY NEW field and not a fact the record already carried under another
+ * name.
+ *
+ * `xapply_bad` splices a frame list OF ITS OWN: one bare boundary, with
+ * nothing beneath it to answer. That is exactly the shape B2a's judgement
+ * exists to exclude, and it is exactly the shape a `pkrel` cannot see, because
+ * a `PBoundaryF` carries no data and is related to itself at every world. So
+ * the two conditions come apart, and they come apart at the ONE node that
+ * matters.
+ *)
+let xapply_bad : papply_t fv fcl = fun _ _ kk -> PSplice [PBoundaryF] (kk (fpv FU))
+
+let lemma_xbad_frames_selfrel (w: pworld)
+  : Lemma (pkrel #fv #fcl fcl_rel w [PBoundaryF] [PBoundaryF])
+  = introduce forall (n: nat).
+      pframes_rel #fv #fcl fcl_rel n w [PBoundaryF] [PBoundaryF]
+    with ()
+
+let lemma_xapply_bad_equivariant () : Lemma (papply_equivariant fcl_rel xapply_bad)
+  = introduce forall (w: pworld) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (kk1 kk2: pval fv -> pcomp fv fcl).
+      (pwf_world w /\ pclrel fcl_rel w c1 c2 /\ pvals_rel w p1 p2 /\
+       pfn_rel_at fcl_rel w kk1 kk2 ==>
+       pcrel fcl_rel w (xapply_bad c1 p1 kk1) (xapply_bad c2 p2 kk2))
+    with (introduce _ ==> _
+          with begin
+            lemma_pwext_refl w;
+            assert (pval_rel #fv w (fpv FU) (fpv FU));
+            assert (pcrel fcl_rel w (kk1 (fpv FU)) (kk2 (fpv FU)));
+            lemma_xbad_frames_selfrel w;
+            lemma_pcrel_splice fcl_rel w [PBoundaryF] [PBoundaryF]
+                               (kk1 (fpv FU)) (kk2 (fpv FU))
+          end)
+
+let papply_wb_unfold (#v #cl: Type) (apply: papply_t v cl)
+                     (h: squash (papply_wb apply))
+  : squash (forall (c: cl) (payload: list (pval v)) (kf: (pval v -> pcomp v cl)).
+              (forall (x: pval v). pterm_wb (kf x)) ==> pterm_wb (apply c payload kf))
+  = h
+
+let lemma_xapply_bad_not_wb () : Lemma (~(papply_wb xapply_bad))
+  = assert_norm (pwb ([PBoundaryF] <: pstack fv fcl) == false);
+    introduce papply_wb xapply_bad ==> False
+    with begin
+      papply_wb_unfold xapply_bad ();
+      assert (forall (x: pval fv). pterm_wb (PVar x <: pcomp fv fcl));
+      assert (pterm_wb (xapply_bad FEcho [] (PVar #fv #fcl)));
+      lemma_wb_splice_fwd ([PBoundaryF] <: pstack fv fcl)
+                          (PVar (fpv FU) <: pcomp fv fcl)
+    end
+
+(** **THE TWO CONDITIONS COME APART.** PROVED, and it is the check that
+    `b_apply_wb` earns its place in the record rather than duplicating
+    `b_apply_eq`. *)
+let guard_apply_wb_independent_of_apply_eq ()
+  : Lemma (papply_equivariant fcl_rel xapply_bad /\ ~(papply_wb xapply_bad))
+  = lemma_xapply_bad_equivariant ();
+    lemma_xapply_bad_not_wb ()
+(* ================================================================== *)
+(*  B2b.7 LEDGER                                                       *)
+(*                                                                     *)
+(*  THE RESTRICTION: `pnobs_tr_le_wf`, whose domain is                 *)
+(*  `pnobs_dom` -- `pnobs_tr_le`'s three hypotheses plus `pconf_ok` of *)
+(*  the starting configuration, asked of BOTH computations.  Added     *)
+(*  BESIDE `pnobs_tr_le`, which is untouched.                          *)
+(*                                                                     *)
+(*  CHECK 1 (programs from `pload` are well formed): PASSES.           *)
+(*  `lemma_pnobs_dom_of_pload` -- at EVERY boundary, from `pterm_wb`   *)
+(*  and nothing else.  Applied at `nprog`                              *)
+(*  (`guard_nom_fund_at_nboundary_dom`) and at all ten computations    *)
+(*  the six refutations run (`guard_xce_dom`).                         *)
+(*                                                                     *)
+(*  CHECK 2 (the boundary interpreter preserves well-formedness):      *)
+(*  PASSES, AND IT COST A NEW BOUNDARY FIELD.  `b_apply_wb :           *)
+(*  squash (papply_wb b_apply)`, read off by                           *)
+(*  `lemma_pboundary_apply_wb`.  All three constructions supply it:    *)
+(*  `lemma_napply_wb` for `nboundary`, `lemma_xapply_wb` for           *)
+(*  `xboundary`, `lemma_xapply2_wb` for `x2boundary` -- including the  *)
+(*  MEASURING interpreter, which is the one with the stronger          *)
+(*  capability.  The field is not redundant:                           *)
+(*  `guard_apply_wb_independent_of_apply_eq` exhibits an interpreter   *)
+(*  that is equivariant and is NOT `papply_wb`.                        *)
+(*                                                                     *)
+(*  CHECK 3 (both sides' transitions preserve it): PASSES.             *)
+(*  `lemma_pnobs_dom_pstep` for one instrumented transition,           *)
+(*  `lemma_pnobs_dom_prun` for a whole run at any fuel, and            *)
+(*  `lemma_pnobs_dom_prun_both` for the pair.  The payoff is           *)
+(*  `guard_nobs_dom_kills_the_candidate`: B2b.6's candidate is absent  *)
+(*  from every store any run out of the domain leaves, in ONE line     *)
+(*  from the domain, where B2b.6 needed four separate arguments.       *)
+(*  Non-vacuous: `guard_dom_prun_at_the_fixtures` runs it at two       *)
+(*  CONCRETE runs, one of which performs and therefore consumes the    *)
+(*  boundary's new field.                                              *)
+(*                                                                     *)
+(*  CHECK 4 (B2b.2's fundamental theorem and its observation           *)
+(*  corollary lift): PASSES, WITH NO WEAKENING.                        *)
+(*  `lemma_pnobs_tr_le_wf_of_crel` has the SAME hypothesis as          *)
+(*  `lemma_pnobs_tr_le_of_crel` and concludes at the restricted        *)
+(*  relation; the fundamental theorem itself is neither re-run nor     *)
+(*  re-stated.  Non-vacuous at `nboundary`                             *)
+(*  (`guard_nom_fund_at_nboundary_wf`), whose configuration is inside  *)
+(*  the domain (`guard_nom_fund_at_nboundary_dom`).                    *)
+(*                                                                     *)
+(*  CHECK 5 (positives and negatives survive): PASSES, AND NOTHING     *)
+(*  WENT VACUOUS.                                                      *)
+(*    - POSITIVES: transfer by `lemma_pnobs_tr_le_wf_of_le`, so        *)
+(*      nothing that held is lost;                                     *)
+(*    - NEGATIVES: all six RE-DERIVED at the restricted relation --    *)
+(*      `guard_nom_b2b7_verdict` -- after proving that the             *)
+(*      configuration each stands at is INSIDE the restricted domain.  *)
+(*      Four of them stand at `pload`'s own configuration              *)
+(*      (`guard_xce_dom`); the algebraic one stands at a NON-EMPTY     *)
+(*      store and a non-empty ambient stack, and `guard_bce_dom`       *)
+(*      proves that store `pstore_resid_wf` -- the residual it holds   *)
+(*      is `[PBoundaryF]`, which is exactly the well-formed shape.     *)
+(*      That was the case that could have gone vacuous and did not.    *)
+(*                                                                     *)
+(*  THE GAP, CLOSED RATHER THAN NAMED:                                 *)
+(*  `guard_nobs_dom_excludes_the_gap` -- `qcand_sto_l` and             *)
+(*  `qcand_sto_r`, which `guard_cand_domain_gap` showed `pnobs_tr_le`  *)
+(*  accepts, are refused by `pnobs_dom` at every boundary, every       *)
+(*  control computation, every ambient stack and every counter.        *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - the `PBindF` refutation candidate of B2b.6's ledger is NOT      *)
+(*     attempted.  It is a different question and it comes after this  *)
+(*     one;                                                            *)
+(*   - CONSUMER EQUIVARIANCE and the COMPUTATION-LEVEL ADMINISTRATIVE  *)
+(*     relation are not touched;                                       *)
+(*   - `pnobs_tr_le_wf` is NOT proved of any law, at any instance.     *)
+(*     This gate restricts a DOMAIN and re-checks what the restriction *)
+(*     does to the results already in the file; it proves no new law   *)
+(*     and refutes no new one;                                         *)
+(*   - the restricted relation is not claimed to be STRICTLY weaker    *)
+(*     than `pnobs_tr_le`.  `lemma_pnobs_tr_le_wf_of_le` is the one    *)
+(*     direction and is proved; NO pair is exhibited satisfying        *)
+(*     `pnobs_tr_le_wf` and failing `pnobs_tr_le`, and none is         *)
+(*     claimed.  What IS proved is that the DOMAINS differ:            *)
+(*     `guard_nobs_dom_excludes_the_gap`;                              *)
+(*   - `pnobs_tr_le`, `pnobs_tr_eq`, `pcrel`, `padm_stack`, the five   *)
+(*     `law_*_nom` and every other definition of B2b.6 and earlier are *)
+(*     UNTOUCHED.  The ONE in-place change in the file is              *)
+(*     `pboundary`'s new `b_apply_wb` field;                           *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
 (* ================================================================== *)

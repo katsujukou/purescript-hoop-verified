@@ -4358,6 +4358,75 @@ Its two possible outcomes are both informative:
   absorb;
 - if a legitimate consumer can tell the results apart, it is a genuine
   refutation of the restated right identity.
+
+#### The domain restriction, gated and adopted
+
+The restriction went through on all five checks, with no stop condition. What is
+now fixed, in the module and here together:
+
+- the domain of future law statements is **well-formed equivariant
+  configurations**, not all equivariant ones;
+- **reachability-only is not adopted**: more accurate, but it depends on the
+  program, the interpreter and the execution history, so it is poorly
+  compositional and too heavy as a law's domain. (That judgement is argued in
+  the module, and marked there as stated rather than proved: reachability is not
+  formalised in this file.)
+- **`b_apply_wb` is a boundary condition independent of equivariance**, and now
+  a field of `pboundary`;
+- the `_wf` relations are placed **beside** the old ones; nothing was deleted;
+- what is proved is the implication **from** the old relation **to** the `_wf`
+  one, and that the two **domains differ** — nothing stronger;
+- all six refutations still stand inside the restricted domain — none went
+  vacuous;
+- from here, a candidate positive or negative is asked **first** whether it
+  satisfies `pnobs_dom`.
+
+The adoption status, so that "added beside" is not misread as "undecided":
+
+> `pnobs_tr_le_wf` / `pnobs_tr_eq_wf` are the intended domain for the next law
+> statements. The unrestricted relations remain as an audit record and as
+> stronger auxiliary notions; the existing laws have not yet been retargeted.
+
+*Check 5 is the one that could have gone wrong silently*, since a narrower
+domain makes universally quantified statements easier and a refutation could
+become vacuous unnoticed. All six were **re-derived** in the restricted relation
+rather than inherited, each preceded by a proof that its configuration is inside
+the domain. Five stand at `pload`'s own empty stack and store; the sixth — the
+algebraic half — stands at a **non-empty** store, and had that store failed
+`pstore_resid_wf` the refutation would have evaporated and the stop condition
+fired. It holds: the residual `[PBoundaryF]` carries neither floor nor marker
+above it, which is `presid_wf` exactly.
+
+*The new field, and its independence proved rather than asserted.* All three
+boundary constructions supply `b_apply_wb`, including `x2boundary`, whose
+interpreter measures the length of the continuation it is handed — so the
+condition is orthogonal rather than a way of quietly excluding it. And the doc
+comment's claim that it does not follow from `b_apply_eq` was **checked**:
+`xapply_bad` satisfies `papply_equivariant` and fails `papply_wb`, the hinge
+being that `PBoundaryF` carries no data and so is invisible to `pkrel`.
+
+*The restriction pays for itself immediately.*
+`guard_nobs_dom_kills_the_candidate` excludes the marker candidate **from the
+domain, in one line**, where the gate before it needed four separate
+arguments. Keeping the relations side by side is what makes both halves of the
+trade provable rather than asserted: what it buys
+is that exclusion, at any boundary, control computation, ambient stack and
+counter; what it costs is re-running the six refutations, and the actual price
+is exactly two `pterm_wb`s.
+
+Two of seven mutations did not isolate, and are recorded as not counting, with
+substitutes named for each.
+
+#### The order, revised again
+
+1. record this result;
+2. ~~establish that restricting the observation relation to well-formed
+   configurations goes through~~ — **done**;
+3. adjudicate the `PBindF` candidate — now able to ask `pnobs_dom` first;
+4. consumer equivariance;
+5. the computation-level administrative relation;
+6. B2b.3b.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
