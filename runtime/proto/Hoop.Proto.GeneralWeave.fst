@@ -9102,6 +9102,15 @@ let law_transparent_agrees
 (*  that configuration satisfies the nominal observation's hypotheses,  *)
 (*  so the difference is not obtained by excluding it.                  *)
 (*                                                                     *)
+(*  B2b.3 UPDATE: THE NOMINAL FORM IS FALSE OF `ref_ops` TOO, AND THE   *)
+(*  SIX NEGATIONS ARE PROVED (`guard_nom_b2b3_verdict`).  The repair    *)
+(*  did what it was made to do -- the counter, the number of contexts   *)
+(*  allocated and the NAMES of the handles are all beyond the reach of  *)
+(*  the new counterexamples, and one of the six does not mention a      *)
+(*  world at all -- and the laws fail for a different reason, which is  *)
+(*  recorded at the B2b.3 section.  Still no relation is claimed        *)
+(*  between the two forms in either direction.                          *)
+(*                                                                     *)
 (*  `ops` still appears, unchanged: a law is still a proposition ABOUT  *)
 (*  AN IMPLEMENTATION.  What has moved is `lk` and `apply`, which are   *)
 (*  now fields of the boundary record, because the observation needs    *)
@@ -9176,7 +9185,14 @@ let law_transparent_agrees_nom
 (** **The five retargeted statements are WELL TYPED at `prop`, and that is the
     ONLY thing this states.** They are not proved, not partially proved, and no
     fixture, transition or other definition in this file depends on any of them
-    holding -- exactly as with the five they are retargeted from. *)
+    holding -- exactly as with the five they are retargeted from.
+
+    **B2b.3 DECIDES THEM, AND THE ANSWER IS NO.** All six propositions the five
+    make up are FALSE of `ref_ops` under the repaired observation, and every
+    negation is PROVED -- `guard_nom_b2b3_verdict`. This comment is left standing
+    because what it says is still true of THIS gate: nothing here proves them,
+    and nothing here depends on them. See the B2b.3 section at the end of the
+    file for the counterexamples and for what they localise. *)
 let guard_nom_laws_are_statable
     (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
     (c: pcomp v cl) (x: pval v) (cxv: pval v) (g h k: pval v -> pcomp v cl)
@@ -13707,3 +13723,2276 @@ let guard_nom_b2b2_instances ()
     guard_nom_fund_at_nboundary ();
     guard_nom_nboundary_capture_related ();
     guard_nom_nboundary_capture_answers ()
+
+(* ================================================================== *)
+(*  B2b.3: THE SIX PROPOSITIONS, ADVANCED SYMBOLICALLY                 *)
+(*                                                                     *)
+(*  The fundamental theorem (`lemma_prun_compat`) relates two runs      *)
+(*  STARTED FROM RELATED CONFIGURATIONS.  A law's two sides are not     *)
+(*  related as computations -- they are different nodes -- so proving   *)
+(*  a law means advancing each side, by ITS OWN number of transitions,  *)
+(*  to a configuration the theorem can be started from, and joining     *)
+(*  the two prefixes to the theorem's suffix with `lemma_prun_split`.   *)
+(*                                                                     *)
+(*  That programme has three judgement points, and this section         *)
+(*  settles the FIRST of them for all six propositions and reports on   *)
+(*  the SECOND.  Nothing below relates the two sides' transition        *)
+(*  counts: each prefix lemma names one side's own count and no         *)
+(*  statement mentions both.                                           *)
+(*                                                                     *)
+(*  THE ALIGNMENT LAYER FIRST.  Every prefix below runs through the     *)
+(*  three stack searches at frame lists built from a SYMBOLIC plan, so  *)
+(*  the searches have to be discharged by induction on the plan rather  *)
+(*  than by normalisation.  `plan_protocol_frames` is the only one of   *)
+(*  the three projections these searches meet, and what they need of it *)
+(*  is that it contains neither a floor nor a marker.                   *)
+(* ================================================================== *)
+
+(** **The residual projection carries no floor and no marker.** PROVED, by
+    induction on the plan's items: `protocol_layer_frames` emits only `PSiteF`,
+    `PParamF` and `PPromptF`, and `owner_frame` is a prompt. This is what makes
+    `pfind_mode` walk THROUGH a plan's protocol segment and `pcut_scope` cut
+    BENEATH it, at every plan, with no fixture involved. *)
+let rec lemma_protocol_layer_frames_flat (#v #cl: Type) (ls: list (plan_item v cl))
+  : Lemma (ensures pno_floor (protocol_layer_frames ls) /\
+                   pno_mode (protocol_layer_frames ls))
+          (decreases ls)
+  = match ls with
+    | [] -> ()
+    | _ :: rest -> lemma_protocol_layer_frames_flat rest
+
+let lemma_plan_protocol_frames_flat (#v #cl: Type) (pl: plan v cl)
+  : Lemma (ensures pno_floor (plan_protocol_frames pl) /\
+                   pno_mode (plan_protocol_frames pl))
+  = lemma_protocol_layer_frames_flat (Plan?.layers pl);
+    lemma_pno_floor_append (protocol_layer_frames (Plan?.layers pl))
+                           [owner_frame (Plan?.owner pl)];
+    lemma_pno_mode_append (protocol_layer_frames (Plan?.layers pl))
+                          [owner_frame (Plan?.owner pl)]
+
+(** **The nearest cut through a floor-free segment is that segment.** PROVED, by
+    induction, and it is `lemma_find_mode_through`'s counterpart for the other
+    search: production pushes `PScopeF` beneath the protocol segment, so this is
+    what says the residual the yield stores is the segment and nothing else. *)
+let rec lemma_pcut_scope_through (#v #cl: Type) (a: pstack v cl) (rest: pstack v cl)
+  : Lemma (requires pno_floor a)
+          (ensures pcut_scope (a @ (PScopeF :: rest)) == Some (a, rest))
+          (decreases a)
+  = match a with
+    | [] -> ()
+    | _ :: tl -> lemma_pcut_scope_through tl rest
+
+(* ---- Composing a run out of named segments ------------------------ *)
+
+(** One transition, as a run of one. PROVED. *)
+let lemma_prun_one (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                   (cf cf': pconf v cl)
+  : Lemma (requires PStep? cf.st /\ pstep_tr lk apply cf == (cf', ([] <: list string)))
+          (ensures prun lk apply 1 cf == (cf', ([] <: list string)))
+  = ()
+
+(** Two silent segments compose into one. PROVED, from `lemma_prun_split`; the
+    trace is `[] @ []`. This is the only composition used below, and it is what
+    keeps each prefix's count local to its own side. *)
+let lemma_prun_cat (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                   (a b: nat) (cf cfa cfb: pconf v cl)
+  : Lemma (requires prun lk apply a cf == (cfa, ([] <: list string)) /\
+                    prun lk apply b cfa == (cfb, ([] <: list string)))
+          (ensures prun lk apply (a + b) cf == (cfb, ([] <: list string)))
+  = lemma_prun_split lk apply a b cf
+
+(* ------------------------------------------------------------------ *)
+(*  JUDGEMENT POINT 1: THE PREFIXES, IN GENERAL FORM                   *)
+(*                                                                     *)
+(*  Every lemma below runs the machine from a SYMBOLIC configuration:   *)
+(*  the plan, the inner computation, the continuation, the ambient      *)
+(*  stack, the store and the counter are all variables.  No lemma       *)
+(*  mentions two sides' counts, and none is stated at a fixture.        *)
+(* ------------------------------------------------------------------ *)
+
+(** **Production's prefix, and it is TWO transitions at every plan.** PROVED.
+    The bind installs the frame that will receive the handle, and `PEnterCtx`
+    lays down boundary, protocol segment and floor above the ambient stack. The
+    inner computation is UNTOUCHED and is what the machine goes on with, which is
+    why this one lemma serves right identity, transparency and the anchored half
+    of associativity alike -- the three whose left-hand side runs an arbitrary
+    `c` inside the scope. *)
+let lemma_prefix_produce (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 2 ({ st = PStep (pbind (ref_ops.o_enter_ctx pl c) f) k;
+                              store = sto; next = n0 })
+           == ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                              @ (PScopeF :: PBindF f :: k)));
+                 store = sto; next = n0 }, ([] <: list string)))
+  = assert_norm (prun lk apply 2 ({ st = PStep (pbind (ref_ops.o_enter_ctx pl c) f) k;
+                                    store = sto; next = n0 })
+                 == ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                                    @ (PScopeF :: PBindF f :: k)));
+                       store = sto; next = n0 }, ([] <: list string)))
+
+(** **Entering's prefix, and it is ONE transition.** PROVED. The splice puts the
+    plan's ENTER segment on the ambient stack and hands it the same `c`. *)
+let lemma_prefix_enter (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 1 ({ st = PStep (ref_ops.o_enter pl c) k;
+                              store = sto; next = n0 })
+           == ({ st = PStep c (plan_enter_frames pl @ k);
+                 store = sto; next = n0 }, ([] <: list string)))
+  = assert_norm (prun lk apply 1 ({ st = PStep (ref_ops.o_enter pl c) k;
+                                    store = sto; next = n0 })
+                 == ({ st = PStep c (plan_enter_frames pl @ k);
+                       store = sto; next = n0 }, ([] <: list string)))
+
+(** **The anchored half's right-hand side, and it is THREE transitions.** PROVED:
+    the splice, then the two binds of `pbind (pbind c g) h`, which leave the same
+    `c` under two recorded frames. *)
+let lemma_prefix_enter_bind2 (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (c: pcomp v cl) (g h: pval v -> pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 3
+             ({ st = PStep (PSplice (plan_enter_frames pl) (pbind (pbind c g) h)) k;
+                store = sto; next = n0 })
+           == ({ st = PStep c (PBindF g :: PBindF h :: (plan_enter_frames pl @ k));
+                 store = sto; next = n0 }, ([] <: list string)))
+  = assert_norm (prun lk apply 3
+                   ({ st = PStep (PSplice (plan_enter_frames pl)
+                                          (pbind (pbind c g) h)) k;
+                      store = sto; next = n0 })
+                 == ({ st = PStep c (PBindF g :: PBindF h
+                                     :: (plan_enter_frames pl @ k));
+                       store = sto; next = n0 }, ([] <: list string)))
+
+(** **Resumption's right-hand side, and it is ONE transition.** PROVED. *)
+let lemma_prefix_resume_rhs (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (c: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 1 ({ st = PStep (PSplice (plan_resume_frames pl) c) k;
+                              store = sto; next = n0 })
+           == ({ st = PStep c (plan_resume_frames pl @ k);
+                 store = sto; next = n0 }, ([] <: list string)))
+  = assert_norm (prun lk apply 1
+                   ({ st = PStep (PSplice (plan_resume_frames pl) c) k;
+                      store = sto; next = n0 })
+                 == ({ st = PStep c (plan_resume_frames pl @ k);
+                       store = sto; next = n0 }, ([] <: list string)))
+
+(* ---- The four transitions the symbolic prefixes need --------------- *)
+
+(** The responder `ctx_drive` appends over a FRESHLY produced residual, as a
+    NAMED function. `ctx_drive` builds its lambda internally, so the equality
+    between it and the same lambda written at a use site is not something Z3 can
+    see (the note at `lemma_ctx_drive_answers_head` records why); naming it once
+    and normalising once is what keeps every statement below speaking of one SMT
+    symbol. The `post` of a fresh residual is `PVar`, so the responder is just
+    "hand the value to the consumer's function".
+
+    It is `unfold` on purpose: the SMT encoding of a lambda occurring inside a
+    definition is its own, so a NAMED symbol here would be a second lambda that
+    Z3 cannot identify with the one `ctx_drive` builds. Unfolding at elaboration
+    makes every occurrence below the SAME term, which is what
+    `lemma_ctx_drive_answers_head` achieves with a local `let` and an
+    `assert_norm`. *)
+unfold
+let presp0 (#v #cl: Type) (f: pval v -> pcomp v cl) : pval v -> pcomp v cl
+  = fun z -> pbind (PVar z) f
+
+let lemma_ctx_drive_fresh (#v #cl: Type) (m: weave_mode) (x: pval v)
+                          (resid: pstack v cl) (f: pval v -> pcomp v cl)
+  : Lemma (ctx_drive m (PCtxRequests x resid (PVar #v #cl)) f
+           == PSplice (resid @ [PModeF m (presp0 f)]) (PVar x))
+  = assert_norm (ctx_drive m (PCtxRequests x resid (PVar #v #cl)) f
+                 == PSplice (resid @ [PModeF m (presp0 f)]) (PVar x))
+
+let lemma_presp0_at (#v #cl: Type) (f: pval v -> pcomp v cl) (x: pval v)
+  : Lemma (presp0 f x == POp (PVar x) f)
+  = assert_norm (presp0 #v #cl f x == POp (PVar #v #cl x) f)
+
+(** **The yield, at a symbolic protocol segment.** PROVED. The value meets the
+    boundary, the mode search walks the whole segment and stops at the floor the
+    same `PEnterCtx` pushed, the nearest cut is the segment itself, and the
+    handle allocated is the counter the configuration came in with. Nothing here
+    is about a particular plan: the two hypotheses are `lemma_plan_protocol_frames_flat`'s
+    conclusion. *)
+let lemma_step_yield_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (a: pstack v cl) (below: pstack v cl) (cf: pconf v cl)
+  : Lemma (requires pno_floor a /\ pno_mode a /\
+                    cf.st == PStep (PVar x) (PBoundaryF :: (a @ (PScopeF :: below))))
+          (ensures pstep_tr lk apply cf
+                   == ({ cf with
+                         st = PStep (PVar (PCtxKey cf.next)) below;
+                         store = (cf.next, PCtxRequests x (PBoundaryF :: a)
+                                                        (PVar #v #cl)) :: cf.store;
+                         next = cf.next + 1 }, ([] <: list string)))
+  = lemma_find_mode_through a (PScopeF :: below);
+    lemma_pcut_scope_through a below
+
+(** **The boundary that finds a consumer's marker.** PROVED, by
+    `lemma_find_mode_marker`. *)
+let lemma_step_boundary_marker (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (a: pstack v cl) (m: weave_mode) (resp: pval v -> pcomp v cl)
+    (rest: pstack v cl) (cf: pconf v cl)
+  : Lemma (requires pno_floor a /\ pno_mode a /\
+                    cf.st == PStep (PVar x) (PBoundaryF :: (a @ (PModeF m resp :: rest))))
+          (ensures pstep_tr lk apply cf
+                   == ({ cf with st = PStep (resp x) (a @ (PModeF m resp :: rest)) },
+                       ([] <: list string)))
+  = lemma_find_mode_marker a m resp rest
+
+(** **The two consuming rules, with the resolution supplied.** PROVED. *)
+let lemma_step_extendc_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (hv: pval v) (f: pval v -> pcomp v cl) (k: pstack v cl)
+    (cf: pconf v cl) (cx: pctx v cl)
+  : Lemma (requires cf.st == PStep (PExtendC pl hv f) k /\
+                    presolve cf.store hv == Some cx)
+          (ensures pstep_tr lk apply cf
+                   == ({ cf with st = PStep (ctx_drive MExtend cx f) k },
+                       ([] <: list string)))
+  = ()
+
+let lemma_step_resumec_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (hv: pval v) (f: pval v -> pcomp v cl) (k: pstack v cl)
+    (cf: pconf v cl) (cx: pctx v cl)
+  : Lemma (requires cf.st == PStep (PResumeC pl hv f) k /\
+                    presolve cf.store hv == Some cx)
+          (ensures pstep_tr lk apply cf
+                   == ({ cf with st = PStep (ctx_drive MResume cx f) k },
+                       ([] <: list string)))
+  = ()
+
+(**
+ * **LEFT IDENTITY'S LEFT-HAND SIDE, ADVANCED SYMBOLICALLY.** PROVED, at an
+ * ARBITRARY plan, value, extension function, ambient stack, store and counter.
+ *
+ * Nine transitions, and every one of them is named: the bind, the production
+ * node, the yield at the boundary (which is where the handle is allocated and
+ * the residual stored), the frame that receives the handle, `bindScope`'s
+ * resolution, the splice that puts the residual back with the consumer's marker
+ * beneath it, the boundary that finds THAT marker, and the two that hand the
+ * value to `g`.
+ *
+ * The count is this side's own. Nothing in this statement mentions the other
+ * side, and nothing below relates it to the other side's count: the two are
+ * joined only through `lemma_prun_split`, which composes a prefix with a suffix
+ * on ONE side.
+ *)
+let lemma_prefix_li_l (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (x: pval v) (g: pval v -> pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 9
+             ({ st = PStep (pbind (ref_ops.o_enter_ctx pl (PVar x))
+                                  (fun cx -> ref_ops.o_extend pl cx g)) k;
+                store = sto; next = n0 })
+           == ({ st = PStep (g x)
+                            (plan_protocol_frames pl
+                             @ (PModeF MExtend (presp0 g) :: k));
+                 store = (n0, PCtxRequests x (PBoundaryF :: plan_protocol_frames pl)
+                                           (PVar #v #cl)) :: sto;
+                 next = n0 + 1 },
+               ([] <: list string)))
+  = let ppf : pstack v cl = plan_protocol_frames pl in
+    let f : pval v -> pcomp v cl = fun cx -> ref_ops.o_extend pl cx g in
+    let resid : pstack v cl = PBoundaryF :: ppf in
+    let cxr : pctx v cl = PCtxRequests x resid (PVar #v #cl) in
+    let st1 : pstore v cl = (n0, cxr) :: sto in
+    let mfr : pframe v cl = PModeF MExtend (presp0 g) in
+    let cf0 : pconf v cl =
+      { st = PStep (pbind (ref_ops.o_enter_ctx pl (PVar x)) f) k;
+        store = sto; next = n0 } in
+    let cfa : pconf v cl =
+      { st = PStep (PVar x) (PBoundaryF :: (ppf @ (PScopeF :: PBindF f :: k)));
+        store = sto; next = n0 } in
+    let cfb : pconf v cl =
+      { st = PStep (PVar (PCtxKey n0)) (PBindF f :: k); store = st1; next = n0 + 1 } in
+    let cfc : pconf v cl =
+      { st = PStep (PExtendC pl (PCtxKey n0) g) k; store = st1; next = n0 + 1 } in
+    let cfd : pconf v cl =
+      { st = PStep (PSplice (resid @ [mfr]) (PVar x)) k; store = st1; next = n0 + 1 } in
+    let cfe : pconf v cl =
+      { st = PStep (PVar x) (PBoundaryF :: (ppf @ (mfr :: k)));
+        store = st1; next = n0 + 1 } in
+    let cff : pconf v cl =
+      { st = PStep (POp (PVar x) g) (ppf @ (mfr :: k)); store = st1; next = n0 + 1 } in
+    let cfg : pconf v cl =
+      { st = PStep (PVar x) (PBindF g :: (ppf @ (mfr :: k)));
+        store = st1; next = n0 + 1 } in
+    let cfh : pconf v cl =
+      { st = PStep (g x) (ppf @ (mfr :: k)); store = st1; next = n0 + 1 } in
+    lemma_plan_protocol_frames_flat pl;
+    // 1-2: the bind and the production node
+    lemma_prefix_produce lk apply pl (PVar x) f k sto n0;
+    // 3: the yield -- allocates the handle and stores the residual
+    lemma_step_yield_at lk apply x ppf (PBindF f :: k) cfa;
+    lemma_prun_one lk apply cfa cfb;
+    lemma_prun_cat lk apply 2 1 cf0 cfa cfb;
+    // 4: the frame that receives the handle
+    lemma_prun_one lk apply cfb cfc;
+    lemma_prun_cat lk apply 3 1 cf0 cfb cfc;
+    // 5: `bindScope`'s resolution, and the drive it delegates to
+    assert (presolve st1 (PCtxKey n0) == Some cxr);
+    lemma_step_extendc_at lk apply pl (PCtxKey n0) g k cfc cxr;
+    lemma_ctx_drive_fresh MExtend x resid g;
+    lemma_prun_one lk apply cfc cfd;
+    lemma_prun_cat lk apply 4 1 cf0 cfc cfd;
+    // 6: the splice -- the residual goes back with the marker beneath it
+    append_assoc resid [mfr] k;
+    lemma_prun_one lk apply cfd cfe;
+    lemma_prun_cat lk apply 5 1 cf0 cfd cfe;
+    // 7: the boundary finds THIS consumer's marker
+    lemma_step_boundary_marker lk apply x ppf MExtend (presp0 g) k cfe;
+    lemma_presp0_at g x;
+    lemma_prun_one lk apply cfe cff;
+    lemma_prun_cat lk apply 6 1 cf0 cfe cff;
+    // 8-9: and the value reaches `g`
+    lemma_prun_one lk apply cff cfg;
+    lemma_prun_cat lk apply 7 1 cf0 cff cfg;
+    lemma_prun_one lk apply cfg cfh;
+    lemma_prun_cat lk apply 8 1 cf0 cfg cfh
+
+(**
+ * **RESUMPTION'S LEFT-HAND SIDE, ADVANCED SYMBOLICALLY.** PROVED, at an
+ * arbitrary plan, value, continuation, ambient stack, store and counter.
+ *
+ * The same nine transitions as left identity's, with `MResume` in place of
+ * `MExtend` -- which is the entire difference between the two consumers, and it
+ * is visible here as one constructor and nothing else.
+ *)
+let lemma_prefix_rm_l (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (x: pval v) (kk: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 9
+             ({ st = PStep (pbind (ref_ops.o_enter_ctx pl (PVar x))
+                                  (fun cx -> ref_ops.o_resume pl cx kk)) amb;
+                store = sto; next = n0 })
+           == ({ st = PStep (kk x)
+                            (plan_protocol_frames pl
+                             @ (PModeF MResume (presp0 kk) :: amb));
+                 store = (n0, PCtxRequests x (PBoundaryF :: plan_protocol_frames pl)
+                                           (PVar #v #cl)) :: sto;
+                 next = n0 + 1 },
+               ([] <: list string)))
+  = let ppf : pstack v cl = plan_protocol_frames pl in
+    let f : pval v -> pcomp v cl = fun cx -> ref_ops.o_resume pl cx kk in
+    let resid : pstack v cl = PBoundaryF :: ppf in
+    let cxr : pctx v cl = PCtxRequests x resid (PVar #v #cl) in
+    let st1 : pstore v cl = (n0, cxr) :: sto in
+    let mfr : pframe v cl = PModeF MResume (presp0 kk) in
+    let cf0 : pconf v cl =
+      { st = PStep (pbind (ref_ops.o_enter_ctx pl (PVar x)) f) amb;
+        store = sto; next = n0 } in
+    let cfa : pconf v cl =
+      { st = PStep (PVar x) (PBoundaryF :: (ppf @ (PScopeF :: PBindF f :: amb)));
+        store = sto; next = n0 } in
+    let cfb : pconf v cl =
+      { st = PStep (PVar (PCtxKey n0)) (PBindF f :: amb); store = st1; next = n0 + 1 } in
+    let cfc : pconf v cl =
+      { st = PStep (PResumeC pl (PCtxKey n0) kk) amb; store = st1; next = n0 + 1 } in
+    let cfd : pconf v cl =
+      { st = PStep (PSplice (resid @ [mfr]) (PVar x)) amb; store = st1; next = n0 + 1 } in
+    let cfe : pconf v cl =
+      { st = PStep (PVar x) (PBoundaryF :: (ppf @ (mfr :: amb)));
+        store = st1; next = n0 + 1 } in
+    let cff : pconf v cl =
+      { st = PStep (POp (PVar x) kk) (ppf @ (mfr :: amb)); store = st1; next = n0 + 1 } in
+    let cfg : pconf v cl =
+      { st = PStep (PVar x) (PBindF kk :: (ppf @ (mfr :: amb)));
+        store = st1; next = n0 + 1 } in
+    let cfh : pconf v cl =
+      { st = PStep (kk x) (ppf @ (mfr :: amb)); store = st1; next = n0 + 1 } in
+    lemma_plan_protocol_frames_flat pl;
+    lemma_prefix_produce lk apply pl (PVar x) f amb sto n0;
+    lemma_step_yield_at lk apply x ppf (PBindF f :: amb) cfa;
+    lemma_prun_one lk apply cfa cfb;
+    lemma_prun_cat lk apply 2 1 cf0 cfa cfb;
+    lemma_prun_one lk apply cfb cfc;
+    lemma_prun_cat lk apply 3 1 cf0 cfb cfc;
+    assert (presolve st1 (PCtxKey n0) == Some cxr);
+    lemma_step_resumec_at lk apply pl (PCtxKey n0) kk amb cfc cxr;
+    lemma_ctx_drive_fresh MResume x resid kk;
+    lemma_prun_one lk apply cfc cfd;
+    lemma_prun_cat lk apply 4 1 cf0 cfc cfd;
+    append_assoc resid [mfr] amb;
+    lemma_prun_one lk apply cfd cfe;
+    lemma_prun_cat lk apply 5 1 cf0 cfd cfe;
+    lemma_step_boundary_marker lk apply x ppf MResume (presp0 kk) amb cfe;
+    lemma_presp0_at kk x;
+    lemma_prun_one lk apply cfe cff;
+    lemma_prun_cat lk apply 6 1 cf0 cfe cff;
+    lemma_prun_one lk apply cff cfg;
+    lemma_prun_cat lk apply 7 1 cf0 cff cfg;
+    lemma_prun_one lk apply cfg cfh;
+    lemma_prun_cat lk apply 8 1 cf0 cfg cfh
+
+(* ---- The algebraic half's two prefixes ---------------------------- *)
+
+(** `bindScope`, with the resolution supplied. PROVED. It ALLOCATES -- condition
+    8 -- so the configuration it hands on carries one entry and one counter more
+    than the one it received. *)
+let lemma_step_extendctxc_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (hv: pval v) (f: pval v -> pcomp v cl) (amb: pstack v cl)
+    (cf: pconf v cl) (cx: pctx v cl)
+  : Lemma (requires cf.st == PStep (PExtendCtxC pl hv f) amb /\
+                    presolve cf.store hv == Some cx)
+          (ensures pstep_tr lk apply cf
+                   == ({ cf with
+                         st = PStep (PVar (PCtxKey cf.next)) amb;
+                         store = (cf.next, extend_ctx_C pl cx f) :: cf.store;
+                         next = cf.next + 1 }, ([] <: list string)))
+  = ()
+
+(** A handle that does not resolve. PROVED, and both consuming rules answer with
+    the SAME stuck state -- which is why the algebraic half's two sides reach a
+    common configuration when the context they name is absent. *)
+let lemma_step_consume_stuck (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (hv: pval v) (f: pval v -> pcomp v cl) (amb: pstack v cl)
+    (cf: pconf v cl)
+  : Lemma (requires presolve cf.store hv == None)
+          (ensures
+            (cf.st == PStep (PExtendC pl hv f) amb ==>
+             pstep_tr lk apply cf
+               == ({ cf with st = PStuck pctx_eff pctx_missing_op },
+                   ([] <: list string))) /\
+            (cf.st == PStep (PExtendCtxC pl hv f) amb ==>
+             pstep_tr lk apply cf
+               == ({ cf with st = PStuck pctx_eff pctx_missing_op },
+                   ([] <: list string))))
+  = ()
+
+(**
+ * **THE ALGEBRAIC HALF'S LEFT-HAND SIDE, ADVANCED SYMBOLICALLY.** PROVED, at an
+ * arbitrary plan, handle, pair of extension functions, ambient stack, store and
+ * counter, WHEN THE HANDLE RESOLVES.
+ *
+ * Four transitions: the bind, `bindScope` (which allocates the extended
+ * context), the frame that receives the new handle, and `runScope`'s resolution
+ * of it. The result is a drive of the EXTENDED context by `h`.
+ *)
+let lemma_prefix_aa_l (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat) (cxv: pctx v cl)
+  : Lemma (requires presolve sto cxh == Some cxv)
+          (ensures
+            prun lk apply 4
+              ({ st = PStep (pbind (ref_ops.o_extend_ctx pl cxh g)
+                                   (fun cy -> ref_ops.o_extend pl cy h)) amb;
+                 store = sto; next = n0 })
+            == ({ st = PStep (ctx_drive MExtend (extend_ctx_C pl cxv g) h) amb;
+                  store = (n0, extend_ctx_C pl cxv g) :: sto;
+                  next = n0 + 1 }, ([] <: list string)))
+  = let f : pval v -> pcomp v cl = fun cy -> ref_ops.o_extend pl cy h in
+    let cy0 : pctx v cl = extend_ctx_C pl cxv g in
+    let st1 : pstore v cl = (n0, cy0) :: sto in
+    let cf0 : pconf v cl =
+      { st = PStep (pbind (ref_ops.o_extend_ctx pl cxh g) f) amb;
+        store = sto; next = n0 } in
+    let cfa : pconf v cl =
+      { st = PStep (PExtendCtxC pl cxh g) (PBindF f :: amb); store = sto; next = n0 } in
+    let cfb : pconf v cl =
+      { st = PStep (PVar (PCtxKey n0)) (PBindF f :: amb); store = st1; next = n0 + 1 } in
+    let cfc : pconf v cl =
+      { st = PStep (PExtendC pl (PCtxKey n0) h) amb; store = st1; next = n0 + 1 } in
+    let cfd : pconf v cl =
+      { st = PStep (ctx_drive MExtend cy0 h) amb; store = st1; next = n0 + 1 } in
+    lemma_prun_one lk apply cf0 cfa;
+    lemma_step_extendctxc_at lk apply pl cxh g (PBindF f :: amb) cfa cxv;
+    lemma_prun_one lk apply cfa cfb;
+    lemma_prun_cat lk apply 1 1 cf0 cfa cfb;
+    lemma_prun_one lk apply cfb cfc;
+    lemma_prun_cat lk apply 2 1 cf0 cfb cfc;
+    assert (presolve st1 (PCtxKey n0) == Some cy0);
+    lemma_step_extendc_at lk apply pl (PCtxKey n0) h amb cfc cy0;
+    lemma_prun_one lk apply cfc cfd;
+    lemma_prun_cat lk apply 3 1 cf0 cfc cfd
+
+(** **The algebraic half's right-hand side, and it is ONE transition.** PROVED,
+    under the same resolution: the composite extension drives the ORIGINAL
+    context. Neither this side's count nor the other's appears in any statement
+    that mentions both. *)
+let lemma_prefix_aa_r (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat) (cxv: pctx v cl)
+  : Lemma (requires presolve sto cxh == Some cxv)
+          (ensures
+            prun lk apply 1
+              ({ st = PStep (ref_ops.o_extend pl cxh (fun z -> pbind (g z) h)) amb;
+                 store = sto; next = n0 })
+            == ({ st = PStep (ctx_drive MExtend cxv (fun z -> pbind (g z) h)) amb;
+                  store = sto; next = n0 }, ([] <: list string)))
+  = let f : pval v -> pcomp v cl = fun z -> pbind (g z) h in
+    let cf0 : pconf v cl =
+      { st = PStep (ref_ops.o_extend pl cxh f) amb; store = sto; next = n0 } in
+    let cfa : pconf v cl =
+      { st = PStep (ctx_drive MExtend cxv f) amb; store = sto; next = n0 } in
+    lemma_step_extendc_at lk apply pl cxh f amb cf0 cxv;
+    lemma_prun_one lk apply cf0 cfa
+
+(** **And when the handle does not resolve, the two sides reach the SAME
+    configuration.** PROVED -- two transitions on the left, one on the right, and
+    the stuck state, the store and the counter all agree. *)
+let lemma_prefix_aa_stuck_l (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires presolve sto cxh == None)
+          (ensures
+            prun lk apply 2
+              ({ st = PStep (pbind (ref_ops.o_extend_ctx pl cxh g)
+                                   (fun cy -> ref_ops.o_extend pl cy h)) amb;
+                 store = sto; next = n0 })
+            == ({ st = PStuck pctx_eff pctx_missing_op; store = sto; next = n0 },
+                ([] <: list string)))
+  = let f : pval v -> pcomp v cl = fun cy -> ref_ops.o_extend pl cy h in
+    let cf0 : pconf v cl =
+      { st = PStep (pbind (ref_ops.o_extend_ctx pl cxh g) f) amb;
+        store = sto; next = n0 } in
+    let cfa : pconf v cl =
+      { st = PStep (PExtendCtxC pl cxh g) (PBindF f :: amb); store = sto; next = n0 } in
+    let cfb : pconf v cl =
+      { st = PStuck pctx_eff pctx_missing_op; store = sto; next = n0 } in
+    lemma_prun_one lk apply cf0 cfa;
+    lemma_step_consume_stuck lk apply pl cxh g (PBindF f :: amb) cfa;
+    lemma_prun_one lk apply cfa cfb;
+    lemma_prun_cat lk apply 1 1 cf0 cfa cfb
+
+let lemma_prefix_aa_stuck_r (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires presolve sto cxh == None)
+          (ensures
+            prun lk apply 1
+              ({ st = PStep (ref_ops.o_extend pl cxh (fun z -> pbind (g z) h)) amb;
+                 store = sto; next = n0 })
+            == ({ st = PStuck pctx_eff pctx_missing_op; store = sto; next = n0 },
+                ([] <: list string)))
+  = let f : pval v -> pcomp v cl = fun z -> pbind (g z) h in
+    let cf0 : pconf v cl =
+      { st = PStep (ref_ops.o_extend pl cxh f) amb; store = sto; next = n0 } in
+    lemma_step_consume_stuck lk apply pl cxh f amb cf0;
+    lemma_prun_one lk apply cf0 ({ st = PStuck pctx_eff pctx_missing_op;
+                                   store = sto; next = n0 })
+
+(* ================================================================== *)
+(*  JUDGEMENT POINT 2: THE POST-PREFIX CONFIGURATIONS                  *)
+(*                                                                     *)
+(*  The prefixes above are the whole of judgement point 1, and they     *)
+(*  answer it: every one of the six propositions has a FINITE prefix    *)
+(*  on each side, computable with the plan, the inner computation, the  *)
+(*  ambient stack, the store and the counter left as variables, and     *)
+(*  the two prefixes land on the SAME node -- `c`, `g x`, `kk x`, or a  *)
+(*  drive of the same context.                                         *)
+(*                                                                     *)
+(*  Judgement point 2 asks whether the fundamental theorem can be       *)
+(*  STARTED there, and it CANNOT, for a reason that is structural and   *)
+(*  has nothing to do with names.  `pframes_rel` matches a stack        *)
+(*  cons-for-cons; the two post-prefix stacks have DIFFERENT LENGTHS,   *)
+(*  at EVERY plan and EVERY ambient stack, because                      *)
+(*                                                                     *)
+(*    - the left side is inside the scope's protocol segment and the    *)
+(*      right side is inside the plan's ENTER (or RESUME) segment, and  *)
+(*      `protocol_layer_frames` keeps a `PSiteF` exactly where          *)
+(*      `enter_layer_frames` drops the item; and                        *)
+(*    - the left side carries the frames the residual protocol needs    *)
+(*      -- a boundary and a floor before production, a `PModeF` marker  *)
+(*      after consumption -- and the right side carries none of them.   *)
+(*                                                                     *)
+(*  The four lemmas below prove exactly that, unconditionally in the    *)
+(*  plan.  They are the localisation of the failure: it is NOT the      *)
+(*  nominal relation, which never looks at a stack's length, and it is  *)
+(*  NOT the prefixes, which are exact.  It is that the laws equate two  *)
+(*  computations whose machine configurations differ by frames, and     *)
+(*  the logical relation this module carries is a CONGRUENCE, not a     *)
+(*  bisimulation.                                                       *)
+(* ================================================================== *)
+
+(** **Related stacks have the same length.** PROVED, by induction; one index is
+    enough, since `pframes_rel` is `False` on a length mismatch from index 1 up. *)
+let rec lemma_pframes_rel_length (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+    (a b: pstack v cl)
+  : Lemma (requires n >= 1 /\ pframes_rel r n w a b)
+          (ensures length a == length b)
+          (decreases a)
+  = match a, b with
+    | [], [] -> ()
+    | _ :: t1, _ :: t2 -> lemma_pframes_rel_length r n w t1 t2
+    | _, _ -> ()
+
+let lemma_pkrel_length (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (a b: pstack v cl)
+  : Lemma (requires pkrel r w a b) (ensures length a == length b)
+  = lemma_pframes_rel_length r 1 w a b
+
+(** **The three projections, measured.** PROVED, by induction on the plan's
+    items. The residual projection is the longest: it keeps a frame for every
+    item, where entering drops the `PIBind`s. Resumption keeps one for every item
+    too, so it has the residual's length exactly -- which is why the marker, and
+    not the segment, is what separates the two sides of the resumption law. *)
+let rec lemma_layer_frames_lengths (#v #cl: Type) (ls: list (plan_item v cl))
+  : Lemma (ensures length (enter_layer_frames ls) <= length (protocol_layer_frames ls) /\
+                   length (resume_layer_frames ls) == length (protocol_layer_frames ls))
+          (decreases ls)
+  = match ls with
+    | [] -> ()
+    | _ :: rest -> lemma_layer_frames_lengths rest
+
+let lemma_plan_frames_lengths (#v #cl: Type) (pl: plan v cl)
+  : Lemma (length (plan_enter_frames pl) <= length (plan_protocol_frames pl) /\
+           length (plan_resume_frames pl) == length (plan_protocol_frames pl))
+  = lemma_layer_frames_lengths (Plan?.layers pl);
+    append_length (enter_layer_frames (Plan?.layers pl)) [owner_frame (Plan?.owner pl)];
+    append_length (resume_layer_frames (Plan?.layers pl)) [owner_frame (Plan?.owner pl)];
+    append_length (protocol_layer_frames (Plan?.layers pl)) [owner_frame (Plan?.owner pl)]
+
+(**
+ * **PRODUCTION'S STACK IS NEVER ENTERING'S.** PROVED, at every plan, every
+ * continuation and every ambient stack, and at every world.
+ *
+ * This is the obstruction for RIGHT IDENTITY and for TRANSPARENCY, whose two
+ * sides reach the very same inner computation `c` -- the prefixes are exact --
+ * under stacks that differ by the boundary, the floor, the frame that will
+ * receive the handle, and whatever `PSiteF`s the plan's `PIBind`s contribute.
+ * Three frames at the very least, and never fewer.
+ *)
+let guard_align_produce_vs_enter (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (f: pval v -> pcomp v cl) (amb: pstack v cl)
+  : Lemma (~(pkrel r w (PBoundaryF :: (plan_protocol_frames pl
+                                       @ (PScopeF :: PBindF f :: amb)))
+                       (plan_enter_frames pl @ amb)))
+  = lemma_plan_frames_lengths pl;
+    append_length (plan_protocol_frames pl)
+                  ((PScopeF :: PBindF f :: amb) <: pstack v cl);
+    append_length (plan_enter_frames pl) amb;
+    introduce pkrel r w (PBoundaryF :: (plan_protocol_frames pl
+                                        @ (PScopeF :: PBindF f :: amb)))
+                        (plan_enter_frames pl @ amb) ==> False
+    with
+      lemma_pkrel_length r w (PBoundaryF :: (plan_protocol_frames pl
+                                             @ (PScopeF :: PBindF f :: amb)))
+                             (plan_enter_frames pl @ amb)
+
+(**
+ * **AND IT IS NOT ENTERING WITH THE TWO BINDS EITHER.** PROVED. This is the
+ * obstruction for the ANCHORED HALF of associativity, whose right-hand side
+ * reaches `c` under the enter segment with `PBindF g` and `PBindF h` above it.
+ * The left side is still one frame longer, and would be at every plan even if
+ * the two segments agreed.
+ *)
+let guard_align_produce_vs_enter_bind2 (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (f g h: pval v -> pcomp v cl) (amb: pstack v cl)
+  : Lemma (~(pkrel r w (PBoundaryF :: (plan_protocol_frames pl
+                                       @ (PScopeF :: PBindF f :: amb)))
+                       (PBindF g :: PBindF h :: (plan_enter_frames pl @ amb))))
+  = lemma_plan_frames_lengths pl;
+    append_length (plan_protocol_frames pl)
+                  ((PScopeF :: PBindF f :: amb) <: pstack v cl);
+    append_length (plan_enter_frames pl) amb;
+    introduce pkrel r w (PBoundaryF :: (plan_protocol_frames pl
+                                        @ (PScopeF :: PBindF f :: amb)))
+                        (PBindF g :: PBindF h :: (plan_enter_frames pl @ amb)) ==> False
+    with
+      lemma_pkrel_length r w (PBoundaryF :: (plan_protocol_frames pl
+                                             @ (PScopeF :: PBindF f :: amb)))
+                             (PBindF g :: PBindF h :: (plan_enter_frames pl @ amb))
+
+(**
+ * **THE CONSUMER'S MARKER IS NOT NOTHING.** PROVED. This is the obstruction for
+ * LEFT IDENTITY: both sides reach `g x`, the left inside the residual's protocol
+ * segment with the extension's `MExtend` marker beneath it, the right inside the
+ * plan's enter segment with nothing beneath it but the ambient stack. The marker
+ * alone already separates them, and the `PSiteF`s separate them further.
+ *)
+let guard_align_marker_vs_enter (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (m: weave_mode) (resp: pval v -> pcomp v cl) (amb: pstack v cl)
+  : Lemma (~(pkrel r w (plan_protocol_frames pl @ (PModeF m resp :: amb))
+                       (plan_enter_frames pl @ amb)))
+  = lemma_plan_frames_lengths pl;
+    append_length (plan_protocol_frames pl) ((PModeF m resp :: amb) <: pstack v cl);
+    append_length (plan_enter_frames pl) amb;
+    introduce pkrel r w (plan_protocol_frames pl @ (PModeF m resp :: amb))
+                        (plan_enter_frames pl @ amb) ==> False
+    with
+      lemma_pkrel_length r w (plan_protocol_frames pl @ (PModeF m resp :: amb))
+                             (plan_enter_frames pl @ amb)
+
+(**
+ * **AND IT IS NOT NOTHING AT THE RESUME PROJECTION EITHER.** PROVED, and this
+ * one is the sharpest of the four: `plan_resume_frames` and
+ * `plan_protocol_frames` have the SAME LENGTH, so the two sides of the
+ * resumption law differ by the marker and by NOTHING ELSE. The anchoring is not
+ * what fails -- the segment on the left is the segment on the right, frame for
+ * frame in length -- it is that a consumed residual carries the consumer's
+ * marker and an independent description of resumption has nowhere to put one.
+ *)
+let guard_align_marker_vs_resume (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (m: weave_mode) (resp: pval v -> pcomp v cl) (amb: pstack v cl)
+  : Lemma (~(pkrel r w (plan_protocol_frames pl @ (PModeF m resp :: amb))
+                       (plan_resume_frames pl @ amb)))
+  = lemma_plan_frames_lengths pl;
+    append_length (plan_protocol_frames pl) ((PModeF m resp :: amb) <: pstack v cl);
+    append_length (plan_resume_frames pl) amb;
+    introduce pkrel r w (plan_protocol_frames pl @ (PModeF m resp :: amb))
+                        (plan_resume_frames pl @ amb) ==> False
+    with
+      lemma_pkrel_length r w (plan_protocol_frames pl @ (PModeF m resp :: amb))
+                             (plan_resume_frames pl @ amb)
+
+(* ---- The algebraic half's obstruction, which is a DIFFERENT one ---- *)
+
+(**
+ * **Composing an extension onto a context's `post`**, named once so that the
+ * two bracketings below are two applications of ONE symbol. `unfold` for the
+ * reason `presp0` is.
+ *)
+unfold
+let pcompose (#v #cl: Type) (p f: pval v -> pcomp v cl) : pval v -> pcomp v cl
+  = fun u -> pbind (p u) f
+
+let lemma_extend_ctx_C_compose (#v #cl: Type) (pl: plan v cl) (z: pval v)
+                               (resid: pstack v cl) (post f: pval v -> pcomp v cl)
+  : Lemma (extend_ctx_C pl (PCtxRequests z resid post) f
+           == PCtxRequests z resid (pcompose post f))
+  = assert_norm (extend_ctx_C pl (PCtxRequests z resid post) f
+                 == PCtxRequests z resid (pcompose post f))
+
+let lemma_ctx_drive_requests (#v #cl: Type) (m: weave_mode) (z: pval v)
+                             (resid: pstack v cl) (post f: pval v -> pcomp v cl)
+  : Lemma (ctx_drive m (PCtxRequests z resid post) f
+           == PSplice (resid @ [PModeF m (pcompose post f)]) (PVar z))
+  = assert_norm (ctx_drive m (PCtxRequests z resid post) f
+                 == PSplice (resid @ [PModeF m (pcompose post f)]) (PVar z))
+
+(** The last frame of two stacks with a common prefix. PROVED, by induction. *)
+let rec lemma_pkrel_snoc_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (a: pstack v cl) (x y: pframe v cl)
+  : Lemma (requires pkrel r w (a @ [x]) (a @ [y]))
+          (ensures pfrel r w x y)
+          (decreases a)
+  = match a with
+    | [] -> lemma_pkrel_cons_inv r w x y ([] <: pstack v cl) ([] <: pstack v cl)
+    | e :: rest ->
+      lemma_pkrel_cons_inv r w e e (rest @ [x]) (rest @ [y]);
+      lemma_pkrel_snoc_inv r w rest x y
+
+(**
+ * **A COMPUTATION IS NEVER RELATED TO A BIND OF ITSELF.** PROVED, by structural
+ * induction on the computation.
+ *
+ * `POp a f` related to `a` would need `a` to be a `POp` whose first component is
+ * related to a `POp` whose first component is ..., without end -- and a term is
+ * finite. The step index does the counting: the relation at index `n + 1`
+ * hands down the relation at `n` one constructor in.
+ *)
+let rec lemma_no_op_self (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (a: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (ensures ~(pcrel r w (POp a f) a)) (decreases a)
+  = match a with
+    | POp a' f' ->
+      lemma_no_op_self r w a' f';
+      introduce pcrel r w (POp a f) a ==> False
+      with lemma_pcrel_op_inv r w a a' f f'
+    | _ ->
+      introduce pcrel r w (POp a f) a ==> False
+      with assert (pcomp_rel r 1 w (POp a f) a)
+
+(**
+ * **THE ALGEBRAIC HALF'S TWO SIDES CARRY THE TWO BRACKETINGS, AND THOSE ARE NOT
+ * RELATED.** PROVED, at every plan, every stored residual, every `post`, every
+ * `g` and `h`, and every world with a value related to itself in it.
+ *
+ * This is a DIFFERENT obstruction from the other four and it is worth keeping
+ * apart. Here the two post-prefix stacks are LITERALLY THE SAME -- the ambient
+ * stack, untouched -- and the two computations are drives of the same residual.
+ * What differs is the responder the marker carries: extending by `g` and then by
+ * `h` records `fun u -> (post u >>= g) >>= h`, extending by the composite records
+ * `fun u -> post u >>= (fun x -> g x >>= h)`, and those are the two bracketings
+ * of one chain. They are equal computations of the machine and are NOT related
+ * terms: `pcomp_rel` matches `POp` against `POp` and then asks for the FIRST
+ * COMPONENTS to be related, which here is `post u >>= g` against `post u`.
+ *
+ * So the algebraic half's failure is not the residual protocol at all. It is
+ * that the relation is a congruence and the law is an equation of the inner
+ * monad.
+ *)
+let guard_align_bracketing (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (z: pval v) (resid: pstack v cl)
+    (post g h: pval v -> pcomp v cl) (y: pval v)
+  : Lemma (requires pwf_world w /\ pval_rel w y y)
+          (ensures
+            ~(pcrel r w
+                (ctx_drive MExtend
+                   (extend_ctx_C pl (PCtxRequests z resid post) g) h)
+                (ctx_drive MExtend (PCtxRequests z resid post) (pcompose g h))))
+  = lemma_extend_ctx_C_compose pl z resid post g;
+    lemma_ctx_drive_requests MExtend z resid (pcompose post g) h;
+    lemma_ctx_drive_requests MExtend z resid post (pcompose g h);
+    lemma_no_op_self r w (post y) g;
+    lemma_pwext_refl w;
+    introduce pcrel r w
+                (ctx_drive MExtend (extend_ctx_C pl (PCtxRequests z resid post) g) h)
+                (ctx_drive MExtend (PCtxRequests z resid post) (pcompose g h)) ==> False
+    with begin
+      lemma_pcrel_splice_inv r w
+        (resid @ [PModeF MExtend (pcompose (pcompose post g) h)])
+        (resid @ [PModeF MExtend (pcompose post (pcompose g h))])
+        (PVar z) (PVar z);
+      lemma_pkrel_snoc_inv r w resid
+        (PModeF MExtend (pcompose (pcompose post g) h))
+        (PModeF MExtend (pcompose post (pcompose g h)));
+      lemma_pfrel_mode_inv r w MExtend MExtend
+        (pcompose (pcompose post g) h) (pcompose post (pcompose g h));
+      assert (pcrel r w (POp (POp (post y) g) h) (POp (post y) (pcompose g h)));
+      lemma_pcrel_op_inv r w (POp (post y) g) (post y) h (pcompose g h)
+    end
+
+(* ================================================================== *)
+(*  JUDGEMENT POINT 3, WHERE IT IS REACHED: JOINING TWO PREFIXES TO    *)
+(*  THE FUNDAMENTAL THEOREM                                            *)
+(*                                                                     *)
+(*  The four obstructions above say the two sides do NOT reach related *)
+(*  configurations in general.  Where they DO -- and the algebraic     *)
+(*  half of associativity does, at every configuration whose named     *)
+(*  handle is absent or holds no requests -- the composition below is  *)
+(*  what closes the obligation, and it never re-anchors: the world it  *)
+(*  hands back is the theorem's, which is `panchor sto` plus one pair  *)
+(*  per allocation.                                                    *)
+(*                                                                     *)
+(*  THE TWO PREFIX LENGTHS ARE INDEPENDENT PARAMETERS.  `a1` and `a2`  *)
+(*  are quantified separately, nothing relates them, and the theorem   *)
+(*  is applied at ONE fuel to the COMMON configuration -- so no        *)
+(*  transition offset can appear.                                       *)
+(* ================================================================== *)
+
+(** A resolved context is self-related at the store's own anchor. PROVED, from
+    `pstore_equivariant_at` and nothing else; the handle must be a `PCtxKey`,
+    since `presolve` answers `None` on a payload. *)
+let lemma_presolve_selfrel (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl)
+    (hv: pval v) (cx: pctx v cl)
+  : Lemma (requires pstore_equivariant_at r sto /\ presolve sto hv == Some cx)
+          (ensures pxrel r (panchor sto) cx cx)
+  = lemma_panchor_wf sto;
+    lemma_pwext_refl (panchor sto);
+    match hv with
+    | PCtxKey id -> assert (pstore_lookup id sto == Some cx)
+    | PV _ -> ()
+
+(**
+ * **TWO PREFIXES AND THE THEOREM, COMPOSED.** PROVED.
+ *
+ * Each side is advanced by ITS OWN number of silent transitions to a
+ * configuration; the two configurations are related at the store's anchor; and
+ * the conclusion is the nominal observation's consequent at THAT ambient stack,
+ * store and counter. `lemma_prun_stable` is what lets the left run's own fuel be
+ * pushed past its prefix, `lemma_prun_split` is what decomposes both runs, and
+ * `lemma_prun_compat` is applied ONCE, at ONE fuel, to the common pair.
+ *)
+let lemma_obs_from_common (#v #cl: Type) (b: pboundary v cl)
+    (c1 c2: pcomp v cl) (amb: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (a1 a2: nat) (d1 d2: pconf v cl)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+  : Lemma (requires
+             (let cf1 : pconf v cl = { st = PStep c1 amb; store = sto; next = n0 } in
+              let cf2 : pconf v cl = { st = PStep c2 amb; store = sto; next = n0 } in
+              prun b.b_lk b.b_apply a1 cf1 == (d1, ([] <: list string)) /\
+              prun b.b_lk b.b_apply a2 cf2 == (d2, ([] <: list string)) /\
+              pcfrel b.b_rel (panchor sto) d1 d2 /\
+              pnconverges b.b_lk b.b_apply cf1 tr x1 s1'))
+          (ensures
+             (let cf2 : pconf v cl = { st = PStep c2 amb; store = sto; next = n0 } in
+              exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                pnconverges b.b_lk b.b_apply cf2 tr x2 s2' /\
+                pwf_world w /\ pwext w (panchor sto) /\
+                pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = let _ : squash (pcl_mono b.b_rel) = b.b_mono in
+    let _ : squash (pcl_down b.b_rel) = b.b_down in
+    let _ : squash (plookup_equivariant b.b_rel b.b_lk) = b.b_lookup in
+    let _ : squash (papply_equivariant b.b_rel b.b_apply) = b.b_apply_eq in
+    let w0 = panchor sto in
+    let cf1 : pconf v cl = { st = PStep c1 amb; store = sto; next = n0 } in
+    let cf2 : pconf v cl = { st = PStep c2 amb; store = sto; next = n0 } in
+    lemma_panchor_wf sto;
+    lemma_pwext_refl w0;
+    pnconverges_unfold b.b_lk b.b_apply cf1 tr x1 s1' ();
+    eliminate exists (n: nat).
+        ((fst (prun b.b_lk b.b_apply n cf1)).st == PDone x1 /\
+         snd (prun b.b_lk b.b_apply n cf1) == tr /\
+         (fst (prun b.b_lk b.b_apply n cf1)).store == s1')
+    with begin
+      lemma_prun_stable b.b_lk b.b_apply n a1 cf1;
+      lemma_prun_split b.b_lk b.b_apply a1 n cf1;
+      assert ((fst (prun b.b_lk b.b_apply n d1)).st == PDone x1);
+      assert (snd (prun b.b_lk b.b_apply n d1) == tr);
+      assert ((fst (prun b.b_lk b.b_apply n d1)).store == s1');
+      lemma_prun_compat b.b_rel b.b_lk b.b_apply n w0 d1 d2;
+      eliminate exists (w': pworld).
+          (pwf_world w' /\ pwext w' w0 /\
+           pcfrel b.b_rel w' (fst (prun b.b_lk b.b_apply n d1))
+                             (fst (prun b.b_lk b.b_apply n d2)))
+      with begin
+        let e1 = fst (prun b.b_lk b.b_apply n d1) in
+        let e2 = fst (prun b.b_lk b.b_apply n d2) in
+        pcfrel_unfold b.b_rel w' e1 e2 ();
+        lemma_pstrel_done_inv b.b_rel w' x1 e2.st;
+        let x2 = PDone?.value e2.st in
+        lemma_prun_split b.b_lk b.b_apply a2 n cf2;
+        lemma_pnconverges_at b.b_lk b.b_apply cf2 (a2 + n) tr x2 e2.store;
+        introduce exists (y2: pval v) (t2: pstore v cl) (ww: pworld).
+            (pnconverges b.b_lk b.b_apply cf2 tr y2 t2 /\
+             pwf_world ww /\ pwext ww w0 /\
+             pval_rel ww x1 y2 /\ psrel b.b_rel ww s1' t2)
+        with x2 e2.store w' and ()
+      end
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  THE ONE OBLIGATION THAT CLOSES: THE ALGEBRAIC HALF, WHERE THE      *)
+(*  NAMED CONTEXT HOLDS NO REQUESTS                                     *)
+(*                                                                     *)
+(*  `law_assoc_nom`'s first conjunct names a context the program did    *)
+(*  not itself produce, so it stands at whatever the store says.  At    *)
+(*  the two shapes below the two sides reach configurations that ARE    *)
+(*  related, in BOTH directions, and the observation's consequent       *)
+(*  follows from the fundamental theorem with no world written by hand. *)
+(*                                                                     *)
+(*  THIS IS NOT THE LAW.  `pnobs_tr_le` quantifies over every store,    *)
+(*  and the third shape -- a context that HOLDS REQUESTS -- is the one  *)
+(*  `guard_align_bracketing` refutes.  What is proved below is the      *)
+(*  obligation AT the configurations named and nowhere else.            *)
+(* ------------------------------------------------------------------ *)
+
+(** **Absent handle: the two sides reach the SAME configuration.** PROVED --
+    same stuck state, same store, same counter -- so the obligation holds in
+    both directions. *)
+let lemma_aa_common_absent (#v #cl: Type) (b: pboundary v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires pstore_equivariant_at b.b_rel sto /\ psfresh sto n0 /\
+                    presolve sto cxh == None)
+          (ensures
+            (let d : pconf v cl =
+               { st = PStuck pctx_eff pctx_missing_op; store = sto; next = n0 } in
+             prun b.b_lk b.b_apply 2
+               ({ st = PStep (pbind (ref_ops.o_extend_ctx pl cxh g)
+                                    (fun cy -> ref_ops.o_extend pl cy h)) amb;
+                  store = sto; next = n0 }) == (d, ([] <: list string)) /\
+             prun b.b_lk b.b_apply 1
+               ({ st = PStep (ref_ops.o_extend pl cxh (pcompose g h)) amb;
+                  store = sto; next = n0 }) == (d, ([] <: list string)) /\
+             pcfrel b.b_rel (panchor sto) d d))
+  = lemma_prefix_aa_stuck_l b.b_lk b.b_apply pl cxh g h amb sto n0;
+    lemma_prefix_aa_stuck_r b.b_lk b.b_apply pl cxh g h amb sto n0;
+    lemma_panchor_wf sto;
+    lemma_panchor_bound sto n0;
+    lemma_psrel_anchor_at b.b_rel sto
+
+(** **A context that holds no requests: the two sides reach related
+    configurations.** PROVED. The left allocated a copy of it and the right did
+    not, so the two stores differ in one entry -- and that entry is named by no
+    key the anchor speaks for, which is `lemma_psrel_garbage`. Both computations
+    are `PVar y`, because extending a `PCtxDone` absorbs the extension and
+    driving one returns the value. *)
+let lemma_aa_common_done (#v #cl: Type) (b: pboundary v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat) (y: pval v)
+  : Lemma (requires pequivariant_k_at b.b_rel (panchor sto) amb /\
+                    pstore_equivariant_at b.b_rel sto /\ psfresh sto n0 /\
+                    presolve sto cxh == Some (PCtxDone y))
+          (ensures
+            (let d1 : pconf v cl =
+               { st = PStep (PVar y) amb;
+                 store = (n0, PCtxDone y) :: sto; next = n0 + 1 } in
+             let d2 : pconf v cl =
+               { st = PStep (PVar y) amb; store = sto; next = n0 } in
+             prun b.b_lk b.b_apply 4
+               ({ st = PStep (pbind (ref_ops.o_extend_ctx pl cxh g)
+                                    (fun cy -> ref_ops.o_extend pl cy h)) amb;
+                  store = sto; next = n0 }) == (d1, ([] <: list string)) /\
+             prun b.b_lk b.b_apply 1
+               ({ st = PStep (ref_ops.o_extend pl cxh (pcompose g h)) amb;
+                  store = sto; next = n0 }) == (d2, ([] <: list string)) /\
+             pcfrel b.b_rel (panchor sto) d1 d2 /\
+             pcfrel b.b_rel (panchor sto) d2 d1))
+  = let w0 = panchor sto in
+    lemma_prefix_aa_l b.b_lk b.b_apply pl cxh g h amb sto n0 (PCtxDone y);
+    lemma_prefix_aa_r b.b_lk b.b_apply pl cxh g h amb sto n0 (PCtxDone y);
+    assert (extend_ctx_C pl (PCtxDone y) g == PCtxDone y);
+    assert (ctx_drive MExtend (PCtxDone y) h == PVar y);
+    assert (ctx_drive MExtend (PCtxDone y) (pcompose g h) == PVar y);
+    lemma_panchor_wf sto;
+    lemma_panchor_bound sto n0;
+    lemma_pwext_refl w0;
+    lemma_presolve_selfrel b.b_rel sto cxh (PCtxDone y);
+    lemma_pxrel_done_inv b.b_rel w0 y y;
+    lemma_pcrel_var b.b_rel w0 y y;
+    pequivariant_k_at_unfold b.b_rel w0 amb ();
+    assert (pkrel b.b_rel w0 amb amb);
+    lemma_psrel_garbage b.b_rel sto n0 (PCtxDone y)
+
+(**
+ * **THE ALGEBRAIC HALF'S OBLIGATION, DISCHARGED WHERE THE NAMED HANDLE IS
+ * ABSENT.** PROVED, IN BOTH DIRECTIONS, for an arbitrary boundary, plan,
+ * handle, pair of extensions, ambient stack, store and counter.
+ *
+ * The world is not written anywhere: it is whatever the fundamental theorem's
+ * induction accumulated, which by construction is `panchor sto` plus one pair
+ * per allocation. Here it accumulates nothing, because neither side allocates.
+ *)
+let lemma_aa_obs_absent (#v #cl: Type) (b: pboundary v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+  : Lemma (requires
+             (let lhs : pcomp v cl =
+                pbind (ref_ops.o_extend_ctx pl cxh g)
+                      (fun cy -> ref_ops.o_extend pl cy h) in
+              let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+              pstore_equivariant_at b.b_rel sto /\ psfresh sto n0 /\
+              presolve sto cxh == None /\
+              pnconverges b.b_lk b.b_apply
+                ({ st = PStep lhs amb; store = sto; next = n0 }) tr x1 s1'))
+          (ensures
+             (let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+              exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                pnconverges b.b_lk b.b_apply
+                  ({ st = PStep rhs amb; store = sto; next = n0 }) tr x2 s2' /\
+                pwf_world w /\ pwext w (panchor sto) /\
+                pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = let lhs : pcomp v cl =
+      pbind (ref_ops.o_extend_ctx pl cxh g) (fun cy -> ref_ops.o_extend pl cy h) in
+    let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+    let d : pconf v cl =
+      { st = PStuck pctx_eff pctx_missing_op; store = sto; next = n0 } in
+    lemma_aa_common_absent b pl cxh g h amb sto n0;
+    lemma_obs_from_common b lhs rhs amb sto n0 2 1 d d tr x1 s1'
+
+(** The same, the other way round. PROVED, by the same two facts: the two
+    configurations are literally equal, so the composition applies with the two
+    prefixes exchanged. *)
+let lemma_aa_obs_absent_rev (#v #cl: Type) (b: pboundary v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+  : Lemma (requires
+             (let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+              pstore_equivariant_at b.b_rel sto /\ psfresh sto n0 /\
+              presolve sto cxh == None /\
+              pnconverges b.b_lk b.b_apply
+                ({ st = PStep rhs amb; store = sto; next = n0 }) tr x1 s1'))
+          (ensures
+             (let lhs : pcomp v cl =
+                pbind (ref_ops.o_extend_ctx pl cxh g)
+                      (fun cy -> ref_ops.o_extend pl cy h) in
+              exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                pnconverges b.b_lk b.b_apply
+                  ({ st = PStep lhs amb; store = sto; next = n0 }) tr x2 s2' /\
+                pwf_world w /\ pwext w (panchor sto) /\
+                pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = let lhs : pcomp v cl =
+      pbind (ref_ops.o_extend_ctx pl cxh g) (fun cy -> ref_ops.o_extend pl cy h) in
+    let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+    let d : pconf v cl =
+      { st = PStuck pctx_eff pctx_missing_op; store = sto; next = n0 } in
+    lemma_aa_common_absent b pl cxh g h amb sto n0;
+    lemma_obs_from_common b rhs lhs amb sto n0 1 2 d d tr x1 s1'
+
+(**
+ * **AND WHERE THE NAMED CONTEXT HOLDS NO REQUESTS.** PROVED, in both
+ * directions. The left allocated one entry the right did not; the anchor names
+ * neither, so `psrel` never looks at it, and the values the two sides answer
+ * with are the same one.
+ *)
+let lemma_aa_obs_done (#v #cl: Type) (b: pboundary v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat) (y: pval v)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+  : Lemma (requires
+             (let lhs : pcomp v cl =
+                pbind (ref_ops.o_extend_ctx pl cxh g)
+                      (fun cy -> ref_ops.o_extend pl cy h) in
+              pequivariant_k_at b.b_rel (panchor sto) amb /\
+              pstore_equivariant_at b.b_rel sto /\ psfresh sto n0 /\
+              presolve sto cxh == Some (PCtxDone y) /\
+              pnconverges b.b_lk b.b_apply
+                ({ st = PStep lhs amb; store = sto; next = n0 }) tr x1 s1'))
+          (ensures
+             (let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+              exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                pnconverges b.b_lk b.b_apply
+                  ({ st = PStep rhs amb; store = sto; next = n0 }) tr x2 s2' /\
+                pwf_world w /\ pwext w (panchor sto) /\
+                pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = let lhs : pcomp v cl =
+      pbind (ref_ops.o_extend_ctx pl cxh g) (fun cy -> ref_ops.o_extend pl cy h) in
+    let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+    let d1 : pconf v cl =
+      { st = PStep (PVar y) amb; store = (n0, PCtxDone y) :: sto; next = n0 + 1 } in
+    let d2 : pconf v cl = { st = PStep (PVar y) amb; store = sto; next = n0 } in
+    lemma_aa_common_done b pl cxh g h amb sto n0 y;
+    lemma_obs_from_common b lhs rhs amb sto n0 4 1 d1 d2 tr x1 s1'
+
+let lemma_aa_obs_done_rev (#v #cl: Type) (b: pboundary v cl)
+    (pl: plan v cl) (cxh: pval v) (g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto: pstore v cl) (n0: nat) (y: pval v)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+  : Lemma (requires
+             (let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+              pequivariant_k_at b.b_rel (panchor sto) amb /\
+              pstore_equivariant_at b.b_rel sto /\ psfresh sto n0 /\
+              presolve sto cxh == Some (PCtxDone y) /\
+              pnconverges b.b_lk b.b_apply
+                ({ st = PStep rhs amb; store = sto; next = n0 }) tr x1 s1'))
+          (ensures
+             (let lhs : pcomp v cl =
+                pbind (ref_ops.o_extend_ctx pl cxh g)
+                      (fun cy -> ref_ops.o_extend pl cy h) in
+              exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                pnconverges b.b_lk b.b_apply
+                  ({ st = PStep lhs amb; store = sto; next = n0 }) tr x2 s2' /\
+                pwf_world w /\ pwext w (panchor sto) /\
+                pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = let lhs : pcomp v cl =
+      pbind (ref_ops.o_extend_ctx pl cxh g) (fun cy -> ref_ops.o_extend pl cy h) in
+    let rhs : pcomp v cl = ref_ops.o_extend pl cxh (pcompose g h) in
+    let d1 : pconf v cl =
+      { st = PStep (PVar y) amb; store = (n0, PCtxDone y) :: sto; next = n0 + 1 } in
+    let d2 : pconf v cl = { st = PStep (PVar y) amb; store = sto; next = n0 } in
+    lemma_aa_common_done b pl cxh g h amb sto n0 y;
+    lemma_obs_from_common b rhs lhs amb sto n0 1 4 d2 d1 tr x1 s1'
+
+(* ------------------------------------------------------------------ *)
+(*  THE OBSTRUCTIONS, AT THE CONFIGURATIONS THE PREFIXES ACTUALLY      *)
+(*  REACH                                                              *)
+(* ------------------------------------------------------------------ *)
+
+let lemma_pcfrel_stacks_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl) (s1 s2: pstore v cl) (m1 m2: nat)
+  : Lemma (requires pcfrel r w ({ st = PStep c1 k1; store = s1; next = m1 })
+                               ({ st = PStep c2 k2; store = s2; next = m2 }))
+          (ensures pkrel r w k1 k2)
+  = pcfrel_unfold r w ({ st = PStep c1 k1; store = s1; next = m1 })
+                      ({ st = PStep c2 k2; store = s2; next = m2 }) ();
+    pstrel_unfold r w (PStep c1 k1) (PStep c2 k2) ()
+
+(** **RIGHT IDENTITY AND TRANSPARENCY: the prefixes are exact and the theorem
+    cannot be started.** PROVED, at every plan, inner computation, continuation,
+    ambient stack, store, counter and world. The two sides reach the SAME node
+    `c`; the stacks differ. *)
+let guard_align_ri_post_unrelated (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto1 sto2: pstore v cl) (m1 m2: nat)
+  : Lemma (~(pcfrel r w
+               ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                               @ (PScopeF :: PBindF f :: amb)));
+                  store = sto1; next = m1 })
+               ({ st = PStep c (plan_enter_frames pl @ amb);
+                  store = sto2; next = m2 })))
+  = guard_align_produce_vs_enter r w pl f amb;
+    introduce pcfrel r w
+                ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                                @ (PScopeF :: PBindF f :: amb)));
+                   store = sto1; next = m1 })
+                ({ st = PStep c (plan_enter_frames pl @ amb);
+                   store = sto2; next = m2 }) ==> False
+    with
+      lemma_pcfrel_stacks_inv r w c c
+        (PBoundaryF :: (plan_protocol_frames pl @ (PScopeF :: PBindF f :: amb)))
+        (plan_enter_frames pl @ amb) sto1 sto2 m1 m2
+
+(** **THE ANCHORED HALF OF ASSOCIATIVITY: the same, with the two binds in
+    place.** PROVED. *)
+let guard_align_ac_post_unrelated (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (c: pcomp v cl) (f g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto1 sto2: pstore v cl) (m1 m2: nat)
+  : Lemma (~(pcfrel r w
+               ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                               @ (PScopeF :: PBindF f :: amb)));
+                  store = sto1; next = m1 })
+               ({ st = PStep c (PBindF g :: PBindF h :: (plan_enter_frames pl @ amb));
+                  store = sto2; next = m2 })))
+  = guard_align_produce_vs_enter_bind2 r w pl f g h amb;
+    introduce pcfrel r w
+                ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                                @ (PScopeF :: PBindF f :: amb)));
+                   store = sto1; next = m1 })
+                ({ st = PStep c (PBindF g :: PBindF h
+                                 :: (plan_enter_frames pl @ amb));
+                   store = sto2; next = m2 }) ==> False
+    with
+      lemma_pcfrel_stacks_inv r w c c
+        (PBoundaryF :: (plan_protocol_frames pl @ (PScopeF :: PBindF f :: amb)))
+        (PBindF g :: PBindF h :: (plan_enter_frames pl @ amb)) sto1 sto2 m1 m2
+
+(** **LEFT IDENTITY: both sides reach `g x`, and the stacks differ.** PROVED. *)
+let guard_align_li_post_unrelated (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (c: pcomp v cl) (m: weave_mode) (resp: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto1 sto2: pstore v cl) (m1 m2: nat)
+  : Lemma (~(pcfrel r w
+               ({ st = PStep c (plan_protocol_frames pl @ (PModeF m resp :: amb));
+                  store = sto1; next = m1 })
+               ({ st = PStep c (plan_enter_frames pl @ amb);
+                  store = sto2; next = m2 })))
+  = guard_align_marker_vs_enter r w pl m resp amb;
+    introduce pcfrel r w
+                ({ st = PStep c (plan_protocol_frames pl @ (PModeF m resp :: amb));
+                   store = sto1; next = m1 })
+                ({ st = PStep c (plan_enter_frames pl @ amb);
+                   store = sto2; next = m2 }) ==> False
+    with
+      lemma_pcfrel_stacks_inv r w c c
+        (plan_protocol_frames pl @ (PModeF m resp :: amb))
+        (plan_enter_frames pl @ amb) sto1 sto2 m1 m2
+
+(** **RESUMPTION: both sides reach `k x`, and the stacks differ by the marker
+    and by nothing else.** PROVED. *)
+let guard_align_rm_post_unrelated (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (c: pcomp v cl) (m: weave_mode) (resp: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto1 sto2: pstore v cl) (m1 m2: nat)
+  : Lemma (~(pcfrel r w
+               ({ st = PStep c (plan_protocol_frames pl @ (PModeF m resp :: amb));
+                  store = sto1; next = m1 })
+               ({ st = PStep c (plan_resume_frames pl @ amb);
+                  store = sto2; next = m2 })))
+  = guard_align_marker_vs_resume r w pl m resp amb;
+    introduce pcfrel r w
+                ({ st = PStep c (plan_protocol_frames pl @ (PModeF m resp :: amb));
+                   store = sto1; next = m1 })
+                ({ st = PStep c (plan_resume_frames pl @ amb);
+                   store = sto2; next = m2 }) ==> False
+    with
+      lemma_pcfrel_stacks_inv r w c c
+        (plan_protocol_frames pl @ (PModeF m resp :: amb))
+        (plan_resume_frames pl @ amb) sto1 sto2 m1 m2
+
+(* ------------------------------------------------------------------ *)
+(*  TWO OF THE SIX PROPOSITIONS ARE ONE                                *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **AT `ref_ops`, TRANSPARENCY IS RIGHT IDENTITY.** PROVED, and it is an
+ * equality of PROPOSITIONS rather than an implication either way: `o_enter` of
+ * the reference algebra IS `PSplice (plan_enter_frames pl)`, so the two
+ * statements have the same two sides.
+ *
+ * What this does NOT say: it says nothing about any other `ctx_ops`, where the
+ * two differ exactly as much as `o_enter` differs from the plan. The
+ * transparency law's hypothesis -- that every layer is transparent -- is not
+ * stated in `law_transparent_agrees_nom` at all, so it plays no part here.
+ *)
+let guard_align_transparent_is_right_identity (#v #cl: Type)
+    (b: pboundary v cl) (pl: plan v cl) (c: pcomp v cl)
+  : Lemma (law_transparent_agrees_nom b ref_ops pl c
+           == law_right_identity_nom b ref_ops pl c)
+  = ()
+
+(**
+ * **AND LEFT IDENTITY AT `PVar` IS RIGHT IDENTITY AT A VALUE.** PROVED, the same
+ * way. It leaves left identity at a GENERAL `g` untouched: nothing here says the
+ * two are the same proposition for any other extension function.
+ *)
+let guard_align_left_identity_at_pure (#v #cl: Type)
+    (b: pboundary v cl) (pl: plan v cl) (x: pval v)
+  : Lemma (law_left_identity_nom b ref_ops pl x (PVar #v #cl)
+           == law_right_identity_nom b ref_ops pl (PVar x))
+  = assert_norm (law_left_identity_nom b ref_ops pl x (PVar #v #cl)
+                 == law_right_identity_nom b ref_ops pl (PVar x))
+
+(* ================================================================== *)
+(*  B2b.3, PART 2: A COUNTEREXAMPLE, AND IT IS NOT ABOUT NAMES         *)
+(*                                                                     *)
+(*  The four obstructions above say the fundamental theorem cannot be   *)
+(*  STARTED at the post-prefix configurations.  That is a statement     *)
+(*  about a proof route and not about the laws, so it is not yet a      *)
+(*  refutation.  What follows IS one.                                   *)
+(*                                                                     *)
+(*  THE MECHANISM, AND IT IS THE ONE THE FOUR OBSTRUCTIONS POINT AT.    *)
+(*  A residual is produced under `plan_protocol_frames`, which keeps a  *)
+(*  `PSiteF` where `plan_enter_frames` drops the plan item; a consumer  *)
+(*  appends its `PModeF` marker BENEATH the residual, and under         *)
+(*  `MExtend` a `PSiteF` that finds that marker is skipped -- so as     *)
+(*  long as the marker stays below the site frame, the two sides agree, *)
+(*  and every fixture in this file stays in that regime.                *)
+(*                                                                     *)
+(*  A CLAUSE CAN TAKE THE SITE FRAME AWAY FROM ITS MARKER.  Dispatch    *)
+(*  captures the segment ABOVE the matching prompt and hands it to the  *)
+(*  interpreter as a continuation; a clause that resumes that           *)
+(*  continuation INSIDE A FRESH SCOPE puts the captured `PSiteF` above  *)
+(*  a floor with no marker in scope, and the site frame YIELDS where    *)
+(*  the right-hand side, which never had one, does not.  The two runs   *)
+(*  then store residuals of DIFFERENT LENGTHS and answer with handles   *)
+(*  to them, and no world can relate two contexts whose residuals do    *)
+(*  not correspond frame for frame.                                     *)
+(*                                                                     *)
+(*  Resuming a captured continuation inside a new scope is what an      *)
+(*  effect handler does; nothing here is pathological, and the          *)
+(*  interpreter below is PROVED equivariant.  The store the            *)
+(*  counterexample stands at is the EMPTY one, the ambient stack is     *)
+(*  EMPTY, and the counter is ZERO, so it is not a configuration the    *)
+(*  observation reaches only by quantifying over odd stacks.            *)
+(* ================================================================== *)
+
+(** A table binding nothing: `flook` answers `None` for every effect, because
+    `flook` consults `binds` first. *)
+let xtbl0 : ptable fcl = { hs = fhs; binds = [] }
+
+(** A table binding `"Echo"`, which `flook` answers with `FEcho` at kind
+    `KFull` -- so a perform of it dispatches through the ordinary path. *)
+let xltbl : ptable fcl = { hs = fhs; binds = ["Echo"] }
+
+(** The plan the law is taken at: ONE recorded bind site, and ONE layer prompt
+    beneath it. The site frame is what `plan_protocol_frames` keeps and
+    `plan_enter_frames` drops; the prompt beneath it is what makes the capture
+    stop between the two. *)
+let xpl : plan fv fcl =
+  Plan [PIBind (PVar #fv #fcl); PIReenter xltbl None] (POwner xtbl0 None PFamily)
+
+(** The plan the CLAUSE opens. Any plan with a floor would do; this is the
+    smallest. *)
+let xplan : plan fv fcl = Plan [] (POwner xtbl0 None PFamily)
+
+(** **The clause interpreter: resume the captured continuation inside a fresh
+    scope.** This is `withF`-style handling, not a forgery: it builds one
+    ordinary node and applies the continuation it was given. *)
+let xapply : papply_t fv fcl = fun _ _ kk -> PEnterCtx xplan (kk (fpv FU))
+
+let lemma_xtbl0_selfrel (n: nat) (w: pworld)
+  : Lemma (ptable_rel fcl_rel n w xtbl0 xtbl0)
+  = introduce forall (eff op: string).
+      (match lookup_handler xtbl0.hs eff op, lookup_handler xtbl0.hs eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ fcl_rel n w f1.body f2.body
+       | _, _ -> False)
+    with (lookup_handler_mk_handlers #fcl (fun _ -> KFast) [] eff op;
+          assert (lookup_handler xtbl0.hs eff op == None))
+
+let lemma_xplan_selfrel (n: nat) (w: pworld)
+  : Lemma (pplan_rel fcl_rel n w xplan xplan)
+  = if n = 0 then () else lemma_xtbl0_selfrel n w
+
+(** **The interpreter is EQUIVARIANT.** PROVED. It reads no handle, and the plan
+    it opens is related to itself at every world, so related continuations go to
+    related computations -- which is all the boundary asks of it. *)
+let lemma_xapply_equivariant () : Lemma (papply_equivariant fcl_rel xapply)
+  = introduce forall (w: pworld) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (kk1 kk2: pval fv -> pcomp fv fcl).
+      (pwf_world w /\ pclrel fcl_rel w c1 c2 /\ pvals_rel w p1 p2 /\
+       pfn_rel_at fcl_rel w kk1 kk2 ==>
+       pcrel fcl_rel w (xapply c1 p1 kk1) (xapply c2 p2 kk2))
+    with (introduce _ ==> _
+          with begin
+            lemma_pwext_refl w;
+            assert (pval_rel #fv w (fpv FU) (fpv FU));
+            assert (pcrel fcl_rel w (kk1 (fpv FU)) (kk2 (fpv FU)));
+            introduce forall (n: nat).
+                pcomp_rel fcl_rel n w (PEnterCtx xplan (kk1 (fpv FU)))
+                                      (PEnterCtx xplan (kk2 (fpv FU)))
+            with (if n = 0 then ()
+                  else (lemma_xplan_selfrel (n - 1) w;
+                        assert (pcomp_rel fcl_rel (n - 1) w (kk1 (fpv FU))
+                                                            (kk2 (fpv FU)))))
+          end)
+
+(** The boundary this counterexample stands at. Every one of the four conditions
+    is discharged; none of them is weakened. *)
+let xboundary : pboundary fv fcl = {
+  b_rel = fcl_rel;
+  b_lk = flook;
+  b_apply = xapply;
+  b_mono = lemma_fcl_rel_mono ();
+  b_down = lemma_fcl_rel_down ();
+  b_lookup = lemma_flook_equivariant ();
+  b_apply_eq = lemma_xapply_equivariant ();
+}
+
+(** The extension: perform the effect the layer prompt binds. *)
+let xg : pval fv -> pcomp fv fcl = fun _ -> PPerform "Echo" "op" []
+
+let xlhs : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl (PVar fone)) (fun cx -> ref_ops.o_extend xpl cx xg)
+let xrhs : pcomp fv fcl = ref_ops.o_enter xpl (xg fone)
+
+let xcf_l : pconf fv fcl = { st = PStep xlhs ([] <: pstack fv fcl); store = []; next = 0 }
+let xcf_r : pconf fv fcl = { st = PStep xrhs ([] <: pstack fv fcl); store = []; next = 0 }
+
+let xsl : pstore fv fcl = (fst (prun flook xapply 30 xcf_l)).store
+let xsr : pstore fv fcl = (fst (prun flook xapply 30 xcf_r)).store
+
+(** **BOTH SIDES CONVERGE, SILENTLY, AND ANSWER WITH A HANDLE.** PROVED by
+    running the machine: `flook` is an ordinary function of the table's `binds`,
+    so the whole run normalises. *)
+let guard_xce_runs ()
+  : Lemma ((fst (prun flook xapply 30 xcf_l)).st == PDone (PCtxKey 1) /\
+           snd (prun flook xapply 30 xcf_l) == ([] <: list string) /\
+           (fst (prun flook xapply 30 xcf_r)).st == PDone (PCtxKey 0) /\
+           snd (prun flook xapply 30 xcf_r) == ([] <: list string))
+  = assert_norm ((fst (prun flook xapply 30 xcf_l)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook xapply 30 xcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 30 xcf_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook xapply 30 xcf_r) == ([] <: list string))
+
+
+(** The residual a context holds, as a TOTAL accessor with a junk default. A
+    projector under a discriminator would put a precondition inside a `prop`,
+    which is exactly what stops SMT instantiation. *)
+let presid_of (#v #cl: Type) (cx: pctx v cl) : pstack v cl
+  = match cx with
+    | PCtxRequests _ rs _ -> rs
+    | PCtxDone _ -> []
+
+(** Two related contexts hold related residuals. PROVED, from the shape lemma
+    and the requests inversion. *)
+let lemma_pxrel_resid (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (cx1 cx2: pctx v cl)
+  : Lemma (requires pxrel r w cx1 cx2)
+          (ensures pkrel r w (presid_of cx1) (presid_of cx2))
+  = lemma_pxrel_shape r w cx1 cx2;
+    match cx1, cx2 with
+    | PCtxRequests a1 r1 p1, PCtxRequests a2 r2 p2 ->
+      lemma_pxrel_requests_inv r w a1 a2 r1 r2 p1 p2
+    | PCtxDone _, PCtxDone _ -> lemma_pkrel_nil #v #cl r w
+    | _, _ -> ()
+
+(** **AND THE TWO CONTEXTS THE ANSWERS NAME HOLD RESIDUALS OF DIFFERENT
+    LENGTHS.** PROVED by running the machine. The left's carries the plan's
+    recorded site frame and the layer prompt the capture took with it; the
+    right's carries neither. *)
+let guard_xce_residuals ()
+  : Lemma (length (presid_of (psget 1 xsl)) == 4 /\
+           length (presid_of (psget 0 xsr)) == 2)
+  = assert_norm (length (presid_of (psget 1 xsl)) == 4);
+    assert_norm (length (presid_of (psget 0 xsr)) == 2)
+
+(* ---- The two casts the refutation needs, each BY CONVERSION -------- *)
+
+(** A `GTot prop` definition applied in HYPOTHESIS position is an atom to the
+    SMT encoding, so the quantifier inside `pnobs_tr_le` is invisible. This cast
+    puts the body in the context; it has no proof obligation at all. *)
+let pnobs_tr_le_unfold (#v #cl: Type) (b: pboundary v cl) (c1 c2: pcomp v cl)
+                       (h: squash (pnobs_tr_le b c1 c2))
+  : squash (forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                   (tr: list string) (x1: pval v) (s1': pstore v cl).
+              (pequivariant_k_at b.b_rel (panchor sto) k /\
+               pstore_equivariant_at b.b_rel sto /\
+               psfresh sto n0 /\
+               pnconverges b.b_lk b.b_apply
+                           ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+              (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                 pnconverges b.b_lk b.b_apply
+                             ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+                 pwf_world w /\ pwext w (panchor sto) /\
+                 pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = h
+
+let psrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (s1 s2: pstore v cl)
+                 (h: squash (psrel r w s1 s2))
+  : squash (forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+              pwlookup_l i w == Some j ==>
+              (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+               pxrel r w (psget i s1) (psget j s2)))
+  = h
+
+let pval_rel_key_unfold (#v: Type) (w: pworld) (i j: nat)
+                        (h: squash (pval_rel #v w (PCtxKey i) (PCtxKey j)))
+  : squash (pwlookup_l i w == Some j)
+  = h
+
+let law_li_nom_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (x: pval v) (g: pval v -> pcomp v cl)
+    (h: squash (law_left_identity_nom b ops pl x g))
+  : squash (pnobs_tr_le b
+              (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_extend pl cx g))
+              (ops.o_enter pl (g x)))
+  = h
+
+(**
+ * **`law_left_identity_nom` IS FALSE OF `ref_ops`, AND THE NEGATION IS PROVED.**
+ *
+ * At the boundary `xboundary`, the plan `xpl`, the value `fone` and the
+ * extension `xg` -- on the EMPTY ambient stack, at the EMPTY store and at
+ * counter ZERO, all three of which satisfy the nominal observation's
+ * hypotheses.
+ *
+ * **What this refutation is NOT.** It is not the counter, and it is not a name:
+ * the two sides allocate the same NUMBER of contexts, both answer with a handle,
+ * and a world relating the two handles is available for the asking. What no
+ * world can do is relate the two CONTEXTS those handles name, because their
+ * residuals differ by two frames -- and `psrel` compares the entries a world
+ * speaks for, which is exactly the repair B2b.1 made. So the repaired relation
+ * is doing its work here and the law fails anyway.
+ *
+ * **Where the difference comes from.** The left-hand side's `g x` runs inside
+ * the residual protocol, so the segment the dispatch captures contains the
+ * plan's recorded `PSiteF`; the right-hand side's runs inside
+ * `plan_enter_frames`, which dropped it. The clause resumes what it captured
+ * inside a scope of its own, and there the site frame finds a floor instead of
+ * the extension's marker, so it yields -- storing a residual two frames longer
+ * than the one the right-hand side stores.
+ *)
+(** **NO WORLD RELATES THE TWO ANSWERS.** PROVED, and it is the whole of the
+    refutation, factored out so that the query above stays small. The right run's
+    convergence is unique, so the witness the observation offers must be `PCtxKey
+    0` at the store the right run left; the world must then speak for the pair,
+    and `psrel` at that pair asks the two residuals to correspond frame for
+    frame, which four frames against two do not. *)
+let lemma_xce_no_world (w: pworld) (x2: pval fv) (s2': pstore fv fcl)
+  : Lemma (requires pnconverges flook xapply xcf_r ([] <: list string) x2 s2' /\
+                    pval_rel w (PCtxKey 1) x2 /\ psrel fcl_rel w xsl s2')
+          (ensures False)
+  = guard_xce_runs ();
+    guard_xce_residuals ();
+    lemma_pnconverges_at flook xapply xcf_r 30 [] (PCtxKey 0) xsr;
+    lemma_pnconverges_unique flook xapply xcf_r [] [] x2 (PCtxKey 0) s2' xsr;
+    pval_rel_key_unfold #fv w 1 0 ();
+    assert_norm (Some? (pstore_lookup 1 xsl));
+    assert_norm (Some? (pstore_lookup 0 xsr));
+    psrel_unfold fcl_rel w xsl xsr ();
+    lemma_pxrel_resid fcl_rel w (psget 1 xsl) (psget 0 xsr);
+    lemma_pkrel_length fcl_rel w (presid_of (psget 1 xsl))
+                                 (presid_of (psget 0 xsr))
+
+let guard_ref_ops_refutes_left_identity_nom ()
+  : Lemma (~(law_left_identity_nom xboundary ref_ops xpl fone xg))
+  = guard_xce_runs ();
+    lemma_pnconverges_at flook xapply xcf_l 30 [] (PCtxKey 1) xsl;
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    introduce forall (w: pworld). pkrel #fv #fcl fcl_rel w [] []
+    with lemma_pkrel_nil #fv #fcl fcl_rel w;
+    assert (pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl))
+                              ([] <: pstack fv fcl));
+    assert (pstore_equivariant_at fcl_rel ([] <: pstore fv fcl));
+    assert (psfresh ([] <: pstore fv fcl) 0);
+    assert_norm (xboundary.b_rel == fcl_rel);
+    assert_norm (xboundary.b_lk == flook);
+    assert_norm (xboundary.b_apply == xapply);
+    introduce law_left_identity_nom xboundary ref_ops xpl fone xg ==> False
+    with begin
+      law_li_nom_unfold xboundary ref_ops xpl fone xg ();
+      pnobs_tr_le_unfold xboundary xlhs xrhs ();
+      assert (pnconverges xboundary.b_lk xboundary.b_apply
+                ({ st = PStep xlhs ([] <: pstack fv fcl);
+                   store = ([] <: pstore fv fcl); next = 0 })
+                ([] <: list string) (PCtxKey 1) xsl);
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply xcf_r ([] <: list string) x2 s2' /\
+           pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+           pval_rel w (PCtxKey 1) x2 /\ psrel fcl_rel w xsl s2')
+      with lemma_xce_no_world w x2 s2'
+    end
+
+let xc : pcomp fv fcl = PPerform "Echo" "op" []
+let ylhs : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl xc) (fun cx -> ref_ops.o_extend xpl cx (PVar #fv #fcl))
+let yrhs : pcomp fv fcl = ref_ops.o_enter xpl xc
+let ycf_l : pconf fv fcl = { st = PStep ylhs ([] <: pstack fv fcl); store = []; next = 0 }
+let ycf_r : pconf fv fcl = { st = PStep yrhs ([] <: pstack fv fcl); store = []; next = 0 }
+let zlhs : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl (PVar fone)) (fun cx -> ref_ops.o_resume xpl cx xg)
+let zrhs : pcomp fv fcl = PSplice (plan_resume_frames xpl) (xg fone)
+let zcf_l : pconf fv fcl = { st = PStep zlhs ([] <: pstack fv fcl); store = []; next = 0 }
+let zcf_r : pconf fv fcl = { st = PStep zrhs ([] <: pstack fv fcl); store = []; next = 0 }
+
+let ysl : pstore fv fcl = (fst (prun flook xapply 40 ycf_l)).store
+let ysr : pstore fv fcl = (fst (prun flook xapply 40 ycf_r)).store
+let zsl : pstore fv fcl = (fst (prun flook xapply 40 zcf_l)).store
+let zsr : pstore fv fcl = (fst (prun flook xapply 40 zcf_r)).store
+
+let guard_yce_runs ()
+  : Lemma ((fst (prun flook xapply 40 ycf_l)).st == PDone (PCtxKey 0) /\
+           snd (prun flook xapply 40 ycf_l) == ([] <: list string) /\
+           (fst (prun flook xapply 40 ycf_r)).st == PDone (PCtxKey 0) /\
+           snd (prun flook xapply 40 ycf_r) == ([] <: list string) /\
+           length (presid_of (psget 0 ysl)) == 5 /\
+           length (presid_of (psget 0 ysr)) == 2)
+  = assert_norm ((fst (prun flook xapply 40 ycf_l)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook xapply 40 ycf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 40 ycf_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook xapply 40 ycf_r) == ([] <: list string));
+    assert_norm (length (presid_of (psget 0 ysl)) == 5);
+    assert_norm (length (presid_of (psget 0 ysr)) == 2)
+
+let guard_zce_runs ()
+  : Lemma ((fst (prun flook xapply 40 zcf_l)).st == PDone (PCtxKey 1) /\
+           snd (prun flook xapply 40 zcf_l) == ([] <: list string) /\
+           (fst (prun flook xapply 40 zcf_r)).st == PDone (PCtxKey 0) /\
+           snd (prun flook xapply 40 zcf_r) == ([] <: list string) /\
+           length (presid_of (psget 1 zsl)) == 4 /\
+           length (presid_of (psget 0 zsr)) == 2)
+  = assert_norm ((fst (prun flook xapply 40 zcf_l)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook xapply 40 zcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 40 zcf_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook xapply 40 zcf_r) == ([] <: list string));
+    assert_norm (length (presid_of (psget 1 zsl)) == 4);
+    assert_norm (length (presid_of (psget 0 zsr)) == 2)
+
+let alhs : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl xc)
+        (fun c0 -> pbind (ref_ops.o_extend_ctx xpl c0 (PVar #fv #fcl))
+                         (fun cy -> ref_ops.o_extend xpl cy (PVar #fv #fcl)))
+let arhs : pcomp fv fcl =
+  PSplice (plan_enter_frames xpl) (pbind (pbind xc (PVar #fv #fcl)) (PVar #fv #fcl))
+let acf_l : pconf fv fcl = { st = PStep alhs ([] <: pstack fv fcl); store = []; next = 0 }
+let acf_r : pconf fv fcl = { st = PStep arhs ([] <: pstack fv fcl); store = []; next = 0 }
+let asl : pstore fv fcl = (fst (prun flook xapply 40 acf_l)).store
+let asr : pstore fv fcl = (fst (prun flook xapply 40 acf_r)).store
+
+let guard_ace_runs ()
+  : Lemma ((fst (prun flook xapply 40 acf_l)).st == PDone (PCtxKey 0) /\
+           snd (prun flook xapply 40 acf_l) == ([] <: list string) /\
+           (fst (prun flook xapply 40 acf_r)).st == PDone (PCtxKey 0) /\
+           snd (prun flook xapply 40 acf_r) == ([] <: list string) /\
+           length (presid_of (psget 0 asl)) == 5 /\
+           length (presid_of (psget 0 asr)) == 2)
+  = assert_norm ((fst (prun flook xapply 40 acf_l)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook xapply 40 acf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 40 acf_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook xapply 40 acf_r) == ([] <: list string));
+    assert_norm (length (presid_of (psget 0 asl)) == 5);
+    assert_norm (length (presid_of (psget 0 asr)) == 2)
+
+(* ---- the refutations, from one shared argument -------------------- *)
+
+(** **NO WORLD CAN RELATE TWO ANSWERS WHOSE CONTEXTS HOLD RESIDUALS OF DIFFERENT
+    LENGTHS.** PROVED, once, for every pair of runs below. *)
+let lemma_ce_no_world (cfr: pconf fv fcl) (sl sr: pstore fv fcl)
+    (i j: nat) (w: pworld) (x2: pval fv) (s2': pstore fv fcl)
+  : Lemma (requires pnconverges flook xapply cfr ([] <: list string) x2 s2' /\
+                    pnconverges flook xapply cfr ([] <: list string) (PCtxKey j) sr /\
+                    pval_rel w (PCtxKey i) x2 /\ psrel fcl_rel w sl s2' /\
+                    Some? (pstore_lookup i sl) /\ Some? (pstore_lookup j sr) /\
+                    ~(length (presid_of (psget i sl))
+                      == length (presid_of (psget j sr))))
+          (ensures False)
+  = lemma_pnconverges_unique flook xapply cfr [] [] x2 (PCtxKey j) s2' sr;
+    pval_rel_key_unfold #fv w i j ();
+    psrel_unfold fcl_rel w sl sr ();
+    lemma_pxrel_resid fcl_rel w (psget i sl) (psget j sr);
+    lemma_pkrel_length fcl_rel w (presid_of (psget i sl)) (presid_of (psget j sr))
+
+let law_ri_nom_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl)
+    (hh: squash (law_right_identity_nom b ops pl c))
+  : squash (pnobs_tr_le b
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
+              (ops.o_enter pl c))
+  = hh
+
+let law_ta_nom_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl)
+    (hh: squash (law_transparent_agrees_nom b ops pl c))
+  : squash (pnobs_tr_le b
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx (PVar #v #cl)))
+              (PSplice (plan_enter_frames pl) c))
+  = hh
+
+let law_rm_nom_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (x: pval v) (kk: pval v -> pcomp v cl)
+    (hh: squash (law_resume_matches_continuation_nom b ops pl x kk))
+  : squash (pnobs_tr_le b
+              (pbind (ops.o_enter_ctx pl (PVar x)) (fun cx -> ops.o_resume pl cx kk))
+              (PSplice (plan_resume_frames pl) (kk x)))
+  = hh
+
+let law_ac_nom_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (cxv: pval v) (g hf: pval v -> pcomp v cl)
+    (hh: squash (law_assoc_nom b ops pl c cxv g hf))
+  : squash (pnobs_tr_le b
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun c0 -> pbind (ops.o_extend_ctx pl c0 g)
+                                      (fun cy -> ops.o_extend pl cy hf)))
+              (PSplice (plan_enter_frames pl) (pbind (pbind c g) hf)))
+  = hh
+
+(** The three hypotheses the nominal observation puts on the ambient stack, the
+    store and the counter, at the empty ones. PROVED. *)
+let guard_xce_config_ok ()
+  : Lemma (pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl))
+                             ([] <: pstack fv fcl) /\
+           pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+           psfresh ([] <: pstore fv fcl) 0 /\
+           xboundary.b_rel == fcl_rel /\ xboundary.b_lk == flook /\
+           xboundary.b_apply == xapply)
+  = assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    introduce forall (w: pworld). pkrel #fv #fcl fcl_rel w [] []
+    with lemma_pkrel_nil #fv #fcl fcl_rel w;
+    assert_norm (xboundary.b_rel == fcl_rel);
+    assert_norm (xboundary.b_lk == flook);
+    assert_norm (xboundary.b_apply == xapply)
+
+(** **THE REFUTATION ARGUMENT, ONCE.** PROVED. Given that the two sides converge
+    to two handles and that the contexts those handles name hold residuals of
+    different lengths, the nominal observation's consequent is unsatisfiable: the
+    right run's convergence is unique, so its answer and its store are forced,
+    the world is then forced to speak for the pair, and `psrel` at that pair asks
+    for a frame-for-frame correspondence that does not exist. *)
+let lemma_le_refuted (c1 c2: pcomp fv fcl) (sl sr: pstore fv fcl) (i j: nat)
+  : Lemma (requires
+             (let cfl : pconf fv fcl =
+                { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+              let cfr : pconf fv fcl =
+                { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+              pnobs_tr_le xboundary c1 c2 /\
+              pnconverges flook xapply cfl ([] <: list string) (PCtxKey i) sl /\
+              pnconverges flook xapply cfr ([] <: list string) (PCtxKey j) sr /\
+              Some? (pstore_lookup i sl) /\ Some? (pstore_lookup j sr) /\
+              ~(length (presid_of (psget i sl))
+                == length (presid_of (psget j sr)))))
+          (ensures False)
+  = guard_xce_config_ok ();
+    let cfl : pconf fv fcl =
+      { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let cfr : pconf fv fcl =
+      { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let hle : squash (pnobs_tr_le xboundary c1 c2) = () in
+    pnobs_tr_le_unfold xboundary c1 c2 hle;
+    assert (pnconverges xboundary.b_lk xboundary.b_apply cfl
+                        ([] <: list string) (PCtxKey i) sl);
+    eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply cfr ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey i) x2 /\ psrel fcl_rel w sl s2')
+    with lemma_ce_no_world cfr sl sr i j w x2 s2'
+
+(**
+ * **`law_right_identity_nom` IS FALSE OF `ref_ops`, AND THE NEGATION IS
+ * PROVED** -- and with it `law_transparent_agrees_nom`, which
+ * `guard_align_transparent_is_right_identity` proves is the same proposition.
+ *
+ * The two sides answer with the SAME handle, `PCtxKey 0`, so the world is forced
+ * to relate that key to itself -- there is no freedom left in the choice -- and
+ * the contexts it then names hold residuals of five frames and of two.
+ *)
+let guard_ref_ops_refutes_right_identity_nom ()
+  : Lemma (~(law_right_identity_nom xboundary ref_ops xpl xc))
+  = guard_yce_runs ();
+    lemma_pnconverges_at flook xapply ycf_l 40 [] (PCtxKey 0) ysl;
+    lemma_pnconverges_at flook xapply ycf_r 40 [] (PCtxKey 0) ysr;
+    assert_norm (Some? (pstore_lookup 0 ysl));
+    assert_norm (Some? (pstore_lookup 0 ysr));
+    introduce law_right_identity_nom xboundary ref_ops xpl xc ==> False
+    with (law_ri_nom_unfold xboundary ref_ops xpl xc ();
+          lemma_le_refuted ylhs yrhs ysl ysr 0 0)
+
+let guard_ref_ops_refutes_transparent_agrees_nom ()
+  : Lemma (~(law_transparent_agrees_nom xboundary ref_ops xpl xc))
+  = guard_align_transparent_is_right_identity xboundary xpl xc;
+    guard_ref_ops_refutes_right_identity_nom ()
+
+(**
+ * **`law_resume_matches_continuation_nom` IS FALSE OF `ref_ops`, AND THE
+ * NEGATION IS PROVED.**
+ *
+ * Here the two sides answer with DIFFERENT handles -- `PCtxKey 1` and
+ * `PCtxKey 0` -- so a world relating them is available; and it does not help,
+ * because the contexts hold residuals of four frames and of two. What separates
+ * them is the plan's recorded bind site: `plan_resume_frames` renders it as the
+ * `PBindF` it was, which fires and disappears, while `plan_protocol_frames`
+ * renders it as a `PSiteF`, which the clause carried into its own scope and
+ * which yielded there.
+ *)
+let guard_ref_ops_refutes_resume_nom ()
+  : Lemma (~(law_resume_matches_continuation_nom xboundary ref_ops xpl fone xg))
+  = guard_zce_runs ();
+    lemma_pnconverges_at flook xapply zcf_l 40 [] (PCtxKey 1) zsl;
+    lemma_pnconverges_at flook xapply zcf_r 40 [] (PCtxKey 0) zsr;
+    assert_norm (Some? (pstore_lookup 1 zsl));
+    assert_norm (Some? (pstore_lookup 0 zsr));
+    introduce law_resume_matches_continuation_nom xboundary ref_ops xpl fone xg
+              ==> False
+    with (law_rm_nom_unfold xboundary ref_ops xpl fone xg ();
+          lemma_le_refuted zlhs zrhs zsl zsr 1 0)
+
+(**
+ * **THE ANCHORED HALF OF `law_assoc_nom` IS FALSE OF `ref_ops`, AND THE
+ * NEGATION IS PROVED** -- hence so is the conjunction.
+ *
+ * The two `bindScope`s on the left allocate, but that is NOT what fails: the
+ * entries they add are named by no key the world speaks for and `psrel` ignores
+ * them. What fails is the same site frame as everywhere else.
+ *)
+let guard_ref_ops_refutes_assoc_nom ()
+  : Lemma (~(law_assoc_nom xboundary ref_ops xpl xc fone
+                           (PVar #fv #fcl) (PVar #fv #fcl)))
+  = guard_ace_runs ();
+    lemma_pnconverges_at flook xapply acf_l 40 [] (PCtxKey 0) asl;
+    lemma_pnconverges_at flook xapply acf_r 40 [] (PCtxKey 0) asr;
+    assert_norm (Some? (pstore_lookup 0 asl));
+    assert_norm (Some? (pstore_lookup 0 asr));
+    introduce law_assoc_nom xboundary ref_ops xpl xc fone
+                            (PVar #fv #fcl) (PVar #fv #fcl) ==> False
+    with (law_ac_nom_unfold xboundary ref_ops xpl xc fone
+                            (PVar #fv #fcl) (PVar #fv #fcl) ();
+          lemma_le_refuted alhs arhs asl asr 0 0)
+
+(* ------------------------------------------------------------------ *)
+(*  THE ALGEBRAIC HALF, REFUTED -- BY A STRICTLY STRONGER INTERPRETER  *)
+(*                                                                     *)
+(*  The four refutations above use an interpreter that only APPLIES     *)
+(*  the continuation it is handed, inside a scope of its own, which is  *)
+(*  what an ordinary handler does.  The algebraic half is NOT refuted   *)
+(*  by any such interpreter in this file, and the reason is in          *)
+(*  `guard_align_bracketing`'s neighbourhood: the two bracketings put   *)
+(*  DIFFERENT NUMBERS OF `PBindF` FRAMES on the stack, and a `PBindF`   *)
+(*  is transparent to a value and is consumed before any boundary       *)
+(*  beneath it -- so the difference never reaches a residual.           *)
+(*                                                                     *)
+(*  It does reach the CAPTURED SEGMENT, and the interpreter below reads *)
+(*  that segment's length.  THAT IS A STRONGER CAPABILITY and it is     *)
+(*  named as such: `papply_t` is an arbitrary F* function, so an        *)
+(*  interpreter may inspect the continuation as a term, where a shipped *)
+(*  FFI closure receives a function and can only call it.  The          *)
+(*  refutation below is therefore SOUND AGAINST THE LAW AS STATED and   *)
+(*  says less about the design than the other four do.  Which of the    *)
+(*  two readings `papply_t` is meant to have is a question about the    *)
+(*  statement, and it is reported rather than decided here.             *)
+(* ------------------------------------------------------------------ *)
+
+(** Related computations have the same head constructor at `PSplice`. PROVED, at
+    index 1, where every mismatched pair is `False`. *)
+let lemma_pcrel_splice_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r w c1 c2) (ensures PSplice? c1 == PSplice? c2)
+  = assert (pcomp_rel r 1 w c1 c2)
+
+let xklen (#v #cl: Type) (c: pcomp v cl) : nat
+  = match c with
+    | PSplice fs _ -> length fs
+    | _ -> 0
+
+let lemma_xklen_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r w c1 c2) (ensures xklen c1 == xklen c2)
+  = lemma_pcrel_splice_shape r w c1 c2;
+    match c1, c2 with
+    | PSplice fs1 b1, PSplice fs2 b2 ->
+      lemma_pcrel_splice_inv r w fs1 fs2 b1 b2;
+      lemma_pkrel_length r w fs1 fs2
+    | _, _ -> ()
+
+(** **The measuring interpreter.** It reads the LENGTH of the segment its
+    continuation would splice back. Equivariant -- related continuations splice
+    related segments, and related segments have equal length -- and that is the
+    whole of the point: equivariance does not stop an interpreter from seeing
+    how many frames it was handed. *)
+let xapply2 : papply_t fv fcl = fun _ _ kk -> PVar (PV (FI (xklen (kk (fpv FU)))))
+
+let lemma_xapply2_equivariant () : Lemma (papply_equivariant fcl_rel xapply2)
+  = introduce forall (w: pworld) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (kk1 kk2: pval fv -> pcomp fv fcl).
+      (pwf_world w /\ pclrel fcl_rel w c1 c2 /\ pvals_rel w p1 p2 /\
+       pfn_rel_at fcl_rel w kk1 kk2 ==>
+       pcrel fcl_rel w (xapply2 c1 p1 kk1) (xapply2 c2 p2 kk2))
+    with (introduce _ ==> _
+          with begin
+            lemma_pwext_refl w;
+            assert (pval_rel #fv w (fpv FU) (fpv FU));
+            assert (pcrel fcl_rel w (kk1 (fpv FU)) (kk2 (fpv FU)));
+            lemma_xklen_rel fcl_rel w (kk1 (fpv FU)) (kk2 (fpv FU));
+            lemma_pcrel_var fcl_rel w (PV (FI (xklen (kk1 (fpv FU)))))
+                                      (PV (FI (xklen (kk2 (fpv FU)))))
+          end)
+
+let x2boundary : pboundary fv fcl = {
+  b_rel = fcl_rel;
+  b_lk = flook;
+  b_apply = xapply2;
+  b_mono = lemma_fcl_rel_mono ();
+  b_down = lemma_fcl_rel_down ();
+  b_lookup = lemma_flook_equivariant ();
+  b_apply_eq = lemma_xapply2_equivariant ();
+}
+
+(** A stored context whose `post` PERFORMS. Nothing about it is exotic: the two
+    bracketings differ only in how many `PBindF` frames stand between `post`'s
+    computation and the prompt beneath, and a `post` that never performs never
+    puts one there. *)
+let xpost : pval fv -> pcomp fv fcl = fun _ -> PPerform "Echo" "op" []
+let xsto : pstore fv fcl = [(0, PCtxRequests (fpv FU) [PBoundaryF] xpost)]
+let xamb : pstack fv fcl = [PPromptF xltbl None PFamily]
+
+let lemma_xltbl_selfrel (n: nat) (w: pworld)
+  : Lemma (ptable_rel fcl_rel n w xltbl xltbl)
+  = introduce forall (eff op: string).
+      (match lookup_handler xltbl.hs eff op, lookup_handler xltbl.hs eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ fcl_rel n w f1.body f2.body
+       | _, _ -> False)
+    with (lookup_handler_mk_handlers #fcl (fun _ -> KFast) [] eff op;
+          assert (lookup_handler xltbl.hs eff op == None))
+
+let lemma_xamb_equivariant (w: pworld) : Lemma (pkrel fcl_rel w xamb xamb)
+  = introduce forall (n: nat). ptable_rel fcl_rel n w xltbl xltbl
+    with lemma_xltbl_selfrel n w;
+    lemma_pfrel_prompt #fv #fcl fcl_rel w xltbl xltbl None None PFamily;
+    lemma_pkrel_nil #fv #fcl fcl_rel w;
+    lemma_pkrel_cons fcl_rel w (PPromptF xltbl None PFamily)
+                               (PPromptF xltbl None PFamily)
+                               ([] <: pstack fv fcl) ([] <: pstack fv fcl)
+
+let lemma_xpost_selfrel (w: pworld) : Lemma (pfn_rel_at fcl_rel w xpost xpost)
+  = introduce forall (w': pworld) (y1 y2: pval fv).
+      (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+       pcrel fcl_rel w' (xpost y1) (xpost y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat).
+                   pcomp_rel #fv #fcl fcl_rel n w' (PPerform "Echo" "op" [])
+                                                   (PPerform "Echo" "op" [])
+               with ())
+
+let lemma_xsto_entry_selfrel (w: pworld)
+  : Lemma (pxrel fcl_rel w (PCtxRequests (fpv FU) [PBoundaryF] xpost)
+                           (PCtxRequests (fpv FU) [PBoundaryF] xpost))
+  = introduce forall (n: nat).
+      pframes_rel #fv #fcl fcl_rel n w [PBoundaryF] [PBoundaryF]
+    with ();
+    lemma_xpost_selfrel w;
+    lemma_pxrel_requests fcl_rel w (fpv FU) (fpv FU)
+                         [PBoundaryF] [PBoundaryF] xpost xpost
+
+let guard_bce_config_ok ()
+  : Lemma (pequivariant_k_at fcl_rel (panchor xsto) xamb /\
+           pstore_equivariant_at fcl_rel xsto /\ psfresh xsto 1 /\
+           x2boundary.b_rel == fcl_rel /\ x2boundary.b_lk == flook /\
+           x2boundary.b_apply == xapply2)
+  = introduce forall (w: pworld). pkrel fcl_rel w xamb xamb
+    with lemma_xamb_equivariant w;
+    introduce forall (w: pworld).
+      pxrel fcl_rel w (PCtxRequests (fpv FU) [PBoundaryF] xpost)
+                      (PCtxRequests (fpv FU) [PBoundaryF] xpost)
+    with lemma_xsto_entry_selfrel w;
+    assert_norm (x2boundary.b_rel == fcl_rel);
+    assert_norm (x2boundary.b_lk == flook);
+    assert_norm (x2boundary.b_apply == xapply2)
+
+let blhs : pcomp fv fcl =
+  pbind (ref_ops.o_extend_ctx xpl (PCtxKey 0) (PVar #fv #fcl))
+        (fun cy -> ref_ops.o_extend xpl cy (PVar #fv #fcl))
+let brhs : pcomp fv fcl =
+  ref_ops.o_extend xpl (PCtxKey 0) (fun z -> pbind (PVar #fv #fcl z) (PVar #fv #fcl))
+let bcf_l : pconf fv fcl = { st = PStep blhs xamb; store = xsto; next = 1 }
+let bcf_r : pconf fv fcl = { st = PStep brhs xamb; store = xsto; next = 1 }
+let bsr : pstore fv fcl = (fst (prun flook xapply2 40 bcf_r)).store
+let bsl : pstore fv fcl = (fst (prun flook xapply2 40 bcf_l)).store
+
+(** **THE TWO BRACKETINGS ARE COUNTED, AND THEY DIFFER BY ONE FRAME.** PROVED by
+    running the machine: four frames on the left, three on the right. *)
+let guard_bce_runs ()
+  : Lemma ((fst (prun flook xapply2 40 bcf_l)).st == PDone (PV (FI 4)) /\
+           snd (prun flook xapply2 40 bcf_l) == ([] <: list string) /\
+           (fst (prun flook xapply2 40 bcf_r)).st == PDone (PV (FI 3)) /\
+           snd (prun flook xapply2 40 bcf_r) == ([] <: list string))
+  = assert_norm ((fst (prun flook xapply2 40 bcf_l)).st == PDone (PV (FI 4)));
+    assert_norm (snd (prun flook xapply2 40 bcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply2 40 bcf_r)).st == PDone (PV (FI 3)));
+    assert_norm (snd (prun flook xapply2 40 bcf_r) == ([] <: list string))
+
+let pval_rel_pv_unfold (#v: Type) (w: pworld) (a b: v)
+                       (h: squash (pval_rel #v w (PV a) (PV b)))
+  : squash (a == b)
+  = h
+
+let law_aa_nom_unfold (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (cxv: pval v) (g hf: pval v -> pcomp v cl)
+    (hh: squash (law_assoc_nom b ops pl c cxv g hf))
+  : squash (pnobs_tr_le b
+              (pbind (ops.o_extend_ctx pl cxv g) (fun cy -> ops.o_extend pl cy hf))
+              (ops.o_extend pl cxv (fun x -> pbind (g x) hf)))
+  = hh
+
+let lemma_bce_no_world (w: pworld) (x2: pval fv) (s2': pstore fv fcl)
+  : Lemma (requires pnconverges flook xapply2 bcf_r ([] <: list string) x2 s2' /\
+                    pval_rel w (PV (FI 4)) x2)
+          (ensures False)
+  = guard_bce_runs ();
+    lemma_pnconverges_at flook xapply2 bcf_r 40 [] (PV (FI 3)) bsr;
+    lemma_pnconverges_unique flook xapply2 bcf_r [] [] x2 (PV (FI 3)) s2' bsr;
+    pval_rel_pv_unfold #fv w (FI 4) (FI 3) ()
+
+(**
+ * **THE ALGEBRAIC HALF OF `law_assoc_nom` IS FALSE OF `ref_ops`, AND THE
+ * NEGATION IS PROVED** -- at `x2boundary`, whose interpreter MEASURES the
+ * segment it is handed.
+ *
+ * The two sides answer with two PAYLOADS, `PV (FI 4)` and `PV (FI 3)`, and
+ * `pval_rel` demands payloads be EQUAL -- so no world enters the argument at
+ * all. That is worth saying plainly: this failure has nothing to do with names,
+ * with allocation or with the store. It is the two bracketings of one bind
+ * chain putting two frames on the stack where the other puts one.
+ *
+ * **AND IT IS A WEAKER RESULT THAN THE OTHER FOUR.** The interpreter here reads
+ * the continuation as a TERM. The other four use one that only applies it. See
+ * the block comment above for why the difference matters and what it leaves
+ * open.
+ *)
+let guard_ref_ops_refutes_assoc_algebraic_nom ()
+  : Lemma (~(law_assoc_nom x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                           (PVar #fv #fcl) (PVar #fv #fcl)))
+  = guard_bce_runs ();
+    guard_bce_config_ok ();
+    lemma_pnconverges_at flook xapply2 bcf_l 40 [] (PV (FI 4)) bsl;
+    lemma_pnconverges_at flook xapply2 bcf_r 40 [] (PV (FI 3)) bsr;
+    introduce law_assoc_nom x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                            (PVar #fv #fcl) (PVar #fv #fcl) ==> False
+    with begin
+      law_aa_nom_unfold x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                        (PVar #fv #fcl) (PVar #fv #fcl) ();
+      pnobs_tr_le_unfold x2boundary blhs brhs ();
+      assert (pnconverges x2boundary.b_lk x2boundary.b_apply
+                ({ st = PStep blhs xamb; store = xsto; next = 1 })
+                ([] <: list string) (PV (FI 4)) bsl);
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply2 bcf_r ([] <: list string) x2 s2' /\
+           pwf_world w /\ pwext w (panchor xsto) /\
+           pval_rel w (PV (FI 4)) x2 /\ psrel fcl_rel w bsl s2')
+      with lemma_bce_no_world w x2 s2'
+    end
+
+(* ================================================================== *)
+(*  B2b.3 IN TWO CHECKED STATEMENTS                                    *)
+(* ================================================================== *)
+
+(**
+ * **JUDGEMENT POINTS 1 AND 2, IN ONE CHECKED STATEMENT.** PROVED, at an
+ * arbitrary plan, inner computation, value, extension functions, ambient stack,
+ * store, counter, clause relation and world.
+ *
+ * The first three conjuncts are the prefixes: every side of every proposition
+ * reaches a named configuration in a fixed number of transitions, computed with
+ * everything symbolic. The last four are the obstruction: the configurations so
+ * reached are NOT related, at any world, at any plan.
+ *
+ * No conjunct relates two sides' transition counts, and none mentions a
+ * transition count outside a `prun`.
+ *)
+let guard_nom_b2b3_prefixes (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (w: pworld)
+    (pl: plan v cl) (c: pcomp v cl) (x: pval v) (f g h: pval v -> pcomp v cl)
+    (amb: pstack v cl) (sto sto1 sto2: pstore v cl) (n0 m1 m2: nat)
+    (m: weave_mode) (resp: pval v -> pcomp v cl)
+  : Lemma (
+      // JUDGEMENT POINT 1 -- the prefixes, in general form
+      prun lk apply 2 ({ st = PStep (pbind (ref_ops.o_enter_ctx pl c) f) amb;
+                         store = sto; next = n0 })
+        == ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                           @ (PScopeF :: PBindF f :: amb)));
+              store = sto; next = n0 }, ([] <: list string)) /\
+      prun lk apply 1 ({ st = PStep (ref_ops.o_enter pl c) amb;
+                         store = sto; next = n0 })
+        == ({ st = PStep c (plan_enter_frames pl @ amb);
+              store = sto; next = n0 }, ([] <: list string)) /\
+      prun lk apply 9
+        ({ st = PStep (pbind (ref_ops.o_enter_ctx pl (PVar x))
+                             (fun cx -> ref_ops.o_extend pl cx g)) amb;
+           store = sto; next = n0 })
+        == ({ st = PStep (g x) (plan_protocol_frames pl
+                                @ (PModeF MExtend (presp0 g) :: amb));
+              store = (n0, PCtxRequests x (PBoundaryF :: plan_protocol_frames pl)
+                                        (PVar #v #cl)) :: sto;
+              next = n0 + 1 }, ([] <: list string)) /\
+      // JUDGEMENT POINT 2 -- and the theorem cannot be started there
+      ~(pcfrel r w ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                                   @ (PScopeF :: PBindF f :: amb)));
+                      store = sto1; next = m1 })
+                   ({ st = PStep c (plan_enter_frames pl @ amb);
+                      store = sto2; next = m2 })) /\
+      ~(pcfrel r w ({ st = PStep c (PBoundaryF :: (plan_protocol_frames pl
+                                                   @ (PScopeF :: PBindF f :: amb)));
+                      store = sto1; next = m1 })
+                   ({ st = PStep c (PBindF g :: PBindF h
+                                    :: (plan_enter_frames pl @ amb));
+                      store = sto2; next = m2 })) /\
+      ~(pcfrel r w ({ st = PStep c (plan_protocol_frames pl
+                                    @ (PModeF m resp :: amb));
+                      store = sto1; next = m1 })
+                   ({ st = PStep c (plan_enter_frames pl @ amb);
+                      store = sto2; next = m2 })) /\
+      ~(pcfrel r w ({ st = PStep c (plan_protocol_frames pl
+                                    @ (PModeF m resp :: amb));
+                      store = sto1; next = m1 })
+                   ({ st = PStep c (plan_resume_frames pl @ amb);
+                      store = sto2; next = m2 })))
+  = lemma_prefix_produce lk apply pl c f amb sto n0;
+    lemma_prefix_enter lk apply pl c amb sto n0;
+    lemma_prefix_li_l lk apply pl x g amb sto n0;
+    guard_align_ri_post_unrelated r w pl c f amb sto1 sto2 m1 m2;
+    guard_align_ac_post_unrelated r w pl c f g h amb sto1 sto2 m1 m2;
+    guard_align_li_post_unrelated r w pl c m resp amb sto1 sto2 m1 m2;
+    guard_align_rm_post_unrelated r w pl c m resp amb sto1 sto2 m1 m2
+
+(**
+ * **THE VERDICT ON THE SIX PROPOSITIONS, IN ONE CHECKED STATEMENT.** PROVED.
+ *
+ * All six are FALSE of `ref_ops` under the REPAIRED observation, and every
+ * negation below is a proof and not an obligation left undone. Two of the six
+ * are the same proposition at `ref_ops`, which is the third conjunct.
+ *)
+let guard_nom_b2b3_verdict ()
+  : Lemma (
+      ~(law_left_identity_nom xboundary ref_ops xpl fone xg) /\
+      ~(law_right_identity_nom xboundary ref_ops xpl xc) /\
+      ~(law_transparent_agrees_nom xboundary ref_ops xpl xc) /\
+      ~(law_resume_matches_continuation_nom xboundary ref_ops xpl fone xg) /\
+      ~(law_assoc_nom xboundary ref_ops xpl xc fone
+                      (PVar #fv #fcl) (PVar #fv #fcl)) /\
+      ~(law_assoc_nom x2boundary ref_ops xpl (PVar fone) (PCtxKey 0)
+                      (PVar #fv #fcl) (PVar #fv #fcl)))
+  = guard_ref_ops_refutes_left_identity_nom ();
+    guard_ref_ops_refutes_right_identity_nom ();
+    guard_ref_ops_refutes_transparent_agrees_nom ();
+    guard_ref_ops_refutes_resume_nom ();
+    guard_ref_ops_refutes_assoc_nom ();
+    guard_ref_ops_refutes_assoc_algebraic_nom ()
+
+(* ================================================================== *)
+(*  B2b.3 LEDGER -- WHAT IS ESTABLISHED, AND WHAT IS NOT               *)
+(*                                                                     *)
+(*  ESTABLISHED, EACH BY A CHECKED PROOF                                *)
+(*                                                                     *)
+(*   - JUDGEMENT POINT 1 IS ANSWERED YES, FOR ALL SIX PROPOSITIONS.     *)
+(*     Each side of each has a finite prefix computed in GENERAL FORM   *)
+(*     -- plan, inner computation, value, extension functions, ambient  *)
+(*     stack, store and counter all variables -- and the two prefixes   *)
+(*     land on the SAME NODE.  Production is two transitions and        *)
+(*     entering is one (`lemma_prefix_produce`, `lemma_prefix_enter`,   *)
+(*     `lemma_prefix_enter_bind2`, `lemma_prefix_resume_rhs`); left     *)
+(*     identity and resumption are nine on the left and one on the      *)
+(*     right (`lemma_prefix_li_l`, `lemma_prefix_rm_l`); the algebraic  *)
+(*     half is four against one where its handle resolves and two       *)
+(*     against one where it does not (`lemma_prefix_aa_l`,              *)
+(*     `lemma_prefix_aa_r`, and the two stuck lemmas).  The three stack *)
+(*     searches are discharged by INDUCTION ON THE PLAN, not by         *)
+(*     normalisation (`lemma_plan_protocol_frames_flat`,               *)
+(*     `lemma_pcut_scope_through`, and `lemma_find_mode_through` which  *)
+(*     was already there);                                              *)
+(*                                                                     *)
+(*   - JUDGEMENT POINT 2 IS ANSWERED NO, AND THE REASON IS STRUCTURAL.  *)
+(*     `pframes_rel` matches a stack cons for cons, and the two         *)
+(*     post-prefix stacks have DIFFERENT LENGTHS at every plan and      *)
+(*     every ambient stack -- because `plan_protocol_frames` keeps a    *)
+(*     `PSiteF` where `plan_enter_frames` drops the item, and because   *)
+(*     the residual protocol's boundary, floor and `PModeF` marker have *)
+(*     no counterpart on the anchored side                              *)
+(*     (`guard_align_produce_vs_enter`,                                 *)
+(*     `guard_align_produce_vs_enter_bind2`,                            *)
+(*     `guard_align_marker_vs_enter`, `guard_align_marker_vs_resume`,   *)
+(*     and the four configuration-level corollaries).  At the RESUME    *)
+(*     projection the two segments have EQUAL length, so the resumption *)
+(*     law's two sides differ by the marker and by nothing else;        *)
+(*                                                                     *)
+(*   - THE ALGEBRAIC HALF'S OBSTRUCTION IS A DIFFERENT ONE and is kept  *)
+(*     apart.  There the two post-prefix STACKS are identical and the   *)
+(*     two computations are drives of the same residual; what differs   *)
+(*     is the marker's responder, which carries the two BRACKETINGS of  *)
+(*     one bind chain.  Those are not related terms, at any world, for  *)
+(*     any `post`, `g` and `h` (`guard_align_bracketing`, resting on    *)
+(*     `lemma_no_op_self`: a computation is never related to a bind of  *)
+(*     itself, because a term is finite);                               *)
+(*                                                                     *)
+(*   - JUDGEMENT POINT 3 IS REACHED ONLY WHERE POINT 2 SUCCEEDS, and    *)
+(*     there it closes.  `lemma_obs_from_common` composes two prefixes  *)
+(*     of INDEPENDENT lengths with the fundamental theorem at ONE fuel  *)
+(*     on the common pair; the world is the theorem's and is written    *)
+(*     nowhere.  It discharges the algebraic half's obligation, IN BOTH *)
+(*     DIRECTIONS, at every configuration whose named handle is absent  *)
+(*     or holds no requests (`lemma_aa_obs_absent`,                     *)
+(*     `lemma_aa_obs_absent_rev`, `lemma_aa_obs_done`,                  *)
+(*     `lemma_aa_obs_done_rev`).  That is an obligation discharged at   *)
+(*     named configurations and is NOT the law;                         *)
+(*                                                                     *)
+(*   - TWO OF THE SIX PROPOSITIONS ARE ONE.  At `ref_ops`,             *)
+(*     `law_transparent_agrees_nom` and `law_right_identity_nom` are    *)
+(*     the same proposition, and `law_left_identity_nom` at `PVar` is   *)
+(*     `law_right_identity_nom` at a value                              *)
+(*     (`guard_align_transparent_is_right_identity`,                    *)
+(*     `guard_align_left_identity_at_pure`).  Equalities of `prop`s,    *)
+(*     not implications, and they say nothing about any other           *)
+(*     `ctx_ops`;                                                       *)
+(*                                                                     *)
+(*   - ALL SIX PROPOSITIONS ARE FALSE OF `ref_ops` UNDER THE REPAIRED   *)
+(*     OBSERVATION, and all six negations are PROVED                    *)
+(*     (`guard_nom_b2b3_verdict`).                                      *)
+(*                                                                     *)
+(*  WHAT THE COUNTEREXAMPLES ARE, AND WHAT THEY ARE NOT                 *)
+(*                                                                     *)
+(*   - THEY ARE NOT ABOUT NAMES, AND NOT ABOUT THE COUNTER.  Four of    *)
+(*     the six stand at the EMPTY store, the EMPTY ambient stack and    *)
+(*     counter ZERO; two of those four answer with the SAME handle on   *)
+(*     both sides, so the world is forced rather than chosen, and the   *)
+(*     sixth answers with two PAYLOADS and never mentions a world.      *)
+(*     The repair B2b.1 made is doing its work in every one of them:    *)
+(*     the extra entries the left side allocates are ignored as garbage *)
+(*     exactly as designed.  What no world can do is relate two         *)
+(*     CONTEXTS whose residuals differ in length, and that is what      *)
+(*     happens;                                                         *)
+(*                                                                     *)
+(*   - THE MECHANISM IS THE RESIDUAL PROTOCOL LEAVING ITS MARKER.  A    *)
+(*     `PSiteF` under a live `MExtend` marker is skipped and under      *)
+(*     `MResume` fires, which is what makes `plan_protocol_frames` both *)
+(*     of the other two projections -- and it is true only while the    *)
+(*     marker stays BELOW the site frame.  Dispatch captures the        *)
+(*     segment above the matching prompt; a clause that resumes that    *)
+(*     segment INSIDE A SCOPE OF ITS OWN puts the captured `PSiteF`     *)
+(*     above a floor with no marker in scope, and it YIELDS there,      *)
+(*     storing a residual the other side has no counterpart for.        *)
+(*     `xapply` does exactly that and NOTHING ELSE: it builds one       *)
+(*     `PEnterCtx` and applies the continuation it was handed, which is *)
+(*     what an ordinary handler does.  It is PROVED equivariant         *)
+(*     (`lemma_xapply_equivariant`), so the boundary's four conditions  *)
+(*     are met and none of them is weakened;                            *)
+(*                                                                     *)
+(*   - THE ALGEBRAIC HALF'S COUNTEREXAMPLE IS WEAKER AND IS LABELLED    *)
+(*     AS SUCH.  Its interpreter, `xapply2`, READS THE LENGTH of the    *)
+(*     segment it is handed, which is a capability `papply_t` grants    *)
+(*     because it is an arbitrary F* function and which a shipped FFI   *)
+(*     closure -- given a continuation it can only CALL -- does not     *)
+(*     have.  It is equivariant (`lemma_xapply2_equivariant`) and the   *)
+(*     refutation is sound against the law AS STATED.  NO INTERPRETER   *)
+(*     IN THIS FILE THAT ONLY APPLIES ITS CONTINUATION REFUTES THE      *)
+(*     ALGEBRAIC HALF, and it is NOT established here that none can:    *)
+(*     a `PBindF` is transparent to a value and is consumed before any  *)
+(*     boundary beneath it, so the bracketing difference does not reach *)
+(*     a residual by the route the other four take -- that is an        *)
+(*     observation about the four counterexamples and not a theorem.    *)
+(*                                                                     *)
+(*  NOT ESTABLISHED, AND NAMED                                          *)
+(*                                                                     *)
+(*   - THAT THE FIVE LAWS ARE FALSE FOR ALL `ops`, or for all plans,    *)
+(*     or at every configuration.  Each refutation is ONE instance.     *)
+(*     What is general is the OBSTRUCTION (judgement point 2), which is *)
+(*     proved at every plan and every world;                            *)
+(*                                                                     *)
+(*   - THAT THE ALGEBRAIC HALF IS FALSE UNDER AN INTERPRETER THAT ONLY  *)
+(*     APPLIES ITS CONTINUATION.  Open, in both directions;             *)
+(*                                                                     *)
+(*   - ANY AMENDMENT TO ANY LAW.  No statement above `guard_nom_laws_`  *)
+(*     `are_statable` is edited.  Three amendments are visible from     *)
+(*     here and NONE is taken: restrict `papply_t` so an interpreter    *)
+(*     may only APPLY the continuation it is given; require the two     *)
+(*     sides' final stores to correspond only on handles the           *)
+(*     PROGRAM can still name rather than on the world's whole domain;  *)
+(*     or relate `plan_protocol_frames` to `plan_enter_frames` by an    *)
+(*     erasure and state the laws up to it.  Each changes what the      *)
+(*     laws CLAIM, which is a design decision and not a step in a       *)
+(*     proof;                                                           *)
+(*                                                                     *)
+(*   - THAT THE OBSTRUCTION IS UNAVOIDABLE.  It is an obstruction to    *)
+(*     the route this file has -- the fundamental theorem started at a  *)
+(*     common configuration.  A bisimulation up to the residual         *)
+(*     protocol's erasure would be a different route and nothing here   *)
+(*     refutes it; what the counterexamples show is that such a         *)
+(*     bisimulation would have to be FALSE at `xapply`, so the route    *)
+(*     is closed for a reason and not merely unbuilt.                   *)
+(*                                                                     *)
+(*  WHAT DID NOT CHANGE                                                 *)
+(*                                                                     *)
+(*   - NO DEFINITION OF B2b.2 OR EARLIER WAS EDITED.  B2b.3 appends;    *)
+(*     the two amendments it makes above are to COMMENTS, and each      *)
+(*     records that a question the comment left open is now decided;    *)
+(*   - `prun`, `pstep`, `pstep_tr`, `pconverges_tr`, `pobs_tr_le`,      *)
+(*     `pnobs_tr_le` and `pnobs_tr_eq` are untouched, so every earlier  *)
+(*     result means what it meant; production is still an               *)
+(*     object-language transition, `presolve` is still given no stack,  *)
+(*     `settles`, `PTokenF` and `pfind_token` are still absent, and     *)
+(*     `lemma_reachable_residual_wf` still has no `requires`;           *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume` was     *)
+(*     added.  B2b.3 adds none of the four, and the two `unfold`s it    *)
+(*     introduces (`presp0`, `pcompose`) are abbreviations that         *)
+(*     disappear at elaboration, which is what keeps a lambda the       *)
+(*     machine builds and a lambda a statement writes the SAME TERM;    *)
+(*   - the counter is still mentioned nowhere in the observation, and   *)
+(*     no statement in B2b.3 relates two sides' transition counts:      *)
+(*     `lemma_obs_from_common` takes the two prefix lengths as          *)
+(*     INDEPENDENT parameters and applies the theorem at one fuel to    *)
+(*     the common pair.                                                 *)
+(* ================================================================== *)

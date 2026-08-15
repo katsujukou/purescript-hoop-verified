@@ -3897,6 +3897,133 @@ is why `PPerform` was the hardest rule: `plookup_equivariant` and
 restatement plus a cast that goes through **by conversion alone, with no proof
 obligation** — no definition had to change.
 
+### B2b redux, run: refuted again, and this time the failure is localised
+
+13,709 → 15,998 lines, verifying from a clean cache, still with **zero
+`z3rlimit`**. All six propositions are refuted, and the reason is nothing like
+B2b's.
+
+**Judgement point 1 is answered YES for all six, and that is real progress.**
+Each side of each law has a finite prefix computed in **general form** — plan,
+inner computation, value, extension functions, ambient stack, store and counter
+all variables — and the two prefixes land on the **same node**. No statement
+relates the two sides' transition counts; `lemma_prun_split` does the composing.
+
+**Judgement point 2 fails structurally, and the obstruction is proved in
+general** — at every relation, world, plan, continuation and ambient stack:
+
+```fstar
+guard_align_produce_vs_enter r w pl f amb
+  : Lemma (~(pkrel r w (PBoundaryF :: (plan_protocol_frames pl
+                                       @ (PScopeF :: PBindF f :: amb)))
+                       (plan_enter_frames pl @ amb)))
+```
+
+The argument is **length**. `pframes_rel` matches stacks cons by cons, and
+
+```fstar
+lemma_plan_frames_lengths pl
+  : Lemma (length (plan_enter_frames pl) <= length (plan_protocol_frames pl) /\
+           length (plan_resume_frames pl) == length (plan_protocol_frames pl))
+```
+
+*What that means.* **The laws are stated across two different projections of one
+plan.** The left-hand side goes through production and so lives on
+`plan_protocol_frames`, which keeps every `PIBind` as a dormant `PSiteF`; the
+right-hand side goes through entering and so lives on `plan_enter_frames`, which
+drops them. That difference is not incidental — B1.5 recorded it as "the whole
+of the difference between entering a scope and resuming a perform site". A
+cons-wise relation cannot match them, and it should not be expected to.
+
+Note also that `plan_resume_frames` and `plan_protocol_frames` have **equal
+length**, so the resumption law's two sides are separated by one marker only.
+**Anchoring itself is not broken.**
+
+*It is not about names.* Four of the counterexamples stand at the empty store,
+the empty ambient stack and counter zero; two of them return the **same handle**
+on both sides, so the world is forced and has nothing to choose. B2b.1's repair
+works in every one of them. What no world can do is relate two residuals of
+different length.
+
+*The algebraic half's refutation is weak, and says so.* There the post-prefix
+stacks are **identical**; the difference is that the marker's responder is one
+bind chain under two bracketings. But the refuting interpreter **reads the
+length of the segment it is handed** — a discretion `papply_t` has because
+it is an arbitrary F\* function, and which an FFI closure that can only *call*
+its continuation does not have. Whether the algebraic half is refutable by an
+apply-only interpreter is **undetermined in both directions**.
+
+*The one positive result*, and it is reusable: `lemma_obs_from_common` composes
+**two independent prefix lengths** with a single invocation of the fundamental
+theorem at the common configuration. The world is the theorem's and is never
+written down.
+
+*Six propositions are really five.* At `ref_ops`, `law_transparent_agrees_nom`
+and `law_right_identity_nom` are the **same proposition** — a `prop` equality,
+not an implication, and it says nothing about other `ctx_ops`.
+
+### The repair: a mode-indexed administrative equivalence
+
+The obvious reading of the obstruction, inserting an erasure into the laws, is
+**wrong, and unsoundly so**:
+
+- a `PSiteF` may not simply be deleted. Under `MExtend` it stays dormant and
+  vanishes; under `MResume` it **fires, as the `PBindF` it was recorded from**;
+- a `PModeF` is not an inert marker either. It **carries a responder**, and
+  deleting a frame without showing the responders agree on all future behaviour
+  is not sound.
+
+And a law of the form `erase lhs ≈ erase rhs` would not say that `lhs` and
+`rhs` mean the same thing — only that they agree once information has been
+discarded before the comparison. The shape wanted is:
+
+> `lhs ≈admin rhs`, and `≈admin` sound for `pnobs`, therefore `lhs ≈obs rhs`.
+
+So the repair is three parts, and **`pcrel` is not one of them**:
+
+1. **Keep `pcrel` as it is.** It is the strong lockstep congruence that carries
+   the fundamental theorem, and it does that job correctly. This failure is not
+   a reason to weaken it.
+2. **Add an administrative relation for the laws** — a trace-preserving weak
+   bisimulation or normalisation identifying: protocol production with the enter
+   projection; a protocol consumer marker with the corresponding extend/resume
+   projection; a dormant `PSiteF` vanishing under `MExtend`; a `PSiteF`
+   reactivating as `PBindF` under `MResume`; and two bracketings of `pbind`.
+3. **Prove that the administrative relation implies `pnobs_tr_eq`.** This is
+   what keeps the user-facing law about the two actual programs.
+
+**The headline, and it is the useful part of a negative result:** this is not a
+failure of the reference semantics. It localises the gap to a **missing middle
+layer** — between the strong lockstep relation the fundamental theorem needs and
+the weak observational relation the algebraic laws are stated over, one more
+layer is required to absorb administrative transitions.
+
+*The interpreter restriction, generalised.* Restricting `papply` to
+"apply the continuation once" would exclude ordinary multi-shot handlers and
+result-dependent resumption — too blunt. Leaving it an arbitrary F\* function
+leaves syntactic observation like reading a segment's length. The right
+condition is that **`papply` preserves administrative equivalence**, added to
+the boundary discipline beside the four it already carries.
+
+*The store amendment is not the repair.* The nominal store relation already
+ignores garbage outside the world; the residuals at issue here are **live** —
+nameable from the returned handle — so their semantic difference cannot be
+hidden as unreachable.
+
+#### The gate before implementing it
+
+| # | condition |
+|---|---|
+| 1 | a mode-indexed projection relation, with `MExtend` and `MResume` genuinely different, is statable as a type |
+| 2 | it relates the four mismatches found here — protocol/enter and protocol/resume |
+| 3 | consuming two related residuals **in the same mode** gives the same trace, related values and related stores |
+| 4 | `xapply` preserves the relation, and `xapply2` — which observes frame length — is refused |
+| 5 | a small positive instance of `pbind` associativity goes through |
+
+**Condition 4 is the decision point.** If `xapply` is also refused, the erasure
+is too fine and it is excluding general higher-order handlers for the laws'
+convenience. If `xapply2` passes, the relation is too coarse.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
@@ -4001,7 +4128,9 @@ The order, revised after B2b:
 | ~~B2b~~ | ~~the five laws~~ — **all six propositions refuted**: the relation exposed allocator names |
 | ~~B2b.1~~ | ~~nominal observation relation and boundary discipline~~ — **done**: the former counterexamples repaired at concrete configurations |
 | ~~B2b.2~~ | ~~the nominal fundamental theorem~~ — **done**: transition and finite-run compatibility, and `pcrel` ⟹ `pnobs_tr_le`, all universally quantified |
-| B2b redux | the five laws, re-proved using B2b.2 — the remaining work is relating the two sides of each law as computations |
+| ~~B2b redux~~ | ~~the five laws, re-proved using B2b.2~~ — **refuted again**: the laws are stated across two projections of one plan |
+| B2b.3 | a mode-indexed administrative equivalence, and its observational soundness — the missing middle layer |
+| B2b.4 | the five laws, over the administrative relation |
 | B3 | equivalence with the fast borrow; simulation with the optimised machine; a shipping store; and the shipping interpreter proved to meet the boundary discipline |
 
 The trace step sits between B2a and B2b deliberately, and is not optional
