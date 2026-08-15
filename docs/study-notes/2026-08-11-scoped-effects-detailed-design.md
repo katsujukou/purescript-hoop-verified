@@ -3234,6 +3234,426 @@ the machine cannot reach:
 > observation relation belongs over all configurations or should be restricted
 > to well-formed reachable ones.
 
+### Gate B2b: all five laws are false, and that is the result
+
+Every one of the six propositions — the five laws, with `law_assoc`'s two
+conjuncts counted apart — is refuted **as a proved negation**, not left as a
+proof undone.
+
+**This is not an implementation failure.** `ref_ops` is not wrong; production
+*must* allocate, because a handle has to name something in the store. What the
+refutation found is a defect in the **specification**: the observation relation
+was exposing the allocator's internal names. B2b caught a wrong specification by
+proving it wrong, which is what a gate is for.
+
+*The mechanism.* `pobs_tr_le` fixes the store and counter at the start and
+compares a `pval v` at the end; `pval v` contains `PCtxKey i`; `palloc` hands
+out `cf.next`. **So the name of a freshly allocated handle is observable.**
+Every law's left side allocates at least one context and its right side
+allocates none, so an ordinary continuation that produces a context of its own
+and returns the handle reports `PCtxKey 1` on the left and `PCtxKey 0` on the
+right. At `plan_A = Plan [] fowner_plain` laws 1, 2 and 5 have literally the
+same two sides, so one program pair refutes three propositions; `law_resume` is 1 vs 0
+and `law_assoc`'s anchored half is 2 vs 0.
+
+**Both traces are empty.** The trace-aware work contributes nothing to this
+separation — which is worth stating plainly, because it means the previous
+gate was not wasted but was also not what caught this.
+
+*The stop condition did not fire, and was refuted rather than assumed away.* The
+counterexample stands at `pload`'s **own** store and counter — empty, zero —
+and `guard_ce_conf_one_step_from_pload` proves the configuration is exactly one
+`pstep` from `pload` of a closed program, with `guard_ce_conf_ok` establishing
+the whole `pconf_ok` invariant through B2a's preservation theorem. For
+`law_assoc`'s algebraic half, the only statement naming a context it did not
+produce, `guard_ce_aa_reachable` proves store, counter and stack together are
+what five transitions of a closed program reach.
+
+*Fired at the mechanism, not only at the arithmetic.* Making the continuation
+not allocate — `fnew_ctx` returning a plain value instead of entering a scope
+— breaks the refutation at `guard_ce_runs_differ`. Allocation is what does it.
+
+*What proving a positive instance first bought.* Two were proved before any law
+was attempted, as required: `pbind (PVar x) f ≈ f x`, and `PSplice [] c ≈ c`
+at an **arbitrary** `c`. They needed a silent-step calculus, and that
+calculus is recorded as **not** a bisimulation — it relates programs only
+when they converge on a common configuration, so it proves the administrative
+equations and no others. That is precisely the wall the laws hit, met at the
+first step rather than at the fifth.
+
+*Two things that would not have helped.* `settles` would not: the counterexample
+performs no `PPerform` at all, so it lies inside every domain `settles` carved
+out. And restricting the observable to the image of `PV` would not: quite apart
+from putting first-class handles outside the laws, the very thing B1.7 was for
+— `fseen` and the result of resolving a handle can carry a key difference
+back into a `PV`.
+
+*A correction the refutation forced.* The note on `flat_ops` claimed that left
+identity, right identity and the algebraic half of associativity all hold of it.
+That is false of the propositions this file defines — `law_left_identity` is
+now false of **all three** implementations, so it discriminates none of them.
+The claim is corrected in place; the argument behind it (a uniformly wrong
+algebra satisfies every equation between its own operations, so at least one
+law must be anchored) still stands.
+
+### Gate B2b.1: nominal observation for first-class contexts
+
+The repair is to the relation, and **"store isomorphism" is not the right
+statement of it** — the two sides allocate *different numbers* of contexts, so
+their stores differ in size and no bijection between whole stores exists. What
+is needed is a **world-indexed partial bijection on reachable handles, ignoring
+garbage**:
+
+- a world `W` is a finite partial bijection between the keys reachable from the
+  outside on each side;
+- `PCtxKey i` and `PCtxKey j` correspond when `W(i) = j`;
+- corresponding store entries correspond in *behaviour when consumed*;
+- entries unreachable from any public handle are **garbage** and are ignored;
+- `next` is not observed at all — only freshness on each side is required;
+- when a new handle becomes externally visible, `W` is extended by a fresh
+  correspondence;
+- **aliasing is preserved**: the same key twice maps to the same partner, two
+  different keys to two different partners;
+- the trace is matched exactly, as now. If handle names are ever put into the
+  trace, the same renaming applies to that part and to nothing else.
+
+**Handle opacity has to come with it.** In the model today `PCtxKey nat` can be
+destructured by any F\* function, so a continuation can *guess a future key*.
+Quantify over arbitrary continuations and any name-quotient whatever is broken.
+The real PureScript API publishes neither the constructor nor a numeric
+representation, and the model has to reflect that. So the gate is two things
+together, not one:
+
+1. the world-indexed relation on handles and stores;
+2. an **equivariance discipline** — continuations, the clause interpreter and
+   `post` commute with key renaming.
+
+The second must not be an unchecked assumption. It has to be discharged the way
+`papply_wb` was: satisfied by the real `fapply`, and preserved by the machine's
+transitions.
+
+| # | acceptance condition |
+|---|---|
+| 1 | the six counterexamples are related under a suitable world extension, rather than at equal raw keys |
+| 2 | B1.7's two distinct live handles are **not** collapsed |
+| 3 | aliasing, and the order in which handles are selected, are preserved |
+| 4 | handles whose contexts behave differently are **not** related |
+| 5 | forged and stale handles still fail, with no fallback to nearness |
+| 6 | only unreachable store entries are ignored as garbage |
+| 7 | the two positive instances and the trace-based suspension separation survive |
+| 8 | the trace is not weakened to achieve any of the above |
+
+Stop conditions:
+
+> - equivariance of an arbitrary F\* closure cannot be established without
+>   `assume`;
+> - the counterexamples can only be removed by also identifying distinct live
+>   handles, or by losing aliasing;
+> - hiding a replay requires weakening the trace observation;
+> - the laws remain false after the nominal difference is quotiented away,
+>   because of the **semantic** difference in frame lists.
+
+The last case is not a reason to loosen the relation further. It sends the work
+back to the algebra and the transitions — specifically the bisimulation
+between `plan_protocol_frames` beneath a `PModeF MExtend` and
+`plan_enter_frames`, which
+`law_right_identity` needs and which this gate did not attempt.
+
+#### The feasibility probe: it works, in a scratch model
+
+Run before committing a line to the prototype, in a self-contained 1,191-line
+scratch module — the same instrument that settled strict positivity earlier.
+It verifies with no `admit`, no `assume` and no weakening pragma, and it first
+**reproduces the defect** (`guard_naive_separates`), so it is a model of the
+problem and not of something easier.
+
+*Expressible.* A world is a `list (nat & nat)` whose well-formedness is a
+**biconditional** between the two lookup directions — and that biconditional
+*is* the aliasing clause, forcing partial-functionality and injectivity at once.
+The relation is step-indexed and world-indexed, and needs a **lexicographic**
+measure `%[n;0]` / `%[n;1]`: `ctx_rel n` must call `comp_rel n` at the *same*
+index, because the stored `post` is applied to a fresh argument rather than a
+subterm. A plain `decreases n` is rejected. No positivity or universe obstacle.
+
+*Equivariance is a usable hypothesis, and a proper one.* Seven lemmas discharge
+it for concrete contexts and continuations — including the counterexample's
+own `knew`, which allocates and returns a handle — and
+
+```fstar
+guard_kguess_not_equivariant : ~(equivariant_fn (fun _ -> MRet (MKey 5)))
+```
+
+refutes a continuation that *guesses* a key. **Handle opacity comes for free**:
+nothing is made abstract; the guessing continuation simply falls outside the
+quantification.
+
+*The payoff.* `guard_ce_nobs_eq` relates the counterexample, and the world
+extension is exactly **one pair, `1 ↦ 0`** — the left run's own discarded
+context never enters the world at all, because `srel` constrains only the
+world's domain, which is what lets the two sides hold different numbers of
+contexts. `guard_defect_config_is_in_scope` proves the offending continuation,
+store and counter satisfy *every* hypothesis the new relation imposes: **the
+repair does not work by excluding the program that exposed the defect.**
+
+*It does not overshoot.* Distinct live handles stay distinct, contexts whose
+`post` behaves differently are related at no world, and the trace still
+separates them observationally — three proved lemmas. Loosening `val_rel` to
+relate all keys was fired and fails, though it fails inside the fundamental
+theorem rather than at those three, so what it shows is that the loosened
+relation cannot support the development at all.
+
+*Three F\* traps, recorded because they fail silently.* Writing `Some?.v` inside
+a `prop` definition type-checks and then quietly prevents SMT instantiation —
+use a total accessor with a junk default. The store relation's quantifier needs
+an explicit `{:pattern}`, since the automatic trigger only fires when both sides
+appear in the goal. And `introduce ~(p) with e` is a syntax error; universally
+quantifying the fuel in the antecedent avoids a whole class of friction with
+existentials. Each presents as "obviously true goal will not prove", three
+lemmas downstream.
+
+#### `cl` gets a relation, not a stronger hypothesis
+
+The prototype's `cl` is abstract, and a `cl` value reaches `apply`. The tempting
+repair — strengthen `apply`'s equivariance until the content of `cl` stops
+mattering — **is wrong, and the reason is specific**: a clause may capture an
+existing handle in its closure. The two runs then hold *different* `cl` values
+that correspond under the world, not the same one. A same-`cl` condition would
+either exclude handle-capturing clauses, which a general higher-order facility
+must permit, or silently assume the captured handles carry equal raw keys.
+Relating arbitrary `cl` values is equally wrong, since `apply` must tell
+different operation clauses apart.
+
+So `cl` needs an explicit `cl_rel w c1 c2`, and the pieces belong together
+rather than scattered as bare parameters:
+
+```fstar
+type nominal_boundary v cl = {
+  cl_rel: world -> cl -> cl -> prop;
+  lookup_equivariant: ...;
+  apply_equivariant: ...;
+}
+```
+
+with `table_rel` saying that corresponding tables' lookups return
+`cl_rel`-related clauses. Building this record for the concrete `flook` /
+`fapply` is what shows it non-vacuous. **This is a new verification boundary
+stacked on `papply_wb`, not an unchecked `assume`** — the same discipline, one
+level up.
+
+Before fixing every signature, one more scratch condition is worth running: a
+left clause capturing `PCtxKey 5`, a right clause capturing `PCtxKey 6`, a world
+sending `5 ↦ 6`, `cl_rel` relating them, and `apply` still producing related
+results when the captured handle is used — together with the observation that
+the same-`cl` formulation **cannot express this example at all**.
+
+#### Fuel: separate the step index from the transition count
+
+Do not carry a hand-computed step offset per law. The probe's model bounds
+*depth* and can state its fundamental theorem lockstep; the prototype counts
+*transitions*, and the two sides genuinely take different numbers of them. Keep
+the two roles apart:
+
+- the **step index** exists to make the store/context relation's recursion well
+  founded;
+- the **transition count** is existentially quantified, independently on each
+  side, inside `pconverges_tr` — which already hides fuel, so a world-indexed
+  version may admit different convergence witnesses on the two sides;
+- the **trace** matches exactly;
+- silent transitions are absorbed once, by a general `prun` decomposition lemma
+  and a trace-preserving silent closure.
+
+> **If a machine-specific constant — a `+3`, a `+7` — appears in a law's proof,
+> stop and go back to the alignment layer.** That constant is the thing that
+> breaks the next time the machine is touched.
+
+#### What the equivariance hypothesis corresponds to on the surface
+
+It is the universal quantification of `ctx` in `ScopedClause`'s rank-N type. A
+clause is written against a **rigid** `ctx`, so it cannot inspect one, compare
+two, or fabricate one — only pass them to the tactics or carry them around.
+Parametricity in `ctx` *is* equivariance, and the same quantifier that pays for
+the FFI `magic` into `weave` now also carries the laws.
+
+**This is a constraint on us, not a usage discipline for users.** The quantifier
+is in a type the library writes; a user cannot add a constraint to a `forall`
+they did not write, and no instance resolves for a rigid variable. The invariant
+is lost only if *we* change the surface. Users reach it only through
+`unsafeCoerce` or hand-written FFI, which are standing TCB items that break
+everything equally.
+
+The precise criterion, which is not "no type classes":
+
+| | equivariant? |
+|---|---|
+| carrying, storing, selecting between handles | yes — this is what B1.7 bought |
+| `Eq` by identity | **yes** — a bijection preserves equality |
+| `Ord` | no — allocation order is not preserved by a renaming |
+| `Show`, numeric conversion, hashing | no — the key's value escapes |
+| exporting a concrete representation | no — and no class is involved |
+
+The shipping rule stays the conservative one — no constrained `ctx`, no
+concrete exposure — but the criterion is recorded so a future request can be
+*evaluated*: `Eq` is admissible at the cost of one more proof obligation,
+`Ord` is not, and the substitute for `Ord` is to carry insertion order
+separately. Once B2b.1
+fixes the relation, this belongs in `test-compile-fail/` so the build fires
+instead of a reviewer remembering.
+
+`fseen` is fixture instrumentation and is outside the nominal theorem — it
+breaks handle opacity deliberately, and no transition applies it.
+
+#### The correction: global equivariance was the empty-anchor instance
+
+The probe's first equivariance predicate quantified over **every** well-formed
+world. That is stronger than `nobs_le` needs, since `nobs_le` already restricts
+to worlds extending `anchor s` — and the excess had teeth: it excluded
+**legitimate handle-capturing continuations**, not only dishonest ones.
+`fun _ -> MRet (MKey 5)` is *syntactically identical* whether the key was
+guessed or captured honestly from the ambient store, so a predicate that looks
+only at the term throws out both.
+
+The central finding, and it is checked:
+
+```fstar
+lemma_global_is_empty_anchor f : Lemma (equivariant_fn f <==> equivariant_fn_at [] f)
+```
+
+**The old notion was not a different concept. It was the anchor pinned at `[]`
+— at no ownership — for every closure however much provenance it actually
+had.** The corrected definition adds one conjunct, `wext w w0`, and nothing
+else. Deleting an over-approximation, not adopting a new idea.
+
+> Equivariance is not invariance under every world. It is invariance under every
+> future world extending the correspondence the closure already owns.
+
+The distinction is not a syntactic mark on the term; it comes from the
+**provenance carried by the starting world**. Empty anchor: `MKey 5` is an
+unowned future name, `5 ↦ 6` can be chosen, not equivariant. Anchor pinning
+`5 ↦ 5`: the same term is a legitimate capture and is self-related. Starting
+world `5 ↦ 6`: two closures capturing `5` and `6` are equivariant *with each
+other*.
+
+#### The six conditions
+
+All proved, at default rlimit and fuel. Three are worth drawing out.
+
+*Condition 2 admits a real capture, not a mention.* The admitted closure
+`fun _ -> MUse (MKey i)` actually **consumes** the captured entry.
+
+*Condition 5 is the one with content, and it was fired.* `nobs_le_reanchored`
+differs from the real relation in **one token** — `anchor s1'`, the left run's
+final store, for `anchor s` — and it separates the counterexample.
+Re-anchoring pins the left run's *garbage* key — the context it allocated and
+discarded — as a public name, which collides with the correspondence the answer
+needs. Rewriting
+the real `nobs_le` this way breaks `guard_ce_nobs_le`.
+
+*Condition 6's refusals are stated at an anchor that pins the captured handle*,
+so they are not condition 1 recycled: a closure may honestly own `MKey 3` and
+`Ord` is still refused, because a legal future world can relate `MKey 1` to
+`MKey 5` while `3 < 1` and `3 < 5` disagree.
+
+A closure the probe added unasked, because weakening a hypothesis is where holes
+open: `guard_ownership_is_bounded_by_the_store` proves an anchor pins only keys
+the store already holds, and the store holds nothing at or above the counter.
+**So relativising to the anchor licenses capture and never guessing** —
+without it, "relative to the anchor" would invite making the anchor large
+enough to launder anything.
+
+*What moved.* `lemma_fund` is byte-identical; so are the relation layer, the
+world layer and every monotonicity lemma. `nobs_le` changed by one line and the
+existing guards took substituted preconditions with their proof bodies
+unchanged. The relativisation lives entirely in the **hypothesis layer**.
+
+The strength claim, stated carefully. What is proved is that the admissibility
+hypothesis is **strictly weaker** — implied by the old one, and satisfied by a
+capturing closure the old one refuses. So the revised `nobs_le` quantifies over
+a strictly larger class of continuations and is **at least as strong** as the
+old relation, and proving a positive result under it is materially harder.
+*Strictness of `nobs_le` itself* would need a separating program pair — one
+the old relation joins and the new one does not — and is not claimed.
+
+#### Continuations and clauses converged on the same shape
+
+`NominalClause` concluded independently, for clause *values*, that a same-`cl`
+condition cannot work: **no** handle-capturing clause satisfies any single-sided
+condition, at any operation, behaviour or key. The corrected `fn_rel_at` is that
+same conclusion for continuations, and its two-sidedness is forced by the same
+fact — the two runs hold *different* closures, each having captured what its
+own run allocated.
+
+> Anything crossing the boundary that can capture a handle is related **pairwise
+> at a world**, never constrained pointwise.
+
+That is one story rather than two, and it is also the change with the largest
+surface area on the way in: a boundary phrased single-sidedly has to be
+rephrased.
+
+#### The boundary obligation, and what it does and does not cost the TCB
+
+`cl` is abstract in the prototype and, in the shipped machine, is an opaque
+closure handed over by the FFI — `Hoop.Runtime.Syntax.fst` says so in as many
+words: F\* "can guarantee nothing about the invariants enforced by the PS type
+system". A clause can therefore capture a live handle, and `cl` needs
+
+```fstar
+cl_rel : nat -> world -> cl -> cl -> prop
+```
+
+step- *and* world-indexed. It need not join `comp_rel`'s mutual block: carried
+as an abstract relation family in a boundary record, with the step index lowered
+one notch to break the cycle. Structural for the first-order fixture `fcl`; a
+boundary obligation for opaque closures.
+
+**The TCB statement, precisely.** Defining `cl_rel` and proving the coherence
+conditions of the concrete `flook` / `fapply` costs the TCB nothing. What
+enlarges it is only the extent to which the extracted / FFI clause closures are
+**assumed** rather than proved to satisfy `lookup_equivariant` and
+`apply_equivariant`. That is the same responsibility boundary `apply_ok` and
+`apply_scoped_ok` already occupy, with one nominal two-sided condition added.
+
+#### Open: nesting, and sibling worlds
+
+Everything above is at a **single level of nesting**. The monotonicity lemma
+says an outer closure's obligation survives later allocation, and says nothing
+about reconciling two anchors when an inner closure escapes past the outer one's
+scope. Multi-shot resumption with first-class handles makes the sibling case
+real as well: two branches from a common anchor each return a closure, and the
+world extensions they chose independently have to be usable together.
+
+#### The last scratch gate before the prototype
+
+One example, carrying all of:
+
+| # | condition |
+|---|---|
+| 1 | an outer closure captures an outer handle |
+| 2 | an inner scope allocates a new handle |
+| 3 | an inner closure captures **both** the outer and the inner handle |
+| 4 | that closure **escapes** the inner scope |
+| 5 | it is called later, at a world where further allocation has happened |
+| 6 | both the outer and the inner aliasing are preserved |
+| 7 | the proof uses monotone extension only — **no re-anchoring** |
+
+plus, if it can be reached, the sibling case: two branches from one anchor each
+returning a closure, both usable afterwards, their independently chosen
+extensions reconciled without conflict.
+
+Stop conditions:
+
+> - an escaping inner closure forces re-anchoring the whole store;
+> - two sibling worlds cannot be reconciled;
+> - equivariance has to be re-proved at each closure's creation site;
+> - monotone extension alone cannot preserve outer provenance.
+
+And a porting note to keep: `guard_c5_reanchoring_breaks_the_repair` is the
+guard to move across **first**, ahead of any positive result. Re-taking the
+identity over the current store at each step is the obvious implementation of
+"the anchor" — cheap, and it looks conservative. It is unsound at scale, in
+the precise sense that it separates programs that should be equal. The correct
+discipline — starting world, one explicit pair per allocation, nothing else
+— has to be visible in the code rather than merely respected by it.
+
 ### What is not decided
 
 - The classification stays three-way, and B1.5 and B1.6 are reasons to expect it
@@ -3241,8 +3661,8 @@ the machine cannot reach:
   with no capability supplied from the surface, B1.6 made production live and
   effectful with no hypothesis left on it, and B1.7 gave the context a
   first-class identity the surface can select. It is not yet settled, because
-  none of the five laws is proved and the observation relation cannot yet see a
-  replay. Only if that fails does
+  the five laws are FALSE as stated — the observation relation exposes
+  allocator names — and B2b.1 has to repair it. Only if that fails does
   `Reinstantiable ≠ ContextWeavable` become a shipping fact. (The name for
   that contingent fourth class appears in the exchange that proposed it as
   `ContextThreadable`; recorded here as `ContextWeavable` to keep the vocabulary
@@ -3261,7 +3681,8 @@ The order, revised after B1.7:
 | ~~B2a-1~~ | ~~the `pcut_scope` / `pfind_mode` association discipline~~ — **done**: proximity is a semantic requirement |
 | ~~B2a-2~~ | ~~`pconf_wf` over the whole configuration, preserved by every transition~~ — **done** |
 | ~~trace~~ | ~~make the observation relation trace-aware~~ — **done**: five laws retargeted at `pobs_tr_eq` |
-| B2b | the five laws, over arbitrary stack, store, counter **and trace** |
+| ~~B2b~~ | ~~the five laws~~ — **all six propositions refuted**: the relation exposed allocator names |
+| B2b.1 | nominal observation — world-indexed partial bijection on handles, plus an equivariance discipline |
 | B3 | the existing borrow; simulation with the optimised machine; a shipping handle store |
 
 The trace step sits between B2a and B2b deliberately, and is not optional

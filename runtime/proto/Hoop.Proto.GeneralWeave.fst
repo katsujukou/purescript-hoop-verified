@@ -357,16 +357,69 @@
  * *What this file states rather than proves, listed here so that no reader has
  * to find them.*
  *
- *   - The four laws, plus `law_transparent_agrees`, are unproved. They are
- *     `prop` definitions parameterised by a `ctx_ops`; B2b is to prove them of
- *     `ref_ops`. Nothing in this module depends on any of them holding.
- *     **In B1.8 they are stated over `pobs_tr_eq` and are therefore AT LEAST AS
- *     HARD as they were** -- `lemma_pobs_tr_eq_forget` proves that direction,
- *     and STRICTLY harder is not established, since no pair is exhibited that
- *     the value-only relation joins and the trace-aware one does not. What is
- *     checked is that each still type-checks at `prop` against the new relation
- *     -- well typed, not proved -- and this file makes no claim that any of the
- *     five holds of any `ctx_ops`.
+ *   - ~~The four laws, plus `law_transparent_agrees`, are unproved.~~
+ *     **B2b SETTLED THEM, AND THE ANSWER IS NO.** All five are FALSE of
+ *     `ref_ops` as stated, and the negations are proved:
+ *     `guard_ref_ops_refutes_left_identity`,
+ *     `guard_ref_ops_refutes_right_identity`,
+ *     `guard_ref_ops_refutes_transparent_agrees`,
+ *     `guard_ref_ops_refutes_resume`, `guard_ref_ops_refutes_assoc` and, for
+ *     `law_assoc`'s two conjuncts separately,
+ *     `guard_ref_ops_refutes_assoc_algebraic` and
+ *     `guard_ref_ops_refutes_assoc_anchored`. Nothing in this module depended on
+ *     any of them holding, and nothing now depends on their failing either.
+ *
+ *     **The cause is the OBSERVATION and not the algebra, and the distinction is
+ *     the finding.** `pobs_tr_le` fixes the store and the counter at the start
+ *     and compares a `pval v` at the end; `pval v` contains `PCtxKey`; so the
+ *     NAME of a freshly allocated handle is an observable. Each law compares a
+ *     side that allocates with a side that does not, and a continuation that
+ *     produces a context afterwards reads the difference off the counter. The
+ *     counterexample stands at the EMPTY store and counter zero -- one
+ *     transition from `pload` of a closed program, which
+ *     `guard_ce_conf_one_step_from_pload` proves and `guard_ce_conf_ok` shows
+ *     satisfies the full `pconf_ok` invariant -- so this is NOT the case of a
+ *     law failing only where the machine cannot go.
+ *
+ *     **No law is amended and none is restated.** The two amendments available
+ *     -- observing only answers in the image of `PV`, or quotienting by a store
+ *     isomorphism -- each change what the laws claim, and choosing is a design
+ *     decision about the relation. It is left open.
+ *
+ *     **Whether the five would hold under an amended relation is NOT
+ *     established, in either direction.** The counterexample is silent about
+ *     the difference that remains once handle names are hidden -- the left
+ *     sides run the inner computation under `plan_protocol_frames` beneath a
+ *     `PModeF MExtend`, the right sides under `plan_enter_frames` -- and that
+ *     bisimulation is not attempted here. STATED, not proved.
+ *
+ *     **The laws as stated therefore DISCRIMINATE NOTHING, and that too is
+ *     checked.** `guard_pointwise_ops_refutes_left_identity` and
+ *     `guard_flat_ops_refutes_left_identity` refute `law_left_identity` of the
+ *     other two implementations this file defines, by the same counterexample --
+ *     so it is false of all three. These are NOT the separations the design
+ *     wanted and must not be read as such; the block comment before them records
+ *     how little they establish, and in particular that at `plan_A` the two sides
+ *     `flat_ops` compares ARE the two sides `ref_ops` compares. The note on
+ *     `flat_ops` carried an overclaim as a result -- that left identity, right
+ *     identity and the algebraic half of associativity HOLD of it -- and it is
+ *     corrected in place rather than deleted.
+ *
+ *     They remain stated over `pobs_tr_eq` and are therefore AT LEAST AS HARD as
+ *     they were over `pobs_eq` -- `lemma_pobs_tr_eq_forget` proves that
+ *     direction, and STRICTLY harder is still not established, since no pair is
+ *     exhibited that the value-only relation joins and the trace-aware one does
+ *     not. In particular the refutations above do NOT establish it: they turn on
+ *     the VALUE and not on the trace, both sides running silently, so each of
+ *     them refutes the corresponding `pobs_eq` law equally.
+ *   - **That the trace-aware relation relates two DIFFERENT programs at all is
+ *     now checked**, which before B2b it was not: everything the file
+ *     established about `pobs_tr_eq` was a separation.
+ *     `lemma_pobs_tr_eq_pbind_left` and `lemma_pobs_tr_eq_splice_nil` are two
+ *     positive inhabitants, proved from `lemma_pconverges_tr_silent`. What that
+ *     calculus does NOT give is a bisimulation: it relates two programs only
+ *     when they converge on ONE configuration by emitting nothing, so it proves
+ *     the administrative equations and no others.
  *   - **That `pobs_eq flook fapply prog_traced prog_susp` HOLDS is not claimed
  *     and not checked.** The value-only relation quantifies over every stack,
  *     store and counter, and this file proves nothing about it here. What
@@ -377,8 +430,13 @@
  *   - `settles` is DELETED, and what that establishes is that the laws can be
  *     STATED without it -- together with `fixture_10_outer_handler`, which runs
  *     the program `settles` used to exclude. Whether the propositions so stated
- *     HOLD of `ref_ops` is the same B2b obligation as the line above, not a
- *     separate open question about the hypothesis.
+ *     HOLD of `ref_ops` was the same B2b obligation as the line above, and B2b
+ *     answered it: they do not. **`settles` is not what would have saved them**,
+ *     and that is worth recording so that its deletion is not blamed. The
+ *     counterexample performs no operation whatever -- no `PPerform`, no
+ *     ambient handler, nothing outside the plan -- so it is inside every domain
+ *     `settles` would have carved out. Restoring the hypothesis would refute the
+ *     laws at exactly the same configuration.
  *   - ~~`pfind_mode`'s and `pcut_scope`'s nearness are CHOSEN, not checked.~~
  *     **B2a strand 1 closed both, and they move out of this list.** The
  *     invariant is `presid_wf`; `lemma_pyield_residual_wf` proves production
@@ -4455,6 +4513,18 @@ let ref_ops (#v #cl: Type) : ctx_ops v cl = {
  * it, because both sides of each are equally plan-free. An algebra can be
  * internally coherent and mean nothing.
  *
+ * **B2b CORRECTION, and it is a correction to the sentence above and not to the
+ * argument in it.** "Left identity, right identity and the algebraic half of
+ * associativity all hold of it" is FALSE as an assertion about the propositions
+ * this file defines: `guard_flat_ops_refutes_left_identity` proves that
+ * `law_left_identity` does not hold of `flat_ops`. The sentence was a claim
+ * about a plan-free ALGEBRA, and `pobs_tr_eq` is not an algebraic equality -- it
+ * observes the store's counter, and `flat_ops`'s production allocates exactly as
+ * the reference one does. The underlying argument stands: an implementation
+ * wrong uniformly satisfies every equation BETWEEN ITS OWN OPERATIONS, and that
+ * is still why at least one law must be anchored. What does not stand is the
+ * inference from that to "these three propositions hold of `flat_ops`".
+ *
  * What catches it is a law with an INDEPENDENT right-hand side, one written in
  * terms of the plan rather than in terms of the operations:
  * `law_resume_matches_continuation`, and the anchored half of `law_assoc`. That
@@ -4744,6 +4814,236 @@ let lemma_pobs_tr_eq_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v
     lemma_pobs_tr_le_forget lk apply c2 c1
 
 (* ------------------------------------------------------------------ *)
+(*  B2b, FIRST: A SILENT-STEP CALCULUS, AND THE FIRST POSITIVE FACTS   *)
+(*  ABOUT THE TRACE-AWARE RELATION                                     *)
+(*                                                                     *)
+(*  EVERYTHING THIS FILE ESTABLISHED ABOUT `pobs_tr_eq` BEFORE B2b WAS  *)
+(*  NEGATIVE. `guard_trace_separates_residual_from_suspension` exhibits *)
+(*  a pair the relation does NOT join, and no lemma exhibited a pair it *)
+(*  does. That was a gap in the evidence and not a small one: a         *)
+(*  relation that joined nothing but a term with itself would refute    *)
+(*  all five laws, and it would refute them for a reason that had       *)
+(*  nothing to do with weaving. Before a law is attempted it is worth   *)
+(*  knowing the relation is loose enough to relate two DIFFERENT        *)
+(*  programs at all.                                                    *)
+(*                                                                     *)
+(*  The three lemmas below settle that, and they are also the tool      *)
+(*  every positive result in B2b is built from. `prun` is a function,   *)
+(*  so the machine is deterministic, and the trace of a run is the      *)
+(*  CONCATENATION of its steps' traces -- so a transition that emits    *)
+(*  nothing relates the observations of the two configurations it joins *)
+(*  IN BOTH DIRECTIONS, the witness shifting by exactly one unit of     *)
+(*  fuel. Two programs that reach a COMMON configuration by silent      *)
+(*  steps are therefore `pobs_tr_eq`, at every stack, store and         *)
+(*  counter, and nothing about well-formedness is needed to see it.     *)
+(*                                                                     *)
+(*  What the calculus does NOT give is a bisimulation. It relates two   *)
+(*  programs only when they CONVERGE ON ONE CONFIGURATION, so it        *)
+(*  proves the administrative equations and no others. That limit is    *)
+(*  worth stating because it is exactly the limit B2b ran into: the     *)
+(*  five laws' two sides do not converge on one configuration, and the  *)
+(*  finding recorded at `guard_ref_ops_refutes_left_identity` below is  *)
+(*  that they cannot be made to.                                        *)
+(* ------------------------------------------------------------------ *)
+
+(** **A transition that emits nothing.** `pstep_tr` intercepts exactly one shape,
+    so this is "the current node is not a `PEmit`" written in terms of what the
+    instrument reports rather than in terms of the node -- which is the form the
+    two lemmas below use it in, and which does not have to be revisited if
+    another emitting node is ever added. *)
+let psilent (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : prop
+  = PStep? cf.st /\ snd (pstep_tr lk apply cf) == []
+
+(**
+ * **One silent step shifts the fuel by one and leaves the trace alone.** PROVED,
+ * by unfolding `prun` once.
+ *
+ * `n + 1` is not zero and the state is a `PStep`, so `prun` takes its stepping
+ * branch; the event list is empty by hypothesis, and `[] @ tr` is `tr` by
+ * `append`'s own first equation, so the pair is the pair of the shorter run from
+ * the successor configuration -- state AND trace, not state alone.
+ *)
+let lemma_prun_silent_unroll (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (cf: pconf v cl)
+  : Lemma (requires psilent lk apply cf)
+          (ensures prun lk apply (n + 1) cf == prun lk apply n (pstep lk apply cf))
+  = lemma_pstep_tr_erase lk apply cf
+
+(**
+ * **A silent step preserves the trace-aware observation, IN BOTH DIRECTIONS.**
+ * PROVED.
+ *
+ * This is the one fact the positive side of B2b rests on, and the biconditional
+ * is what makes it usable: an equivalence needs both orderings, and a lemma that
+ * gave only one would have to be applied to a second, differently-oriented
+ * configuration to get the other.
+ *
+ * The two halves are not symmetric in difficulty and it is worth saying why. The
+ * `<==` half is the shift: a witness `m` from the successor becomes `m + 1` here.
+ * The `==>` half additionally needs `n > 0`, and that comes from the hypothesis
+ * `PStep? cf.st` -- `prun lk apply 0 cf` is `(cf, [])`, whose state is a `PStep`
+ * and hence not a `PDone`, so no witness can be zero.
+ *)
+let lemma_pconverges_tr_silent (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr: list string) (x: pval v)
+  : Lemma (requires psilent lk apply cf)
+          (ensures (pconverges_tr lk apply cf tr x <==>
+                    pconverges_tr lk apply (pstep lk apply cf) tr x))
+  = introduce pconverges_tr lk apply cf tr x ==>
+              pconverges_tr lk apply (pstep lk apply cf) tr x
+    with
+      (eliminate exists (n: nat).
+           (fst (prun lk apply n cf)).st == PDone x /\ snd (prun lk apply n cf) == tr
+       with
+         (assert (n > 0);
+          lemma_prun_silent_unroll lk apply (n - 1) cf;
+          introduce exists (m: nat).
+              (fst (prun lk apply m (pstep lk apply cf))).st == PDone x /\
+              snd (prun lk apply m (pstep lk apply cf)) == tr
+          with (n - 1) and ()));
+    introduce pconverges_tr lk apply (pstep lk apply cf) tr x ==>
+              pconverges_tr lk apply cf tr x
+    with
+      (eliminate exists (m: nat).
+           (fst (prun lk apply m (pstep lk apply cf))).st == PDone x /\
+           snd (prun lk apply m (pstep lk apply cf)) == tr
+       with
+         (lemma_prun_silent_unroll lk apply m cf;
+          introduce exists (n: nat).
+              (fst (prun lk apply n cf)).st == PDone x /\ snd (prun lk apply n cf) == tr
+          with (m + 1) and ()))
+
+(**
+ * **A POSITIVE INHABITANT OF `pobs_tr_eq` AT TWO DIFFERENT PROGRAMS: the inner
+ * monad's LEFT IDENTITY.** PROVED, and it is the first such fact in the file.
+ *
+ * `pbind (PVar x) f` and `f x` are distinct terms -- distinct constructors at the
+ * head, for most `f` -- and the relation joins them. Two silent transitions do
+ * it: the `POp` rule pushes `PBindF f`, and the `PVar` rule against that frame
+ * runs `f x` on the stack the whole thing started on. The store and the counter
+ * are untouched by both, which is why the statement holds at EVERY store and
+ * counter rather than at a well-formed one: no allocation happens on either side,
+ * so there is nothing for the two sides to disagree about.
+ *
+ * **That last sentence is the whole of the positive theory of this relation, and
+ * its converse is the whole of the negative one.** `pobs_tr_le` fixes the store
+ * and the counter at the START and compares the values at the END, and `pval`
+ * contains `PCtxKey`, so a program that allocates a context and returns its
+ * handle observes HOW MANY allocations preceded it. Two programs therefore stand
+ * a chance under this relation only if they allocate the same number of contexts
+ * -- see `guard_ref_ops_refutes_left_identity`, where the five laws fail on
+ * exactly that count.
+ *)
+let lemma_pobs_tr_eq_pbind_left (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (f: pval v -> pcomp v cl)
+  : Lemma (ensures pobs_tr_eq lk apply (pbind (PVar x) f) (f x))
+  = let c1 = pbind (PVar x) f in
+    let c2 = f x in
+    introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (tr: list string) (y: pval v).
+      (pconverges_tr lk apply ({ st = PStep c1 k; store = sto; next = n0 }) tr y <==>
+       pconverges_tr lk apply ({ st = PStep c2 k; store = sto; next = n0 }) tr y)
+    with
+      (let cf0 : pconf v cl = { st = PStep c1 k; store = sto; next = n0 } in
+       let cf1 : pconf v cl =
+         { st = PStep (PVar x) (PBindF f :: k); store = sto; next = n0 } in
+       let cf2 : pconf v cl = { st = PStep c2 k; store = sto; next = n0 } in
+       assert (pstep lk apply cf0 == cf1);
+       assert (pstep lk apply cf1 == cf2);
+       lemma_pconverges_tr_silent lk apply cf0 tr y;
+       lemma_pconverges_tr_silent lk apply cf1 tr y)
+
+(**
+ * **A second positive inhabitant, at an ARBITRARY inner computation: splicing
+ * nothing is doing nothing.** PROVED, by one silent step.
+ *
+ * It is worth having beside the left identity because `c` is universally
+ * quantified: the relation joins `PSplice [] c` and `c` whatever `c` does --
+ * emits, allocates, gets stuck, diverges -- so the positive evidence is not
+ * confined to programs whose behaviour is known. It is also the degenerate case
+ * of `enter_C` at the empty plan with no owner, which is the shape a law would
+ * reduce to if a plan could have no owner; it cannot, so this is a fact about
+ * `PSplice` and not about scopes.
+ *)
+let lemma_pobs_tr_eq_splice_nil (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (c: pcomp v cl)
+  : Lemma (ensures pobs_tr_eq lk apply (PSplice [] c) c)
+  = introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (tr: list string) (y: pval v).
+      (pconverges_tr lk apply ({ st = PStep (PSplice [] c) k; store = sto; next = n0 })
+                     tr y <==>
+       pconverges_tr lk apply ({ st = PStep c k; store = sto; next = n0 }) tr y)
+    with
+      (let cf0 : pconf v cl =
+         { st = PStep (PSplice [] c) k; store = sto; next = n0 } in
+       let cf1 : pconf v cl = { st = PStep c k; store = sto; next = n0 } in
+       assert (pstep lk apply cf0 == cf1);
+       lemma_pconverges_tr_silent lk apply cf0 tr y)
+
+(* ------------------------------------------------------------------ *)
+(*  B2b, SECOND: THE TOOLS FOR A REFUTATION                            *)
+(*                                                                     *)
+(*  A negative result about `pobs_tr_eq` needs three things and they    *)
+(*  are separated here so that a guard below reads as three lines       *)
+(*  rather than as a proof. First, a RUN AT A NAMED FUEL is a           *)
+(*  convergence -- the fuel occurs in the hypothesis and not in the     *)
+(*  conclusion, which is the shape gate condition 3 demands. Second,    *)
+(*  a configuration that converges to one value does NOT converge to    *)
+(*  another, which is `lemma_pconverges_tr_unique` turned into the      *)
+(*  refusal a counterexample needs. Third, one instance of the          *)
+(*  ordering's universal is enough to refute it.                        *)
+(*                                                                     *)
+(*  All three are stated for an arbitrary `v`, `cl`, `lk` and `apply`,  *)
+(*  so nothing about them is specific to the fixtures that use them.    *)
+(* ------------------------------------------------------------------ *)
+
+(** **A run at a named fuel IS a trace-aware convergence.** PROVED; the witness
+    is the fuel. This is `lemma_fconverges_tr` freed of `pload`, because a law's
+    quantification ranges over configurations that are not loaded programs. *)
+let lemma_pconverges_tr_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (fuel: nat) (tr: list string) (x: pval v)
+  : Lemma (requires (fst (prun lk apply fuel cf)).st == PDone x /\
+                    snd (prun lk apply fuel cf) == tr)
+          (ensures pconverges_tr lk apply cf tr x)
+  = introduce exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\ snd (prun lk apply n cf) == tr
+    with fuel and ()
+
+(** **A configuration that converges to `x1` REFUSES every other value.** PROVED,
+    from uniqueness. The refused trace is arbitrary, because uniqueness fixes the
+    value from the trace-aware convergence alone -- so a counterexample does not
+    have to compute the trace it is refusing. *)
+let lemma_pconverges_tr_refuse (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (fuel: nat) (x1: pval v) (tr2: list string) (x2: pval v)
+  : Lemma (requires (fst (prun lk apply fuel cf)).st == PDone x1 /\ ~(x1 == x2))
+          (ensures ~(pconverges_tr lk apply cf tr2 x2))
+  = lemma_pconverges_tr_at lk apply cf fuel (snd (prun lk apply fuel cf)) x1;
+    introduce pconverges_tr lk apply cf tr2 x2 ==> False
+    with
+      lemma_pconverges_tr_unique lk apply cf (snd (prun lk apply fuel cf)) tr2 x1 x2
+
+(** **ONE configuration refutes the ordering.** PROVED, and it is the whole of
+    what a counterexample has to supply: a stack, a store, a counter, a trace and
+    a value at which the left side converges and the right side does not. *)
+let lemma_not_pobs_tr_le (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (c1 c2: pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat) (tr: list string) (x: pval v)
+  : Lemma (requires
+             pconverges_tr lk apply ({ st = PStep c1 k; store = sto; next = n0 }) tr x /\
+             ~(pconverges_tr lk apply ({ st = PStep c2 k; store = sto; next = n0 })
+                             tr x))
+          (ensures ~(pobs_tr_le lk apply c1 c2))
+  = ()
+
+(** Refuting either ordering refutes the equivalence. PROVED. *)
+let lemma_not_pobs_tr_eq (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (c1 c2: pcomp v cl)
+  : Lemma (requires ~(pobs_tr_le lk apply c1 c2))
+          (ensures ~(pobs_tr_eq lk apply c1 c2))
+  = ()
+
+(* ------------------------------------------------------------------ *)
 (*  The laws -- DEFINED, not proved                                    *)
 (*                                                                     *)
 (*  Each is a DEFINITION whose type is `prop`. None is a `val` without  *)
@@ -4772,6 +5072,59 @@ let lemma_pobs_tr_eq_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v
 (*  side written in terms of the PLAN rather than in terms of the       *)
 (*  operations -- and not all four may, or the laws would say no more   *)
 (*  than `ops == ref_ops`.                                             *)
+(*                                                                     *)
+(*  THE FIRST LINE OF THAT TABLE IS FALSE, AND B2b PROVES THAT IT IS.   *)
+(*                                                                     *)
+(*  It is left standing above because it is what the laws were WRITTEN  *)
+(*  to say, and striking it out would hide the shape of the intention.  *)
+(*  But the reading it records does not hold: `ref_ops` REFUSES all     *)
+(*  five, and the refusals are checked --                               *)
+(*  `guard_ref_ops_refutes_left_identity` and the five guards beside    *)
+(*  it, each a proof of a NEGATION and not a proof left undone.         *)
+(*                                                                     *)
+(*  The reason is not in the operations. `pobs_tr_le` fixes the store   *)
+(*  and the counter at the start and compares `pval v` at the end, and  *)
+(*  `pval v` contains `PCtxKey`, so the NAME of a freshly allocated     *)
+(*  handle is observable. Every law's left-hand side allocates at least *)
+(*  one context and its right-hand side allocates none, so a            *)
+(*  continuation that produces a context afterwards reports a different *)
+(*  key on the two sides. That is the whole of the counterexample, and  *)
+(*  it works at the empty store, at counter zero, one transition from   *)
+(*  `pload` of a closed program -- so it is not the gate's flagged case *)
+(*  of a law failing only at configurations the machine cannot reach.   *)
+(*  `guard_ce_conf_one_step_from_pload` and `guard_ce_conf_ok` are      *)
+(*  what say so, and they say it by proof rather than by inspection.    *)
+(*                                                                     *)
+(*  AND THE OTHER TWO LINES OF THE TABLE NO LONGER SAY WHAT THEY       *)
+(*  MEANT. The same counterexample refuses `pointwise_ops` and          *)
+(*  `flat_ops` -- `guard_pointwise_ops_refutes_left_identity` and       *)
+(*  `guard_flat_ops_refutes_left_identity`, both checked -- so          *)
+(*  `law_left_identity` is false of EVERY implementation this file      *)
+(*  defines, and a proposition false of every candidate separates none  *)
+(*  of them. The laws as stated therefore discriminate nothing. Note    *)
+(*  particularly that a PURELY ALGEBRAIC law refuses `flat_ops`, which  *)
+(*  the note on `flat_ops` argues cannot happen: that argument is not   *)
+(*  contradicted, because the refusal is not about the algebra. The     *)
+(*  block comment before those two guards says exactly how little they  *)
+(*  establish.                                                          *)
+(*                                                                     *)
+(*  NO STATEMENT BELOW IS AMENDED IN RESPONSE. Two amendments are       *)
+(*  available -- restrict the observation to answers in the image of    *)
+(*  `PV`, or quotient it by a store isomorphism -- and each changes     *)
+(*  what the five laws CLAIM, which makes choosing between them a       *)
+(*  design decision about the relation rather than a step in a proof.   *)
+(*  The decision is not taken here.                                     *)
+(*                                                                     *)
+(*  WHAT IS NOT SETTLED, AND IT IS THE INTERESTING PART. Whether the    *)
+(*  five would hold under an amended relation is NOT established        *)
+(*  either way. The counterexample decides them as stated and says      *)
+(*  nothing about what remains: `law_right_identity`'s two sides also   *)
+(*  run the inner computation under DIFFERENT frame lists --            *)
+(*  `plan_protocol_frames pl` beneath a `PModeF MExtend` on the left    *)
+(*  against `plan_enter_frames pl` on the right -- and that they agree  *)
+(*  is a bisimulation nothing in this file attempts. The refutations    *)
+(*  below therefore CLOSE the question as posed and REOPEN it one line  *)
+(*  further down.                                                       *)
 (*                                                                     *)
 (*  WHAT B1.8 CHANGED, AND IT IS ONE WORD IN EACH OF THE FIVE.          *)
 (*                                                                     *)
@@ -4855,6 +5208,14 @@ let lemma_pobs_tr_eq_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v
  * that receives the token. That is B1.6's shape throughout, and it is what lets
  * the hypothesis come off -- there is no longer a production that could have
  * failed separately from the program it belongs to.
+ *
+ * **B2b: THIS IS FALSE OF `ref_ops`, and the negation is PROVED** --
+ * `guard_ref_ops_refutes_left_identity`, at `plan_A`, `fone` and `PVar`. The
+ * left-hand side produces a context and the right-hand side does not, so the two
+ * runs leave the counter one apart, and `pobs_tr_eq` observes the handle the next
+ * production is handed. The statement above is NOT amended; the block comment
+ * before the laws says why, and says what the two available amendments would
+ * change about what this law claims.
  *)
 let law_left_identity
     (#v #cl: Type)
@@ -4891,6 +5252,15 @@ let law_left_identity
  * left the segment that handler captures contains the scope's frames, so its
  * resumption re-enters the scope, and on the right it does not have to. That
  * they still agree is exactly what `settles` used to assume away.
+ *
+ * **B2b: THIS IS FALSE OF `ref_ops`, and the negation is PROVED** --
+ * `guard_ref_ops_refutes_right_identity`, at `plan_A` and `c = PVar fone`. The
+ * bridging fact this law was to have established -- that `MExtend` makes a
+ * `PSiteF` nothing, so `plan_protocol_frames` agrees with `plan_enter_frames` --
+ * IS NOT DECIDED by the refutation, in either direction: the counterexample
+ * separates the two sides on the allocation counter, at a plan with no `PIBind`
+ * and therefore no `PSiteF` at all. The bridging fact remains open and is
+ * neither claimed nor refuted here.
  *)
 let law_right_identity
     (#v #cl: Type)
@@ -4945,6 +5315,22 @@ let law_right_identity
  * asking what a `pctx` is made of. Every context is reached from the plan by
  * `o_enter_ctx` and `o_extend_ctx`, so nothing escapes through the gap between
  * the two halves.
+ *
+ * **B2b: BOTH CONJUNCTS ARE FALSE OF `ref_ops`, and both negations are PROVED**
+ * -- `guard_ref_ops_refutes_assoc_algebraic` and
+ * `guard_ref_ops_refutes_assoc_anchored`, with
+ * `guard_ref_ops_refutes_assoc` refuting the conjunction they make up. They fail
+ * at two DIFFERENT configurations and for the same reason: `o_extend_ctx`
+ * ALLOCATES -- which is condition 8 working as designed -- and the composite
+ * extension on the other side does not. The anchored half's two sides are two
+ * allocations apart rather than one.
+ *
+ * The algebraic half is the only statement among the six that names a context it
+ * did not itself produce, so its refutation had to be careful about which store
+ * it stood at. It stands at the store an actual production left behind
+ * (`ce_prod`), at the handle that production returned, and
+ * `guard_ce_aa_reachable` proves the whole configuration -- store, counter and
+ * stack together -- is what five transitions of a closed program reach.
  *)
 let law_assoc
     (#v #cl: Type)
@@ -4989,6 +5375,14 @@ let law_assoc
  * because a `PSiteF` under `MResume` is the `PBindF` it was recorded from. The
  * two laws together are what forces `plan_protocol_frames` to be both of the
  * other projections and neither of them by itself.
+ *
+ * **B2b: THIS IS FALSE OF `ref_ops`, and the negation is PROVED** --
+ * `guard_ref_ops_refutes_resume`. It is worth saying which part does NOT break:
+ * this is one of the two ANCHORED laws, written against `plan_resume_frames`
+ * rather than against the operations, and the anchoring is not what fails. The
+ * counter separates the two sides before the resumption's own behaviour is
+ * reached, at a plan whose resume projection and enter projection are the same
+ * one-frame list. What resumption MEANS is untouched by the refutation.
  *)
 let law_resume_matches_continuation
     (#v #cl: Type)
@@ -5019,6 +5413,15 @@ let law_resume_matches_continuation
  * transparent plan paid a replay, whereas here the residual is produced once and
  * the extension merely drains it. `fixture_6_transparent` checks the instance;
  * the quantified statement is B3's and nothing in this file depends on it.
+ *
+ * **B2b: THIS IS FALSE OF `ref_ops`, and the negation is PROVED** --
+ * `guard_ref_ops_refutes_transparent_agrees`, AT A PLAN WITH NO LAYERS. A plan
+ * with no layers is one all of whose layers are transparent, for want of any, so
+ * the hypothesis this law is stated under is satisfied in the strongest way it
+ * can be -- and the law still fails. What that shows is that the gap is not
+ * about transparency: it is the same allocation the other four trip over.
+ * `fixture_6_transparent` is unaffected and still checks what it checked, which
+ * is an equality of two RUNS and not an instance of this proposition.
  *)
 let law_transparent_agrees
     (#v #cl: Type)
@@ -6922,6 +7325,646 @@ let rec lemma_pterm_wb_all_append (#v #cl: Type) (l1 l2: list (pcomp v cl))
     | [] -> ()
     | _ :: rest -> lemma_pterm_wb_all_append rest l2
 
+(* ================================================================== *)
+(*  B2b: THE FIVE LAWS ARE FALSE OF `ref_ops`, AND THE REASON IS THE   *)
+(*  OBSERVATION RELATION RATHER THAN THE ALGEBRA                       *)
+(*                                                                     *)
+(*  This section is a FINDING and not a repair. Not one law's statement *)
+(*  is amended, not one is weakened by a hypothesis, and not one is     *)
+(*  restated over a different relation. What is added is the           *)
+(*  counterexample, CHECKED, together with the evidence that the        *)
+(*  configuration it lives at is one the machine can actually be in --  *)
+(*  because that is the one thing that would have made the failure an   *)
+(*  artefact rather than a result.                                      *)
+(*                                                                     *)
+(*  THE ARGUMENT, IN THREE SENTENCES.                                   *)
+(*                                                                     *)
+(*  `pobs_tr_le` fixes the store and the counter at the START of both   *)
+(*  runs and compares the `pval v` at the END. `pval v` contains        *)
+(*  `PCtxKey i`, and `palloc` hands out `cf.next` and increments -- so  *)
+(*  a program that produces a context and returns its handle observes   *)
+(*  EXACTLY HOW MANY CONTEXTS WERE ALLOCATED BEFORE IT RAN. Every one   *)
+(*  of the five laws has a left-hand side that produces or extends a    *)
+(*  context and a right-hand side that does not, so the two sides       *)
+(*  differ by at least one allocation, and any continuation that        *)
+(*  afterwards produces a context of its own reports the difference as  *)
+(*  its answer.                                                         *)
+(*                                                                     *)
+(*  NOTHING ABOUT THIS IS A DEFECT OF THE OPERATIONS. `ref_ops` does    *)
+(*  what the design says it should: production allocates, and it must,  *)
+(*  because a handle has to name something in the store. The           *)
+(*  discrepancy is that `pobs_tr_eq` treats the NAME as observable. Two *)
+(*  runs that agree on everything a program could compute from its      *)
+(*  answers, and differ only in which natural number a handle carries,  *)
+(*  are counted as different observations.                              *)
+(*                                                                     *)
+(*  WHAT IS *NOT* CLAIMED HERE, AND IT IS THE STRONGER STATEMENT.       *)
+(*  This section does NOT establish that allocation counting is the     *)
+(*  ONLY reason the laws fail. The two sides of `law_right_identity`    *)
+(*  also run the inner computation under DIFFERENT frame lists --       *)
+(*  `plan_protocol_frames pl` beneath a `PModeF MExtend` on the left,   *)
+(*  `plan_enter_frames pl` on the right -- and whether those agree is a *)
+(*  bisimulation this file does not attempt and does not settle. The    *)
+(*  counterexample below decides the laws as stated; it does not decide *)
+(*  what would remain if the observation were made insensitive to       *)
+(*  handle names. That is stated, not proved, and it is the open        *)
+(*  question this finding hands on.                                    *)
+(*                                                                     *)
+(*  THE AMENDMENT IS NOT MADE. Two are available -- observe only        *)
+(*  answers in the image of `PV`, or quotient the observation by a      *)
+(*  store isomorphism -- and each changes what the five laws CLAIM.     *)
+(*  Choosing between them is a design decision about the relation and   *)
+(*  is deliberately left open here; see the header's list of what this  *)
+(*  file states rather than proves.                                     *)
+(* ================================================================== *)
+
+(** **The smallest plan there is**: no layers, and an owner with no return
+    clause. It is used because the counterexample has nothing to do with layers
+    -- the smaller the plan, the more clearly the failure is about allocation and
+    not about a projection -- and because at it `plan_enter_frames`,
+    `plan_resume_frames` and `plan_protocol_frames` are the SAME one-frame list,
+    so the two sides of every law below differ in nothing except which
+    transitions they take. *)
+let plan_A : plan fv fcl = Plan [] fowner_plain
+
+let guard_plan_A_projections_agree ()
+  : Lemma (plan_enter_frames plan_A == plan_resume_frames plan_A /\
+           plan_protocol_frames plan_A == plan_enter_frames plan_A /\
+           plan_enter_frames plan_A == [PPromptF ftbl None PFamily])
+  = assert_norm (plan_enter_frames plan_A == [PPromptF ftbl None PFamily]);
+    assert_norm (plan_resume_frames plan_A == [PPromptF ftbl None PFamily]);
+    assert_norm (plan_protocol_frames plan_A == [PPromptF ftbl None PFamily])
+
+let fone : pval fv = fpv (FI 1)
+
+(** **The ambient continuation that reads the counter, and the ONLY thing in the
+    counterexample that is not forced.** It produces a context of its own and
+    returns the handle -- an entirely ordinary program, with nothing forged and
+    nothing smuggled: the handle it returns is one the run allocated.
+
+    It is a NAMED top-level function rather than a lambda so that the frame
+    `PBindF fnew_ctx` is one SMT symbol wherever it appears. *)
+let fnew_ctx (_: pval fv) : pcomp fv fcl = PEnterCtx plan_A (PVar (fpv (FI 2)))
+
+let fk_new : pstack fv fcl = [PBindF fnew_ctx]
+
+(**
+ * **The two sides, and they serve THREE of the five laws at once.**
+ *
+ * At `pl = plan_A`, `x = fone` and `g = PVar`, `law_left_identity`'s two sides
+ * are literally `law_right_identity`'s at `c = PVar fone`, and literally
+ * `law_transparent_agrees`'s at the same `c` -- because `ops.o_enter pl c` IS
+ * `PSplice (plan_enter_frames pl) c` for `ref_ops`, and because the left-hand
+ * side of the second and the fifth is the same term. That coincidence is not
+ * arranged: it is what it means for the three laws to be about one identity read
+ * three ways, and it means one pair of programs refutes three propositions.
+ *)
+let ce_l : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx plan_A (PVar fone))
+        (fun cx -> ref_ops.o_extend plan_A cx (PVar #fv #fcl))
+
+let ce_r : pcomp fv fcl = ref_ops.o_enter plan_A (PVar fone)
+
+(** The configuration each side is compared at: the ambient stack above, the
+    EMPTY store, and the counter at ZERO -- which is to say `pload`'s own store
+    and counter. Nothing here is a store the machine could not have; it is the
+    store the machine STARTS with. *)
+let ce_cf_l : pconf fv fcl = { st = PStep ce_l fk_new; store = []; next = 0 }
+let ce_cf_r : pconf fv fcl = { st = PStep ce_r fk_new; store = []; next = 0 }
+
+(**
+ * **THE CONFIGURATION IS ONE STEP FROM A LOADED PROGRAM.** PROVED, by
+ * unfolding, and it is the guard that decides the question the gate flags.
+ *
+ * `pobs_tr_le` quantifies over an arbitrary stack, store and counter and does
+ * NOT require `pconf_wf`, so a law could in principle fail only at
+ * configurations the machine can never be in -- and a failure of that kind would
+ * say something about the relation's domain rather than about the operations. It
+ * is not that kind here: `ce_prog_l` and `ce_prog_r` are closed programs, and
+ * ONE transition from `pload` of each is exactly the configuration the
+ * refutations below use.
+ *)
+let ce_prog_l : pcomp fv fcl = pbind ce_l fnew_ctx
+let ce_prog_r : pcomp fv fcl = pbind ce_r fnew_ctx
+
+let guard_ce_conf_one_step_from_pload ()
+  : Lemma (pstep flook fapply (pload ce_prog_l) == ce_cf_l /\
+           pstep flook fapply (pload ce_prog_r) == ce_cf_r)
+  = ()
+
+(**
+ * **AND IT IS WELL FORMED, IN EVERY SENSE B2a GAVE THE WORD.** PROVED, through
+ * `lemma_pload_ok` and one transition of the preservation theorem -- so the
+ * conclusion is not an assertion about these two configurations but an instance
+ * of the invariant the machine maintains.
+ *
+ * `pconf_ok` is freshness, the store-residual invariant and the stack condition
+ * together, so this closes off the second reading of the gate's stop condition as
+ * well: the counterexample is not standing on a residual no production could
+ * have built, because its store is empty.
+ *)
+let guard_ce_conf_ok ()
+  : Lemma (pconf_ok ce_cf_l /\ pconf_ok ce_cf_r)
+  = guard_fapply_wb ();
+    lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_frames_nil #fv #fcl ();
+    lemma_wb_trivial (PVar fone <: pcomp fv fcl);
+    lemma_wb_frame_prompt_bwd #fv #fcl ftbl None PFamily;
+    lemma_wb_frames_cons_bwd #fv #fcl (PPromptF ftbl None PFamily) [];
+    assert_norm (plan_enter_frames plan_A == [PPromptF ftbl None PFamily]);
+    assert_norm (pwb (plan_enter_frames plan_A));
+    assert_norm (panswered (plan_enter_frames plan_A) == false);
+    lemma_wb_splice_bwd (plan_enter_frames plan_A) (PVar fone);
+    lemma_pload_ok ce_prog_l;
+    lemma_pload_ok ce_prog_r;
+    lemma_pstep_conf_ok flook fapply (pload ce_prog_l);
+    lemma_pstep_conf_ok flook fapply (pload ce_prog_r);
+    guard_ce_conf_one_step_from_pload ()
+
+(**
+ * **THE RUNS, side by side.** PROVED by `assert_norm`, which is to say by
+ * running the machine.
+ *
+ * Both settle, both settle silently -- the trace is empty on both sides, so the
+ * separation is NOT the trace-aware half of the relation doing the work -- and
+ * they settle on two different handles. The left-hand side produced a context, so
+ * the ambient continuation's own production got key `1`; the right-hand side
+ * produced none, so it got key `0`.
+ *)
+let guard_ce_runs_differ ()
+  : Lemma ((fst (prun flook fapply 200 ce_cf_l)).st == PDone (PCtxKey 1) /\
+           snd (prun flook fapply 200 ce_cf_l) == [] /\
+           (fst (prun flook fapply 200 ce_cf_r)).st == PDone (PCtxKey 0) /\
+           snd (prun flook fapply 200 ce_cf_r) == [])
+  = assert_norm ((fst (prun flook fapply 200 ce_cf_l)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook fapply 200 ce_cf_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook fapply 200 ce_cf_r) == [])
+
+(** **The ordering fails, left to right.** PROVED, from the two runs and
+    uniqueness of the observation. This is the single fact all three refutations
+    below rest on; each of them adds only the identification of its law's two
+    sides with `ce_l` and `ce_r`. *)
+let guard_ce_not_below ()
+  : Lemma (~(pobs_tr_eq flook fapply ce_l ce_r))
+  = guard_ce_runs_differ ();
+    lemma_pconverges_tr_at flook fapply ce_cf_l 200 [] (PCtxKey 1);
+    lemma_pconverges_tr_refuse flook fapply ce_cf_r 200 (PCtxKey 0) [] (PCtxKey 1);
+    lemma_not_pobs_tr_le flook fapply ce_l ce_r fk_new [] 0 [] (PCtxKey 1);
+    lemma_not_pobs_tr_eq flook fapply ce_l ce_r
+
+(* ---- The identifications, and why they need a tactic ------------- *)
+(*                                                                     *)
+(*  Each law BUILDS a lambda inside its own definition -- the          *)
+(*  `fun cx -> ops.o_extend pl cx g` that receives the handle -- and    *)
+(*  F* gives a lambda occurring in a definition an SMT encoding of its  *)
+(*  own, so Z3 cannot see that it is the same function as the one       *)
+(*  written here. It is the trap `lemma_ctx_drive_answers_head`         *)
+(*  documents, met a second time, and the answer is the same: normalise *)
+(*  until the two terms are IDENTICAL and close by reflexivity, with no *)
+(*  SMT query.                                                         *)
+(*                                                                     *)
+(*  `delta_only` and not full normalisation. Unfolding `pobs_tr_eq`     *)
+(*  would drag `pconverges_tr` and `prun` under two quantifiers, and    *)
+(*  the resulting term is large enough that the equality fails -- it    *)
+(*  was tried. Naming exactly the symbols that stand between a law and  *)
+(*  its two programs leaves the relation untouched on both sides, and   *)
+(*  the goal closes on a term a reader can hold in their head.          *)
+(* ------------------------------------------------------------------ *)
+
+(** **`law_left_identity` IS FALSE OF `ref_ops`.** PROVED -- the negation is
+    proved, not the law left unproved. *)
+let guard_ref_ops_refutes_left_identity ()
+  : Lemma (~(law_left_identity flook fapply ref_ops plan_A fone (PVar #fv #fcl)))
+  = guard_ce_not_below ();
+    assert (law_left_identity flook fapply ref_ops plan_A fone (PVar #fv #fcl)
+            == pobs_tr_eq flook fapply ce_l ce_r)
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%law_left_identity; `%ce_l; `%ce_r; `%ref_ops;
+                       `%enter_ctx_C; `%extend_at_C; `%enter_C; `%pbind];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(** **`law_right_identity` IS FALSE OF `ref_ops`.** PROVED, at the same pair:
+    `PVar` is the inner monad's `pure`, and extending by it is what the left-hand
+    side does either way. *)
+let guard_ref_ops_refutes_right_identity ()
+  : Lemma (~(law_right_identity flook fapply ref_ops plan_A (PVar fone)))
+  = guard_ce_not_below ();
+    assert (law_right_identity flook fapply ref_ops plan_A (PVar fone)
+            == pobs_tr_eq flook fapply ce_l ce_r)
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%law_right_identity; `%ce_l; `%ce_r; `%ref_ops;
+                       `%enter_ctx_C; `%extend_at_C; `%enter_C; `%pbind];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(** **`law_transparent_agrees` IS FALSE OF `ref_ops`** -- and note that it is
+    refuted AT A PLAN WITH NO LAYERS, so at a plan every one of whose layers is
+    transparent for want of any layer at all. PROVED. The gap it exhibits is
+    therefore not about transparency: it is the same allocation the other two
+    laws trip over. *)
+let guard_ref_ops_refutes_transparent_agrees ()
+  : Lemma (~(law_transparent_agrees flook fapply ref_ops plan_A (PVar fone)))
+  = guard_ce_not_below ();
+    assert (law_transparent_agrees flook fapply ref_ops plan_A (PVar fone)
+            == pobs_tr_eq flook fapply ce_l ce_r)
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%law_transparent_agrees; `%ce_l; `%ce_r; `%ref_ops;
+                       `%enter_ctx_C; `%extend_at_C; `%enter_C; `%pbind];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(* ---- The fourth law, whose right-hand side is ANCHORED ----------- *)
+(*                                                                     *)
+(*  `law_resume_matches_continuation` is one of the two laws written    *)
+(*  against an INDEPENDENT description of what it is a law of -- the    *)
+(*  plan's resume projection, not the operations -- so it is the law    *)
+(*  the design leans on hardest. It fails for the same reason as the    *)
+(*  purely algebraic three, and that is the point worth recording: the  *)
+(*  anchoring is not what breaks. A left-hand side that produces a      *)
+(*  context is compared with a right-hand side that does not, so the    *)
+(*  counter separates them before the resumption's own behaviour is     *)
+(*  reached at all.                                                     *)
+(* ------------------------------------------------------------------ *)
+
+let ce_rm_l : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx plan_A (PVar fone))
+        (fun cx -> ref_ops.o_resume plan_A cx (PVar #fv #fcl))
+
+let ce_rm_r : pcomp fv fcl = PSplice (plan_resume_frames plan_A) (PVar fone)
+
+let ce_cf_rm_l : pconf fv fcl = { st = PStep ce_rm_l fk_new; store = []; next = 0 }
+let ce_cf_rm_r : pconf fv fcl = { st = PStep ce_rm_r fk_new; store = []; next = 0 }
+
+let ce_prog_rm_l : pcomp fv fcl = pbind ce_rm_l fnew_ctx
+let ce_prog_rm_r : pcomp fv fcl = pbind ce_rm_r fnew_ctx
+
+(** One step from a loaded program, exactly as before. PROVED. *)
+let guard_ce_rm_one_step_from_pload ()
+  : Lemma (pstep flook fapply (pload ce_prog_rm_l) == ce_cf_rm_l /\
+           pstep flook fapply (pload ce_prog_rm_r) == ce_cf_rm_r)
+  = ()
+
+(** And well formed. PROVED, by the same route. *)
+let guard_ce_rm_conf_ok ()
+  : Lemma (pconf_ok ce_cf_rm_l /\ pconf_ok ce_cf_rm_r)
+  = guard_fapply_wb ();
+    lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_frames_nil #fv #fcl ();
+    lemma_wb_trivial (PVar fone <: pcomp fv fcl);
+    lemma_wb_frame_prompt_bwd #fv #fcl ftbl None PFamily;
+    lemma_wb_frames_cons_bwd #fv #fcl (PPromptF ftbl None PFamily) [];
+    assert_norm (plan_resume_frames plan_A == [PPromptF ftbl None PFamily]);
+    assert_norm (pwb (plan_resume_frames plan_A));
+    assert_norm (panswered (plan_resume_frames plan_A) == false);
+    lemma_wb_splice_bwd (plan_resume_frames plan_A) (PVar fone);
+    lemma_pload_ok ce_prog_rm_l;
+    lemma_pload_ok ce_prog_rm_r;
+    lemma_pstep_conf_ok flook fapply (pload ce_prog_rm_l);
+    lemma_pstep_conf_ok flook fapply (pload ce_prog_rm_r);
+    guard_ce_rm_one_step_from_pload ()
+
+let guard_ce_rm_runs_differ ()
+  : Lemma ((fst (prun flook fapply 200 ce_cf_rm_l)).st == PDone (PCtxKey 1) /\
+           snd (prun flook fapply 200 ce_cf_rm_l) == [] /\
+           (fst (prun flook fapply 200 ce_cf_rm_r)).st == PDone (PCtxKey 0) /\
+           snd (prun flook fapply 200 ce_cf_rm_r) == [])
+  = assert_norm ((fst (prun flook fapply 200 ce_cf_rm_l)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook fapply 200 ce_cf_rm_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_rm_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook fapply 200 ce_cf_rm_r) == [])
+
+(** **`law_resume_matches_continuation` IS FALSE OF `ref_ops`.** PROVED. *)
+let guard_ref_ops_refutes_resume ()
+  : Lemma (~(law_resume_matches_continuation flook fapply ref_ops plan_A fone
+                                             (PVar #fv #fcl)))
+  = guard_ce_rm_runs_differ ();
+    lemma_pconverges_tr_at flook fapply ce_cf_rm_l 200 [] (PCtxKey 1);
+    lemma_pconverges_tr_refuse flook fapply ce_cf_rm_r 200 (PCtxKey 0) [] (PCtxKey 1);
+    lemma_not_pobs_tr_le flook fapply ce_rm_l ce_rm_r fk_new [] 0 [] (PCtxKey 1);
+    lemma_not_pobs_tr_eq flook fapply ce_rm_l ce_rm_r;
+    assert (law_resume_matches_continuation flook fapply ref_ops plan_A fone
+                                            (PVar #fv #fcl)
+            == pobs_tr_eq flook fapply ce_rm_l ce_rm_r)
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%law_resume_matches_continuation; `%ce_rm_l; `%ce_rm_r;
+                       `%ref_ops; `%enter_ctx_C; `%resume_at_C; `%pbind];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(* ---- `law_assoc`, BOTH CONJUNCTS, separately -------------------- *)
+(*                                                                     *)
+(*  The two halves fail at two DIFFERENT configurations and it is       *)
+(*  worth keeping them apart, because the algebraic half is the only    *)
+(*  statement among the six that names a context it did not itself      *)
+(*  produce. Its `cx` is quantified, so `pobs_tr_le`'s quantification    *)
+(*  over the STORE is what ranges over what `cx` resolves to -- and a   *)
+(*  refutation there has to be careful that the store it picks is one   *)
+(*  the machine could have. It is: the store below is LITERALLY the     *)
+(*  store a run left behind, and `ce_cx` is LITERALLY the handle that   *)
+(*  run returned.                                                       *)
+(* ------------------------------------------------------------------ *)
+
+(** The production whose store the algebraic half is refuted at. Nothing is
+    written by hand: `ce_sto` and `ce_nxt` are projections of an actual run. *)
+let ce_prod : pconf fv fcl = frun 30 (PEnterCtx plan_A (PVar fone))
+let ce_sto : pstore fv fcl = ce_prod.store
+let ce_nxt : nat = ce_prod.next
+let ce_cx : pval fv = PCtxKey 0
+
+(** **The run really did return `ce_cx` and really did leave the counter at one.**
+    PROVED by running it. *)
+let guard_ce_prod ()
+  : Lemma (ce_prod.st == PDone ce_cx /\ ce_nxt == 1)
+  = assert_norm (ce_prod.st == PDone (PCtxKey 0));
+    assert_norm (ce_nxt == 1)
+
+let ce_aa_l : pcomp fv fcl =
+  pbind (ref_ops.o_extend_ctx plan_A ce_cx (PVar #fv #fcl))
+        (fun cy -> ref_ops.o_extend plan_A cy (PVar #fv #fcl))
+
+let ce_aa_r : pcomp fv fcl =
+  ref_ops.o_extend plan_A ce_cx (fun x -> pbind (PVar x) (PVar #fv #fcl))
+
+let ce_cf_aa_l : pconf fv fcl =
+  { st = PStep ce_aa_l fk_new; store = ce_sto; next = ce_nxt }
+let ce_cf_aa_r : pconf fv fcl =
+  { st = PStep ce_aa_r fk_new; store = ce_sto; next = ce_nxt }
+
+(**
+ * **THE ALGEBRAIC HALF'S CONFIGURATION IS REACHED BY A CLOSED PROGRAM.** PROVED,
+ * by running five transitions of one.
+ *
+ * This is the strongest form of the reachability answer and it is available here
+ * because the store the half needs is the store a production leaves: the program
+ * produces a context, binds its handle, and goes on with the law's left-hand side
+ * at that handle. The configuration the refutation names is what the fifth
+ * transition reaches -- store, counter and stack together, not merely each of
+ * them separately.
+ *)
+let ce_prog_aa_l : pcomp fv fcl =
+  pbind (PEnterCtx plan_A (PVar fone)) (fun _ -> pbind ce_aa_l fnew_ctx)
+let ce_prog_aa_r : pcomp fv fcl =
+  pbind (PEnterCtx plan_A (PVar fone)) (fun _ -> pbind ce_aa_r fnew_ctx)
+
+let guard_ce_aa_reachable ()
+  : Lemma (psteps flook fapply 5 (pload ce_prog_aa_l) == ce_cf_aa_l /\
+           psteps flook fapply 5 (pload ce_prog_aa_r) == ce_cf_aa_r)
+  = assert_norm (psteps flook fapply 5 (pload ce_prog_aa_l) == ce_cf_aa_l);
+    assert_norm (psteps flook fapply 5 (pload ce_prog_aa_r) == ce_cf_aa_r)
+
+let guard_ce_aa_runs_differ ()
+  : Lemma ((fst (prun flook fapply 200 ce_cf_aa_l)).st == PDone (PCtxKey 2) /\
+           snd (prun flook fapply 200 ce_cf_aa_l) == [] /\
+           (fst (prun flook fapply 200 ce_cf_aa_r)).st == PDone (PCtxKey 1) /\
+           snd (prun flook fapply 200 ce_cf_aa_r) == [])
+  = assert_norm ((fst (prun flook fapply 200 ce_cf_aa_l)).st == PDone (PCtxKey 2));
+    assert_norm (snd (prun flook fapply 200 ce_cf_aa_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_aa_r)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook fapply 200 ce_cf_aa_r) == [])
+
+(** **THE ALGEBRAIC HALF OF `law_assoc` IS FALSE OF `ref_ops`.** PROVED, at the
+    two programs the half compares -- `o_extend_ctx` ALLOCATES, which is condition
+    8 working exactly as designed, and the composite extension does not. *)
+let guard_ref_ops_refutes_assoc_algebraic ()
+  : Lemma (~(pobs_tr_eq flook fapply ce_aa_l ce_aa_r))
+  = guard_ce_aa_runs_differ ();
+    lemma_pconverges_tr_at flook fapply ce_cf_aa_l 200 [] (PCtxKey 2);
+    lemma_pconverges_tr_refuse flook fapply ce_cf_aa_r 200 (PCtxKey 1) [] (PCtxKey 2);
+    lemma_not_pobs_tr_le flook fapply ce_aa_l ce_aa_r fk_new ce_sto ce_nxt []
+                         (PCtxKey 2);
+    lemma_not_pobs_tr_eq flook fapply ce_aa_l ce_aa_r
+
+let ce_ac_l : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx plan_A (PVar fone))
+        (fun c0 -> pbind (ref_ops.o_extend_ctx plan_A c0 (PVar #fv #fcl))
+                         (fun cy -> ref_ops.o_extend plan_A cy (PVar #fv #fcl)))
+
+let ce_ac_r : pcomp fv fcl =
+  PSplice (plan_enter_frames plan_A)
+          (pbind (pbind (PVar fone) (PVar #fv #fcl)) (PVar #fv #fcl))
+
+let ce_cf_ac_l : pconf fv fcl = { st = PStep ce_ac_l fk_new; store = []; next = 0 }
+let ce_cf_ac_r : pconf fv fcl = { st = PStep ce_ac_r fk_new; store = []; next = 0 }
+
+let ce_prog_ac_l : pcomp fv fcl = pbind ce_ac_l fnew_ctx
+let ce_prog_ac_r : pcomp fv fcl = pbind ce_ac_r fnew_ctx
+
+let guard_ce_ac_one_step_from_pload ()
+  : Lemma (pstep flook fapply (pload ce_prog_ac_l) == ce_cf_ac_l /\
+           pstep flook fapply (pload ce_prog_ac_r) == ce_cf_ac_r)
+  = ()
+
+let guard_ce_ac_runs_differ ()
+  : Lemma ((fst (prun flook fapply 200 ce_cf_ac_l)).st == PDone (PCtxKey 2) /\
+           snd (prun flook fapply 200 ce_cf_ac_l) == [] /\
+           (fst (prun flook fapply 200 ce_cf_ac_r)).st == PDone (PCtxKey 0) /\
+           snd (prun flook fapply 200 ce_cf_ac_r) == [])
+  = assert_norm ((fst (prun flook fapply 200 ce_cf_ac_l)).st == PDone (PCtxKey 2));
+    assert_norm (snd (prun flook fapply 200 ce_cf_ac_l) == []);
+    assert_norm ((fst (prun flook fapply 200 ce_cf_ac_r)).st == PDone (PCtxKey 0));
+    assert_norm (snd (prun flook fapply 200 ce_cf_ac_r) == [])
+
+(** **THE ANCHORED HALF OF `law_assoc` IS FALSE OF `ref_ops`.** PROVED, and its
+    left-hand side allocates TWICE -- once producing and once extending -- against
+    a right-hand side that allocates not at all, so the two are two apart rather
+    than one. *)
+let guard_ref_ops_refutes_assoc_anchored ()
+  : Lemma (~(pobs_tr_eq flook fapply ce_ac_l ce_ac_r))
+  = guard_ce_ac_runs_differ ();
+    lemma_pconverges_tr_at flook fapply ce_cf_ac_l 200 [] (PCtxKey 2);
+    lemma_pconverges_tr_refuse flook fapply ce_cf_ac_r 200 (PCtxKey 0) [] (PCtxKey 2);
+    lemma_not_pobs_tr_le flook fapply ce_ac_l ce_ac_r fk_new [] 0 [] (PCtxKey 2);
+    lemma_not_pobs_tr_eq flook fapply ce_ac_l ce_ac_r
+
+(** **`law_assoc` IS FALSE OF `ref_ops`, AND BOTH ITS CONJUNCTS ARE.** PROVED.
+    The law is a conjunction, so either half would do; both are refuted above and
+    the identification below names both, so nothing is being carried by one half
+    that the other could not have carried. *)
+let guard_ref_ops_refutes_assoc ()
+  : Lemma (~(law_assoc flook fapply ref_ops plan_A (PVar fone) ce_cx
+                       (PVar #fv #fcl) (PVar #fv #fcl)))
+  = guard_ref_ops_refutes_assoc_algebraic ();
+    guard_ref_ops_refutes_assoc_anchored ();
+    assert (law_assoc flook fapply ref_ops plan_A (PVar fone) ce_cx
+                      (PVar #fv #fcl) (PVar #fv #fcl)
+            == (pobs_tr_eq flook fapply ce_aa_l ce_aa_r /\
+                pobs_tr_eq flook fapply ce_ac_l ce_ac_r))
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%law_assoc; `%ce_aa_l; `%ce_aa_r; `%ce_ac_l; `%ce_ac_r;
+                       `%ref_ops; `%enter_ctx_C; `%extend_at_C; `%extend_ctx_at_C;
+                       `%pbind];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(* ================================================================== *)
+(*  THE CONSEQUENCE THAT MATTERS MOST: THE LAWS AS STATED DISCRIMINATE *)
+(*  NOTHING                                                            *)
+(*                                                                     *)
+(*  The five laws exist to SEPARATE implementations. The block comment  *)
+(*  before them records the intended separation -- `pointwise_ops`      *)
+(*  refused by all four, `flat_ops` refused by the two anchored ones -- *)
+(*  and the note on `flat_ops` argues at length why not every law may   *)
+(*  be anchored, on pain of collapsing "these are the laws" into        *)
+(*  "`ops == ref_ops`".                                                 *)
+(*                                                                     *)
+(*  THAT ARGUMENT IS NOW MOOT, AND THE TWO GUARDS BELOW ARE WHY. The    *)
+(*  same counterexample refuses `pointwise_ops` and `flat_ops` as well  *)
+(*  as `ref_ops`, so `law_left_identity` is false of ALL THREE          *)
+(*  implementations the file defines. A proposition false of every      *)
+(*  candidate distinguishes none of them, whatever it was written to    *)
+(*  say -- so the refutations below are NOT the refutations the design  *)
+(*  wanted, and it would be a serious misreading to record them as      *)
+(*  such. They hold for a reason that has nothing to do with plans:     *)
+(*  each of the three allocates on the left and does not on the right.  *)
+(*                                                                     *)
+(*  Two further honesty notes, both of which cut against reading the    *)
+(*  guards as evidence about the algebras.                              *)
+(*                                                                     *)
+(*  AT `plan_A`, `flat_ops` AND `ref_ops` ARE THE SAME FUNCTIONS on the *)
+(*  two sides this law compares. `plan_A` has no layers, so             *)
+(*  `flat_ops`'s `owner_only` is the identity on it and its `o_enter`   *)
+(*  splices the owner frame `plan_enter_frames` would have produced --   *)
+(*  the identification below is `trefl`, not a proof about behaviour.    *)
+(*  `flat_ops` is wrong about PLANS WITH LAYERS and this says nothing   *)
+(*  whatever about that.                                                *)
+(*                                                                     *)
+(*  `pointwise_ops` DOES differ here -- its extension splices           *)
+(*  `plan_enter_frames` around each leaf -- and it is still refused for *)
+(*  the allocation reason and not for that one: its run below reaches   *)
+(*  the SAME handle `ref_ops` reaches, `PCtxKey 1`, so the extra        *)
+(*  crossing of the layers is invisible at this plan and contributes    *)
+(*  nothing to the refusal.                                             *)
+(*                                                                     *)
+(*  WHETHER ANY LAW WOULD STILL SEPARATE THE THREE UNDER AN AMENDED     *)
+(*  RELATION IS NOT ESTABLISHED HERE, in either direction.              *)
+(* ================================================================== *)
+
+let ce_pw_l : pcomp fv fcl =
+  pbind (pointwise_ops.o_enter_ctx plan_A (PVar fone))
+        (fun cx -> pointwise_ops.o_extend plan_A cx (PVar #fv #fcl))
+
+let ce_cf_pw_l : pconf fv fcl = { st = PStep ce_pw_l fk_new; store = []; next = 0 }
+let ce_prog_pw_l : pcomp fv fcl = pbind ce_pw_l fnew_ctx
+
+let guard_ce_pw_one_step_from_pload ()
+  : Lemma (pstep flook fapply (pload ce_prog_pw_l) == ce_cf_pw_l)
+  = ()
+
+(** **`pointwise_ops` reaches the SAME handle `ref_ops` does.** PROVED by
+    running it, and it is the fact that makes the refusal below uninformative
+    about the algebra: the two implementations are separated from the right-hand
+    side by the same one allocation, and not from each other at all. *)
+let guard_ce_pw_run ()
+  : Lemma ((fst (prun flook fapply 200 ce_cf_pw_l)).st == PDone (PCtxKey 1) /\
+           snd (prun flook fapply 200 ce_cf_pw_l) == [])
+  = assert_norm ((fst (prun flook fapply 200 ce_cf_pw_l)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook fapply 200 ce_cf_pw_l) == [])
+
+(** **`law_left_identity` IS FALSE OF `pointwise_ops` TOO.** PROVED. Read the
+    block comment above before reading this as a separation. *)
+let guard_pointwise_ops_refutes_left_identity ()
+  : Lemma (~(law_left_identity flook fapply pointwise_ops plan_A fone
+                               (PVar #fv #fcl)))
+  = guard_ce_pw_run ();
+    guard_ce_runs_differ ();
+    lemma_pconverges_tr_at flook fapply ce_cf_pw_l 200 [] (PCtxKey 1);
+    lemma_pconverges_tr_refuse flook fapply ce_cf_r 200 (PCtxKey 0) [] (PCtxKey 1);
+    lemma_not_pobs_tr_le flook fapply ce_pw_l ce_r fk_new [] 0 [] (PCtxKey 1);
+    lemma_not_pobs_tr_eq flook fapply ce_pw_l ce_r;
+    assert (law_left_identity flook fapply pointwise_ops plan_A fone (PVar #fv #fcl)
+            == pobs_tr_eq flook fapply ce_pw_l ce_r)
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%law_left_identity; `%ce_pw_l; `%ce_r; `%pointwise_ops;
+                       `%ref_ops; `%enter_ctx_C; `%enter_C; `%pbind];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(** **`law_left_identity` IS FALSE OF `flat_ops` TOO** -- a law the design did
+    NOT expect to refuse it, being purely algebraic. PROVED, and the proof is the
+    identification alone: at `plan_A` the two sides ARE `ce_l` and `ce_r`, so
+    there is no second run to do. That the identification goes through by
+    reflexivity is exactly the warning in the block comment above. *)
+let guard_flat_ops_refutes_left_identity ()
+  : Lemma (~(law_left_identity flook fapply flat_ops plan_A fone (PVar #fv #fcl)))
+  = guard_ce_not_below ();
+    assert (law_left_identity flook fapply flat_ops plan_A fone (PVar #fv #fcl)
+            == pobs_tr_eq flook fapply ce_l ce_r)
+    by (FStar.Tactics.V2.norm
+          [delta_only [`%law_left_identity; `%ce_l; `%ce_r; `%flat_ops; `%ref_ops;
+                       `%enter_ctx_C; `%extend_at_C; `%enter_C; `%pbind;
+                       `%plan_A; `%plan_enter_frames; `%enter_layer_frames;
+                       `%owner_frame];
+           zeta; iota; primops];
+        FStar.Tactics.V2.trefl ())
+
+(* ---- The counterexample programs meet the initial-term condition -- *)
+(*                                                                     *)
+(*  They are loaded programs, so they belong in the ledger below, and   *)
+(*  the ledger is why this block is here rather than at the end of the  *)
+(*  file. Only the two SPLICING sides need anything said about them:    *)
+(*  `PSplice` is the one node the judgement constrains, and the frames  *)
+(*  it constrains are `plan_A`'s single prompt.                          *)
+(* ------------------------------------------------------------------ *)
+
+(** The one prompt `plan_A` projects to, judged once for all three
+    projections -- which are the same list, by
+    `guard_plan_A_projections_agree`. PROVED. *)
+let lemma_ce_frames_wb ()
+  : Lemma (pwb (plan_enter_frames plan_A) /\
+           pframes_wb (plan_enter_frames plan_A) /\
+           panswered (plan_enter_frames plan_A) == false /\
+           pwb (plan_resume_frames plan_A) /\
+           pframes_wb (plan_resume_frames plan_A) /\
+           panswered (plan_resume_frames plan_A) == false)
+  = lemma_wb_ret_none #fv #fcl ();
+    lemma_wb_frames_nil #fv #fcl ();
+    lemma_wb_frame_prompt_bwd #fv #fcl ftbl None PFamily;
+    lemma_wb_frames_cons_bwd #fv #fcl (PPromptF ftbl None PFamily) [];
+    assert_norm (plan_enter_frames plan_A == [PPromptF ftbl None PFamily]);
+    assert_norm (plan_resume_frames plan_A == [PPromptF ftbl None PFamily]);
+    assert_norm (pwb (plan_enter_frames plan_A));
+    assert_norm (pwb (plan_resume_frames plan_A));
+    assert_norm (panswered (plan_enter_frames plan_A) == false);
+    assert_norm (panswered (plan_resume_frames plan_A) == false)
+
+let lemma_ce_r_wb () : Lemma (pterm_wb ce_r)
+  = lemma_ce_frames_wb ();
+    lemma_wb_trivial (PVar fone <: pcomp fv fcl);
+    lemma_wb_splice_bwd (plan_enter_frames plan_A) (PVar fone)
+
+let lemma_ce_rm_r_wb () : Lemma (pterm_wb ce_rm_r)
+  = lemma_ce_frames_wb ();
+    lemma_wb_trivial (PVar fone <: pcomp fv fcl);
+    lemma_wb_splice_bwd (plan_resume_frames plan_A) (PVar fone)
+
+let lemma_ce_ac_r_wb () : Lemma (pterm_wb ce_ac_r)
+  = lemma_ce_frames_wb ();
+    introduce forall (x: pval fv). pterm_wb (PVar x <: pcomp fv fcl)
+    with lemma_wb_trivial (PVar x <: pcomp fv fcl);
+    lemma_wb_op_bwd (PVar fone <: pcomp fv fcl) (PVar #fv #fcl);
+    lemma_wb_op_bwd (pbind (PVar fone) (PVar #fv #fcl)) (PVar #fv #fcl);
+    lemma_wb_splice_bwd (plan_enter_frames plan_A)
+                        (pbind (pbind (PVar fone) (PVar #fv #fcl)) (PVar #fv #fcl))
+
+let guard_wb_ce_prog_l () : Lemma (pterm_wb ce_prog_l) = ()
+let guard_wb_ce_prog_pw_l () : Lemma (pterm_wb ce_prog_pw_l) = ()
+let guard_wb_ce_prog_rm_l () : Lemma (pterm_wb ce_prog_rm_l) = ()
+let guard_wb_ce_prog_ac_l () : Lemma (pterm_wb ce_prog_ac_l) = ()
+let guard_wb_ce_prog_aa_l () : Lemma (pterm_wb ce_prog_aa_l) = ()
+let guard_wb_ce_prog_aa_r () : Lemma (pterm_wb ce_prog_aa_r) = ()
+let guard_wb_ce_prod () : Lemma (pterm_wb (PEnterCtx plan_A (PVar fone))) = ()
+
+let guard_wb_ce_prog_r () : Lemma (pterm_wb ce_prog_r)
+  = lemma_ce_r_wb (); lemma_wb_op_bwd ce_r fnew_ctx
+
+let guard_wb_ce_prog_rm_r () : Lemma (pterm_wb ce_prog_rm_r)
+  = lemma_ce_rm_r_wb (); lemma_wb_op_bwd ce_rm_r fnew_ctx
+
+let guard_wb_ce_prog_ac_r () : Lemma (pterm_wb ce_prog_ac_r)
+  = lemma_ce_ac_r_wb (); lemma_wb_op_bwd ce_ac_r fnew_ctx
+
 let fprogs_1 : list (pcomp fv fcl) =
   [ prog1new 1; prog1new 5; prog1old 1; prog1old 5;
     prog2; prog2_probe; prog3a; prog3b; prog4 ]
@@ -6966,8 +8009,21 @@ let fprogs_6 : list (pcomp fv fcl) =
     LIST, audited by hand, and it stays that way until a build-side name check
     exists to make omission detectable. Keeping the ledger honest is a
     reviewer's job, not the type checker's. *)
+(** B2b's nine, added for the same reason B1.8's three were: each is a closed
+    program this file LOADS -- `guard_ce_conf_one_step_from_pload`,
+    `guard_ce_rm_one_step_from_pload`, `guard_ce_ac_one_step_from_pload` and
+    `guard_ce_aa_reachable` all start from `pload` of one, and `ce_prod` runs the
+    ninth to completion. The counterexample configurations themselves are NOT
+    programs and are not here; what makes them well formed is `guard_ce_conf_ok`
+    and `guard_ce_rm_conf_ok`, which are a different statement about a different
+    object. *)
+let fprogs_7 : list (pcomp fv fcl) =
+  [ ce_prog_l; ce_prog_r; ce_prog_rm_l; ce_prog_rm_r;
+    ce_prog_aa_l; ce_prog_aa_r; ce_prog_ac_l; ce_prog_ac_r;
+    ce_prog_pw_l; PEnterCtx plan_A (PVar fone) ]
+
 let fixture_programs : list (pcomp fv fcl) =
-  fprogs_1 @ fprogs_2 @ fprogs_3 @ fprogs_4 @ fprogs_5 @ fprogs_6
+  fprogs_1 @ fprogs_2 @ fprogs_3 @ fprogs_4 @ fprogs_5 @ fprogs_6 @ fprogs_7
 
 (* The fuel is for `pterm_wb_all` and for nothing else: a nine-element block
    needs nine unfoldings of a list recursion, and the default is two. Every
@@ -7003,6 +8059,13 @@ let guard_fprogs_5_wb () : Lemma (pterm_wb_all fprogs_5)
 let guard_fprogs_6_wb () : Lemma (pterm_wb_all fprogs_6)
   = guard_wb_prog_clause_emits (); guard_wb_prog_ambient_emits ();
     guard_wb_prog_amb_scope ()
+
+let guard_fprogs_7_wb () : Lemma (pterm_wb_all fprogs_7)
+  = guard_wb_ce_prog_l (); guard_wb_ce_prog_r ();
+    guard_wb_ce_prog_rm_l (); guard_wb_ce_prog_rm_r ();
+    guard_wb_ce_prog_aa_l (); guard_wb_ce_prog_aa_r ();
+    guard_wb_ce_prog_ac_l (); guard_wb_ce_prog_ac_r ();
+    guard_wb_ce_prog_pw_l (); guard_wb_ce_prod ()
 #pop-options
 
 (** **EVERY FIXTURE PROGRAM SATISFIES THE INITIAL-TERM CONDITION.** PROVED, from
@@ -7012,12 +8075,16 @@ let guard_fprogs_6_wb () : Lemma (pterm_wb_all fprogs_6)
 let guard_fixture_programs_wb () : Lemma (pterm_wb_all fixture_programs)
   = guard_fprogs_1_wb (); guard_fprogs_2_wb (); guard_fprogs_3_wb ();
     guard_fprogs_4_wb (); guard_fprogs_5_wb (); guard_fprogs_6_wb ();
-    lemma_pterm_wb_all_append fprogs_5 fprogs_6;
-    lemma_pterm_wb_all_append fprogs_4 (fprogs_5 @ fprogs_6);
-    lemma_pterm_wb_all_append fprogs_3 (fprogs_4 @ (fprogs_5 @ fprogs_6));
-    lemma_pterm_wb_all_append fprogs_2 (fprogs_3 @ (fprogs_4 @ (fprogs_5 @ fprogs_6)));
+    guard_fprogs_7_wb ();
+    lemma_pterm_wb_all_append fprogs_6 fprogs_7;
+    lemma_pterm_wb_all_append fprogs_5 (fprogs_6 @ fprogs_7);
+    lemma_pterm_wb_all_append fprogs_4 (fprogs_5 @ (fprogs_6 @ fprogs_7));
+    lemma_pterm_wb_all_append fprogs_3
+      (fprogs_4 @ (fprogs_5 @ (fprogs_6 @ fprogs_7)));
+    lemma_pterm_wb_all_append fprogs_2
+      (fprogs_3 @ (fprogs_4 @ (fprogs_5 @ (fprogs_6 @ fprogs_7))));
     lemma_pterm_wb_all_append fprogs_1
-      (fprogs_2 @ (fprogs_3 @ (fprogs_4 @ (fprogs_5 @ fprogs_6))))
+      (fprogs_2 @ (fprogs_3 @ (fprogs_4 @ (fprogs_5 @ (fprogs_6 @ fprogs_7)))))
 
 (* ---- The `PWeave` clause, which no program here reaches ---------- *)
 
