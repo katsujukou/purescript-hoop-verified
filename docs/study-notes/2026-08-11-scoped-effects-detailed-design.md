@@ -4503,6 +4503,91 @@ When that relation is designed, its first acceptance conditions are concrete:
 | 4 | it lifts from `pctx` to the store |
 | 5 | soundness for `pnobs_tr_eq_wf` is shown at the `qext` instance |
 
+#### The consumer gate: a real discriminator, and a quantifier-order defect
+
+All four conditions proved, and the syntactic `o_extend` restriction can go —
+the previous gate's *disclosure* is now a **theorem**:
+`guard_open_form_refuted_by_branching` refutes the unconditional form for a
+branching consumer by running the machine, traces `["one"]` against `["two"]`.
+The conditional form holds of the same consumer, vacuously, which is what shows
+the exclusion is done by the nominal condition and not by syntax. No
+administrative congruence appears anywhere in the section.
+
+**Condition 3 came out more precise than it was posed**, and along the line
+already recorded for `Eq` and `Ord`:
+
+| consumer | verdict |
+|---|---|
+| branches on a raw handle number | **refused** |
+| orders raw handle numbers | **refused** — and at an anchor that *pins* the handle it holds, so this is not the guessed-name refutation again |
+| compares handle **identity** | **admitted** |
+
+So "compares" does not fail uniformly: reading the number fails, comparing
+identity passes. The same asymmetry, reached independently.
+
+**But the law's quantifier order collapses the condition.**
+`lemma_pconsumer_nom_is_empty_anchor` proves `pconsumer_nom r f` is equivalent
+to `pequivariant_fn_at r [] f`. The order today is
+
+```text
+fix the consumer f
+forall initialStore. f is equivariant at anchor(initialStore)
+```
+
+and the empty store is among them, so the whole condition is exactly
+equivariance at the empty anchor — **"behave as a closure that owns no handle
+at all"**. A consumer that legitimately captured a handle *from the initial
+store* is excluded.
+
+This is the same defect anchor-relativisation removed once already, walking back
+in through the law's own quantifier. The wanted order is the other way round:
+
+```text
+EquivariantAt w0 f  ==>  forall sto. anchor(sto) extends w0  ==>  law holds
+```
+
+which admits handles legitimately captured within `w0`, refuses numbers not in
+`w0`, survives world extension by allocation without re-proof, and degenerates
+to today's global condition at `w0 = []`.
+
+**Not adopted as the final domain.** The repair is not to drop the store
+quantification but to **index the observation and the law by a provenance
+anchor** — `pnobs_tr_le_wf_at b w0 …`, quantifying only over initial stores
+whose anchor extends `w0`. And since the computations and closures inside a law
+can capture handles too, the law should eventually be stated *whole* under one
+`w0`; the computation-level relation will need the same. The current `_wf`
+relations remain as the `w0 = []` special case and as the stronger audit form.
+
+Recorded at the strength proved:
+
+> The consumer gate succeeds as a discriminator: raw-name branching and ordering
+> are rejected, while identity comparison is admitted. But the law's current
+> quantifier order collapses the condition to the empty-anchor instance,
+> excluding consumers that legitimately capture a handle from the initial store.
+> This is not adopted as the final law domain; the next gate must index the
+> observation and the law by a provenance anchor.
+
+Still open from this gate: the law itself is unproved in general. The
+surviving instance is again a body at one configuration; condition 2 covers
+only algebras whose `o_extend` is the reference node; and "every consumer
+that reads only identity conforms" is **not** proved as a characterisation —
+only the specific form admitted, and the two number-reading forms refused.
+
+#### Two proof-engineering notes, not semantic results
+
+Kept apart from the findings above deliberately: these are about
+reproducibility and stability, not about the machine.
+
+- **The same file changed verdict under different include paths.** A proof
+  depending on quantifier-pattern firing passed with one `--include`
+  configuration and failed with another. Fixed by passing the side condition as
+  a proof-function argument so no pattern matching is involved; the result is
+  now confirmed under both configurations. Worth remembering because it is the
+  shape of a defect that makes CI and a local run disagree.
+- **A Z3 interaction failure**, `Parse error: </labels> not found`, on a query
+  instantiating a general lemma at a large plan. Worked around by instantiating
+  at a small plan instead.
+
 #### The order, revised again
 
 1. record this result;

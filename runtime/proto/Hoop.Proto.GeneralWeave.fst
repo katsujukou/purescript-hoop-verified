@@ -19683,3 +19683,955 @@ let guard_qb_q2_in_domain_nonvacuous ()
                                     qb_flk 1
 
 (* ================================================================== *)
+(*  B2b.9 -- THE CONSUMER CONDITION                                     *)
+(*                                                                     *)
+(*  B2b.6 restated right identity with the consumer PINNED to          *)
+(*  `ops.o_extend pl _ g` and reported that pinning as a DISCLOSURE:    *)
+(*  an arbitrary `pval v -> pcomp v cl` refutes the statement for a     *)
+(*  reason that has nothing to do with extension, because the two      *)
+(*  sides hand it handles that differ by one allocation and it may     *)
+(*  branch on the difference.                                          *)
+(*                                                                     *)
+(*  That restriction is SYNTACTIC.  This gate replaces it with the     *)
+(*  SEMANTIC condition it was standing in for, and checks the          *)
+(*  replacement in BOTH directions -- the canonical consumer passes,   *)
+(*  a handle-reading one fails -- because either one alone settles     *)
+(*  nothing: a condition every consumer satisfies is a decoration, and *)
+(*  a condition the canonical consumer fails is a wrong diagnosis.     *)
+(*                                                                     *)
+(*  NOTHING BELOW PROVES THE RESTATED LAW, in general or at any        *)
+(*  instance.  What is added is the CONDITION, its two-directional     *)
+(*  check, the law form over an arbitrary CONFORMING consumer, and the *)
+(*  re-check of B2b.6's instance at that form.                         *)
+(*                                                                     *)
+(*  NO administrative congruence is stated or used anywhere in this    *)
+(*  section: nothing here identifies `c` with `pbind c PVar`, and no   *)
+(*  relation between two `post`s differing by one frame is assumed.    *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 1.  THE CONDITION IS STATABLE FOR A CONSUMER SITTING     *)
+(*  INSIDE AN OBSERVED COMPUTATION.                                    *)
+(*                                                                     *)
+(*  It is `pfn_rel_at` at the DIAGONAL, and that is the whole of it.   *)
+(*  `pfn_rel_at` is already a relation on `pval v -> pcomp v cl`, so   *)
+(*  no new machinery is needed to reach a function inside a            *)
+(*  computation: what changes is WHICH function the hypothesis is      *)
+(*  about.  `pequivariant_k_at` constrains the AMBIENT STACK, which    *)
+(*  the observation plugs both sides into; this constrains a closure   *)
+(*  the observed computation itself applies, to a handle the           *)
+(*  computation itself allocated.                                      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **ANCHOR-RELATIVE EQUIVARIANCE OF A CONSUMER.**
+ *
+ * `f` sends handles the world identifies to computations the world cannot
+ * separate, at every world extending the correspondence `w0` already records.
+ *
+ * The diagonal (`f` against ITSELF) is what the law needs and the two-sided
+ * `pfn_rel_at` is what it is an instance of: the law applies ONE term to two
+ * DIFFERENT handles, so the demand is that the term not distinguish them --
+ * exactly `pkrel_at`'s relation to `pequivariant_k_at`, one level in.
+ *)
+let pequivariant_fn_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                       (f: pval v -> pcomp v cl) : GTot prop
+  = pfn_rel_at r w0 f f
+
+(** A `GTot prop` applied in HYPOTHESIS position is an atom to the SMT encoding.
+    This cast puts the body in the context; it has no proof obligation at all
+    and goes through by conversion. *)
+let pequivariant_fn_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                              (f: pval v -> pcomp v cl)
+                              (h: squash (pequivariant_fn_at r w0 f))
+  : squash (forall (w: pworld) (y1 y2: pval v).
+              pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+              pcrel r w (f y1) (f y2))
+  = h
+
+let pequivariant_fn_at_fold (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                            (f: pval v -> pcomp v cl)
+                            (h: squash (forall (w: pworld) (y1 y2: pval v).
+                                          pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+                                          pcrel r w (f y1) (f y2)))
+  : squash (pequivariant_fn_at r w0 f)
+  = h
+
+(** Equivariance owned at `w0` is still owned at every world extending `w0`. The
+    diagonal instance of `lemma_pfn_rel_at_mono`. PROVED. *)
+let lemma_pequivariant_fn_at_mono (#v #cl: Type) (r: pcl_rel_t cl) (w1 w0: pworld)
+                                  (f: pval v -> pcomp v cl)
+  : Lemma (requires pequivariant_fn_at r w0 f /\ pwext w1 w0)
+          (ensures pequivariant_fn_at r w1 f)
+  = lemma_pfn_rel_at_mono r w1 w0 f f
+
+(**
+ * **THE CONDITION, AT THE LEVEL THE LAW IS STATED.**
+ *
+ * The law is stated over `pnobs_tr_eq`, which quantifies over EVERY store the
+ * observation may start at, so a consumer conforming FOR THE LAW must be
+ * equivariant at every such store's anchor. That is this conjunction, and it is
+ * the anchor-relative condition applied pointwise -- not a different notion.
+ *)
+let pconsumer_nom (#v #cl: Type) (r: pcl_rel_t cl) (f: pval v -> pcomp v cl)
+  : GTot prop
+  = forall (sto: pstore v cl). {:pattern (pequivariant_fn_at r (panchor sto) f)}
+      pequivariant_fn_at r (panchor sto) f
+
+let pconsumer_nom_unfold (#v #cl: Type) (r: pcl_rel_t cl) (f: pval v -> pcomp v cl)
+                         (h: squash (pconsumer_nom r f))
+  : squash (forall (sto: pstore v cl).
+              {:pattern (pequivariant_fn_at r (panchor sto) f)}
+              pequivariant_fn_at r (panchor sto) f)
+  = h
+
+(**
+ * **AND THE PRICE OF QUANTIFYING OVER EVERY STORE IS NAMED RATHER THAN
+ * HIDDEN.** PROVED: `pconsumer_nom` is EXACTLY the EMPTY-ANCHOR instance of the
+ * anchor-relative condition, because the empty store is one of the stores the
+ * observation admits and its anchor is the empty world.
+ *
+ * This is a fact about `pnobs_tr_eq`'s quantification, NOT about the condition:
+ * the condition itself discriminates by anchor (`guard_consumer_anchor_
+ * separation` below exhibits one term with opposite verdicts at two anchors).
+ * A law stated over a FIXED starting store would take the condition at that
+ * store's anchor and would admit the capturing consumers; the law as it stands
+ * takes the infimum over all of them.
+ *)
+let lemma_pconsumer_nom_is_empty_anchor (#v #cl: Type) (r: pcl_rel_t cl)
+                                        (f: pval v -> pcomp v cl)
+  : Lemma (pconsumer_nom r f <==> pequivariant_fn_at r ([] <: pworld) f)
+  = introduce pconsumer_nom r f ==> pequivariant_fn_at r ([] <: pworld) f
+    with (pconsumer_nom_unfold r f ();
+          assert (pequivariant_fn_at r (panchor ([] <: pstore v cl)) f);
+          assert_norm (panchor ([] <: pstore v cl) == ([] <: pworld)));
+    introduce pequivariant_fn_at r ([] <: pworld) f ==> pconsumer_nom r f
+    with (introduce forall (sto: pstore v cl).
+              pequivariant_fn_at r (panchor sto) f
+          with lemma_pequivariant_fn_at_mono r (panchor sto) ([] <: pworld) f)
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 2.  THE CANONICAL CONSUMER SATISFIES IT.                 *)
+(*                                                                     *)
+(*  `fun cy -> ops.o_extend pl cy g` is a node application: the plan    *)
+(*  travels, the handle travels, and the extension `g` travels.  So    *)
+(*  the consumer is equivariant exactly when the PLAN is self-related  *)
+(*  and the EXTENSION is equivariant -- neither of which mentions the  *)
+(*  handle.  The condition is COMPOSITIONAL in the extension: the      *)
+(*  hypothesis it needs of `g` is the very same condition.             *)
+(* ------------------------------------------------------------------ *)
+
+let lemma_pequivariant_fn_at_of_diag (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                                     (f: pval v -> pcomp v cl)
+  : Lemma (requires pfn_rel_at r w0 f f) (ensures pequivariant_fn_at r w0 f)
+  = ()
+
+(**
+ * The generic step, stated about the NODE rather than about a `ctx_ops` field,
+ * so that it applies to every algebra whose `o_extend` is the reference one --
+ * `ref_ops` and `flat_ops` alike -- without functional extensionality. PROVED.
+ *
+ * The two side conditions are taken as PROOF FUNCTIONS rather than as
+ * quantified hypotheses. That is not a stylistic choice: a quantified
+ * hypothesis has to be matched by a trigger at the call site, and the two here
+ * (`pplan_rel` at every index and world, and a record projection reducing to a
+ * constructor) are exactly the shapes whose triggering is fragile.
+ *)
+let lemma_pconsumer_ok_extend (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+    (pl: plan v cl) (g f: pval v -> pcomp v cl)
+    (hpl: (n: nat -> w: pworld -> Lemma (pplan_rel r n w pl pl)))
+    (hf: (y: pval v -> Lemma (f y == PExtendC pl y g)))
+  : Lemma (requires pequivariant_fn_at r w0 g)
+          (ensures pequivariant_fn_at r w0 f)
+  = pequivariant_fn_at_unfold r w0 g ();
+    introduce forall (w: pworld) (y1 y2: pval v).
+        (pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+         pcrel r w (f y1) (f y2))
+    with (introduce _ ==> _
+          with begin
+            introduce forall (n: nat).
+                pcomp_rel r n w (PExtendC pl y1 g) (PExtendC pl y2 g)
+            with (if n = 0 then ()
+                  else begin
+                    hpl (n - 1) w;
+                    introduce forall (w': pworld) (z1 z2: pval v).
+                        (pwf_world w' /\ pwext w' w /\ pval_rel w' z1 z2 ==>
+                         pcomp_rel r (n - 1) w' (g z1) (g z2))
+                    with (introduce _ ==> _
+                          with (lemma_pwext_trans w' w w0;
+                                assert (pcrel r w' (g z1) (g z2))))
+                  end);
+            hf y1;
+            hf y2
+          end);
+    pequivariant_fn_at_fold r w0 f ()
+
+(** **CONDITION 2, IN GENERAL.** PROVED, for every algebra whose `o_extend` is
+    the reference node, every plan self-related at every world, and every
+    equivariant extension. *)
+let lemma_pconsumer_nom_of_extend (#v #cl: Type) (r: pcl_rel_t cl)
+    (ops: ctx_ops v cl) (pl: plan v cl) (g: pval v -> pcomp v cl)
+    (hpl: (n: nat -> w: pworld -> Lemma (pplan_rel r n w pl pl)))
+    (hop: (h: pval v -> Lemma (ops.o_extend pl h g == PExtendC pl h g)))
+  : Lemma (requires pequivariant_fn_at r ([] <: pworld) g)
+          (ensures pconsumer_nom r (fun cy -> ops.o_extend pl cy g))
+  = lemma_pconsumer_ok_extend r ([] <: pworld) pl g (fun cy -> ops.o_extend pl cy g)
+      hpl (fun (y: pval v) -> hop y);
+    lemma_pconsumer_nom_is_empty_anchor r (fun cy -> ops.o_extend pl cy g)
+
+(** The reference algebra's `o_extend` IS the node. By conversion. *)
+let lemma_ref_ops_extend_is_node (#v #cl: Type) (pl: plan v cl)
+    (g: pval v -> pcomp v cl) (h: pval v)
+  : Lemma (ref_ops.o_extend pl h g == PExtendC pl h g)
+  = assert_norm (ref_ops.o_extend pl h g == PExtendC pl h g)
+
+(** **CONDITION 2, AT THE FIXTURE THAT B2b.6 CHECKED.** PROVED. The consumer of
+    B2b.6's instance -- the reference extension, at the plan the law is taken at,
+    with the performing extension `xg` -- conforms. So the condition is NOT
+    vacuous, and the restated law is not being made true by an empty
+    hypothesis. *)
+let qcons : pval fv -> pcomp fv fcl = fun cy -> ref_ops.o_extend xpl cy xg
+
+let guard_qcons_conforms_at (w0: pworld)
+  : Lemma (pequivariant_fn_at fcl_rel w0 qcons)
+  = lemma_qb_xg_selfrel w0;
+    lemma_pequivariant_fn_at_of_diag fcl_rel w0 xg;
+    pequivariant_fn_at_unfold fcl_rel w0 xg ();
+    introduce forall (w: pworld) (y1 y2: pval fv).
+        (pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+         pcrel fcl_rel w (qcons y1) (qcons y2))
+    with (introduce _ ==> _
+          with begin
+            introduce forall (n: nat).
+                pcomp_rel fcl_rel n w (PExtendC xpl y1 xg) (PExtendC xpl y2 xg)
+            with (if n = 0 then ()
+                  else begin
+                    lemma_xpl_selfrel (n - 1) w;
+                    introduce forall (w': pworld) (z1 z2: pval fv).
+                        (pwf_world w' /\ pwext w' w /\ pval_rel w' z1 z2 ==>
+                         pcomp_rel fcl_rel (n - 1) w' (xg z1) (xg z2))
+                    with (introduce _ ==> _
+                          with (lemma_pwext_trans w' w w0;
+                                assert (pcrel fcl_rel w' (xg z1) (xg z2))))
+                  end);
+            lemma_ref_ops_extend_is_node xpl xg y1;
+            lemma_ref_ops_extend_is_node xpl xg y2
+          end);
+    pequivariant_fn_at_fold fcl_rel w0 qcons ()
+
+let guard_qcons_conforms ()
+  : Lemma (pconsumer_nom fcl_rel qcons)
+  = introduce forall (sto: pstore fv fcl).
+        pequivariant_fn_at fcl_rel (panchor sto) qcons
+    with guard_qcons_conforms_at (panchor sto)
+
+(** **AND THE GENERAL STATEMENT IS INSTANTIABLE**, so `lemma_pconsumer_nom_of_
+    extend` is not a lemma whose hypotheses nothing meets: at the smallest plan
+    with a floor, and the same extension, the reference algebra's extension
+    consumer conforms -- by the general lemma and nothing else. PROVED. *)
+let guard_qcons_min_conforms ()
+  : Lemma (pconsumer_nom fcl_rel (fun cy -> ref_ops.o_extend xplan cy xg))
+  = lemma_qb_xg_selfrel ([] <: pworld);
+    lemma_pequivariant_fn_at_of_diag fcl_rel ([] <: pworld) xg;
+    lemma_pconsumer_nom_of_extend fcl_rel ref_ops xplan xg
+      lemma_xplan_selfrel (lemma_ref_ops_extend_is_node #fv #fcl xplan xg)
+
+(* ------------------------------------------------------------------ *)
+(*  THE CONDITION IS GENUINELY ANCHOR-RELATIVE.                        *)
+(*                                                                     *)
+(*  One term, two anchors, opposite verdicts.  A consumer that EXTENDS *)
+(*  A HANDLE IT CAPTURED is refused where nothing owns that handle and *)
+(*  admitted where the store does -- so the condition is not the       *)
+(*  global notion in disguise, and it does not refuse handle capture.  *)
+(* ------------------------------------------------------------------ *)
+
+let qsto3 : pstore fv fcl = [(3, PCtxDone (fpv FU))]
+let qw_pin3 : pworld = [(3, 3)]
+
+let lemma_qw_pin3_facts ()
+  : Lemma (pwf_world qw_pin3 /\ pwlookup_l 3 qw_pin3 == Some 3 /\
+           pwlookup_l 1 qw_pin3 == None /\ pwlookup_r 5 qw_pin3 == None /\
+           pwlookup_l 2 qw_pin3 == None /\ pwlookup_r 2 qw_pin3 == None /\
+           pwlookup_l 4 qw_pin3 == None /\ pwlookup_r 4 qw_pin3 == None /\
+           panchor qsto3 == qw_pin3)
+  = lemma_pwl_cons 3 3 ([] <: pworld);
+    lemma_pwr_cons 3 3 ([] <: pworld);
+    assert_norm (panchor qsto3 == qw_pin3)
+
+(** A consumer that ignores its argument and extends a handle it CAPTURED. *)
+let qcons_cap : pval fv -> pcomp fv fcl = fun _ -> ref_ops.o_extend xpl (PCtxKey 3) xg
+
+(** ADMITTED at the anchor of a store that really holds key 3. PROVED. *)
+let guard_qcons_cap_at_pin ()
+  : Lemma (pequivariant_fn_at fcl_rel (panchor qsto3) qcons_cap)
+  = lemma_qw_pin3_facts ();
+    lemma_qb_xg_selfrel qw_pin3;
+    lemma_pequivariant_fn_at_of_diag fcl_rel qw_pin3 xg;
+    pequivariant_fn_at_unfold fcl_rel qw_pin3 xg ();
+    introduce forall (w: pworld) (y1 y2: pval fv).
+        (pwf_world w /\ pwext w qw_pin3 /\ pval_rel w y1 y2 ==>
+         pcrel fcl_rel w (qcons_cap y1) (qcons_cap y2))
+    with (introduce _ ==> _
+          with begin
+            assert (pwlookup_l 3 w == Some 3);
+            assert (pval_rel #fv w (PCtxKey 3) (PCtxKey 3));
+            introduce forall (n: nat).
+                pcomp_rel fcl_rel n w (PExtendC xpl (PCtxKey 3) xg)
+                                      (PExtendC xpl (PCtxKey 3) xg)
+            with (if n = 0 then ()
+                  else begin
+                    lemma_xpl_selfrel (n - 1) w;
+                    introduce forall (w': pworld) (z1 z2: pval fv).
+                        (pwf_world w' /\ pwext w' w /\ pval_rel w' z1 z2 ==>
+                         pcomp_rel fcl_rel (n - 1) w' (xg z1) (xg z2))
+                    with (introduce _ ==> _
+                          with (lemma_pwext_trans w' w qw_pin3;
+                                assert (pcrel fcl_rel w' (xg z1) (xg z2))))
+                  end)
+          end);
+    pequivariant_fn_at_fold fcl_rel qw_pin3 qcons_cap ()
+
+(** REFUSED at the empty anchor, where nothing owns key 3. PROVED: a world is
+    free to send 3 to 4, and `PExtendC` demands the two handles correspond. *)
+let guard_qcons_cap_not_at_empty ()
+  : Lemma (~(pequivariant_fn_at fcl_rel ([] <: pworld) qcons_cap))
+  = let w : pworld = [(3, 4)] in
+    lemma_pwl_cons 3 4 ([] <: pworld);
+    lemma_pwr_cons 3 4 ([] <: pworld);
+    assert (pwf_world w);
+    assert (pwext w ([] <: pworld));
+    assert (pval_rel #fv w (fpv FU) (fpv FU));
+    assert (pwlookup_l 3 w == Some 4);
+    introduce pequivariant_fn_at fcl_rel ([] <: pworld) qcons_cap ==> False
+    with begin
+      pequivariant_fn_at_unfold fcl_rel ([] <: pworld) qcons_cap ();
+      assert (pcrel fcl_rel w (qcons_cap (fpv FU)) (qcons_cap (fpv FU)));
+      assert (pcomp_rel fcl_rel 1 w (PExtendC xpl (PCtxKey 3) xg)
+                                    (PExtendC xpl (PCtxKey 3) xg))
+    end
+
+(** **THE SEPARATION, IN ONE STATEMENT.** PROVED. So the condition really is
+    anchor-relative: it tells an unowned future name from an owned capture, and
+    the global notion of `pequivariant_k` -- the empty-anchor instance -- cannot.
+*)
+let guard_consumer_anchor_separation ()
+  : Lemma (pequivariant_fn_at fcl_rel (panchor qsto3) qcons_cap /\
+           ~(pequivariant_fn_at fcl_rel (panchor ([] <: pstore fv fcl)) qcons_cap))
+  = guard_qcons_cap_at_pin ();
+    guard_qcons_cap_not_at_empty ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld))
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 3.  A CONSUMER THAT READS A RAW HANDLE NUMBER FAILS IT.  *)
+(*                                                                     *)
+(*  This is what makes the condition a CONDITION rather than a         *)
+(*  decoration, and it is the semantic content of B2b.6's syntactic    *)
+(*  restriction: the consumer B2b.6 could not admit is exactly the one *)
+(*  refuted here.                                                      *)
+(* ------------------------------------------------------------------ *)
+
+(** The raw number, which the SEMANTICS never takes -- `pstep` never takes a
+    `pval` apart to see whether it is a handle. It is available here for the
+    same reason `fseen` is: to write down the consumers the condition must
+    refuse. *)
+let qkeynum (x: pval fv) : nat = match x with | PCtxKey i -> i | PV _ -> 0
+
+(** Two emissions differing in their event are unrelated at every world. PROVED;
+    one unfolding of `pcomp_rel` at `n = 1`. *)
+let lemma_pcrel_emit_neq (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (e1 e2: string) (b1 b2: pcomp v cl)
+  : Lemma (requires ~(e1 == e2))
+          (ensures ~(pcrel r w (PEmit e1 b1) (PEmit e2 b2)))
+  = introduce pcrel r w (PEmit e1 b1) (PEmit e2 b2) ==> False
+    with assert (pcomp_rel r 1 w (PEmit e1 b1) (PEmit e2 b2))
+
+(** **The consumer that BRANCHES on the raw number**, and it is the one B2b.6's
+    restriction was keeping out: handed the left's handle it emits one event,
+    handed the right's it emits another. *)
+let qcons_branch : pval fv -> pcomp fv fcl =
+  fun y -> if qkeynum y = 1 then PEmit "one" (PVar (fpv FU))
+           else PEmit "two" (PVar (fpv FU))
+
+(** **REFUSED, at every anchor that has not already spoken for 1 and 2.**
+    PROVED. *)
+let guard_qcons_branch_refused (w0: pworld)
+  : Lemma (requires pwf_world w0 /\ pwlookup_l 1 w0 == None /\ pwlookup_r 2 w0 == None)
+          (ensures ~(pequivariant_fn_at fcl_rel w0 qcons_branch))
+  = lemma_pwextend_wf 1 2 w0;
+    let w : pworld = pwextend 1 2 w0 in
+    assert (pwf_world w /\ pwext w w0 /\ pwlookup_l 1 w == Some 2);
+    assert (pval_rel #fv w (PCtxKey 1) (PCtxKey 2));
+    assert (qcons_branch (PCtxKey 1) == PEmit "one" (PVar (fpv FU)));
+    assert (qcons_branch (PCtxKey 2) == PEmit "two" (PVar (fpv FU)));
+    lemma_pcrel_emit_neq #fv #fcl fcl_rel w "one" "two"
+                         (PVar (fpv FU)) (PVar (fpv FU));
+    introduce pequivariant_fn_at fcl_rel w0 qcons_branch ==> False
+    with (pequivariant_fn_at_unfold fcl_rel w0 qcons_branch ();
+          assert (pcrel fcl_rel w (qcons_branch (PCtxKey 1)) (qcons_branch (PCtxKey 2))))
+
+let guard_qcons_branch_refused_empty ()
+  : Lemma (~(pequivariant_fn_at fcl_rel ([] <: pworld) qcons_branch) /\
+           ~(pconsumer_nom fcl_rel qcons_branch))
+  = guard_qcons_branch_refused ([] <: pworld);
+    lemma_pconsumer_nom_is_empty_anchor fcl_rel qcons_branch
+
+(** And refused at a NON-empty anchor too, so the refusal is not an artefact of
+    starting with no ownership recorded. PROVED. *)
+let guard_qcons_branch_refused_at_pin ()
+  : Lemma (~(pequivariant_fn_at fcl_rel (panchor qsto3) qcons_branch))
+  = lemma_qw_pin3_facts ();
+    guard_qcons_branch_refused qw_pin3
+
+(** **The consumer that ORDERS its argument against a handle it OWNS.** *)
+let qcons_lt (h: nat) : pval fv -> pcomp fv fcl =
+  fun y -> if qkeynum y < h then PEmit "lt" (PVar (fpv FU))
+           else PEmit "ge" (PVar (fpv FU))
+
+(**
+ * **REFUSED, AND REFUSED AT AN ANCHOR THAT PINS THE HANDLE IT HOLDS.** PROVED.
+ *
+ * So this is not the unowned-name objection recycled: the consumer honestly
+ * owns key 3, and is still refused, because a legal future world may send the
+ * left's key 1 to the right's key 5 and `1 < 3` is true where `5 < 3` is not.
+ * ORDER on handles is not a nominal notion; EQUALITY is (below).
+ *)
+let guard_qcons_lt_refused_at_pin ()
+  : Lemma (~(pequivariant_fn_at fcl_rel (panchor qsto3) (qcons_lt 3)))
+  = lemma_qw_pin3_facts ();
+    lemma_pwextend_wf 1 5 qw_pin3;
+    let w : pworld = pwextend 1 5 qw_pin3 in
+    assert (pwf_world w /\ pwext w qw_pin3 /\ pwlookup_l 1 w == Some 5);
+    assert (pval_rel #fv w (PCtxKey 1) (PCtxKey 5));
+    assert (qcons_lt 3 (PCtxKey 1) == PEmit "lt" (PVar (fpv FU)));
+    assert (qcons_lt 3 (PCtxKey 5) == PEmit "ge" (PVar (fpv FU)));
+    lemma_pcrel_emit_neq #fv #fcl fcl_rel w "lt" "ge"
+                         (PVar (fpv FU)) (PVar (fpv FU));
+    introduce pequivariant_fn_at fcl_rel qw_pin3 (qcons_lt 3) ==> False
+    with (pequivariant_fn_at_unfold fcl_rel qw_pin3 (qcons_lt 3) ();
+          assert (pcrel fcl_rel w (qcons_lt 3 (PCtxKey 1)) (qcons_lt 3 (PCtxKey 5))))
+
+(* ---- WHERE THE LINE IS: identity, not the number ------------------- *)
+
+(** Comparing two values for IDENTITY, written as a function because `pval fv`
+    is not used at `eqtype` anywhere else in this file. *)
+let qveq (x y: pval fv) : bool =
+  match x, y with
+  | PCtxKey i, PCtxKey j -> i = j
+  | PV a, PV b -> a = b
+  | _, _ -> false
+
+let lemma_qveq_is_eq (x y: pval fv) : Lemma (qveq x y <==> x == y) = ()
+
+(** A consumer that compares its argument against a handle it holds. *)
+let qcons_eq (h: pval fv) : pval fv -> pcomp fv fcl =
+  fun y -> if qveq h y then PEmit "same" (PVar (fpv FU))
+           else PEmit "diff" (PVar (fpv FU))
+
+(**
+ * **ADMITTED -- in the TWO-SIDED form, so the two sides may hold the two
+ * different raw keys the world identifies.** PROVED, from
+ * `guard_nom_eq_preserves_aliasing`: renaming cannot change the answer to an
+ * identity test, so this consumer does not read the NUMBER, it reads the
+ * HANDLE.
+ *
+ * This is what fixes the line condition 3 draws: "reads a raw handle number"
+ * is refused, "compares handles for identity" is not, and the two are told
+ * apart by the condition rather than by inspecting the syntax.
+ *)
+let guard_qcons_eq_admitted (w0: pworld) (h1 h2: pval fv)
+  : Lemma (requires pval_rel w0 h1 h2)
+          (ensures pfn_rel_at fcl_rel w0 (qcons_eq h1) (qcons_eq h2))
+  = introduce forall (w: pworld) (y1 y2: pval fv).
+        (pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+         pcrel fcl_rel w (qcons_eq h1 y1) (qcons_eq h2 y2))
+    with (introduce _ ==> _
+          with begin
+            lemma_pval_rel_mono w w0 h1 h2;
+            guard_nom_eq_preserves_aliasing w h1 h2 y1 y2;
+            lemma_qveq_is_eq h1 y1;
+            lemma_qveq_is_eq h2 y2;
+            assert (qveq h1 y1 == qveq h2 y2);
+            introduce forall (n: nat).
+                pcomp_rel fcl_rel n w (qcons_eq h1 y1) (qcons_eq h2 y2)
+            with (if n = 0 then ()
+                  else assert (pval_rel #fv w (fpv FU) (fpv FU)))
+          end)
+
+(** At an anchor that OWNS the handle it compares against, the diagonal holds:
+    such a consumer conforms. PROVED. *)
+let guard_qcons_eq_conforms_at_pin ()
+  : Lemma (pequivariant_fn_at fcl_rel (panchor qsto3) (qcons_eq (PCtxKey 3)))
+  = lemma_qw_pin3_facts ();
+    assert (pval_rel #fv qw_pin3 (PCtxKey 3) (PCtxKey 3));
+    guard_qcons_eq_admitted qw_pin3 (PCtxKey 3) (PCtxKey 3)
+
+(** And at the empty anchor it does not, for the CAPTURE reason and not for the
+    comparison one -- nothing there owns key 3. PROVED. *)
+let guard_qcons_eq_refused_at_empty ()
+  : Lemma (~(pequivariant_fn_at fcl_rel ([] <: pworld) (qcons_eq (PCtxKey 3))))
+  = lemma_pwl_cons 3 4 ([] <: pworld);
+    lemma_pwr_cons 3 4 ([] <: pworld);
+    let w : pworld = [(3, 4)] in
+    assert (pwf_world w /\ pwext w ([] <: pworld) /\ pwlookup_l 3 w == Some 4);
+    assert (pval_rel #fv w (PCtxKey 3) (PCtxKey 4));
+    assert (qcons_eq (PCtxKey 3) (PCtxKey 3) == PEmit "same" (PVar (fpv FU)));
+    assert (qcons_eq (PCtxKey 3) (PCtxKey 4) == PEmit "diff" (PVar (fpv FU)));
+    lemma_pcrel_emit_neq #fv #fcl fcl_rel w "same" "diff"
+                         (PVar (fpv FU)) (PVar (fpv FU));
+    introduce pequivariant_fn_at fcl_rel ([] <: pworld) (qcons_eq (PCtxKey 3)) ==> False
+    with (pequivariant_fn_at_unfold fcl_rel ([] <: pworld) (qcons_eq (PCtxKey 3)) ();
+          assert (pcrel fcl_rel w (qcons_eq (PCtxKey 3) (PCtxKey 3))
+                                  (qcons_eq (PCtxKey 3) (PCtxKey 4))))
+
+(** **CONDITION 3, IN ONE STATEMENT.** PROVED. Branching on the number: out.
+    Ordering, even on an owned handle: out. Identity: in. *)
+let guard_consumer_condition_discriminates ()
+  : Lemma (~(pequivariant_fn_at fcl_rel (panchor qsto3) qcons_branch) /\
+           ~(pequivariant_fn_at fcl_rel (panchor qsto3) (qcons_lt 3)) /\
+           pequivariant_fn_at fcl_rel (panchor qsto3) (qcons_eq (PCtxKey 3)) /\
+           pequivariant_fn_at fcl_rel (panchor qsto3) qcons_cap /\
+           ~(pconsumer_nom fcl_rel qcons_branch) /\
+           pconsumer_nom fcl_rel qcons)
+  = guard_qcons_branch_refused_at_pin ();
+    guard_qcons_lt_refused_at_pin ();
+    guard_qcons_eq_conforms_at_pin ();
+    guard_qcons_cap_at_pin ();
+    guard_qcons_branch_refused_empty ();
+    guard_qcons_conforms ()
+
+(* ------------------------------------------------------------------ *)
+(*  CONDITION 4.  THE LAW OVER AN ARBITRARY CONFORMING CONSUMER.       *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **RIGHT IDENTITY, RESTATED, WITH THE SYNTACTIC RESTRICTION REPLACED BY THE
+ * NOMINAL CONDITION.**
+ *
+ * The consumer is an ARBITRARY `pval v -> pcomp v cl` again -- as it is in
+ * every other law of the file -- and what keeps the handle-reading ones out is
+ * `pconsumer_nom`, a hypothesis about what the consumer DOES rather than about
+ * how it is written.
+ *
+ * Nothing here is an administrative congruence: the two sides still differ by
+ * exactly one `o_extend_ctx pl _ pure`, production still happens once on each
+ * side, and no `post` is identified with any other.
+ *)
+let law_right_identity_ext_nom_cons
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+    (f: pval v -> pcomp v cl)
+  : GTot prop
+  = pconsumer_nom b.b_rel f ==>
+    pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f)
+
+(** The SAME statement with the hypothesis dropped -- the form the gate's
+    disclosure says is false, kept so that the falsity can be PROVED rather
+    than asserted. *)
+let law_right_identity_ext_nom_open
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+    (f: pval v -> pcomp v cl)
+  : GTot prop
+  = pnobs_tr_eq b
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f)
+
+(** Well typed at `prop`, and that is all this states. *)
+let guard_ri_ext_cons_is_statable
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (law_right_identity_ext_nom_cons b ops pl c f
+           == law_right_identity_ext_nom_cons b ops pl c f)
+  = ()
+
+let law_ri_ext_cons_unfold
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (law_right_identity_ext_nom_cons b ops pl c f))
+  : squash (pconsumer_nom b.b_rel f ==>
+            pnobs_tr_eq b
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+              (pbind (ops.o_enter_ctx pl c) f))
+  = h
+
+let law_ri_ext_cons_fold
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (pconsumer_nom b.b_rel f ==>
+                pnobs_tr_eq b
+                  (pbind (ops.o_enter_ctx pl c)
+                         (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                  (pbind (ops.o_enter_ctx pl c) f)))
+  : squash (law_right_identity_ext_nom_cons b ops pl c f)
+  = h
+
+let law_ri_ext_open_unfold
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (law_right_identity_ext_nom_open b ops pl c f))
+  : squash (pnobs_tr_le b
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+              (pbind (ops.o_enter_ctx pl c) f))
+  = h
+
+(** B2b.6's form in HYPOTHESIS position is an atom, exactly as `pnobs_tr_le` is.
+    The cast; by conversion. *)
+let law_ri_ext_nom_unfold
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl)
+    (h: squash (law_right_identity_ext_nom b ops pl c g))
+  : squash (pnobs_tr_eq b
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                                      (fun cy -> ops.o_extend pl cy g)))
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g)))
+  = h
+
+(**
+ * **THE NEW FORM SUBSUMES B2b.6's.** PROVED, in both directions, and the two
+ * sides are the SAME COMPUTATIONS: at the canonical consumer the two sides of
+ * the new form ARE the two sides of `law_right_identity_ext_nom`, so the
+ * syntactic restriction is the instance `f := fun cy -> ops.o_extend pl cy g`
+ * of the new form.
+ *)
+let lemma_ri_ext_cons_of_nom
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl)
+  : Lemma (requires law_right_identity_ext_nom b ops pl c g)
+          (ensures law_right_identity_ext_nom_cons b ops pl c
+                     (fun cy -> ops.o_extend pl cy g))
+  = law_ri_ext_nom_unfold b ops pl c g ();
+    law_ri_ext_cons_fold b ops pl c (fun cy -> ops.o_extend pl cy g) ()
+
+let lemma_ri_ext_nom_of_cons
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl)
+  : Lemma (requires law_right_identity_ext_nom_cons b ops pl c
+                      (fun cy -> ops.o_extend pl cy g) /\
+                    pconsumer_nom b.b_rel (fun cy -> ops.o_extend pl cy g))
+          (ensures law_right_identity_ext_nom b ops pl c g)
+  = law_ri_ext_cons_unfold b ops pl c (fun cy -> ops.o_extend pl cy g) ()
+
+(* ---- B2b.6's INSTANCE, RE-CHECKED AT THE NEW FORM ------------------ *)
+
+(** The new form's two sides at the canonical consumer ARE `qlhs` and `qrhs`,
+    the computations B2b.6 ran. By conversion. *)
+let guard_ri_ext_cons_sides_are_the_instance ()
+  : Lemma (qlhs == pbind (ref_ops.o_enter_ctx xpl qc)
+                     (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                      qcons) /\
+           qrhs == pbind (ref_ops.o_enter_ctx xpl qc) qcons)
+  = assert_norm (qlhs == pbind (ref_ops.o_enter_ctx xpl qc)
+                           (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                            qcons));
+    assert_norm (qrhs == pbind (ref_ops.o_enter_ctx xpl qc) qcons)
+
+let qcons_cf_l : pconf fv fcl =
+  { st = PStep (pbind (ref_ops.o_enter_ctx xpl qc)
+                      (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                       qcons))
+               ([] <: pstack fv fcl);
+    store = []; next = 0 }
+
+let qcons_cf_r : pconf fv fcl =
+  { st = PStep (pbind (ref_ops.o_enter_ctx xpl qc) qcons) ([] <: pstack fv fcl);
+    store = []; next = 0 }
+
+let guard_qcons_confs_are_the_instance ()
+  : Lemma (qcons_cf_l == qcf_l /\ qcons_cf_r == qcf_r)
+  = assert_norm (qcons_cf_l == qcf_l);
+    assert_norm (qcons_cf_r == qcf_r)
+
+(**
+ * **CONDITION 4, DELIVERED.** PROVED. The instance B2b.6 checked -- same
+ * boundary, same interpreter, same plan, same body, empty ambient stack, empty
+ * store, counter zero -- goes through UNCHANGED at the arbitrary-consumer form,
+ * and the consumer it is taken at CONFORMS.
+ *
+ * The conjunction is `guard_ri_ext_survives_xapply`'s, with the two sides
+ * written as the new form's rather than as `qlhs`/`qrhs`, plus the hypothesis
+ * of the new form discharged.
+ *)
+let guard_ri_ext_cons_survives_xapply ()
+  : Lemma (
+      pconsumer_nom fcl_rel qcons /\
+      pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl))
+                        ([] <: pstack fv fcl) /\
+      pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+      psfresh ([] <: pstore fv fcl) 0 /\
+      pnconverges flook xapply qcons_cf_l ([] <: list string) (PCtxKey 2) qsl /\
+      pnconverges flook xapply qcons_cf_r ([] <: list string) (PCtxKey 1) qsr /\
+      (exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply qcons_cf_r ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey 2) x2 /\ psrel fcl_rel w qsl s2') /\
+      (exists (x1: pval fv) (s1': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply qcons_cf_l ([] <: list string) x1 s1' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w (PCtxKey 1) x1 /\ psrel fcl_rel w qsr s1'))
+  = guard_qcons_conforms ();
+    guard_qcons_confs_are_the_instance ();
+    guard_ri_ext_survives_xapply ()
+
+(* ---- AND THE CONDITION IS WHAT DOES THE WORK ----------------------- *)
+
+(** The two sides at the branching consumer, and the configurations they start
+    in. Nothing performs, so `xapply` never fires: what the two runs differ in
+    is the EVENT the consumer emits, and it emits it because it read the raw
+    number of the handle it was handed. *)
+let rlhs_b : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl qc)
+        (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl)) qcons_branch)
+let rrhs_b : pcomp fv fcl = pbind (ref_ops.o_enter_ctx xpl qc) qcons_branch
+
+let rcf_bl : pconf fv fcl =
+  { st = PStep rlhs_b ([] <: pstack fv fcl); store = []; next = 0 }
+let rcf_br : pconf fv fcl =
+  { st = PStep rrhs_b ([] <: pstack fv fcl); store = []; next = 0 }
+
+let rsl_b : pstore fv fcl = (fst (prun flook xapply 60 rcf_bl)).store
+let rsr_b : pstore fv fcl = (fst (prun flook xapply 60 rcf_br)).store
+
+(** **BOTH SIDES CONVERGE, TO THE SAME VALUE, WITH DIFFERENT TRACES.** PROVED by
+    running the machine. The left's consumer is handed the handle the extra
+    `o_extend_ctx` allocated; the right's is handed the one production
+    allocated; the two numbers differ by one and the consumer reports it. *)
+let guard_branch_runs ()
+  : Lemma (pnconverges flook xapply rcf_bl ["one"] (fpv FU) rsl_b /\
+           pnconverges flook xapply rcf_br ["two"] (fpv FU) rsr_b)
+  = assert_norm ((fst (prun flook xapply 60 rcf_bl)).st == PDone (fpv FU));
+    assert_norm (snd (prun flook xapply 60 rcf_bl) == ["one"]);
+    assert_norm ((fst (prun flook xapply 60 rcf_br)).st == PDone (fpv FU));
+    assert_norm (snd (prun flook xapply 60 rcf_br) == ["two"]);
+    lemma_pnconverges_at flook xapply rcf_bl 60 ["one"] (fpv FU) rsl_b;
+    lemma_pnconverges_at flook xapply rcf_br 60 ["two"] (fpv FU) rsr_b
+
+(** The refutation argument at the TRACE, once. `lemma_le_refuted` is the same
+    argument at the residual lengths; this one needs no store at all, because
+    the nominal observation demands the trace match EXACTLY. PROVED. *)
+let lemma_le_refuted_tr (c1 c2: pcomp fv fcl) (tr1 tr2: list string)
+                        (x1 x2v: pval fv) (sl sr: pstore fv fcl)
+  : Lemma (requires
+             (let cfl : pconf fv fcl =
+                { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+              let cfr : pconf fv fcl =
+                { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+              pnobs_tr_le xboundary c1 c2 /\
+              pnconverges flook xapply cfl tr1 x1 sl /\
+              pnconverges flook xapply cfr tr2 x2v sr /\
+              ~(tr1 == tr2)))
+          (ensures False)
+  = guard_xce_config_ok ();
+    let cfl : pconf fv fcl =
+      { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let cfr : pconf fv fcl =
+      { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let hle : squash (pnobs_tr_le xboundary c1 c2) = () in
+    pnobs_tr_le_unfold xboundary c1 c2 hle;
+    assert (pnconverges xboundary.b_lk xboundary.b_apply cfl tr1 x1 sl);
+    eliminate exists (y2: pval fv) (s2': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply cfr tr1 y2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w x1 y2 /\ psrel fcl_rel w sl s2')
+    with lemma_pnconverges_unique flook xapply cfr tr1 tr2 y2 x2v s2' sr
+
+(**
+ * **THE UNCONDITIONAL ARBITRARY-CONSUMER FORM IS FALSE, AND THE NEGATION IS
+ * PROVED.** At the boundary `xboundary`, the plan `xpl`, the body `qc`, on the
+ * EMPTY ambient stack, at the EMPTY store and at counter ZERO.
+ *
+ * So the disclosure B2b.6 recorded was correct, and it is now a theorem rather
+ * than a remark: dropping the restriction WITHOUT putting a condition in its
+ * place gives a false statement, refuted by the trace and not by anything to do
+ * with extension.
+ *)
+let guard_open_form_refuted_by_branching ()
+  : Lemma (~(law_right_identity_ext_nom_open xboundary ref_ops xpl qc qcons_branch))
+  = guard_branch_runs ();
+    introduce law_right_identity_ext_nom_open xboundary ref_ops xpl qc qcons_branch ==> False
+    with begin
+      law_ri_ext_open_unfold xboundary ref_ops xpl qc qcons_branch ();
+      lemma_le_refuted_tr rlhs_b rrhs_b ["one"] ["two"] (fpv FU) (fpv FU) rsl_b rsr_b
+    end
+
+(**
+ * **AND THE EXISTING EQUIVARIANCE HYPOTHESIS DOES NOT COVER THIS.** PROVED, and
+ * this is why a new condition is needed rather than a use of the old one.
+ *
+ * At the configuration the refutation stands at, EVERY hypothesis the nominal
+ * observation puts on the surroundings holds -- the ambient stack is
+ * equivariant at the anchor, the store is equivariant, the counter is fresh --
+ * and the statement is STILL false. `pequivariant_k_at` constrains the stack
+ * the observation plugs both sides into; `qcons_branch` sits INSIDE the
+ * computation being observed, and no hypothesis about the surroundings reaches
+ * it.
+ *)
+let guard_ambient_hypothesis_does_not_cover_the_consumer ()
+  : Lemma (pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl))
+                             ([] <: pstack fv fcl) /\
+           pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+           psfresh ([] <: pstore fv fcl) 0 /\
+           ~(law_right_identity_ext_nom_open xboundary ref_ops xpl qc qcons_branch))
+  = guard_xce_config_ok ();
+    guard_open_form_refuted_by_branching ()
+
+(**
+ * **AND THE CONDITIONAL FORM SURVIVES THE SAME CONSUMER.** PROVED -- vacuously,
+ * and the vacuity IS the content: the counterexample is excluded by the
+ * NOMINAL CONDITION, not by a restriction on the shape of the term.
+ *
+ * Read the two guards together: same boundary, same plan, same body, same
+ * consumer; the open form is refuted and the conditional one is not. That is
+ * the syntactic restriction's work being done by the condition.
+ *)
+let guard_cons_form_admits_branching ()
+  : Lemma (~(pconsumer_nom fcl_rel qcons_branch) /\
+           law_right_identity_ext_nom_cons xboundary ref_ops xpl qc qcons_branch)
+  = guard_qcons_branch_refused_empty ();
+    assert_norm (xboundary.b_rel == fcl_rel);
+    introduce pconsumer_nom xboundary.b_rel qcons_branch ==>
+              pnobs_tr_eq xboundary rlhs_b rrhs_b
+    with ()
+
+(**
+ * **B2b.9, IN ONE STATEMENT.** PROVED. All four conditions at once, at one
+ * anchor and one fixture, so that the four cannot be read apart from each
+ * other.
+ *)
+let guard_b2b9_summary ()
+  : Lemma (
+      // 2: the canonical consumer conforms, at every anchor
+      pconsumer_nom fcl_rel qcons /\
+      // 3: a consumer that reads the raw number does not, at any anchor
+      ~(pequivariant_fn_at fcl_rel (panchor qsto3) qcons_branch) /\
+      ~(pequivariant_fn_at fcl_rel (panchor qsto3) (qcons_lt 3)) /\
+      ~(pconsumer_nom fcl_rel qcons_branch) /\
+      // the line: identity comparison and honest capture are admitted
+      pequivariant_fn_at fcl_rel (panchor qsto3) (qcons_eq (PCtxKey 3)) /\
+      pequivariant_fn_at fcl_rel (panchor qsto3) qcons_cap /\
+      ~(pequivariant_fn_at fcl_rel (panchor ([] <: pstore fv fcl)) qcons_cap) /\
+      // 4: the open form is FALSE at the branching consumer, the conditional
+      //    one is not, and B2b.6's instance re-checks at the conditional one
+      ~(law_right_identity_ext_nom_open xboundary ref_ops xpl qc qcons_branch) /\
+      law_right_identity_ext_nom_cons xboundary ref_ops xpl qc qcons_branch /\
+      // and the refutation of the open form stands where every EXISTING
+      // hypothesis of the observation holds, so the ambient-stack condition
+      // does not cover the consumer
+      pequivariant_k_at fcl_rel (panchor ([] <: pstore fv fcl))
+                        ([] <: pstack fv fcl) /\
+      pstore_equivariant_at fcl_rel ([] <: pstore fv fcl) /\
+      psfresh ([] <: pstore fv fcl) 0 /\
+      pnconverges flook xapply qcons_cf_l ([] <: list string) (PCtxKey 2) qsl /\
+      pnconverges flook xapply qcons_cf_r ([] <: list string) (PCtxKey 1) qsr)
+  = guard_consumer_condition_discriminates ();
+    guard_qcons_cap_not_at_empty ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    guard_open_form_refuted_by_branching ();
+    guard_ambient_hypothesis_does_not_cover_the_consumer ();
+    guard_cons_form_admits_branching ();
+    guard_ri_ext_cons_survives_xapply ()
+
+(* ================================================================== *)
+(*  B2b.9 -- WHAT IS PROVED, AND WHAT IS NOT                           *)
+(*                                                                     *)
+(*  THE CONDITION:                                                     *)
+(*                                                                     *)
+(*    pequivariant_fn_at r w0 f  ==  pfn_rel_at r w0 f f               *)
+(*                                                                     *)
+(*  and, at the level the law is stated,                               *)
+(*                                                                     *)
+(*    pconsumer_nom r f == forall sto. pequivariant_fn_at r            *)
+(*                                        (panchor sto) f              *)
+(*                                                                     *)
+(*  1. STATABLE: YES, and with no new machinery -- `pfn_rel_at` is     *)
+(*     already a relation on `pval v -> pcomp v cl`, and the consumer  *)
+(*     the law applies is one.  What is new is that the hypothesis is  *)
+(*     about a closure INSIDE the observed computation rather than     *)
+(*     about the ambient stack `pnobs_tr_le` plugs both sides into;    *)
+(*     the two are independent, and the existing                       *)
+(*     `pequivariant_k_at` hypothesis does NOT imply this one.         *)
+(*                                                                     *)
+(*  2. THE CANONICAL CONSUMER SATISFIES IT: PROVED.                    *)
+(*     `lemma_pconsumer_nom_of_extend` in general -- for every         *)
+(*     algebra whose `o_extend` is the reference node, every plan      *)
+(*     self-related at every world, every equivariant extension        *)
+(*     (instantiated at `guard_qcons_min_conforms`), and               *)
+(*     `guard_qcons_conforms` at B2b.6's OWN fixture, which repeats    *)
+(*     the argument rather than instantiating the general lemma: a     *)
+(*     defined NAME and the lambda it abbreviates are not the same     *)
+(*     SMT term, and the general lemma concludes about the lambda.     *)
+(*     The condition is COMPOSITIONAL: what it asks of the extension   *)
+(*     `g` is the very same condition.                                 *)
+(*                                                                     *)
+(*  3. A HANDLE-READING CONSUMER FAILS IT: PROVED, twice.              *)
+(*     `guard_qcons_branch_refused` for branching on the number, at    *)
+(*     every anchor that has not spoken for the two keys, and          *)
+(*     `guard_qcons_lt_refused_at_pin` for ordering AT AN ANCHOR THAT  *)
+(*     PINS THE HANDLE THE CONSUMER OWNS -- so the refusal is not the  *)
+(*     unowned-name objection recycled.  The line is drawn where the   *)
+(*     nominal reading puts it: `guard_qcons_eq_admitted` shows        *)
+(*     IDENTITY comparison admitted, in the two-sided form, so a       *)
+(*     consumer may compare handles and may not read them.             *)
+(*                                                                     *)
+(*  4. THE LAW OVER AN ARBITRARY CONFORMING CONSUMER:                  *)
+(*     `law_right_identity_ext_nom_cons`.  B2b.6's form is its         *)
+(*     instance at `f := fun cy -> ops.o_extend pl cy g`               *)
+(*     (`lemma_ri_ext_cons_of_nom`, and the converse under the         *)
+(*     condition), and B2b.6's checked INSTANCE re-checks at it        *)
+(*     unchanged (`guard_ri_ext_cons_survives_xapply`).                *)
+(*                                                                     *)
+(*  AND THE REPLACEMENT IS LOAD-BEARING IN BOTH DIRECTIONS:            *)
+(*  `guard_open_form_refuted_by_branching` PROVES the unrestricted,    *)
+(*  unconditioned form FALSE at the branching consumer -- by the       *)
+(*  TRACE, `["one"]` against `["two"]` -- and                          *)
+(*  `guard_cons_form_admits_branching` proves the conditioned form     *)
+(*  survives the same consumer.  So the condition excludes exactly     *)
+(*  the counterexample the syntactic restriction was excluding.        *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - `law_right_identity_ext_nom` is NOT PROVED, in general or at    *)
+(*     any instance, and neither is `law_right_identity_ext_nom_cons`. *)
+(*     `guard_ri_ext_cons_survives_xapply` exhibits the BODY of        *)
+(*     `pnobs_tr_eq` at ONE configuration, exactly as B2b.6 did;       *)
+(*   - CONDITION 2 is proved for algebras whose `o_extend` IS the      *)
+(*     reference node.  For an arbitrary `ctx_ops` it is not, and      *)
+(*     cannot be: `o_extend` is an arbitrary function there, and       *)
+(*     `pointwise_ops`'s is not this one.  No claim is made about it;  *)
+(*   - `pconsumer_nom` COLLAPSES to the empty-anchor instance          *)
+(*     (`lemma_pconsumer_nom_is_empty_anchor`), because the law is     *)
+(*     stated over an observation that quantifies over EVERY starting  *)
+(*     store and the empty store's anchor is the empty world.  That    *)
+(*     is a fact about the LAW's quantification, not about the         *)
+(*     condition: `guard_consumer_anchor_separation` exhibits one term *)
+(*     admitted at one anchor and refused at another.  A law stated    *)
+(*     over a FIXED starting store would take the condition at that    *)
+(*     store's anchor and would admit the capturing consumers; that    *)
+(*     law does not exist here and is NOT written;                     *)
+(*   - NO administrative congruence is stated or used.  Nothing here   *)
+(*     identifies `c` with `pbind c PVar`, nothing relates two `post`s *)
+(*     differing by one frame, and `guard_ri_ext_midpoint_no_world`'s  *)
+(*     negative is untouched.  The condition and that congruence are   *)
+(*     answering DIFFERENT questions: this one is about what the       *)
+(*     consumer may see of a NAME, that one about what the machine     *)
+(*     leaves in a stored closure;                                     *)
+(*   - `pcrel`, `pxrel`, `psrel`, `padm_stack`, `pnobs_tr_le`,         *)
+(*     `pnobs_tr_le_wf`, `pnobs_dom`, `law_right_identity_ext_nom`,    *)
+(*     the five `law_*_nom` and every definition of B2b.8 and earlier  *)
+(*     are UNTOUCHED.  B2b.9 appends;                                  *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
+(* ================================================================== *)
+
+(* ================================================================== *)
