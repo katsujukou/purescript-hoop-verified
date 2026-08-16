@@ -4593,10 +4593,104 @@ reproducibility and stability, not about the machine.
 1. record this result;
 2. ~~establish that restricting the observation relation to well-formed
    configurations goes through~~ — **done**;
-3. adjudicate the `PBindF` candidate — now able to ask `pnobs_dom` first;
-4. consumer equivariance;
-5. the computation-level administrative relation;
-6. B2b.3b.
+3. ~~adjudicate the `PBindF` candidate~~ — **done**: in the domain, harmless
+   by reconvergence;
+4. ~~nominal consumer equivariance~~ — **done as a discriminator**, but its
+   quantifier order is wrong;
+5. ~~provenance-anchor-indexed observation~~ — **done**: the order is repaired,
+   with the empty-anchor case proved to be the existing relation;
+6. fix the consumer-carrying law's signature;
+7. the computation-level administrative relation, built against
+   `(qmid_sl, qmid_sr)`;
+8. lift it to `pctx` and the store;
+9. B2b.3b.
+
+Fixing the order now rather than later is the point: accepting the empty-anchor
+restriction and moving on would very likely reproduce the same quantifier
+mistake in the next relation.
+
+#### The provenance-indexed observation: the order repaired
+
+Seven checks, all proved, no stop condition. The reach, stated precisely:
+
+> The provenance-indexed form repairs the quantifier order: a consumer is
+> checked at the anchor recording what it legitimately owns, and the law ranges
+> only over initial stores extending that anchor. The empty-anchor form is
+> exactly the previously adopted `_wf` relation, not a competing definition.
+
+That last clause is proved, not asserted — `lemma_pnobs_tr_le_wf_at_empty` and
+its companion are **biconditionals**, and the law's degeneration at `w0 = []` is
+written in existing symbols only.
+
+**The same consumer, opposite verdicts.** `guard_check2_capture_conforms_at_pin`
+proves `pequivariant_fn_at fcl_rel qw_pin3 qcons_cap` together with
+`~(pconsumer_nom fcl_rel qcons_cap)`: a consumer that captures a handle passes
+under the indexed condition and fails under the collapsed one. And "captures"
+is machine-checked rather than argued — the captured key stands in operator
+position, and the run reaches `PDone` from a store that owns it and `PStuck`
+from the empty store, so the outcome depends on the store entry the handle
+names.
+
+Check 7 is what makes indexing practical, and its content is worth stating:
+
+> Allocation extends the world but does not create a new proof obligation for an
+> existing consumer: consumer equivariance is monotone in the world, while the
+> indexed observation law is contravariant in its required initial anchor.
+
+The `requires` of `lemma_law_ri_ext_cons_at_reused_after_alloc` mentions no
+obligation about the consumer at the extended world at all.
+
+**Non-vacuity is four discharged facts, not an argument.** The restriction is
+inhabited, *and* the empty store — which every earlier instance in this file
+starts from — is proved excluded, so the quantifier really narrowed. The
+admitted store is **machine-built**: `pterm_wb` of a seed program, then `pload`
+run and the store and counter read off the result. It is not excluded by B2b.7's
+domain, so the two restrictions do not cancel. And both sides really run on it,
+to `PDone`, on the same empty trace. The exhibited world contains all four
+anchor pairs beside the answer pair, so `psrel` is checked at every pre-existing
+handle.
+
+Worth recording: **the first attempt was discarded for exactly the reason the
+stop condition named.** A hand-written `[(3, _)]` at counter 4 was used at
+first; since `palloc` only conses, that is not a state the machine can reach,
+and the instance was rebuilt on a store the machine produces. The stop condition
+worked as a self-check rather than as something a reviewer had to catch.
+
+Two things stated and not proved, both fine as they stand: the *negative* half
+of that reachability observation, that `[(3, _)]` at counter 4 is unreachable,
+is inspection of `palloc`, while the positive half is proved by running the
+machine, and only the positive half is needed; and the indexed form is **not**
+compared with the previous one at a non-empty `w0`, only the `w0 = []`
+biconditional is established, which is the right restraint rather than an
+unearned strength claim.
+
+#### Next: fix the consumer-carrying law's signature
+
+This is not a large new proof so much as fixing what the last two gates
+established into the law's signature:
+
+```text
+law_right_identity_ext_at
+  w0
+  consumer
+  requires  consumer equivariant at w0
+  observes  only stores whose anchor extends w0
+```
+
+What that settles:
+
+- the syntactic restriction to `o_extend` is **withdrawn**;
+- the consumer is required to satisfy `pequivariant_fn_at … w0`;
+- raw-number branching and ordering are refused;
+- handle identity comparison is admitted;
+- a captured handle is admitted when `w0` records ownership of it;
+- `pconsumer_nom` remains as the empty-anchor special case and as an audit
+  definition;
+- **the law itself stays unproved** — what is being fixed is the statement and
+  its domain of quantification, nothing more.
+
+And the boundary holds: **no administrative congruence yet.** That waits for the
+computation-level relation, which is the gate after.
 
 ### A discriminating example: `catch` against a prompt-local `Var`
 

@@ -20635,3 +20635,1042 @@ let guard_b2b9_summary ()
 (* ================================================================== *)
 
 (* ================================================================== *)
+(*  B2b.10 -- THE OBSERVATION AND THE LAW, INDEXED BY A PROVENANCE     *)
+(*  ANCHOR                                                             *)
+(*                                                                     *)
+(*  WHAT B2b.9 LEFT BROKEN.  `pconsumer_nom` is a real                 *)
+(*  discriminator -- raw-name branching out, ordering out, identity    *)
+(*  comparison in -- but the LAW's quantifier order collapses it.      *)
+(*  `lemma_pconsumer_nom_is_empty_anchor` proves                       *)
+(*                                                                     *)
+(*    pconsumer_nom r f  <==>  pequivariant_fn_at r [] f               *)
+(*                                                                     *)
+(*  because the order is "fix the consumer, then quantify over every   *)
+(*  initial store" and the EMPTY store is one of them.  So the         *)
+(*  condition demands that a consumer behave as a closure owning NO    *)
+(*  handle at all, and a consumer that legitimately captured a handle  *)
+(*  from the initial store -- `qcons_cap` -- is excluded.  That is the *)
+(*  very defect anchor-relativisation removed once already, walking    *)
+(*  back in through the law's own quantifier.                          *)
+(*                                                                     *)
+(*  THE REPAIR.  Not "drop the store quantification" but INDEX the     *)
+(*  observation and the law by a PROVENANCE ANCHOR `w0`, quantifying   *)
+(*  only over initial stores whose anchor EXTENDS `w0`:                *)
+(*                                                                     *)
+(*    pnobs_tr_le_wf_at b w0 c1 c2                                     *)
+(*    pnobs_tr_eq_wf_at b w0 c1 c2                                     *)
+(*    law_right_identity_ext_nom_cons_at b w0 ops pl c f               *)
+(*      = pequivariant_fn_at b.b_rel w0 f ==> pnobs_tr_eq_wf_at b w0   *)
+(*                                                                     *)
+(*  These are added BESIDE `pnobs_tr_le_wf` and `pnobs_tr_eq_wf`, as   *)
+(*  `pequivariant_fn_at` was kept beside the global form.  The `_wf`   *)
+(*  relations then stand as the `w0 = []` SPECIAL CASE and as the      *)
+(*  stronger audit form, and the relationship is PROVED               *)
+(*  (`lemma_pnobs_tr_le_wf_at_empty`) rather than asserted.            *)
+(*                                                                     *)
+(*  `pnobs_dom` and the two `_wf` relations are UNTOUCHED; the         *)
+(*  indexed relations mention `pnobs_dom` verbatim and add ONE         *)
+(*  hypothesis, `pwext (panchor sto) w0`, and nothing else.            *)
+(*                                                                     *)
+(*  NOTHING BELOW PROVES ANY LAW, in general or at any instance.       *)
+(*  NO administrative congruence is stated or used: nothing here       *)
+(*  identifies `c` with `pbind c PVar`.                                *)
+(*                                                                     *)
+(*  NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.          *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  THE INDEXED OBSERVATION                                            *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE RESTRICTED NOMINAL OBSERVATION, INDEXED BY A PROVENANCE ANCHOR.**
+ *
+ * Read it against `pnobs_tr_le_wf`, which it differs from in ONE place and
+ * nowhere else: the antecedent carries the extra conjunct
+ * `pwext (panchor sto) w0`. Everything else -- `pnobs_dom` at BOTH
+ * computations, the shared initial configuration, the exact trace equality, the
+ * anchored world, the partial bijection, the store correspondence on the
+ * world's domain only, the two independently existential step counts -- is
+ * copied unchanged.
+ *
+ * `w0` is the PROVENANCE the law is taken at: the correspondence the consumer
+ * is entitled to have captured before the comparison began. Quantifying only
+ * over initial stores whose anchor extends it is what stops the law's own
+ * quantifier from reimposing the empty anchor on the consumer.
+ *
+ * The side condition is written as a HYPOTHESIS INSIDE the quantified body
+ * rather than as a separately triggered fact, so nothing here depends on a
+ * `{:pattern}` firing.
+ *)
+let pnobs_tr_le_wf_at (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                      (c1 c2: pcomp v cl) : GTot prop
+  = forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+           (tr: list string) (x1: pval v) (s1': pstore v cl).
+      (pwext (panchor sto) w0 /\
+       pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+       pnconverges b.b_lk b.b_apply
+                   ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+      (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+         pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+
+let pnobs_tr_eq_wf_at (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                      (c1 c2: pcomp v cl) : GTot prop
+  = pnobs_tr_le_wf_at b w0 c1 c2 /\ pnobs_tr_le_wf_at b w0 c2 c1
+
+(** A `GTot prop` applied in HYPOTHESIS position is an atom to the SMT encoding.
+    These two casts put the body in the context and take it back; they have no
+    proof obligation at all and go through by conversion. *)
+let pnobs_tr_le_wf_at_unfold (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                             (c1 c2: pcomp v cl)
+                             (h: squash (pnobs_tr_le_wf_at b w0 c1 c2))
+  : squash (forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                   (tr: list string) (x1: pval v) (s1': pstore v cl).
+              (pwext (panchor sto) w0 /\
+               pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+               pnconverges b.b_lk b.b_apply
+                           ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+              (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                 pnconverges b.b_lk b.b_apply
+                             ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+                 pwf_world w /\ pwext w (panchor sto) /\
+                 pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+  = h
+
+let pnobs_tr_le_wf_at_fold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (c1 c2: pcomp v cl)
+    (h: squash (forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                       (tr: list string) (x1: pval v) (s1': pstore v cl).
+                  (pwext (panchor sto) w0 /\
+                   pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                   pnconverges b.b_lk b.b_apply
+                               ({ st = PStep c1 k; store = sto; next = n0 })
+                               tr x1 s1') ==>
+                  (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                     pnconverges b.b_lk b.b_apply
+                                 ({ st = PStep c2 k; store = sto; next = n0 })
+                                 tr x2 s2' /\
+                     pwf_world w /\ pwext w (panchor sto) /\
+                     pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')))
+  : squash (pnobs_tr_le_wf_at b w0 c1 c2)
+  = h
+
+(**
+ * **THE TRACE IS STILL NOT WEAKENED BY THE INDEXING.** PROVED, by the same
+ * argument as `guard_nom_trace_not_weakened_wf`: the trace the antecedent's
+ * convergence carries is the SAME one the consequent's must carry, and the
+ * right run's convergence is unique. Narrowing the store quantification moved
+ * nothing here.
+ *)
+let guard_nom_trace_not_weakened_wf_at (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+    (c1 c2: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr1 tr2: list string) (x1 x2: pval v) (s1' s2': pstore v cl)
+  : Lemma (requires pnobs_tr_le_wf_at b w0 c1 c2 /\
+                    pwext (panchor sto) w0 /\
+                    pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c1 k; store = sto; next = n0 })
+                                tr1 x1 s1' /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr2 x2 s2')
+          (ensures tr1 == tr2)
+  = pnobs_tr_le_wf_at_unfold b w0 c1 c2 ();
+    eliminate exists (y2: pval v) (t2: pstore v cl) (w: pworld).
+        (pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr1 y2 t2 /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 y2 /\ psrel b.b_rel w s1' t2)
+    with
+      lemma_pnconverges_unique b.b_lk b.b_apply
+        ({ st = PStep c2 k; store = sto; next = n0 }) tr1 tr2 y2 x2 t2 s2'
+
+(* ------------------------------------------------------------------ *)
+(*  MONOTONICITY: A BIGGER PROVENANCE IS A WEAKER STATEMENT            *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE INDEXED OBSERVATION IS ANTITONE IN THE PROVENANCE.** PROVED. Every
+ * store the relation at `w1` speaks about is one the relation at `w0` already
+ * spoke about, because an anchor extending `w1` extends `w0` by transitivity.
+ *
+ * This is the lemma that makes check 7 work: a conclusion established at the
+ * provenance a proof was done at survives every later allocation, so the law
+ * does not have to be re-established at each extension.
+ *)
+let lemma_pnobs_tr_le_wf_at_mono (#v #cl: Type) (b: pboundary v cl) (w1 w0: pworld)
+                                 (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_le_wf_at b w0 c1 c2 /\ pwext w1 w0)
+          (ensures pnobs_tr_le_wf_at b w1 c1 c2)
+  = pnobs_tr_le_wf_at_unfold b w0 c1 c2 ();
+    pnobs_tr_le_wf_at_fold b w1 c1 c2
+      (introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                        (tr: list string) (x1: pval v) (s1': pstore v cl).
+          ((pwext (panchor sto) w1 /\
+            pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+            pnconverges b.b_lk b.b_apply
+                        ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+           (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+              pnconverges b.b_lk b.b_apply
+                          ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+              pwf_world w /\ pwext w (panchor sto) /\
+              pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+       with (introduce _ ==> _ with lemma_pwext_trans (panchor sto) w1 w0))
+
+let lemma_pnobs_tr_eq_wf_at_mono (#v #cl: Type) (b: pboundary v cl) (w1 w0: pworld)
+                                 (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_eq_wf_at b w0 c1 c2 /\ pwext w1 w0)
+          (ensures pnobs_tr_eq_wf_at b w1 c1 c2)
+  = lemma_pnobs_tr_le_wf_at_mono b w1 w0 c1 c2;
+    lemma_pnobs_tr_le_wf_at_mono b w1 w0 c2 c1
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 1.  AT `w0 = []` THE INDEXED FORM IS WHAT ALREADY EXISTS.    *)
+(* ------------------------------------------------------------------ *)
+
+(** Every store's anchor extends the empty world, so the empty provenance
+    imposes nothing. PROVED, in both directions -- so the indexed relation is a
+    GENERALISATION of `pnobs_tr_le_wf` and not a different predicate. *)
+let lemma_pnobs_tr_le_wf_at_of_wf (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                                  (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_le_wf b c1 c2)
+          (ensures pnobs_tr_le_wf_at b w0 c1 c2)
+  = pnobs_tr_le_wf_unfold b c1 c2 ();
+    pnobs_tr_le_wf_at_fold b w0 c1 c2 ()
+
+let lemma_pnobs_tr_le_wf_of_at_empty (#v #cl: Type) (b: pboundary v cl)
+                                     (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_le_wf_at b ([] <: pworld) c1 c2)
+          (ensures pnobs_tr_le_wf b c1 c2)
+  = pnobs_tr_le_wf_at_unfold b ([] <: pworld) c1 c2 ();
+    introduce forall (sto: pstore v cl). pwext (panchor sto) ([] <: pworld)
+    with ()
+
+let lemma_pnobs_tr_le_wf_at_empty (#v #cl: Type) (b: pboundary v cl)
+                                  (c1 c2: pcomp v cl)
+  : Lemma (pnobs_tr_le_wf_at b ([] <: pworld) c1 c2 <==> pnobs_tr_le_wf b c1 c2)
+  = introduce pnobs_tr_le_wf_at b ([] <: pworld) c1 c2 ==> pnobs_tr_le_wf b c1 c2
+    with lemma_pnobs_tr_le_wf_of_at_empty b c1 c2;
+    introduce pnobs_tr_le_wf b c1 c2 ==> pnobs_tr_le_wf_at b ([] <: pworld) c1 c2
+    with lemma_pnobs_tr_le_wf_at_of_wf b ([] <: pworld) c1 c2
+
+let lemma_pnobs_tr_eq_wf_at_empty (#v #cl: Type) (b: pboundary v cl)
+                                  (c1 c2: pcomp v cl)
+  : Lemma (pnobs_tr_eq_wf_at b ([] <: pworld) c1 c2 <==> pnobs_tr_eq_wf b c1 c2)
+  = lemma_pnobs_tr_le_wf_at_empty b c1 c2;
+    lemma_pnobs_tr_le_wf_at_empty b c2 c1
+
+(* ------------------------------------------------------------------ *)
+(*  THE INDEXED LAW                                                    *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **RIGHT IDENTITY, RESTATED AGAIN, WITH BOTH THE CONDITION AND THE
+ * OBSERVATION TAKEN AT ONE PROVENANCE `w0`.**
+ *
+ * The two sides are `law_right_identity_ext_nom_cons`'s, character for
+ * character. What changes is the QUANTIFIER ORDER the gate objected to:
+ *
+ *   - the hypothesis is `pequivariant_fn_at b.b_rel w0 f`, the consumer
+ *     condition AT `w0`, not the infimum over every store's anchor;
+ *   - the conclusion is `pnobs_tr_eq_wf_at b w0`, which quantifies only over
+ *     initial stores whose anchor extends `w0`.
+ *
+ * So a consumer that captured a handle `w0` speaks for conforms, and the
+ * observation is only ever started at stores that really own that handle. At
+ * `w0 = []` both halves degenerate to what B2b.9 wrote
+ * (`lemma_law_ri_ext_cons_at_empty`).
+ *
+ * Nothing here is an administrative congruence: the two sides still differ by
+ * exactly one `o_extend_ctx pl _ pure`, production still happens once on each
+ * side, and no `post` is identified with any other.
+ *)
+let law_right_identity_ext_nom_cons_at
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (w0: pworld)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+    (f: pval v -> pcomp v cl)
+  : GTot prop
+  = pequivariant_fn_at b.b_rel w0 f ==>
+    pnobs_tr_eq_wf_at b w0
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f)
+
+let law_ri_ext_cons_at_unfold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (law_right_identity_ext_nom_cons_at b w0 ops pl c f))
+  : squash (pequivariant_fn_at b.b_rel w0 f ==>
+            pnobs_tr_eq_wf_at b w0
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+              (pbind (ops.o_enter_ctx pl c) f))
+  = h
+
+let law_ri_ext_cons_at_fold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (pequivariant_fn_at b.b_rel w0 f ==>
+                pnobs_tr_eq_wf_at b w0
+                  (pbind (ops.o_enter_ctx pl c)
+                         (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                  (pbind (ops.o_enter_ctx pl c) f)))
+  : squash (law_right_identity_ext_nom_cons_at b w0 ops pl c f)
+  = h
+
+(**
+ * **CHECK 1, AT THE LAW.** PROVED, as a BICONDITIONAL and with the right-hand
+ * side written out in EXISTING symbols only: at the empty provenance the
+ * indexed law IS "`pconsumer_nom` implies the restricted observation", which is
+ * B2b.9's law with B2b.7's domain. The hypothesis half is
+ * `lemma_pconsumer_nom_is_empty_anchor` and the conclusion half is
+ * `lemma_pnobs_tr_eq_wf_at_empty`; neither is new.
+ *)
+let lemma_law_ri_ext_cons_at_empty
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (law_right_identity_ext_nom_cons_at b ([] <: pworld) ops pl c f
+           <==>
+           (pconsumer_nom b.b_rel f ==>
+            pnobs_tr_eq_wf b
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+              (pbind (ops.o_enter_ctx pl c) f)))
+  = lemma_pconsumer_nom_is_empty_anchor b.b_rel f;
+    lemma_pnobs_tr_eq_wf_at_empty b
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f);
+    introduce law_right_identity_ext_nom_cons_at b ([] <: pworld) ops pl c f ==>
+              (pconsumer_nom b.b_rel f ==>
+               pnobs_tr_eq_wf b
+                 (pbind (ops.o_enter_ctx pl c)
+                        (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                 (pbind (ops.o_enter_ctx pl c) f))
+    with law_ri_ext_cons_at_unfold b ([] <: pworld) ops pl c f ();
+    introduce (pconsumer_nom b.b_rel f ==>
+               pnobs_tr_eq_wf b
+                 (pbind (ops.o_enter_ctx pl c)
+                        (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                 (pbind (ops.o_enter_ctx pl c) f)) ==>
+              law_right_identity_ext_nom_cons_at b ([] <: pworld) ops pl c f
+    with law_ri_ext_cons_at_fold b ([] <: pworld) ops pl c f ()
+
+(** And B2b.9's law implies the indexed one at the empty provenance -- the
+    direction that makes the indexing a generalisation rather than a
+    replacement, since `pnobs_tr_eq_wf` is `pnobs_tr_eq` weakened. PROVED. *)
+let lemma_law_ri_ext_cons_at_empty_of_cons
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (requires law_right_identity_ext_nom_cons b ops pl c f)
+          (ensures law_right_identity_ext_nom_cons_at b ([] <: pworld) ops pl c f)
+  = law_ri_ext_cons_unfold b ops pl c f ();
+    lemma_law_ri_ext_cons_at_empty b ops pl c f;
+    introduce pconsumer_nom b.b_rel f ==>
+              pnobs_tr_eq_wf b
+                (pbind (ops.o_enter_ctx pl c)
+                       (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                (pbind (ops.o_enter_ctx pl c) f)
+    with lemma_pnobs_tr_eq_wf_of_eq b
+           (pbind (ops.o_enter_ctx pl c)
+                  (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+           (pbind (ops.o_enter_ctx pl c) f)
+
+(* ------------------------------------------------------------------ *)
+(*  THE FIXTURE STORE, AND IT IS ONE THE MACHINE BUILDS                *)
+(*                                                                     *)
+(*  Everything below is taken at ONE store, `gsto`, and the ONE        *)
+(*  provenance `qw_pin3 = [(3,3)]` that `gsto`'s anchor extends.       *)
+(*                                                                     *)
+(*  `gsto` is NOT written down and asserted to be plausible.  It is    *)
+(*  read off a RUN: `gseed` is a judged program, `pload` loads it like *)
+(*  any other, and the configuration it leaves holds exactly `gsto` at *)
+(*  exactly counter 4.  That matters because `palloc` only conses, so  *)
+(*  a store holding key 3 at counter 4 must hold 0, 1 and 2 as well;   *)
+(*  a hand-written `[(3, _)]` at counter 4 is not a state the machine  *)
+(*  can reach, and every check below would then be about a fiction.    *)
+(* ------------------------------------------------------------------ *)
+
+(** One scope that finishes without asking. The `PScopeF` value rule allocates a
+    `PCtxDone` for it, which is the machine's own way of putting a context in
+    the store. *)
+let gscope : pcomp fv fcl = PSplice [PScopeF] (PVar (fpv FU))
+
+(** Four of them in sequence, which is a judged program. *)
+let gseed : pcomp fv fcl =
+  pbind gscope (fun _ ->
+  pbind gscope (fun _ ->
+  pbind gscope (fun _ -> gscope)))
+
+let gsto : pstore fv fcl =
+  [(3, PCtxDone (fpv FU)); (2, PCtxDone (fpv FU));
+   (1, PCtxDone (fpv FU)); (0, PCtxDone (fpv FU))]
+
+let ganchor : pworld = [(3, 3); (2, 2); (1, 1); (0, 0)]
+
+(**
+ * **THE STORE IS ONE THE MACHINE BUILDS.** PROVED by running the machine.
+ * `gseed` is judged, it is loaded by `pload` like any program, it emits
+ * nothing, and the configuration it leaves behind holds EXACTLY `gsto` at
+ * EXACTLY counter 4.
+ *)
+let guard_gsto_is_machine_built ()
+  : Lemma (pterm_wb gseed /\
+           (fst (prun flook xapply 40 (pload gseed))).store == gsto /\
+           (fst (prun flook xapply 40 (pload gseed))).next == 4 /\
+           snd (prun flook xapply 40 (pload gseed)) == ([] <: list string) /\
+           panchor gsto == ganchor)
+  = assert_norm (pterm_wb gseed);
+    assert_norm ((fst (prun flook xapply 40 (pload gseed))).store == gsto);
+    assert_norm ((fst (prun flook xapply 40 (pload gseed))).next == 4);
+    assert_norm (snd (prun flook xapply 40 (pload gseed)) == ([] <: list string));
+    assert_norm (panchor gsto == ganchor)
+
+(* ------------------------------------------------------------------ *)
+(*  CHECKS 2..5.  THE CONDITION AT A NON-EMPTY PROVENANCE.             *)
+(*                                                                     *)
+(*  All four are taken at ONE provenance, `qw_pin3 = [(3,3)]`, which   *)
+(*  `lemma_qw_pin3_facts` proves is `panchor qsto3` and which          *)
+(*  `guard_gce_restriction_is_real` proves `panchor gsto` extends.     *)
+(*  So the four verdicts are comparable with each other, with check    *)
+(*  6's instance, and with B2b.9's, which took them at the same        *)
+(*  anchor.                                                            *)
+(* ------------------------------------------------------------------ *)
+
+(** The two configurations that show `qcons_cap` really CONSUMES the handle it
+    captured rather than merely mentioning it. *)
+let gucf_own : pconf fv fcl =
+  { st = PStep (qcons_cap (fpv FU)) ([] <: pstack fv fcl); store = gsto; next = 4 }
+let gucf_none : pconf fv fcl =
+  { st = PStep (qcons_cap (fpv FU)) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 4 }
+
+(**
+ * **THE CAPTURED HANDLE IS ACTUALLY USED.** PROVED by running the machine, and
+ * it is what stops check 2 from being satisfied by a consumer that names a
+ * handle and then ignores it: the captured key sits in OPERATOR position of a
+ * `PExtendC`, the run from a store that OWNS key 3 completes, and the run from a
+ * store that does not is STUCK. The outcome depends on the store entry the
+ * handle names, which is what "uses it" means here.
+ *)
+let guard_qcons_cap_really_uses_the_handle ()
+  : Lemma (qcons_cap (fpv FU) == PExtendC xpl (PCtxKey 3) xg /\
+           PDone? (fst (prun flook xapply 60 gucf_own)).st /\
+           PStuck? (fst (prun flook xapply 60 gucf_none)).st)
+  = assert_norm (qcons_cap (fpv FU) == PExtendC xpl (PCtxKey 3) xg);
+    assert_norm (PDone? (fst (prun flook xapply 60 gucf_own)).st);
+    assert_norm (PStuck? (fst (prun flook xapply 60 gucf_none)).st)
+
+(**
+ * **CHECK 2, DELIVERED.** PROVED. At a provenance containing handle 3, a
+ * consumer that CAPTURES 3 and USES it conforms -- and the same consumer is
+ * refused by B2b.9's `pconsumer_nom`. That pair of verdicts on ONE term is the
+ * defect and its repair, side by side.
+ *)
+let guard_check2_capture_conforms_at_pin ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 qcons_cap /\
+           ~(pconsumer_nom fcl_rel qcons_cap) /\
+           qcons_cap (fpv FU) == PExtendC xpl (PCtxKey 3) xg /\
+           PDone? (fst (prun flook xapply 60 gucf_own)).st /\
+           PStuck? (fst (prun flook xapply 60 gucf_none)).st)
+  = lemma_qw_pin3_facts ();
+    guard_qcons_cap_at_pin ();
+    guard_qcons_cap_not_at_empty ();
+    lemma_pconsumer_nom_is_empty_anchor fcl_rel qcons_cap;
+    guard_qcons_cap_really_uses_the_handle ()
+
+(** **The consumer that GUESSES a key the provenance does not speak for.** Same
+    shape as `qcons_cap`, one number different: key 1 instead of key 3. *)
+let qcons_guess : pval fv -> pcomp fv fcl = fun _ -> ref_ops.o_extend xpl (PCtxKey 1) xg
+
+(**
+ * **CHECK 3, DELIVERED, FOR GUESSING.** PROVED, and it is the check that
+ * separates capture from invention: `qcons_cap` and `qcons_guess` differ only
+ * in WHICH key they name, they are taken at the SAME provenance, and the
+ * verdicts are opposite. A legal future world may send the guessed key 1 to
+ * key 4, and `PExtendC` demands the two handles correspond.
+ *)
+let guard_check3_guess_refused_at_pin ()
+  : Lemma (~(pequivariant_fn_at fcl_rel qw_pin3 qcons_guess))
+  = lemma_qw_pin3_facts ();
+    lemma_pwextend_wf 1 4 qw_pin3;
+    let w : pworld = pwextend 1 4 qw_pin3 in
+    assert (pwf_world w /\ pwext w qw_pin3 /\ pwlookup_l 1 w == Some 4);
+    assert (pval_rel #fv w (fpv FU) (fpv FU));
+    introduce pequivariant_fn_at fcl_rel qw_pin3 qcons_guess ==> False
+    with begin
+      pequivariant_fn_at_unfold fcl_rel qw_pin3 qcons_guess ();
+      assert (pcrel fcl_rel w (qcons_guess (fpv FU)) (qcons_guess (fpv FU)));
+      assert (pcomp_rel fcl_rel 1 w (PExtendC xpl (PCtxKey 1) xg)
+                                    (PExtendC xpl (PCtxKey 1) xg))
+    end
+
+(** **CHECK 3, ALSO FOR RAW-NUMBER BRANCHING.** PROVED, at the same non-empty
+    provenance -- so the refusal is not an artefact of starting with no
+    ownership recorded. `guard_qcons_branch_refused` verbatim, at `qw_pin3`. *)
+let guard_check3_branch_refused_at_pin ()
+  : Lemma (~(pequivariant_fn_at fcl_rel qw_pin3 qcons_branch))
+  = lemma_qw_pin3_facts ();
+    guard_qcons_branch_refused qw_pin3
+
+(** **CHECK 4, DELIVERED.** PROVED. Identity comparison against the handle the
+    provenance owns conforms -- so the indexing did not buy capture at the price
+    of the line B2b.9 drew. *)
+let guard_check4_identity_conforms_at_pin ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 (qcons_eq (PCtxKey 3)))
+  = lemma_qw_pin3_facts ();
+    guard_qcons_eq_conforms_at_pin ()
+
+(** **CHECK 5, DELIVERED.** PROVED. ORDERING against the handle the provenance
+    PINS is still refused: a legal future world may send the left's key 1 to the
+    right's key 5, and `1 < 3` is true where `5 < 3` is not. Order on handles is
+    not a nominal notion however much provenance is recorded. *)
+let guard_check5_ordering_refused_at_pin ()
+  : Lemma (~(pequivariant_fn_at fcl_rel qw_pin3 (qcons_lt 3)))
+  = lemma_qw_pin3_facts ();
+    guard_qcons_lt_refused_at_pin ()
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 6.  A CONCRETE INSTANCE, AT A NON-EMPTY PROVENANCE,          *)
+(*  NON-VACUOUS, AND AT A STORE THE MACHINE ITSELF BUILDS.             *)
+(*                                                                     *)
+(*  B2b.6's instance started at the EMPTY store, which the restriction *)
+(*  at `w0 = qw_pin3` REFUSES -- `panchor [] = []` does not extend      *)
+(*  `[(3,3)]`.  So the instance is re-run from scratch, and the four    *)
+(*  ways this could have been vacuous are closed one at a time:        *)
+(*                                                                     *)
+(*    (a) no store could satisfy the restriction -- refuted by          *)
+(*        `pwext (panchor gsto) qw_pin3`;                              *)
+(*    (b) the store could be one the MACHINE COULD NOT BUILD, so that   *)
+(*        the restriction is inhabited only by a hand-written fiction   *)
+(*        -- refuted by `guard_gsto_is_machine_built` above, which RUNS *)
+(*        a judged program from `pload` and reads `gsto` and the        *)
+(*        counter 4 off the result;                                     *)
+(*    (c) the store could satisfy the restriction and fall outside the  *)
+(*        WELL-FORMED domain -- refuted by `guard_gce_dom`, which       *)
+(*        discharges `pconf_ok` at that NON-EMPTY store;                *)
+(*    (d) the two sides could fail to run at all, making the            *)
+(*        implication true for want of an antecedent -- refuted by      *)
+(*        `guard_gce_runs`, which runs the machine to `PDone` on BOTH   *)
+(*        sides and reads off the two answers.                          *)
+(*                                                                     *)
+(*  And the restriction is checked to be a RESTRICTION:                 *)
+(*  `~(pwext (panchor []) qw_pin3)` -- the store every earlier instance *)
+(*  in this file starts from is EXCLUDED here.                          *)
+(* ------------------------------------------------------------------ *)
+
+let gcf_l : pconf fv fcl =
+  { st = PStep qlhs ([] <: pstack fv fcl); store = gsto; next = 4 }
+let gcf_r : pconf fv fcl =
+  { st = PStep qrhs ([] <: pstack fv fcl); store = gsto; next = 4 }
+
+let gsl : pstore fv fcl = (fst (prun flook xapply 60 gcf_l)).store
+let gsr : pstore fv fcl = (fst (prun flook xapply 60 gcf_r)).store
+
+(** The three hypotheses the nominal observation puts on the ambient stack, the
+    store and the counter, AT THAT NON-EMPTY STORE. PROVED: the empty ambient
+    stack is related to itself at every world, every one of the four store
+    entries is a `PCtxDone` carrying a payload no world can separate, and every
+    key is below counter 4. *)
+let guard_gce_config_ok ()
+  : Lemma (pequivariant_k_at fcl_rel (panchor gsto) ([] <: pstack fv fcl) /\
+           pstore_equivariant_at fcl_rel gsto /\
+           psfresh gsto 4)
+  = introduce forall (w: pworld). pkrel #fv #fcl fcl_rel w [] []
+    with lemma_pkrel_nil #fv #fcl fcl_rel w;
+    introduce forall (w: pworld).
+      pxrel #fv #fcl fcl_rel w (PCtxDone (fpv FU)) (PCtxDone (fpv FU))
+    with lemma_pxrel_done #fv #fcl fcl_rel w (fpv FU) (fpv FU);
+    lemma_pstore_lookup_cons #fv #fcl 3 (PCtxDone (fpv FU))
+      [(2, PCtxDone (fpv FU)); (1, PCtxDone (fpv FU)); (0, PCtxDone (fpv FU))];
+    lemma_pstore_lookup_cons #fv #fcl 2 (PCtxDone (fpv FU))
+      [(1, PCtxDone (fpv FU)); (0, PCtxDone (fpv FU))];
+    lemma_pstore_lookup_cons #fv #fcl 1 (PCtxDone (fpv FU))
+      [(0, PCtxDone (fpv FU))];
+    lemma_pstore_lookup_cons #fv #fcl 0 (PCtxDone (fpv FU)) ([] <: pstore fv fcl)
+
+(** **AND THE CONFIGURATION IS INSIDE B2b.7's DOMAIN, ON BOTH SIDES.** PROVED --
+    this is (c). `pconf_ok`'s three conjuncts hold: every key is below the
+    counter 4, all four stored contexts are `PCtxDone` and so carry no residual
+    for `presid_wf` to object to, and the empty ambient stack is `pwb`, carries
+    nothing, and answers nothing -- so both control computations must be judged,
+    and both are. *)
+let guard_gsto_conf_wf ()
+  : Lemma (forall (i: nat) (cx: pctx fv fcl). memP (i, cx) gsto ==> i < 4)
+  = assert_norm (forall (i: nat) (cx: pctx fv fcl). memP (i, cx) gsto ==> i < 4)
+
+let guard_gsto_resid_wf () : Lemma (pstore_resid_wf gsto == true)
+  = assert_norm (pstore_resid_wf gsto == true)
+
+let guard_wb_qlhs () : Lemma (pterm_wb qlhs) = ()
+let guard_wb_qrhs () : Lemma (pterm_wb qrhs) = ()
+
+let guard_gce_dom_l ()
+  : Lemma (pnobs_dom xboundary qlhs ([] <: pstack fv fcl) gsto 4)
+  = guard_gce_config_ok ();
+    guard_gsto_resid_wf ();
+    guard_gsto_conf_wf ();
+    guard_wb_qlhs ();
+    lemma_wb_frames_nil #fv #fcl ();
+    pnobs_dom_fold xboundary qlhs ([] <: pstack fv fcl) gsto 4 ()
+
+let guard_gce_dom_r ()
+  : Lemma (pnobs_dom xboundary qrhs ([] <: pstack fv fcl) gsto 4)
+  = guard_gce_config_ok ();
+    guard_gsto_resid_wf ();
+    guard_gsto_conf_wf ();
+    guard_wb_qrhs ();
+    lemma_wb_frames_nil #fv #fcl ();
+    pnobs_dom_fold xboundary qrhs ([] <: pstack fv fcl) gsto 4 ()
+
+let guard_gce_dom ()
+  : Lemma (pnobs_dom xboundary qlhs ([] <: pstack fv fcl) gsto 4 /\
+           pnobs_dom xboundary qrhs ([] <: pstack fv fcl) gsto 4)
+  = guard_gce_dom_l ();
+    guard_gce_dom_r ()
+
+(** **BOTH SIDES REALLY RUN ON IT.** PROVED by running the machine -- this is
+    (d). Silently, to two handles one apart, as at the empty store; the numbers
+    are 6 and 5 rather than 2 and 1 because the counter started at 4. *)
+let guard_gce_runs ()
+  : Lemma (pnconverges flook xapply gcf_l ([] <: list string) (PCtxKey 6) gsl /\
+           pnconverges flook xapply gcf_r ([] <: list string) (PCtxKey 5) gsr)
+  = assert_norm ((fst (prun flook xapply 60 gcf_l)).st == PDone (PCtxKey 6));
+    assert_norm (snd (prun flook xapply 60 gcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 60 gcf_r)).st == PDone (PCtxKey 5));
+    assert_norm (snd (prun flook xapply 60 gcf_r) == ([] <: list string));
+    lemma_pnconverges_at flook xapply gcf_l 60 [] (PCtxKey 6) gsl;
+    lemma_pnconverges_at flook xapply gcf_r 60 [] (PCtxKey 5) gsr
+
+(** The two answers name the SAME context, frame for frame -- `qcx`, B2b.6's --
+    and all four entries that were there BEFORE the run survive on both sides
+    unchanged. PROVED by running the machine. The second half is what the
+    provenance is about: key 3 is still key 3 at the end, on both sides, and so
+    are 2, 1 and 0. *)
+let guard_gce_answer_ctx ()
+  : Lemma (psget 6 gsl == qcx /\ psget 5 gsr == qcx /\
+           Some? (pstore_lookup 6 gsl) /\ Some? (pstore_lookup 5 gsr) /\
+           psget 3 gsl == PCtxDone (fpv FU) /\ psget 3 gsr == PCtxDone (fpv FU) /\
+           psget 2 gsl == PCtxDone (fpv FU) /\ psget 2 gsr == PCtxDone (fpv FU) /\
+           psget 1 gsl == PCtxDone (fpv FU) /\ psget 1 gsr == PCtxDone (fpv FU) /\
+           psget 0 gsl == PCtxDone (fpv FU) /\ psget 0 gsr == PCtxDone (fpv FU) /\
+           Some? (pstore_lookup 3 gsl) /\ Some? (pstore_lookup 3 gsr) /\
+           Some? (pstore_lookup 2 gsl) /\ Some? (pstore_lookup 2 gsr) /\
+           Some? (pstore_lookup 1 gsl) /\ Some? (pstore_lookup 1 gsr) /\
+           Some? (pstore_lookup 0 gsl) /\ Some? (pstore_lookup 0 gsr))
+  = assert_norm (psget 6 gsl == qcx);
+    assert_norm (psget 5 gsr == qcx);
+    assert_norm (Some? (pstore_lookup 6 gsl));
+    assert_norm (Some? (pstore_lookup 5 gsr));
+    assert_norm (psget 3 gsl == PCtxDone (fpv FU));
+    assert_norm (psget 3 gsr == PCtxDone (fpv FU));
+    assert_norm (psget 2 gsl == PCtxDone (fpv FU));
+    assert_norm (psget 2 gsr == PCtxDone (fpv FU));
+    assert_norm (psget 1 gsl == PCtxDone (fpv FU));
+    assert_norm (psget 1 gsr == PCtxDone (fpv FU));
+    assert_norm (psget 0 gsl == PCtxDone (fpv FU));
+    assert_norm (psget 0 gsr == PCtxDone (fpv FU));
+    assert_norm (Some? (pstore_lookup 3 gsl) /\ Some? (pstore_lookup 3 gsr));
+    assert_norm (Some? (pstore_lookup 2 gsl) /\ Some? (pstore_lookup 2 gsr));
+    assert_norm (Some? (pstore_lookup 1 gsl) /\ Some? (pstore_lookup 1 gsr));
+    assert_norm (Some? (pstore_lookup 0 gsl) /\ Some? (pstore_lookup 0 gsr))
+
+(** The two worlds the answers correspond under. FIVE pairs each, not one: the
+    answer pair, and the FOUR anchor pairs the initial store forces. *)
+let gw  : pworld = [(6, 5); (3, 3); (2, 2); (1, 1); (0, 0)]
+let gw' : pworld = [(5, 6); (3, 3); (2, 2); (1, 1); (0, 0)]
+
+let guard_gce_world ()
+  : Lemma (pwf_world gw /\ pwext gw (panchor gsto) /\
+           pval_rel #fv gw (PCtxKey 6) (PCtxKey 5) /\
+           psrel fcl_rel gw gsl gsr /\
+           pwf_world gw' /\ pwext gw' (panchor gsto) /\
+           pval_rel #fv gw' (PCtxKey 5) (PCtxKey 6) /\
+           psrel fcl_rel gw' gsr gsl)
+  = guard_gsto_is_machine_built ();
+    guard_gce_answer_ctx ();
+    lemma_panchor_wf gsto;
+    assert_norm (pwlookup_l 6 ganchor == None);
+    assert_norm (pwlookup_r 5 ganchor == None);
+    assert_norm (pwlookup_l 5 ganchor == None);
+    assert_norm (pwlookup_r 6 ganchor == None);
+    lemma_pwextend_wf 6 5 ganchor;
+    lemma_pwextend_wf 5 6 ganchor;
+    assert_norm (pwextend 6 5 ganchor == gw);
+    assert_norm (pwextend 5 6 ganchor == gw');
+    lemma_pwl_cons 6 5 ganchor;
+    lemma_pwl_cons 5 6 ganchor;
+    lemma_pwl_cons 3 3 [(2, 2); (1, 1); (0, 0)];
+    lemma_pwl_cons 2 2 [(1, 1); (0, 0)];
+    lemma_pwl_cons 1 1 [(0, 0)];
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    lemma_qcx_selfrel gw;
+    lemma_qcx_selfrel gw';
+    lemma_pxrel_done #fv #fcl fcl_rel gw (fpv FU) (fpv FU);
+    lemma_pxrel_done #fv #fcl fcl_rel gw' (fpv FU) (fpv FU);
+    introduce forall (i j: nat).
+        (pwlookup_l i gw == Some j ==>
+         (Some? (pstore_lookup i gsl) /\ Some? (pstore_lookup j gsr) /\
+          pxrel fcl_rel gw (psget i gsl) (psget j gsr)))
+    with (introduce _ ==> _
+          with assert ((i == 6 /\ j == 5) \/ (i == 3 /\ j == 3) \/
+                       (i == 2 /\ j == 2) \/ (i == 1 /\ j == 1) \/
+                       (i == 0 /\ j == 0)));
+    introduce forall (i j: nat).
+        (pwlookup_l i gw' == Some j ==>
+         (Some? (pstore_lookup i gsr) /\ Some? (pstore_lookup j gsl) /\
+          pxrel fcl_rel gw' (psget i gsr) (psget j gsl)))
+    with (introduce _ ==> _
+          with assert ((i == 5 /\ j == 6) \/ (i == 3 /\ j == 3) \/
+                       (i == 2 /\ j == 2) \/ (i == 1 /\ j == 1) \/
+                       (i == 0 /\ j == 0)))
+
+(** The instance's two configurations, written in the indexed law's own shape
+    rather than as `qlhs`/`qrhs`. By conversion. *)
+let gcons_cf_l : pconf fv fcl =
+  { st = PStep (pbind (ref_ops.o_enter_ctx xpl qc)
+                      (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                       qcons))
+               ([] <: pstack fv fcl);
+    store = gsto; next = 4 }
+
+let gcons_cf_r : pconf fv fcl =
+  { st = PStep (pbind (ref_ops.o_enter_ctx xpl qc) qcons) ([] <: pstack fv fcl);
+    store = gsto; next = 4 }
+
+let guard_gcons_confs_are_the_instance ()
+  : Lemma (gcons_cf_l == gcf_l /\ gcons_cf_r == gcf_r)
+  = assert_norm (gcons_cf_l == gcf_l);
+    assert_norm (gcons_cf_r == gcf_r)
+
+(** **THE RESTRICTION IS INHABITED AND IT IS A RESTRICTION.** PROVED, both
+    halves -- this is (a), and the second half is what makes (a) worth stating:
+    the empty store, which every earlier instance in this file starts from, does
+    NOT satisfy it. The provenance is `qw_pin3`, the SAME one checks 2 to 5 are
+    taken at. *)
+let guard_gce_restriction_is_real ()
+  : Lemma (pwext (panchor gsto) qw_pin3 /\
+           ~(pwext (panchor ([] <: pstore fv fcl)) qw_pin3))
+  = lemma_qw_pin3_facts ();
+    guard_gsto_is_machine_built ();
+    lemma_pwl_cons 3 3 ([] <: pworld);
+    assert_norm (pwlookup_l 3 ganchor == Some 3);
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    assert_norm (pwlookup_l 3 ([] <: pworld) == None)
+
+(**
+ * **CHECK 6, DELIVERED.** PROVED, and this conjunction IS the body of
+ * `pnobs_tr_eq_wf_at xboundary qw_pin3` -- both directions of
+ * `pnobs_tr_le_wf_at` -- at `k := []`, `sto := gsto`, `n0 := 4`, with every
+ * existential witness written down, TOGETHER WITH the indexed law's hypothesis
+ * discharged at the same provenance.
+ *
+ * **HOW NON-VACUITY IS ESTABLISHED.** Each conjunct of the antecedent is
+ * proved, not assumed, and the store it is proved at is not invented:
+ *
+ *   1. `pwext (panchor gsto) qw_pin3` -- an initial store satisfying the
+ *      restriction EXISTS, and `~(pwext (panchor []) qw_pin3)` shows the
+ *      restriction excludes the store every earlier instance used, so it is
+ *      not the trivial one;
+ *   2. `guard_gsto_is_machine_built` -- and that store is one the MACHINE
+ *      builds: a judged program, loaded by `pload`, leaves exactly it at
+ *      exactly counter 4. So the restriction is not inhabited by a fiction;
+ *   3. `pnobs_dom xboundary _ [] gsto 4` on BOTH sides -- the store the
+ *      restriction admits is also admitted by B2b.7's well-formedness domain,
+ *      so the two restrictions do not cancel each other by having empty
+ *      intersection;
+ *   4. `pnconverges ... gcf_l [] (PCtxKey 6) gsl` -- the LEFT side really runs
+ *      on that store, so the implication is not true for want of an antecedent.
+ *
+ * And the consequent is exhibited rather than derived: the right side's own
+ * convergence, at the SAME (empty) trace, and the world -- which contains the
+ * FOUR anchor pairs as well as the answer pair, so the store correspondence is
+ * checked at every PRE-EXISTING handle too, not only at the freshly allocated
+ * one.
+ *
+ * The last conjunct is the link back to check 2: the capturing consumer
+ * `qcons_cap`, which B2b.9's `pconsumer_nom` refuses, conforms at the anchor of
+ * the very store this instance starts from.
+ *
+ * **What this is NOT.** It is ONE ambient stack, ONE store and ONE body. It is
+ * not the law, which quantifies over every admitted `k`, every admitted store,
+ * every counter, every plan and every `c`. Nothing here proves that.
+ *)
+let guard_ri_ext_cons_at_survives_xapply ()
+  : Lemma (
+      // the indexed law's HYPOTHESIS, at the non-empty provenance
+      pequivariant_fn_at fcl_rel qw_pin3 qcons /\
+      // (a) the restriction is inhabited, and it is a restriction
+      pwext (panchor gsto) qw_pin3 /\
+      ~(pwext (panchor ([] <: pstore fv fcl)) qw_pin3) /\
+      // (b) and the store that inhabits it is one the MACHINE BUILDS
+      pterm_wb gseed /\
+      (fst (prun flook xapply 40 (pload gseed))).store == gsto /\
+      (fst (prun flook xapply 40 (pload gseed))).next == 4 /\
+      // (c) the admitted store is inside the well-formedness domain, both sides
+      pnobs_dom xboundary qlhs ([] <: pstack fv fcl) gsto 4 /\
+      pnobs_dom xboundary qrhs ([] <: pstack fv fcl) gsto 4 /\
+      // the two configurations are the indexed law's two sides at `qcons`
+      gcons_cf_l == gcf_l /\ gcons_cf_r == gcf_r /\
+      // (d) both sides really run on it, to the same trace
+      pnconverges flook xapply gcf_l ([] <: list string) (PCtxKey 6) gsl /\
+      pnconverges flook xapply gcf_r ([] <: list string) (PCtxKey 5) gsr /\
+      // and the two consequents, with their witnesses
+      (exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply gcf_r ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor gsto) /\
+         pval_rel w (PCtxKey 6) x2 /\ psrel fcl_rel w gsl s2') /\
+      (exists (x1: pval fv) (s1': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply gcf_l ([] <: list string) x1 s1' /\
+         pwf_world w /\ pwext w (panchor gsto) /\
+         pval_rel w (PCtxKey 5) x1 /\ psrel fcl_rel w gsr s1') /\
+      // and the capturing consumer conforms at THIS store's own anchor
+      pequivariant_fn_at fcl_rel (panchor gsto) qcons_cap)
+  = guard_qcons_conforms_at qw_pin3;
+    guard_gce_restriction_is_real ();
+    guard_gsto_is_machine_built ();
+    guard_gce_dom ();
+    guard_gcons_confs_are_the_instance ();
+    guard_gce_runs ();
+    guard_gce_world ();
+    lemma_qw_pin3_facts ();
+    guard_qcons_cap_at_pin ();
+    lemma_pequivariant_fn_at_mono fcl_rel (panchor gsto) qw_pin3 qcons_cap;
+    introduce exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply gcf_r ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor gsto) /\
+         pval_rel w (PCtxKey 6) x2 /\ psrel fcl_rel w gsl s2')
+    with (PCtxKey 5) gsr gw and ();
+    introduce exists (x1: pval fv) (s1': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply gcf_l ([] <: list string) x1 s1' /\
+         pwf_world w /\ pwext w (panchor gsto) /\
+         pval_rel w (PCtxKey 5) x1 /\ psrel fcl_rel w gsr s1')
+    with (PCtxKey 6) gsl gw' and ()
+
+(* ------------------------------------------------------------------ *)
+(*  CHECK 7.  AN ALLOCATION REUSES THE CONDITION, IT DOES NOT REPROVE  *)
+(*  IT.                                                                *)
+(* ------------------------------------------------------------------ *)
+
+(** **THE CONDITION SURVIVES AN ALLOCATION, FROM THE PROOF ALREADY DONE.**
+    PROVED. The only hypothesis about `f` is `pequivariant_fn_at r w0 f` -- the
+    ONE proof, at the provenance it was done at. Nothing about `f` is
+    re-established at the extended world. *)
+let lemma_pequivariant_fn_at_after_alloc
+    (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld) (i j: nat)
+    (f: pval v -> pcomp v cl)
+  : Lemma (requires pwf_world w0 /\ pwlookup_l i w0 == None /\
+                    pwlookup_r j w0 == None /\ pequivariant_fn_at r w0 f)
+          (ensures pequivariant_fn_at r (pwextend i j w0) f)
+  = lemma_pwextend_wf i j w0;
+    lemma_pequivariant_fn_at_mono r (pwextend i j w0) w0 f
+
+(**
+ * **CHECK 7, DELIVERED.** PROVED. After a world extension by one allocation,
+ * BOTH the consumer condition and the whole indexed law hold at the extended
+ * provenance, and the hypotheses are exactly what was already available at
+ * `w0`: the ONE consumer proof and the law at `w0`. No obligation mentioning
+ * the extended world appears in `requires`.
+ *
+ * The two halves come from opposite monotonicities and that is why the
+ * combination works: the CONDITION is monotone in the provenance
+ * (`lemma_pequivariant_fn_at_mono` -- more provenance, easier), the OBSERVATION
+ * is antitone (`lemma_pnobs_tr_eq_wf_at_mono` -- more provenance, fewer stores).
+ * So the law's hypothesis is discharged by the old proof and its conclusion is
+ * the old conclusion weakened.
+ *)
+let lemma_law_ri_ext_cons_at_reused_after_alloc
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (i j: nat)
+    (ops: ctx_ops v cl) (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (requires pwf_world w0 /\ pwlookup_l i w0 == None /\
+                    pwlookup_r j w0 == None /\
+                    pequivariant_fn_at b.b_rel w0 f /\
+                    law_right_identity_ext_nom_cons_at b w0 ops pl c f)
+          (ensures pequivariant_fn_at b.b_rel (pwextend i j w0) f /\
+                   law_right_identity_ext_nom_cons_at b (pwextend i j w0) ops pl c f)
+  = lemma_pequivariant_fn_at_after_alloc b.b_rel w0 i j f;
+    lemma_pwextend_wf i j w0;
+    law_ri_ext_cons_at_unfold b w0 ops pl c f ();
+    lemma_pnobs_tr_eq_wf_at_mono b (pwextend i j w0) w0
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f);
+    law_ri_ext_cons_at_fold b (pwextend i j w0) ops pl c f ()
+
+(** **AND AT THE FIXTURE, TWICE OVER.** PROVED: `guard_qcons_cap_at_pin`'s ONE
+    proof at `qw_pin3` carries the capturing consumer across two successive
+    allocations. Nothing is re-run. *)
+let guard_check7_capture_survives_alloc ()
+  : Lemma (pequivariant_fn_at fcl_rel (pwextend 4 4 qw_pin3) qcons_cap /\
+           pequivariant_fn_at fcl_rel (pwextend 5 5 (pwextend 4 4 qw_pin3)) qcons_cap)
+  = lemma_qw_pin3_facts ();
+    guard_qcons_cap_at_pin ();
+    assert_norm (pwlookup_l 4 qw_pin3 == None);
+    assert_norm (pwlookup_r 4 qw_pin3 == None);
+    lemma_pequivariant_fn_at_after_alloc fcl_rel qw_pin3 4 4 qcons_cap;
+    lemma_pwextend_wf 4 4 qw_pin3;
+    assert_norm (pwlookup_l 5 (pwextend 4 4 qw_pin3) == None);
+    assert_norm (pwlookup_r 5 (pwextend 4 4 qw_pin3) == None);
+    lemma_pequivariant_fn_at_after_alloc fcl_rel (pwextend 4 4 qw_pin3) 5 5 qcons_cap
+
+(* ------------------------------------------------------------------ *)
+(*  THE DEFECT, IN ONE STATEMENT                                       *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE COLLAPSE IS GONE, AND ONE TERM WITNESSES IT.** PROVED. `qcons_cap`
+ * captures key 3 from the initial store and uses it. B2b.9's `pconsumer_nom`
+ * REFUSES it, and refuses it for the reason
+ * `lemma_pconsumer_nom_is_empty_anchor` names -- the empty store is among the
+ * stores the law quantifies over. The indexed condition at `qw_pin3` ADMITS it,
+ * and the observation indexed at the same provenance never starts at a store
+ * that does not own key 3.
+ *)
+let guard_indexing_admits_the_capturing_consumer ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 qcons_cap /\
+           ~(pequivariant_fn_at fcl_rel ([] <: pworld) qcons_cap) /\
+           ~(pconsumer_nom fcl_rel qcons_cap) /\
+           pwext (panchor gsto) qw_pin3 /\
+           pequivariant_fn_at fcl_rel (panchor gsto) qcons_cap)
+  = lemma_qw_pin3_facts ();
+    guard_qcons_cap_at_pin ();
+    guard_qcons_cap_not_at_empty ();
+    lemma_pconsumer_nom_is_empty_anchor fcl_rel qcons_cap;
+    guard_gce_restriction_is_real ();
+    lemma_pequivariant_fn_at_mono fcl_rel (panchor gsto) qw_pin3 qcons_cap
+
+(**
+ * **B2b.10, IN ONE STATEMENT.** PROVED. The seven checks at once, at one
+ * provenance and one fixture, so that they cannot be read apart from each
+ * other. Check 1 appears as its instance at the fixture's two computations; the
+ * general biconditionals are `lemma_pnobs_tr_le_wf_at_empty` and
+ * `lemma_law_ri_ext_cons_at_empty`.
+ *)
+let guard_b2b10_summary ()
+  : Lemma (
+      // 1: at the empty provenance the indexed observation IS B2b.7's
+      (pnobs_tr_le_wf_at xboundary ([] <: pworld) qlhs qrhs
+       <==> pnobs_tr_le_wf xboundary qlhs qrhs) /\
+      // 2: a consumer that captures a pinned handle AND USES IT conforms
+      pequivariant_fn_at fcl_rel qw_pin3 qcons_cap /\
+      qcons_cap (fpv FU) == PExtendC xpl (PCtxKey 3) xg /\
+      PDone? (fst (prun flook xapply 60 gucf_own)).st /\
+      PStuck? (fst (prun flook xapply 60 gucf_none)).st /\
+      // 3: guessing a key the provenance does not speak for fails, and so does
+      //    branching on the raw number
+      ~(pequivariant_fn_at fcl_rel qw_pin3 qcons_guess) /\
+      ~(pequivariant_fn_at fcl_rel qw_pin3 qcons_branch) /\
+      // 4: identity comparison conforms
+      pequivariant_fn_at fcl_rel qw_pin3 (qcons_eq (PCtxKey 3)) /\
+      // 5: ordering fails, at a provenance that PINS the handle it holds
+      ~(pequivariant_fn_at fcl_rel qw_pin3 (qcons_lt 3)) /\
+      // 6: the instance, non-vacuously -- hypothesis, inhabited restriction,
+      //    a MACHINE-BUILT store, domain membership, and both sides running
+      pequivariant_fn_at fcl_rel qw_pin3 qcons /\
+      pwext (panchor gsto) qw_pin3 /\
+      ~(pwext (panchor ([] <: pstore fv fcl)) qw_pin3) /\
+      pterm_wb gseed /\
+      (fst (prun flook xapply 40 (pload gseed))).store == gsto /\
+      (fst (prun flook xapply 40 (pload gseed))).next == 4 /\
+      pnobs_dom xboundary qlhs ([] <: pstack fv fcl) gsto 4 /\
+      pnobs_dom xboundary qrhs ([] <: pstack fv fcl) gsto 4 /\
+      pnconverges flook xapply gcf_l ([] <: list string) (PCtxKey 6) gsl /\
+      pnconverges flook xapply gcf_r ([] <: list string) (PCtxKey 5) gsr /\
+      // 7: the condition is REUSED across an allocation
+      pequivariant_fn_at fcl_rel (pwextend 4 4 qw_pin3) qcons_cap /\
+      // and the defect: B2b.9's condition refuses the very same consumer
+      ~(pconsumer_nom fcl_rel qcons_cap))
+  = lemma_pnobs_tr_le_wf_at_empty xboundary qlhs qrhs;
+    guard_check2_capture_conforms_at_pin ();
+    guard_check3_guess_refused_at_pin ();
+    guard_check3_branch_refused_at_pin ();
+    guard_check4_identity_conforms_at_pin ();
+    guard_check5_ordering_refused_at_pin ();
+    guard_check7_capture_survives_alloc ();
+    guard_ri_ext_cons_at_survives_xapply ()
+
+(* ================================================================== *)
+(*  B2b.10 -- WHAT IS PROVED, AND WHAT IS NOT                          *)
+(*                                                                     *)
+(*  THE INDEXED RELATIONS, BESIDE THE `_wf` ONES AND NOT INSTEAD OF    *)
+(*  THEM:                                                              *)
+(*                                                                     *)
+(*    pnobs_tr_le_wf_at b w0 c1 c2  --  `pnobs_tr_le_wf` plus the ONE  *)
+(*      antecedent conjunct `pwext (panchor sto) w0`                   *)
+(*    pnobs_tr_eq_wf_at b w0 c1 c2  --  both directions                *)
+(*                                                                     *)
+(*  and the indexed law                                                *)
+(*                                                                     *)
+(*    law_right_identity_ext_nom_cons_at b w0 ops pl c f               *)
+(*      = pequivariant_fn_at b.b_rel w0 f                              *)
+(*        ==> pnobs_tr_eq_wf_at b w0 <lhs> <rhs>                       *)
+(*                                                                     *)
+(*  THE SEVEN CHECKS:                                                  *)
+(*                                                                     *)
+(*   1. DEGENERATION AT `w0 = []`: PROVED, as a biconditional at the   *)
+(*      relation (`lemma_pnobs_tr_le_wf_at_empty`,                     *)
+(*      `lemma_pnobs_tr_eq_wf_at_empty`) and at the law                *)
+(*      (`lemma_law_ri_ext_cons_at_empty`), whose right-hand side is   *)
+(*      written in EXISTING symbols only.  B2b.9's law implies the     *)
+(*      indexed one there (`lemma_law_ri_ext_cons_at_empty_of_cons`).  *)
+(*   2. CAPTURE ADMITTED: PROVED                                       *)
+(*      (`guard_check2_capture_conforms_at_pin`), with the "actually   *)
+(*      uses it" half checked by RUNNING the machine -- completes      *)
+(*      where the store owns key 3, `PStuck` where it does not.        *)
+(*   3. GUESSING REFUSED: PROVED, twice --                             *)
+(*      `guard_check3_guess_refused_at_pin` for a term differing from  *)
+(*      the admitted one in ONE NUMBER, and                            *)
+(*      `guard_check3_branch_refused_at_pin` for raw-number branching. *)
+(*   4. IDENTITY ADMITTED: PROVED                                      *)
+(*      (`guard_check4_identity_conforms_at_pin`).                     *)
+(*   5. ORDERING REFUSED AT A PINNING PROVENANCE: PROVED               *)
+(*      (`guard_check5_ordering_refused_at_pin`).                      *)
+(*   6. THE INSTANCE, NON-VACUOUSLY: PROVED                            *)
+(*      (`guard_ri_ext_cons_at_survives_xapply`).  Non-vacuity is      *)
+(*      FOUR separate facts, each discharged: the restriction is       *)
+(*      INHABITED by `gsto` and EXCLUDES the empty store; `gsto` is a  *)
+(*      store the MACHINE BUILDS -- a judged program run from `pload`  *)
+(*      leaves exactly it at exactly counter 4                         *)
+(*      (`guard_gsto_is_machine_built`), so the inhabitant is not a    *)
+(*      fiction, and it could not be a store holding key 3 alone,      *)
+(*      since `palloc` only conses; the store is inside B2b.7's        *)
+(*      `pnobs_dom` on BOTH sides at a NON-EMPTY store; and both sides *)
+(*      RUN on it, to `PDone` and the same empty trace.  The world     *)
+(*      exhibited contains all FOUR anchor pairs as well as the answer *)
+(*      pair, so the store correspondence is checked at every          *)
+(*      pre-existing handle too.                                       *)
+(*   7. REUSE ACROSS AN ALLOCATION: PROVED                             *)
+(*      (`lemma_law_ri_ext_cons_at_reused_after_alloc`, and            *)
+(*      `guard_check7_capture_survives_alloc` at the fixture).  The    *)
+(*      `requires` mentions only the consumer proof at `w0` and the    *)
+(*      law at `w0`; no obligation at the extended world appears.      *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - `law_right_identity_ext_nom_cons_at` is NOT PROVED, in general  *)
+(*     or at any instance.  `guard_ri_ext_cons_at_survives_xapply`     *)
+(*     exhibits the BODY of `pnobs_tr_eq_wf_at` at ONE configuration,  *)
+(*     exactly as B2b.6 and B2b.9 did at theirs;                       *)
+(*   - the indexed law and B2b.9's are INCOMPARABLE at a non-empty     *)
+(*     `w0`: both hypothesis and conclusion weaken, so neither         *)
+(*     implies the other, and no such implication is claimed.  Only    *)
+(*     the `w0 = []` direction is proved;                              *)
+(*   - the computation-level relation, its lift, and B2b.3b are NOT    *)
+(*     touched;                                                        *)
+(*   - NO administrative congruence is stated or used.  Nothing here   *)
+(*     identifies `c` with `pbind c PVar`;                             *)
+(*   - `pcrel`, `pxrel`, `psrel`, `padm_stack`, `pnobs_tr_le`,         *)
+(*     `pnobs_tr_le_wf`, `pnobs_tr_eq_wf`, `pnobs_dom`, `panchor`,     *)
+(*     `pwext`, `pfn_rel_at`, `pequivariant_fn_at`, `pconsumer_nom`,   *)
+(*     `law_right_identity_ext_nom`,                                   *)
+(*     `law_right_identity_ext_nom_cons` and every definition of       *)
+(*     B2b.9 and earlier are UNTOUCHED.  B2b.10 appends;               *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
+(* ================================================================== *)
