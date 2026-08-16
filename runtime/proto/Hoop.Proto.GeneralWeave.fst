@@ -19084,3 +19084,602 @@ let guard_apply_wb_independent_of_apply_eq ()
 (*     `pboundary`'s new `b_apply_wb` field;                           *)
 (*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.8 -- ADJUDICATION GATE: THE ADMINISTRATIVE BIND-FRAME          *)
+(*  CANDIDATE                                                          *)
+(*                                                                     *)
+(*  Everything below is ADDITIVE.  `pcrel`, `pxrel`, `psrel`,          *)
+(*  `padm_stack`, `pnobs_tr_le`, `pnobs_tr_le_wf`, `pnobs_dom`, the    *)
+(*  five `law_*_nom`, `law_right_identity_ext_nom` and every other     *)
+(*  definition above is UNTOUCHED.                                     *)
+(*                                                                     *)
+(*  THE CANDIDATE, in the words B2b.6's ledger left it in:             *)
+(*                                                                     *)
+(*    the left side runs `POp (POp (PVar z) PVar) xg` where the right  *)
+(*    runs `POp (PVar z) xg`, so the left pushes one extra             *)
+(*    `PBindF PVar` frame, and whether THAT frame can be captured      *)
+(*    into a residual is a different question with a different         *)
+(*    answer.                                                          *)
+(*                                                                     *)
+(*  WHY IT IS A DIFFERENT QUESTION.  B2b.6's candidate was a `PModeF`  *)
+(*  reaching a stored residual, and it died at `pno_mode`.  This one   *)
+(*  is a `PBindF` reaching a stored residual, and NEITHER `pno_floor`  *)
+(*  NOR `pno_mode` LOOKS AT `PBindF` AT ALL -- so `presid_wf` accepts  *)
+(*  it, `pstore_resid_wf` accepts it, `pconf_ok` accepts it, and       *)
+(*  B2b.7's `pnobs_dom` accepts it.  The one-line disposal that        *)
+(*  `guard_nobs_dom_kills_the_candidate` gives for the marker route    *)
+(*  is NOT AVAILABLE HERE, and Q2 below proves that rather than        *)
+(*  asserting it.                                                      *)
+(*                                                                     *)
+(*  Five questions are asked, in order.                                *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 1 -- IS IT WRITABLE AS A WELL-TYPED CONFIGURATION?        *)
+(* ------------------------------------------------------------------ *)
+
+(** The two residuals the candidate needs in the store: a boundary head --
+    which is what `pyield` always writes -- the consumer's own `PBindF g`,
+    which BOTH sides push, and, on the left only, the administrative
+    `PBindF PVar` that the restatement's extra `pure` puts above it. This is
+    the shortest such pair; nothing below depends on the length. *)
+let qb_resid_l : pstack fv fcl = [PBoundaryF; PBindF (PVar #fv #fcl); PBindF xg]
+let qb_resid_r : pstack fv fcl = [PBoundaryF; PBindF xg]
+
+let qb_ctx_l : pctx fv fcl = PCtxRequests fone qb_resid_l (PVar #fv #fcl)
+let qb_ctx_r : pctx fv fcl = PCtxRequests fone qb_resid_r (PVar #fv #fcl)
+
+let qb_sto_l : pstore fv fcl = [(0, qb_ctx_l)]
+let qb_sto_r : pstore fv fcl = [(0, qb_ctx_r)]
+
+(** The same ambient stack B2b.6's candidate stood on -- one carrying a scope
+    floor -- so that the two adjudications are comparable line for line. *)
+let qb_flk : pstack fv fcl = [PScopeF]
+
+let qb_cf_l : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) qb_flk; store = qb_sto_l; next = 1 }
+let qb_cf_r : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) qb_flk; store = qb_sto_r; next = 1 }
+
+(**
+ * **QUESTION 1: YES.** PROVED. The candidate is writable as data, the two
+ * stores hold contexts at key 0, and the two residuals differ by exactly one
+ * frame -- three against two.
+ *
+ * **And B2b.6's predicate does NOT catch it.** `pcand_at 0` is `false` on both
+ * stores: there is no `PModeF` anywhere, so the marker route's whole apparatus
+ * is silent here. That is the first half of "a different question".
+ *)
+let guard_qb_q1_writable ()
+  : Lemma (pstore_lookup 0 qb_sto_l == Some qb_ctx_l /\
+           pstore_lookup 0 qb_sto_r == Some qb_ctx_r /\
+           length (presid_of qb_ctx_l) == 3 /\
+           length (presid_of qb_ctx_r) == 2 /\
+           pcand_at 0 qb_sto_l == false /\
+           pcand_at 0 qb_sto_r == false)
+  = assert_norm (pstore_lookup 0 qb_sto_l == Some qb_ctx_l);
+    assert_norm (pstore_lookup 0 qb_sto_r == Some qb_ctx_r);
+    assert_norm (length (presid_of qb_ctx_l) == 3);
+    assert_norm (length (presid_of qb_ctx_r) == 2);
+    assert_norm (pcand_at 0 qb_sto_l == false);
+    assert_norm (pcand_at 0 qb_sto_r == false)
+
+(**
+ * **AND THE TWO STORED CONTEXTS ARE UNRELATED, AT EVERY WORLD.** PROVED, by
+ * length alone: `pframes_rel` has no clause relating lists of different
+ * lengths, so no world can identify a three-frame residual with a two-frame
+ * one. This is what makes the candidate a candidate -- if the frame ever got
+ * into a store on one side and not the other, at a key the world speaks for,
+ * `psrel` would fail and the restated law with it.
+ *)
+let guard_qb_contexts_unrelated (w: pworld)
+  : Lemma (~(pxrel fcl_rel w qb_ctx_l qb_ctx_r))
+  = introduce pxrel fcl_rel w qb_ctx_l qb_ctx_r ==> False
+    with begin
+      lemma_pxrel_resid fcl_rel w qb_ctx_l qb_ctx_r;
+      lemma_pkrel_length fcl_rel w (presid_of qb_ctx_l) (presid_of qb_ctx_r);
+      assert_norm (length (presid_of qb_ctx_l) == 3);
+      assert_norm (length (presid_of qb_ctx_r) == 2)
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 2 -- DOES IT SATISFY `pnobs_dom`?                         *)
+(*                                                                     *)
+(*  IT DOES.  THE DOMAIN GATE OF B2b.7 IS SILENT ON THIS CANDIDATE,    *)
+(*  AND THAT IS THE POINT OF ASKING IT FIRST.                          *)
+(* ------------------------------------------------------------------ *)
+
+(** `PVar` is self-related at every anchor. PROVED. *)
+let lemma_qb_pvar_selfrel (w: pworld)
+  : Lemma (pfn_rel_at fcl_rel w (PVar #fv #fcl) (PVar #fv #fcl))
+  = introduce forall (w': pworld) (y1 y2: pval fv).
+      (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+       pcrel fcl_rel w' (PVar y1) (PVar y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat).
+                   pcomp_rel #fv #fcl fcl_rel n w' (PVar y1) (PVar y2)
+               with ())
+
+(** And so is `xg`, which performs a fixed operation with no payload. PROVED;
+    this is `lemma_xpost_selfrel`'s argument at the other of the two functions
+    with that body. *)
+let lemma_qb_xg_selfrel (w: pworld) : Lemma (pfn_rel_at fcl_rel w xg xg)
+  = introduce forall (w': pworld) (y1 y2: pval fv).
+      (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+       pcrel fcl_rel w' (xg y1) (xg y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat).
+                   pcomp_rel #fv #fcl fcl_rel n w' (PPerform "Echo" "op" [])
+                                                   (PPerform "Echo" "op" [])
+               with ())
+
+let lemma_qb_resid_l_selfrel (w: pworld)
+  : Lemma (pkrel fcl_rel w qb_resid_l qb_resid_l)
+  = lemma_qb_pvar_selfrel w;
+    lemma_qb_xg_selfrel w;
+    lemma_pfrel_bind fcl_rel w (PVar #fv #fcl) (PVar #fv #fcl);
+    lemma_pfrel_bind fcl_rel w xg xg;
+    lemma_pfrel_boundary #fv #fcl fcl_rel w;
+    lemma_pkrel_nil #fv #fcl fcl_rel w;
+    lemma_pkrel_cons fcl_rel w (PBindF xg) (PBindF xg)
+                     ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+    lemma_pkrel_cons fcl_rel w (PBindF (PVar #fv #fcl)) (PBindF (PVar #fv #fcl))
+                     [PBindF xg] [PBindF xg];
+    lemma_pkrel_cons fcl_rel w (PBoundaryF <: pframe fv fcl) PBoundaryF
+                     [PBindF (PVar #fv #fcl); PBindF xg]
+                     [PBindF (PVar #fv #fcl); PBindF xg]
+
+let lemma_qb_resid_r_selfrel (w: pworld)
+  : Lemma (pkrel fcl_rel w qb_resid_r qb_resid_r)
+  = lemma_qb_xg_selfrel w;
+    lemma_pfrel_bind fcl_rel w xg xg;
+    lemma_pfrel_boundary #fv #fcl fcl_rel w;
+    lemma_pkrel_nil #fv #fcl fcl_rel w;
+    lemma_pkrel_cons fcl_rel w (PBindF xg) (PBindF xg)
+                     ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+    lemma_pkrel_cons fcl_rel w (PBoundaryF <: pframe fv fcl) PBoundaryF
+                     [PBindF xg] [PBindF xg]
+
+let lemma_qb_ctx_l_selfrel (w: pworld) : Lemma (pxrel fcl_rel w qb_ctx_l qb_ctx_l)
+  = lemma_qb_resid_l_selfrel w;
+    lemma_qb_pvar_selfrel w;
+    lemma_pxrel_requests fcl_rel w fone fone qb_resid_l qb_resid_l
+                         (PVar #fv #fcl) (PVar #fv #fcl)
+
+let lemma_qb_ctx_r_selfrel (w: pworld) : Lemma (pxrel fcl_rel w qb_ctx_r qb_ctx_r)
+  = lemma_qb_resid_r_selfrel w;
+    lemma_qb_pvar_selfrel w;
+    lemma_pxrel_requests fcl_rel w fone fone qb_resid_r qb_resid_r
+                         (PVar #fv #fcl) (PVar #fv #fcl)
+
+(**
+ * **QUESTION 2: YES, AND THE GATE DOES NOT STOP HERE.** PROVED, and every
+ * conjunct of `pnobs_dom` is discharged rather than assumed:
+ *
+ *   - `pequivariant_k_at` of `[PScopeF]`, at the store's own anchor -- a floor
+ *     carries no closure, so it is self-related at every world;
+ *   - `pstore_equivariant_at` of each store -- the residual's two functions are
+ *     `PVar` and `xg`, and neither captures a handle;
+ *   - `psfresh` at 1 -- key 0 is the only key;
+ *   - `pconf_ok`, and THIS is the conjunct that killed the marker route.
+ *     `pconf_wf` holds; `pstate_wb` holds; and `pstore_resid_wf` is **`true`**,
+ *     because `presid_wf` asks for a boundary or site head with no floor and no
+ *     marker beneath it, and a `PBindF` is neither.
+ *
+ * So the configuration B2b.7 was built to exclude is excluded, and THIS one is
+ * not. The domain restriction is silent on the administrative bind frame.
+ *)
+let guard_qb_q2_in_domain (c: pcomp fv fcl)
+  : Lemma (requires pterm_wb c)
+          (ensures pstore_resid_wf qb_sto_l == true /\
+                   pstore_resid_wf qb_sto_r == true /\
+                   pnobs_dom xboundary c qb_flk qb_sto_l 1 /\
+                   pnobs_dom xboundary c qb_flk qb_sto_r 1)
+  = assert_norm (pstore_resid_wf qb_sto_l == true);
+    assert_norm (pstore_resid_wf qb_sto_r == true);
+    assert_norm (pwb qb_flk == true);
+    assert_norm (xboundary.b_rel == fcl_rel);
+    lemma_wb_frames_nil #fv #fcl ();
+    lemma_wb_frame_inert (PScopeF <: pframe fv fcl);
+    lemma_wb_frames_cons_bwd (PScopeF <: pframe fv fcl) ([] <: pstack fv fcl);
+    introduce forall (w: pworld). pkrel fcl_rel w qb_flk qb_flk
+    with (introduce forall (n: nat). pframes_rel fcl_rel n w qb_flk qb_flk with ());
+    introduce forall (w: pworld). pxrel fcl_rel w qb_ctx_l qb_ctx_l
+    with lemma_qb_ctx_l_selfrel w;
+    introduce forall (w: pworld). pxrel fcl_rel w qb_ctx_r qb_ctx_r
+    with lemma_qb_ctx_r_selfrel w;
+    introduce forall (i: nat) (cx: pctx fv fcl). (memP (i, cx) qb_sto_l ==> i < 1)
+    with (introduce _ ==> _ with ());
+    introduce forall (i: nat) (cx: pctx fv fcl). (memP (i, cx) qb_sto_r ==> i < 1)
+    with (introduce _ ==> _ with ());
+    pnobs_dom_fold xboundary c qb_flk qb_sto_l 1 ();
+    pnobs_dom_fold xboundary c qb_flk qb_sto_r 1 ()
+
+(**
+ * **THE TWO CANDIDATES, SIDE BY SIDE, AT THE PREDICATE THAT SEPARATES THEM.**
+ * PROVED, and it is one line each way. B2b.6's store is refused by
+ * `pstore_resid_wf` and hence by `pnobs_dom`; this one is accepted by both, and
+ * the reason is visible in the predicates: `pno_mode` sees the marker and
+ * NOTHING sees the bind frame.
+ *)
+let guard_qb_domain_gate_is_silent_here ()
+  : Lemma (pstore_resid_wf qcand_sto_l == false /\
+           pstore_resid_wf qb_sto_l == true /\
+           pno_mode ([PBindF (PVar #fv #fcl); PBindF xg] <: pstack fv fcl) == true /\
+           pno_floor ([PBindF (PVar #fv #fcl); PBindF xg] <: pstack fv fcl) == true /\
+           presid_wf qb_resid_l == true)
+  = assert_norm (pstore_resid_wf qcand_sto_l == false);
+    assert_norm (pstore_resid_wf qb_sto_l == true);
+    assert_norm (pno_mode ([PBindF (PVar #fv #fcl); PBindF xg] <: pstack fv fcl) == true);
+    assert_norm (pno_floor ([PBindF (PVar #fv #fcl); PBindF xg] <: pstack fv fcl) == true);
+    assert_norm (presid_wf qb_resid_l == true)
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 4, TAKEN BEFORE QUESTION 3 BECAUSE IT SUBSUMES IT         *)
+(*                                                                     *)
+(*  CAN THE MACHINE PRODUCE IT -- DOES SOME TRANSITION STORE IT?       *)
+(*  IT CANNOT, AND THE REASON IS NOT AN INVARIANT ON STORES BUT THE    *)
+(*  LIFETIME OF THE FRAME.                                             *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **WHAT THE RESTATED LAW'S TWO DRIVES ACTUALLY INSTALL.** PROVED by
+ * normalisation -- `ctx_drive` and `extend_ctx_C` build their closures
+ * internally, so this is `assert_norm` and not `assert`.
+ *
+ * The residual is COPIED, frame for frame, by `extend_ctx_C`; the only
+ * difference the extra `pure` makes is inside the `PModeF` responder, and it is
+ * one `pbind _ PVar` around the `post` the context already carried.
+ *)
+let lemma_qb_law_responders
+    (#v #cl: Type) (pl: plan v cl) (x: pval v) (rs: pstack v cl)
+    (post g: pval v -> pcomp v cl)
+  : Lemma (ctx_drive MExtend
+             (extend_ctx_C pl (PCtxRequests x rs post) (PVar #v #cl)) g
+             == PSplice (rs @ [PModeF MExtend
+                                 (fun z -> pbind (pbind (post z) (PVar #v #cl)) g)])
+                        (PVar x) /\
+           ctx_drive MExtend (PCtxRequests x rs post) g
+             == PSplice (rs @ [PModeF MExtend (fun z -> pbind (post z) g)])
+                        (PVar x))
+  = assert_norm (ctx_drive MExtend
+                   (extend_ctx_C pl (PCtxRequests x rs post) (PVar #v #cl)) g
+                 == PSplice (rs @ [PModeF MExtend
+                                     (fun z -> pbind (pbind (post z) (PVar #v #cl)) g)])
+                            (PVar x));
+    assert_norm (ctx_drive MExtend (PCtxRequests x rs post) g
+                 == PSplice (rs @ [PModeF MExtend (fun z -> pbind (post z) g)])
+                            (PVar x))
+
+(**
+ * **AND ON A `PCtxDone` THE EXTRA `pure` IS DROPPED OUTRIGHT**, so that arm
+ * carries no difference at all. PROVED, by conversion.
+ *)
+let guard_qb_done_arm_has_no_difference
+    (#v #cl: Type) (pl: plan v cl) (y: pval v) (g: pval v -> pcomp v cl)
+  : Lemma (extend_ctx_C pl (PCtxDone y) (PVar #v #cl) == PCtxDone y /\
+           ctx_drive MExtend (extend_ctx_C pl (PCtxDone y) (PVar #v #cl)) g
+             == ctx_drive MExtend (PCtxDone y) g)
+  = ()
+
+(**
+ * **AND THE `post` OF EVERY CONTEXT PRODUCTION STORES IS `PVar`.** PROVED, from
+ * `pyield` and `palloc` and nothing else. This is the fact that fixes the shape
+ * of the two responders in the restated law: the context the common prefix
+ * `o_enter_ctx pl c` produces is written by a yield, so `post z` is `PVar z` --
+ * A VALUE -- and not an arbitrary computation.
+ *)
+let lemma_qb_pyield_post_is_pvar
+    (#v #cl: Type) (x: pval v) (hd: pframe v cl)
+    (rest: pstack v cl) (cf: pconf v cl)
+  : Lemma (ensures (match pcut_scope rest with
+                    | None -> True
+                    | Some (above, _) ->
+                      pstore_lookup cf.next (pyield x hd rest cf).store
+                        == Some (PCtxRequests x (hd :: above) (PVar #v #cl))))
+  = ()
+
+(**
+ * **THE ADMINISTRATIVE FRAME IS CONSUMED BY THE VERY NEXT TRANSITION, AND THAT
+ * TRANSITION CHANGES NOTHING ELSE.** PROVED, at `pstep_tr` -- the INSTRUMENTED
+ * step, so the trace is covered too -- for every lookup, every interpreter,
+ * every value, every stack, every store and every counter. No invariant is
+ * assumed and no reachability is used.
+ *
+ * `PBindF PVar` applied to a value gives that value back, so the state before
+ * and the state after differ in the stack alone.
+ *)
+let lemma_qb_admin_frame_is_popped
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (z: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep_tr lk apply
+             ({ st = PStep (PVar z) (PBindF (PVar #v #cl) :: k);
+                store = sto; next = n0 })
+           == (({ st = PStep (PVar z) k; store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = ()
+
+(**
+ * **AND SO THE TWO RESPONDERS RECONVERGE, ON THE NOSE, AFTER TWO EXTRA SILENT
+ * STEPS.** PROVED, for every lookup, every interpreter, every value `z`, every
+ * consumer function `g`, every ambient stack, every store and every counter.
+ *
+ * This is the whole answer to question 4, and it is stronger than a store
+ * invariant. Follow the left:
+ *
+ * ```text
+ *   PStep (POp (POp (PVar z) PVar) g)  k
+ *   PStep (POp (PVar z) PVar)          (PBindF g :: k)
+ *   PStep (PVar z)                     (PBindF PVar :: PBindF g :: k)   <- the frame
+ *   PStep (PVar z)                     (PBindF g :: k)
+ *   PStep (g z)                        k
+ * ```
+ *
+ * against the right's two steps to the same last line. The administrative frame
+ * exists in EXACTLY ONE configuration, its head is a `PBindF`, and the
+ * computation standing on it is `PVar z` -- A VALUE, whose only transition is to
+ * pop it. Nothing is ever pushed above it; the store is the same at every one of
+ * the five lines; the trace is empty.
+ *
+ * **Why that closes the candidate.** A residual enters a store through `pyield`
+ * and through nothing else (`lemma_pstep_yield_guard`), and `pyield` is reached
+ * only from the two value rules whose head frame is `PBoundaryF` or `PSiteF`.
+ * The administrative frame is never below such a head, because nothing is ever
+ * below anything while it is on the stack: it is at the top for one step and
+ * gone. So no yield can cut a segment containing it, and no store can come to
+ * hold it.
+ *
+ * **This is NOT the interlock that closed B2b.6.** There the argument was
+ * `pfind_mode`'s `None` against `pcut_scope`'s nearest floor. Here neither
+ * search is mentioned. The frame simply has no lifetime in which anything can
+ * happen to it.
+ *)
+let lemma_qb_reconverges
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (z: pval v) (g: pval v -> pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (let cfl : pconf v cl =
+             { st = PStep (pbind (pbind (PVar z) (PVar #v #cl)) g) k;
+               store = sto; next = n0 } in
+           let cfr : pconf v cl =
+             { st = PStep (pbind (PVar z) g) k; store = sto; next = n0 } in
+           let target : pconf v cl =
+             { st = PStep (g z) k; store = sto; next = n0 } in
+           psteps lk apply 2 cfl
+             == ({ st = PStep (PVar z) (PBindF (PVar #v #cl) :: PBindF g :: k);
+                   store = sto; next = n0 }) /\
+           prun lk apply 4 cfl == (target, ([] <: list string)) /\
+           prun lk apply 2 cfr == (target, ([] <: list string)))
+  = ()
+
+(**
+ * **QUESTION 4: NO -- NO TRANSITION STORES IT, AND NO TRANSITION EMITS ON
+ * ACCOUNT OF IT.** PROVED, as the store-and-trace half of the reconvergence,
+ * stated on its own because it is the answer.
+ *
+ * The store and the counter at the end of the left's four steps are the store
+ * and the counter it started with. Nothing was allocated; in particular no
+ * residual was written.
+ *)
+let guard_qb_q4_nothing_is_stored
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (z: pval v) (g: pval v -> pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (let cfl : pconf v cl =
+             { st = PStep (pbind (pbind (PVar z) (PVar #v #cl)) g) k;
+               store = sto; next = n0 } in
+           (fst (prun lk apply 4 cfl)).store == sto /\
+           (fst (prun lk apply 4 cfl)).next == n0 /\
+           snd (prun lk apply 4 cfl) == ([] <: list string) /\
+           (psteps lk apply 1 cfl).store == sto /\
+           (psteps lk apply 2 cfl).store == sto /\
+           (psteps lk apply 3 cfl).store == sto)
+  = lemma_qb_reconverges lk apply z g k sto n0
+
+(**
+ * **AND THE ONE CONFIGURATION THE FRAME LIVES IN IS NOT A YIELD
+ * CONFIGURATION.** PROVED, and it is the structural reason stated as data: the
+ * head of the stack there is a `PBindF`, and `pyield`'s two callers require a
+ * `PBoundaryF` or a `PSiteF` head (`lemma_pstep_yield_guard`'s second
+ * hypothesis).
+ *)
+let guard_qb_q4_head_is_not_a_yield_head
+    (#v #cl: Type) (g: pval v -> pcomp v cl) (k: pstack v cl)
+  : Lemma (~(PBoundaryF? (PBindF (PVar #v #cl) <: pframe v cl)) /\
+           ~(PSiteF? (PBindF (PVar #v #cl) <: pframe v cl)) /\
+           presid_wf ((PBindF (PVar #v #cl) :: PBindF g :: k) <: pstack v cl) == false)
+  = ()
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 3 -- REACHABLE FROM `pload`?                              *)
+(*                                                                     *)
+(*  ANSWERED HONESTLY, AND IT IS TWO DIFFERENT ANSWERS FOR TWO         *)
+(*  DIFFERENT READINGS OF THE QUESTION.                                *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **A `PBindF` IN A STORED RESIDUAL IS NOT EXCLUDED BY ANY INVARIANT THIS FILE
+ * HAS.** PROVED: `presid_wf` accepts `qb_resid_l`, so nothing in the store
+ * layer, in `pconf_ok`, or in `pnobs_dom` rules such a store out. The candidate
+ * is therefore NOT disposed of by unreachability-from-well-formedness, which is
+ * exactly how B2b.6's was disposed of (`lemma_cand_unreachable_from_wf_store`).
+ *
+ * **What is proved and what is not.** That the SHAPE is admitted is proved.
+ * That some run REACHES this exact pair of stores is NOT proved and NOT
+ * refuted here: no witness is exhibited and no impossibility is derived. The
+ * candidate is closed at question 4 instead, and question 4's closure is about
+ * the ADMINISTRATIVE frame -- the one the restatement's extra `pure` pushes --
+ * and not about `PBindF` frames in general.
+ *)
+let guard_qb_q3_shape_is_admitted (c: pcomp fv fcl)
+  : Lemma (requires pterm_wb c)
+          (ensures presid_wf qb_resid_l == true /\
+                   pstore_resid_wf qb_sto_l == true /\
+                   pnobs_dom xboundary c qb_flk qb_sto_l 1)
+  = guard_qb_q2_in_domain c;
+    assert_norm (presid_wf qb_resid_l == true)
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 5 -- DO THE TWO SIDES OBSERVE DIFFERENTLY?                *)
+(*                                                                     *)
+(*  NOT AT THE ONE INTERPRETER IN THIS FILE THAT CAN COUNT FRAMES.     *)
+(* ------------------------------------------------------------------ *)
+
+(** The restated right identity's two sides, at the MEASURING interpreter --
+    the one whose clause answers with the LENGTH of the continuation it is
+    handed, and the one B2b.3 uses to refute the algebraic law by counting
+    bracketings (`guard_bce_runs`: four against three). *)
+let qb_lhs2 : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl (PVar fone))
+        (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                         (fun cy -> ref_ops.o_extend xpl cy xg))
+let qb_rhs2 : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl (PVar fone))
+        (fun cx -> ref_ops.o_extend xpl cx xg)
+
+let qb_cf2_l : pconf fv fcl =
+  { st = PStep qb_lhs2 ([] <: pstack fv fcl); store = []; next = 0 }
+let qb_cf2_r : pconf fv fcl =
+  { st = PStep qb_rhs2 ([] <: pstack fv fcl); store = []; next = 0 }
+
+(**
+ * **QUESTION 5: THE FRAME-COUNTING INTERPRETER CANNOT TELL THE TWO SIDES
+ * APART.** PROVED by running the machine at `xapply2`, which is the interpreter
+ * whose answer IS the number of frames in the continuation it receives, and
+ * which therefore separates bracketings that differ by one `PBindF`
+ * (`guard_bce_runs`).
+ *
+ * Both sides answer `PV (FI 2)`, silently. The administrative frame is not in
+ * the continuation the clause is handed, because by the time `xg` performs it
+ * has already been popped -- which is `lemma_qb_reconverges` read at this
+ * fixture.
+ *
+ * **What this is NOT.** It is ONE plan, ONE body, ONE extension and ONE
+ * interpreter. It does not prove the restated law, and it does not prove that
+ * no consumer can separate the two sides.
+ *)
+let guard_qb_q5_counting_interpreter_agrees ()
+  : Lemma ((fst (prun flook xapply2 80 qb_cf2_l)).st == PDone (PV (FI 2)) /\
+           (fst (prun flook xapply2 80 qb_cf2_r)).st == PDone (PV (FI 2)) /\
+           snd (prun flook xapply2 80 qb_cf2_l) == ([] <: list string) /\
+           snd (prun flook xapply2 80 qb_cf2_r) == ([] <: list string))
+  = assert_norm ((fst (prun flook xapply2 80 qb_cf2_l)).st == PDone (PV (FI 2)));
+    assert_norm ((fst (prun flook xapply2 80 qb_cf2_r)).st == PDone (PV (FI 2)));
+    assert_norm (snd (prun flook xapply2 80 qb_cf2_l) == ([] <: list string));
+    assert_norm (snd (prun flook xapply2 80 qb_cf2_r) == ([] <: list string))
+
+(**
+ * **AND THE MEASURING INTERPRETER REALLY DOES SEPARATE A ONE-FRAME
+ * DIFFERENCE**, so the agreement above is a fact about this pair and not about
+ * a blind instrument. PROVED, by re-running B2b.3's own fixture: four frames
+ * against three, at the same lookup and the same interpreter.
+ *)
+let guard_qb_q5_instrument_is_not_blind ()
+  : Lemma ((fst (prun flook xapply2 40 bcf_l)).st == PDone (PV (FI 4)) /\
+           (fst (prun flook xapply2 40 bcf_r)).st == PDone (PV (FI 3)))
+  = guard_bce_runs ()
+
+(* ================================================================== *)
+(*  B2b.8 LEDGER                                                       *)
+(*                                                                     *)
+(*  Q1 (writable as data?): YES.  `guard_qb_q1_writable` -- the two    *)
+(*  stores exist, hold contexts at key 0 whose residuals are three     *)
+(*  frames against two, and `guard_qb_contexts_unrelated` proves them  *)
+(*  unrelated at EVERY world, by length.  B2b.6's `pcand_at` is        *)
+(*  `false` on both: this is a different candidate.                    *)
+(*                                                                     *)
+(*  Q2 (`pnobs_dom`?): **YES**, AND THAT IS THE NEWS.                  *)
+(*  `guard_qb_q2_in_domain` builds the domain membership at both       *)
+(*  stores, at `xboundary`, on an ambient stack carrying a floor, for  *)
+(*  every judged control computation.  All four conjuncts hold,        *)
+(*  including `pconf_ok`, whose store layer is `true` here and `false` *)
+(*  for B2b.6's candidate: `guard_qb_domain_gate_is_silent_here`       *)
+(*  puts the two side by side.  The one-line disposal                  *)
+(*  `guard_nobs_dom_kills_the_candidate` gives for the marker route is *)
+(*  NOT AVAILABLE, because `pno_floor` and `pno_mode` do not look at   *)
+(*  `PBindF`.                                                          *)
+(*                                                                     *)
+(*  Q3 (reachable?): THE SHAPE IS ADMITTED.                            *)
+(*  `guard_qb_q3_shape_is_admitted`.  Whether some run reaches this    *)
+(*  exact pair is NEITHER proved NOR refuted here -- no witness was    *)
+(*  found and no impossibility was derived.  Q3 is not what closes     *)
+(*  the candidate.                                                     *)
+(*                                                                     *)
+(*  Q4 (can the machine produce it?): **NO**, AND THIS IS THE          *)
+(*  CLOSURE.  `lemma_qb_reconverges` -- for every lookup, every        *)
+(*  interpreter, every value, every consumer function, every ambient   *)
+(*  stack, every store and every counter, the left's responder reaches *)
+(*  the right's configuration in four steps against two, with the      *)
+(*  SAME store, the SAME counter and an EMPTY trace                    *)
+(*  (`guard_qb_q4_nothing_is_stored`).  The administrative frame       *)
+(*  exists in exactly ONE configuration, whose computation is the      *)
+(*  VALUE `PVar z` and whose stack head is a `PBindF` -- not a         *)
+(*  `PBoundaryF` and not a `PSiteF`                                    *)
+(*  (`guard_qb_q4_head_is_not_a_yield_head`), so `pyield`'s two        *)
+(*  callers do not fire and no residual is written.  Nothing is ever   *)
+(*  pushed above it.  `lemma_qb_pyield_post_is_pvar` is what fixes the *)
+(*  shape: production always writes `post == PVar`, so `post z` is a   *)
+(*  value, so the frame cannot outlive one step.                       *)
+(*                                                                     *)
+(*  Q5 (do the two sides observe differently?): NOT AT THE MEASURING   *)
+(*  INTERPRETER.  `guard_qb_q5_counting_interpreter_agrees` -- both    *)
+(*  sides answer `PV (FI 2)`, silently, at `xapply2`, whose answer is  *)
+(*  the LENGTH of the continuation it is handed.                       *)
+(*  `guard_qb_q5_instrument_is_not_blind` re-runs B2b.3's fixture at   *)
+(*  the same interpreter and gets four against three, so the           *)
+(*  agreement is a fact about this pair.                               *)
+(*                                                                     *)
+(*  VERDICT: NOT A REFUTATION.  The candidate is INSIDE the domain --  *)
+(*  B2b.7's gate does not touch it -- and it is NOT PRODUCIBLE: the    *)
+(*  frame the restatement's extra `pure` pushes is popped by the very  *)
+(*  next transition, with the store, the counter and the trace         *)
+(*  unchanged.                                                         *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - `law_right_identity_ext_nom` is NOT PROVED, in general or at    *)
+(*     any new instance.  This gate refutes a REFUTATION CANDIDATE;    *)
+(*   - `guard_ri_ext_midpoint_no_world`'s negative is UNTOUCHED.  The  *)
+(*     administrative `POp _ PVar` inside the stored `post` of `qext`  *)
+(*     is a REAL difference between two stored contexts; what is       *)
+(*     closed here is only the route by which the corresponding STACK  *)
+(*     FRAME could reach a residual.  The stored-closure difference is *)
+(*     still there and is still what a computation-level               *)
+(*     administrative relation would have to absorb;                   *)
+(*   - NO run-level invariant is proved.  `lemma_qb_reconverges` is    *)
+(*     LOCAL: it is about the five configurations the responder passes *)
+(*     through, for arbitrary surroundings.  It is not a statement     *)
+(*     that no configuration reachable from `pload` ever carries a     *)
+(*     `PBindF PVar` under other frames.  `presid_wf` PERMITS a        *)
+(*     `PBindF` in a residual, and nothing here proves that no run     *)
+(*     ever puts one there -- that is STATED, not proved, in either    *)
+(*     direction;                                                      *)
+(*   - Q5 is answered at ONE interpreter and ONE fixture.  No claim is *)
+(*     made that no consumer separates the two sides;                  *)
+(*   - CONSUMER EQUIVARIANCE and the COMPUTATION-LEVEL ADMINISTRATIVE  *)
+(*     relation are not touched;                                       *)
+(*   - `pcrel`, `pxrel`, `psrel`, `padm_stack`, `pnobs_tr_le`,         *)
+(*     `pnobs_tr_le_wf`, `pnobs_dom`, `law_right_identity_ext_nom` and *)
+(*     every definition of B2b.7 and earlier are UNTOUCHED.  B2b.8     *)
+(*     appends;                                                        *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
+(* ================================================================== *)
+
+(** **AND QUESTION 2's ANSWER IS NOT VACUOUS**, so it is a statement about a
+    configuration and not about an empty hypothesis. PROVED at a concrete
+    control computation: `PVar (PCtxKey 0)`, a value naming the store's one
+    entry, is `pterm_wb`, so both stores are inside the domain. *)
+let guard_qb_q2_in_domain_nonvacuous ()
+  : Lemma (pnobs_dom xboundary (PVar (PCtxKey 0) <: pcomp fv fcl)
+                     qb_flk qb_sto_l 1 /\
+           pnobs_dom xboundary (PVar (PCtxKey 0) <: pcomp fv fcl)
+                     qb_flk qb_sto_r 1 /\
+           ~(pnobs_dom xboundary (PVar (PCtxKey 0) <: pcomp fv fcl)
+                       qb_flk qcand_sto_l 1))
+  = lemma_wb_trivial (PVar (PCtxKey 0) <: pcomp fv fcl);
+    guard_qb_q2_in_domain (PVar (PCtxKey 0) <: pcomp fv fcl);
+    guard_nobs_dom_excludes_the_gap xboundary (PVar (PCtxKey 0) <: pcomp fv fcl)
+                                    qb_flk 1
+
+(* ================================================================== *)

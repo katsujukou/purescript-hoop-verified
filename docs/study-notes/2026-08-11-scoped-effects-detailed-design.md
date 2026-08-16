@@ -4417,6 +4417,92 @@ is exactly two `pterm_wb`s.
 Two of seven mutations did not isolate, and are recorded as not counting, with
 substitutes named for each.
 
+#### The `PBindF` candidate: inside the domain, and harmless anyway
+
+The verdict, at exactly the strength proved:
+
+> The `PBindF` candidate is **not** excluded by the well-formed domain. It is
+> harmless for a different reason: the extra `PBindF PVar` is consumed before
+> either yield rule can observe or capture it, and both sides reconverge to the
+> same configuration with unchanged store, counter and trace.
+
+**The domain gate is silent here, and that is worth knowing about the tool.**
+`pno_floor` looks only at `PScopeF` and `pno_mode` only at `PModeF`, so a
+`PBindF` trips neither; `pstore_resid_wf` of this candidate's store is `true`.
+The one-line disposal that settled the marker candidate does not apply. So
+well-formedness is **not** a filter that removes every inconvenient
+candidate. It removes exactly the configurations that break a machine
+invariant, and this
+one does not break any.
+
+What closes it is frame lifetime, and the lemma is **unconditional** — any
+lookup, interpreter, value, extension, ambient stack, store and counter:
+
+```text
+PStep (POp (POp (PVar z) PVar) g)  k
+PStep (POp (PVar z) PVar)          (PBindF g :: k)
+PStep (PVar z)                     (PBindF PVar :: PBindF g :: k)   ← the frame
+PStep (PVar z)                     (PBindF g :: k)
+PStep (g z)                        k
+```
+
+with the right side reaching the last line in two steps. The supporting facts
+are as sharp: in the one configuration where the frame exists the stack head is
+a `PBindF`, so neither caller of `pyield` fires; and production always stores
+`PVar` for `post`, so `post z` is a *value* and the frame cannot outlive one
+transition.
+
+**This is a different mechanism from the one that closed the marker candidate**
+— no `pfind_mode`, no nearest cut. The domain and the operational semantics
+are each doing their own job.
+
+*Reachability stays undecided, and the adjudication did not need it.*
+
+> Reachability is undecided, but it is not needed for this adjudication:
+> `lemma_qb_reconverges` is unconditional. Even if the candidate configuration
+> arose, the extra frame would disappear before it could affect the residual
+> protocol.
+
+Not "harmless because unreachable" but "harmless because it reconverges".
+
+#### The canonical specimen is elsewhere, and now identified
+
+The most useful thing this gate produced is a correction of where to look:
+
+- `guard_ri_ext_midpoint_no_world`'s negative is **untouched**. The
+  administrative `POp _ PVar` inside `qext`'s `post` is still a real difference
+  between two stored contexts; what was closed is only the route by which the
+  corresponding *stack frame* could reach a residual;
+- so the specimen the computation-level administrative relation must be built
+  against is the mid-point store pair **`(qmid_sl, qmid_sr)`**, not this
+  candidate's frame;
+- the difference there is bind's right unit inside a stored `post`;
+- and **nothing yet shows such a relation would be observationally sound** —
+  that is the whole of what remains to be earned.
+
+#### Two conditions not to be mixed
+
+The next gate is consumer equivariance, and only the first of these:
+
+1. **Nominal consumer equivariance** — the consumer does not observe a
+   renaming of handles. The canonical `ops.o_extend pl _ g` passes; a consumer
+   branching on a raw id fails.
+2. **Administrative congruence** — `c >>= pure` and `c`, or `post`s differing
+   by one, are treated alike. This can only be stated *after* the
+   computation-level relation exists.
+
+Requiring both at once would silently presuppose a relation not yet defined.
+
+When that relation is designed, its first acceptance conditions are concrete:
+
+| # | condition |
+|---|---|
+| 1 | it relates `qmid_sl` and `qmid_sr` |
+| 2 | it does **not** relate `post`s that genuinely return different results |
+| 3 | it preserves the anchor and world extension |
+| 4 | it lifts from `pctx` to the store |
+| 5 | soundness for `pnobs_tr_eq_wf` is shown at the `qext` instance |
+
 #### The order, revised again
 
 1. record this result;
