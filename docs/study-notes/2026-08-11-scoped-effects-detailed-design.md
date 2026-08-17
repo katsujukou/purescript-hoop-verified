@@ -4878,6 +4878,109 @@ This is not a step backwards. The computation-level relation's granularity
 holds, and the remaining hole has narrowed from "what should the relation be"
 to "which soundness theorem connects it to an observation".
 
+#### The identity consumer: refuted, by the specimen itself
+
+The premise is discharged **at every provenance in one proof** —
+`guard_ri_id_consumer_equivariant` takes `w0` as a parameter. So the verdict is
+about the consequent and nothing weaker. Then:
+
+```fstar
+guard_ri_id_law_refuted_at_pin ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 ricons /\
+           ~(law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc ricons))
+```
+
+The `qw_pin3` form is the stronger one: the observation is **antitone** in `w0`,
+so refuting at a larger provenance implies refuting at `[]` and not the reverse.
+It runs from `gsto`, whose anchor is proved to extend `qw_pin3`, so the empty
+store the weaker refutation uses is excluded there.
+
+Scoped exactly:
+
+- of **`ref_ops`**;
+- at an **identity consumer** that satisfies the provenance-indexed premise;
+- under the **well-formed nominal observation** `pnobs_tr_eq_wf_at`;
+- at a **pinned** provenance as well as the empty one;
+- the fixed computational form of right identity is **false**.
+
+This is neither "right identity is impossible in general" nor "the reference
+semantics is broken". It is that the current observation **counts an
+administrative difference as a difference in meaning**, and under that
+observation the law is false.
+
+*And the refutation is the specimen, literally.* The two final stores are
+`qmid_sl` and `qmid_sr`: **at the identity consumer the mid-point is the
+end-point.**
+
+#### Two bridges, and only one of them was ever the missing piece
+
+> The missing bridge to `psrel` was not the missing component: the finalized
+> right-identity law is **false** under the current nominal observation.
+> Retargeting the law to an administrative observation is therefore necessary if
+> this law is to be retained. A different bridge — proving that administrative
+> relatedness is **sound for public observations** — remains to be established.
+
+- `padm_srel ⟹ psrel`: **not a repair**, closed twice over. The specimen is
+  a counterexample to the implication, and the law is genuinely false as stated.
+- `padm_srel` safe as a public observation: **still required**, and it is what
+  B2b.3b is for. Adopting an administrative observation as *the* semantics needs
+  exactly that.
+
+The refutation used no administrative congruence, no simulation and no
+preservation lemma — four machine runs, one uniqueness argument, and the
+mid-point negative. So the ordering judgement was right: this gate was prior to
+the bridge, and its answer is that the bridge is not the missing piece.
+
+#### The earlier positive instance, demoted
+
+> The earlier positive instance did not relate `qext` and `qprod`; a later
+> allocation made them garbage outside the witness world. It remains a valid
+> instance, but it is **not** evidence that the law survives when the
+> administratively different context remains live.
+
+The mechanism, since it is the useful part: `qcons` *performs*, so `xapply`
+fires and allocates one further context on each side, and each run answers with
+**that** later context, leaving `qprod`/`qext` named by no handle, hence
+garbage that `psrel` skips (`guard_qce_world`'s domain is `{2 ↦ 1}`). At
+`ricons` nothing further is allocated, the answers name the specimen itself,
+`pval_rel` forces the world onto `(1, 0)`, and `psrel` must then compare `qext`
+against `qprod` — refused at every well-formed world.
+
+#### What this settles
+
+The question that has been open since the mid-point negative was found —
+
+```text
+is the relation insufficient   or   is the observation too demanding?
+```
+
+— is settled: **the observation is too demanding.** And the way it was settled
+is worth keeping: the difference was invisible while a later allocation left the
+administratively different context as garbage, and became visible by choosing a
+consumer that allocates nothing, so the live handle names the specimen. The hole
+has narrowed again — from "where to build a bridge" to "which observation to
+adopt as the semantics, and how to prove it sound".
+
+One guard was **accepted** and is recorded as weak: deleting the premise-lemma
+call from the refutation still verifies, because `pequivariant_fn_at` unfolds in
+goal position and Z3 re-proves it. What stands in its place is the premise
+proved standalone, plus a mutation showing its negation is not provable.
+
+#### The order, settled by the verdict
+
+1. make `padm_pctx`'s residual clause non-vacuous, with a negative specimen —
+   same `post` with corresponding residuals against same `post` with residuals
+   that mean something different;
+2. place an administrative observation **beside** the nominal one, the latter
+   kept;
+3. check that this gate's identity-consumer counterexample becomes a
+   **positive** instance under the new observation;
+4. check that a performing `post`, an argument-discarding `post`, and differing
+   residuals are still **refused**;
+5. one-step and finite-run preservation for the administrative relation;
+6. soundness against public observation;
+7. only then, prove right identity again.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

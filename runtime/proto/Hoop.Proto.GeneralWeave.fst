@@ -23402,3 +23402,558 @@ let guard_b2b12_summary ()
 (*     above under "the residual clause is not exercised", and it is   *)
 (*     reported rather than engineered around.                         *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.13 -- THE LAW AT THE SIMPLEST CONFORMING CONSUMER              *)
+(*                                                                     *)
+(*  B2b.12 closed with a named gap: `padm_srel` relates the mid-point  *)
+(*  specimen `(qmid_sl, qmid_sr)` that `psrel` refuses, but it does    *)
+(*  NOT discharge the observation's consequent, because it is          *)
+(*  STRICTLY WEAKER (`guard_padm_srel_strictly_weaker`).  A bridge     *)
+(*  from the administrative relation to the observation was the        *)
+(*  obvious next move.                                                *)
+(*                                                                     *)
+(*  THIS BLOCK IS PRIOR TO ANY BRIDGE.  It instantiates the signature  *)
+(*  at the SIMPLEST CONFORMING CONSUMER -- `fun cy -> PVar cy`, which  *)
+(*  returns the handle unchanged and captures nothing -- and DECIDES   *)
+(*  the law there, under the CURRENT observation `pnobs_tr_eq_wf_at`.  *)
+(*                                                                     *)
+(*  THE VERDICT IS: REFUTED.  And the refutation IS the specimen.      *)
+(*                                                                     *)
+(*  The reason is one sentence.  Every instance in this file so far    *)
+(*  took the consumer to be `qcons = fun cy -> ref_ops.o_extend xpl cy *)
+(*  xg`, which PERFORMS, so `xapply` fires, opens a scope of its own,  *)
+(*  and allocates ONE MORE context -- and it is THAT context, the same *)
+(*  on both sides, that each run finally answers with.  The produced   *)
+(*  context and its pure extension are then GARBAGE: no public handle  *)
+(*  names them, the world's domain is `{2 |-> 1}`, and `psrel` never   *)
+(*  looks at them.  That is exactly why `guard_ri_ext_survives_xapply` *)
+(*  goes through while `guard_ri_ext_midpoint_no_world` holds.         *)
+(*                                                                     *)
+(*  At the identity consumer there is no further allocation, so THE    *)
+(*  MID-POINT IS THE END-POINT.  The left answers with the handle of   *)
+(*  the EXTENDED context and the right with the handle of the PRODUCED *)
+(*  one; the observation's `pval_rel` then forces the world to name    *)
+(*  that pair, and `psrel` at the two final stores asks precisely the  *)
+(*  question `guard_ri_ext_midpoint_unrelated` answers NO to.  The     *)
+(*  garbage that saved the earlier instance has become the answer.     *)
+(*                                                                     *)
+(*  So the specimen is NOT an artefact of comparing the two runs       *)
+(*  configuration by configuration, which is all B2b.5 could say of    *)
+(*  it.  It is an OBSTRUCTION AT THE OBSERVATION ITSELF, at a consumer *)
+(*  the hypothesis admits, and therefore placing an administrative     *)
+(*  observation BESIDE `pnobs_tr_eq_wf_at` -- not bridging to it -- is *)
+(*  what the law requires if it is to hold at this consumer.           *)
+(*                                                                     *)
+(*  NO administrative congruence is stated or used here.  Nothing      *)
+(*  identifies `c` with `pbind c PVar`; `padm_srel` is not mentioned.  *)
+(*  NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.  Every   *)
+(*  definition of B2b.12 and earlier is UNTOUCHED; B2b.13 appends.     *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  THE CONSUMER, AND THE TWO SIDES IT MAKES                           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE SIMPLEST CONFORMING CONSUMER.** It returns the handle it is given and
+ * does nothing else: no node is built, no plan travels, no handle is captured
+ * from a store. Every earlier consumer in this file either performs
+ * (`qcons`, `qcons_cap`) or READS the handle as a number (`qcons_branch`,
+ * `qcons_lt`, `qcons_eq`); this one does neither.
+ *)
+let ricons : pval fv -> pcomp fv fcl = fun cy -> PVar cy
+
+(** The signature's two sides at `f := ricons`, `c := qc`, `pl := xpl`,
+    `ops := ref_ops`. Written out so the runs below have a name to stand at;
+    `guard_ri_id_sides_are_the_signature_s` proves they ARE the signature's. *)
+let rilhs : pcomp fv fcl =
+  pbind (ref_ops.o_enter_ctx xpl qc)
+        (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl)) ricons)
+
+let rirhs : pcomp fv fcl = pbind (ref_ops.o_enter_ctx xpl qc) ricons
+
+let ricf_l : pconf fv fcl =
+  { st = PStep rilhs ([] <: pstack fv fcl); store = []; next = 0 }
+let ricf_r : pconf fv fcl =
+  { st = PStep rirhs ([] <: pstack fv fcl); store = []; next = 0 }
+
+(** **THE TWO SIDES ARE THE SIGNATURE'S, AT THIS CONSUMER.** PROVED, by
+    conversion alone -- the two definitions above were written in that shape. *)
+let guard_ri_id_sides_are_the_signature_s ()
+  : Lemma (rilhs == pbind (ref_ops.o_enter_ctx xpl qc)
+                      (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                       ricons) /\
+           rirhs == pbind (ref_ops.o_enter_ctx xpl qc) ricons)
+  = ()
+
+let guard_wb_rilhs () : Lemma (pterm_wb rilhs) = ()
+let guard_wb_rirhs () : Lemma (pterm_wb rirhs) = ()
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 1 -- THE PREMISE IS DISCHARGED, AT EVERY PROVENANCE           *)
+(*                                                                     *)
+(*  This comes FIRST because a "holds" obtained from a failing          *)
+(*  hypothesis is worthless and a "refuted" obtained from one is       *)
+(*  impossible.  The verdict below is about the CONSEQUENT, and this   *)
+(*  is what makes it so.                                               *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE IDENTITY CONSUMER IS EQUIVARIANT AT EVERY PROVENANCE ANCHOR, INCLUDING
+ * THE EMPTY ONE.** PROVED, with `w0` a PARAMETER rather than a fixed world, so
+ * `w0 := []` and `w0 := qw_pin3` are the same proof and neither depends on a
+ * `{:pattern}` firing.
+ *
+ * It is the easiest case the condition has, and that is the point: the consumer
+ * captures nothing, so `pequivariant_fn_at` reduces to "`PVar` applied to
+ * related values gives related computations", which is `pcomp_rel`'s `PVar`
+ * clause and `pval_rel` verbatim. Contrast `qcons_cap`, which needs
+ * `w0` to already name key 3 (`guard_qcons_cap_at_pin`), and `qcons_branch`,
+ * which fails at EVERY anchor (`guard_qcons_branch_refused`).
+ *
+ * So `lemma_law_ri_ext_at_vacuous` is NOT available at this consumer, and
+ * `lemma_law_ri_ext_at_of_conforming` IS.
+ *)
+let guard_ri_id_consumer_equivariant (w0: pworld)
+  : Lemma (pequivariant_fn_at fcl_rel w0 ricons)
+  = introduce forall (w: pworld) (y1 y2: pval fv).
+        (pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+         pcrel fcl_rel w (ricons y1) (ricons y2))
+    with (introduce _ ==> _
+          with (introduce forall (n: nat).
+                    pcomp_rel fcl_rel n w (ricons y1) (ricons y2)
+                with (if n = 0 then ()
+                      else assert_norm (ricons y1 == PVar y1))));
+    pequivariant_fn_at_fold fcl_rel w0 ricons ()
+
+(** The two provenances the verdict is taken at, named as one checked fact so
+    that the discharge is on the record before anything else is claimed. PROVED,
+    as two instances of the above. *)
+let guard_ri_id_premise_discharged ()
+  : Lemma (pequivariant_fn_at fcl_rel ([] <: pworld) ricons /\
+           pequivariant_fn_at fcl_rel qw_pin3 ricons)
+  = guard_ri_id_consumer_equivariant ([] <: pworld);
+    guard_ri_id_consumer_equivariant qw_pin3
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 2 -- THE TWO RUNS, AND WHAT THEY LEAVE BEHIND                 *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **BOTH SIDES CONVERGE, SILENTLY, AND THE TWO FINAL STORES ARE THE MID-POINT
+ * SPECIMEN.** PROVED by running the machine, at the empty ambient stack, the
+ * empty store and counter zero.
+ *
+ * The left answers `PCtxKey 1` -- the handle `PExtendCtxC` allocated for the
+ * pure extension -- and the right answers `PCtxKey 0`, the handle the
+ * production allocated. Compare `guard_qce_runs`, where the answers are
+ * `PCtxKey 2` and `PCtxKey 1`: there `xapply` allocated one more context on
+ * each side and it is THAT pair the answers name.
+ *)
+let guard_ri_id_runs ()
+  : Lemma (pnconverges flook xapply ricf_l ([] <: list string) (PCtxKey 1) qmid_sl /\
+           pnconverges flook xapply ricf_r ([] <: list string) (PCtxKey 0) qmid_sr)
+  = assert_norm ((fst (prun flook xapply 30 ricf_l)).st == PDone (PCtxKey 1));
+    assert_norm ((fst (prun flook xapply 30 ricf_l)).store == qmid_sl);
+    assert_norm (snd (prun flook xapply 30 ricf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 30 ricf_r)).st == PDone (PCtxKey 0));
+    assert_norm ((fst (prun flook xapply 30 ricf_r)).store == qmid_sr);
+    assert_norm (snd (prun flook xapply 30 ricf_r) == ([] <: list string));
+    lemma_pnconverges_at flook xapply ricf_l 30 [] (PCtxKey 1) qmid_sl;
+    lemma_pnconverges_at flook xapply ricf_r 30 [] (PCtxKey 0) qmid_sr
+
+(**
+ * **AND THE PAIR OF FINAL STORES IS, LITERALLY, B2b.5's SPECIMEN.** PROVED, by
+ * running the machine and by conversion.
+ *
+ * This is the sentence that makes the refutation below IDENTIFIABLE rather than
+ * merely true: the stores the two runs end at are `qmid_sl` and `qmid_sr`, the
+ * very pair `guard_ri_ext_midpoint_no_world` proved unrelatable and
+ * `guard_padm_relates_the_specimen` proved administratively related. At this
+ * consumer the mid-point of B2b.5's comparison IS the end-point of the
+ * observation's.
+ *)
+let guard_ri_id_final_stores_are_the_specimen ()
+  : Lemma ((fst (prun flook xapply 30 ricf_l)).store == qmid_sl /\
+           (fst (prun flook xapply 30 ricf_r)).store == qmid_sr /\
+           qmid_sl == [(1, qext); (0, qprod)] /\
+           qmid_sr == [(0, qprod)] /\
+           qext == extend_ctx_C xpl qprod (PVar #fv #fcl))
+  = assert_norm ((fst (prun flook xapply 30 ricf_l)).store == qmid_sl);
+    assert_norm ((fst (prun flook xapply 30 ricf_r)).store == qmid_sr)
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 3 -- NO WORLD THAT RELATES THE ANSWERS RELATES THE STORES     *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **A WORLD THAT IDENTIFIES THE TWO ANSWERS CANNOT RELATE THE TWO STORES.**
+ * PROVED, at EVERY well-formed world, and stated over the key pair and the two
+ * stores as PROOF-FUNCTION ARGUMENTS rather than at fixed values -- so the same
+ * lemma serves the empty store and `gsto`, whose keys differ by the counter.
+ *
+ * The step is `guard_ri_ext_midpoint_no_world`'s, with its hypothesis REPLACED:
+ * there the world was forced to send 1 to 0 by `pcrel` at the two post-prefix
+ * computations, here by `pval_rel` at the two ANSWERS, which is what the
+ * observation itself supplies. Nothing about computations is needed, and no
+ * relation on computations is mentioned.
+ *
+ * The two lookups appear in the PRECONDITION on purpose: `psrel`'s `{:pattern}`
+ * is on `pstore_lookup i s1` and `pstore_lookup j s2`, and with `i` and `j`
+ * variables there is nothing else for it to fire on.
+ *)
+let guard_ri_id_stores_no_world (w: pworld) (i j: nat) (sl sr: pstore fv fcl)
+  : Lemma (requires pwf_world w /\ pval_rel #fv w (PCtxKey i) (PCtxKey j) /\
+                    pstore_lookup i sl == Some qext /\
+                    pstore_lookup j sr == Some qprod)
+          (ensures ~(psrel fcl_rel w sl sr))
+  = pval_rel_key_unfold #fv w i j ();
+    guard_ri_ext_midpoint_unrelated w fone qresid0;
+    introduce psrel fcl_rel w sl sr ==> False
+    with begin
+      assert (psget i sl == qext);
+      assert (psget j sr == qprod);
+      assert (pxrel fcl_rel w (psget i sl) (psget j sr))
+    end
+
+(** **AND THAT LEMMA IS NOT VACUOUS AT EITHER KEY PAIR.** PROVED: a world
+    naming just the pair is well-formed and relates the two handles, so the
+    refusal above is a refusal and not an empty hypothesis. *)
+let guard_ri_id_store_worlds_exist ()
+  : Lemma (pwf_world qmid_w /\ pval_rel #fv qmid_w (PCtxKey 1) (PCtxKey 0) /\
+           pwf_world [(5, 4)] /\ pval_rel #fv [(5, 4)] (PCtxKey 5) (PCtxKey 4))
+  = lemma_pwextend_wf 1 0 ([] <: pworld);
+    lemma_pwextend_wf 5 4 ([] <: pworld);
+    assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (pwlookup_r 0 qmid_w == Some 1);
+    assert_norm (pwlookup_l 5 ([(5, 4)] <: pworld) == Some 4);
+    assert_norm (pwlookup_r 4 ([(5, 4)] <: pworld) == Some 5)
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 4 -- THE OBSERVATION IS FALSE, AT THE EMPTY PROVENANCE        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE SIGNATURE'S CONCLUSION AT THE IDENTITY CONSUMER IS FALSE.** PROVED,
+ * both directions of the indexed observation, at the boundary `xboundary`, the
+ * interpreter `xapply`, the plan `xpl`, the body `qc`, on the EMPTY ambient
+ * stack, at the EMPTY store and at counter ZERO.
+ *
+ * Every hypothesis the observation puts on that configuration is DISCHARGED and
+ * none is assumed: `guard_xce_dom` puts both sides in B2b.7's domain from
+ * `pterm_wb`, `panchor []` extends `[]`, and `guard_ri_id_runs` supplies the
+ * left convergence the antecedent asks for. The consequent is then eliminated
+ * and killed: uniqueness of convergence pins `x2 := PCtxKey 0` and
+ * `s2' := qmid_sr`, and `guard_ri_id_stores_no_world` refuses the world.
+ *)
+let guard_ri_id_conclusion_refuted ()
+  : Lemma (~(pnobs_tr_le_wf_at xboundary ([] <: pworld) rilhs rirhs) /\
+           ~(pnobs_tr_eq_wf_at xboundary ([] <: pworld) rilhs rirhs))
+  = guard_wb_rilhs ();
+    guard_wb_rirhs ();
+    guard_xce_dom rilhs;
+    guard_xce_dom rirhs;
+    guard_ri_id_runs ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+    assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+    introduce pnobs_tr_le_wf_at xboundary ([] <: pworld) rilhs rirhs ==> False
+    with begin
+      pnobs_tr_le_wf_at_unfold xboundary ([] <: pworld) rilhs rirhs ();
+      assert (pwext (panchor ([] <: pstore fv fcl)) ([] <: pworld));
+      assert (pnconverges xboundary.b_lk xboundary.b_apply
+                ({ st = PStep rilhs ([] <: pstack fv fcl);
+                   store = ([] <: pstore fv fcl); next = 0 })
+                [] (PCtxKey 1) qmid_sl);
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply ricf_r [] x2 s2' /\
+           pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+           pval_rel w (PCtxKey 1) x2 /\ psrel fcl_rel w qmid_sl s2')
+      with begin
+        lemma_pnconverges_unique flook xapply ricf_r [] [] x2 (PCtxKey 0) s2' qmid_sr;
+        guard_ri_id_stores_no_world w 1 0 qmid_sl qmid_sr
+      end
+    end;
+    introduce pnobs_tr_eq_wf_at xboundary ([] <: pworld) rilhs rirhs ==> False
+    with (pnobs_tr_eq_wf_at_unfold xboundary ([] <: pworld) rilhs rirhs ())
+
+(**
+ * **AND SO THE LAW IS FALSE AT THIS CONSUMER, NON-VACUOUSLY.** PROVED, and the
+ * two conjuncts must be read together, in this order:
+ *
+ *   - the hypothesis HOLDS -- so `lemma_law_ri_ext_at_of_conforming` applies
+ *     and the law IS its conclusion, nothing weaker;
+ *   - and the conclusion is FALSE.
+ *
+ * This is the opposite reading of the same two lemmas that
+ * `guard_final_branching_refused` performs: there the hypothesis fails and the
+ * law holds with nothing claimed. Here the hypothesis is met and the claim is
+ * false. **`law_right_identity_ext_at` is REFUTED at the empty provenance.**
+ *)
+let guard_ri_id_law_refuted ()
+  : Lemma (pequivariant_fn_at fcl_rel ([] <: pworld) ricons /\
+           ~(law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc ricons))
+  = guard_ri_id_consumer_equivariant ([] <: pworld);
+    guard_ri_id_conclusion_refuted ();
+    lemma_law_ri_ext_at_of_conforming xboundary ([] <: pworld) ref_ops xpl qc ricons
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 5 -- AND AT A NON-EMPTY PROVENANCE, WHICH IS THE STRONGER     *)
+(*  STATEMENT                                                          *)
+(*                                                                     *)
+(*  `lemma_pnobs_tr_eq_wf_at_mono` makes the observation ANTITONE in    *)
+(*  the provenance, so the law at a bigger `w0` is a WEAKER claim and   *)
+(*  refuting it there does not follow from refuting it at `[]` -- it    *)
+(*  IMPLIES it.  The instance is therefore re-run from `gsto`, whose    *)
+(*  anchor `guard_gce_restriction_is_real` proves extends `qw_pin3`,    *)
+(*  and the empty store the step above uses is EXCLUDED there.          *)
+(* ------------------------------------------------------------------ *)
+
+let rigcf_l : pconf fv fcl =
+  { st = PStep rilhs ([] <: pstack fv fcl); store = gsto; next = 4 }
+let rigcf_r : pconf fv fcl =
+  { st = PStep rirhs ([] <: pstack fv fcl); store = gsto; next = 4 }
+
+(** The two final stores from `gsto`: the same specimen, shifted by the counter,
+    sitting on top of the four `PCtxDone` entries `gseed` built. *)
+let rigsl : pstore fv fcl = [(5, qext); (4, qprod);
+                             (3, PCtxDone (fpv FU)); (2, PCtxDone (fpv FU));
+                             (1, PCtxDone (fpv FU)); (0, PCtxDone (fpv FU))]
+let rigsr : pstore fv fcl = [(4, qprod);
+                             (3, PCtxDone (fpv FU)); (2, PCtxDone (fpv FU));
+                             (1, PCtxDone (fpv FU)); (0, PCtxDone (fpv FU))]
+
+(** **BOTH SIDES RUN ON THE NON-EMPTY STORE TOO.** PROVED by running the
+    machine; the answers are `PCtxKey 5` and `PCtxKey 4` rather than 1 and 0
+    because the counter started at 4, and the extra entry the left holds is the
+    same `qext` against the same `qprod`. *)
+let guard_ri_id_gruns ()
+  : Lemma (pnconverges flook xapply rigcf_l ([] <: list string) (PCtxKey 5) rigsl /\
+           pnconverges flook xapply rigcf_r ([] <: list string) (PCtxKey 4) rigsr)
+  = assert_norm ((fst (prun flook xapply 30 rigcf_l)).st == PDone (PCtxKey 5));
+    assert_norm ((fst (prun flook xapply 30 rigcf_l)).store == rigsl);
+    assert_norm (snd (prun flook xapply 30 rigcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 30 rigcf_r)).st == PDone (PCtxKey 4));
+    assert_norm ((fst (prun flook xapply 30 rigcf_r)).store == rigsr);
+    assert_norm (snd (prun flook xapply 30 rigcf_r) == ([] <: list string));
+    lemma_pnconverges_at flook xapply rigcf_l 30 [] (PCtxKey 5) rigsl;
+    lemma_pnconverges_at flook xapply rigcf_r 30 [] (PCtxKey 4) rigsr
+
+(** **AND THE NON-EMPTY CONFIGURATION IS INSIDE B2b.7's DOMAIN, ON BOTH SIDES.**
+    PROVED, by `guard_gce_dom_l`'s argument at the two computations of this
+    block; the store, the stack and the counter are `guard_gce_dom`'s, so
+    nothing about `gsto` is re-established. *)
+let guard_ri_id_gdom ()
+  : Lemma (pnobs_dom xboundary rilhs ([] <: pstack fv fcl) gsto 4 /\
+           pnobs_dom xboundary rirhs ([] <: pstack fv fcl) gsto 4)
+  = guard_gce_config_ok ();
+    guard_gsto_resid_wf ();
+    guard_gsto_conf_wf ();
+    guard_wb_rilhs ();
+    guard_wb_rirhs ();
+    lemma_wb_frames_nil #fv #fcl ();
+    pnobs_dom_fold xboundary rilhs ([] <: pstack fv fcl) gsto 4 ();
+    pnobs_dom_fold xboundary rirhs ([] <: pstack fv fcl) gsto 4 ()
+
+(** **THE CONCLUSION IS FALSE AT `qw_pin3` AS WELL.** PROVED, by the same four
+    steps at `sto := gsto`, `n0 := 4` and the key pair `(5, 4)`. The side
+    condition `pwext (panchor gsto) qw_pin3` is `guard_gce_restriction_is_real`
+    and is discharged where the quantifier is instantiated. *)
+let guard_ri_id_conclusion_refuted_at_pin ()
+  : Lemma (~(pnobs_tr_le_wf_at xboundary qw_pin3 rilhs rirhs) /\
+           ~(pnobs_tr_eq_wf_at xboundary qw_pin3 rilhs rirhs))
+  = guard_ri_id_gdom ();
+    guard_ri_id_gruns ();
+    guard_gce_restriction_is_real ();
+    assert_norm (pstore_lookup 5 rigsl == Some qext);
+    assert_norm (pstore_lookup 4 rigsr == Some qprod);
+    introduce pnobs_tr_le_wf_at xboundary qw_pin3 rilhs rirhs ==> False
+    with begin
+      pnobs_tr_le_wf_at_unfold xboundary qw_pin3 rilhs rirhs ();
+      assert (pwext (panchor gsto) qw_pin3);
+      assert (pnconverges xboundary.b_lk xboundary.b_apply
+                ({ st = PStep rilhs ([] <: pstack fv fcl); store = gsto; next = 4 })
+                [] (PCtxKey 5) rigsl);
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply rigcf_r [] x2 s2' /\
+           pwf_world w /\ pwext w (panchor gsto) /\
+           pval_rel w (PCtxKey 5) x2 /\ psrel fcl_rel w rigsl s2')
+      with begin
+        lemma_pnconverges_unique flook xapply rigcf_r [] [] x2 (PCtxKey 4) s2' rigsr;
+        guard_ri_id_stores_no_world w 5 4 rigsl rigsr
+      end
+    end;
+    introduce pnobs_tr_eq_wf_at xboundary qw_pin3 rilhs rirhs ==> False
+    with (pnobs_tr_eq_wf_at_unfold xboundary qw_pin3 rilhs rirhs ())
+
+(** **AND THE LAW IS FALSE AT `qw_pin3`, NON-VACUOUSLY.** PROVED. Recording a
+    provenance does not save it: the consumer captures nothing, so it conforms
+    at both anchors, and the obstruction is at handles NEITHER anchor names. *)
+let guard_ri_id_law_refuted_at_pin ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 ricons /\
+           ~(law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc ricons))
+  = guard_ri_id_consumer_equivariant qw_pin3;
+    guard_ri_id_conclusion_refuted_at_pin ();
+    lemma_law_ri_ext_at_of_conforming xboundary qw_pin3 ref_ops xpl qc ricons
+
+(* ------------------------------------------------------------------ *)
+(*  B2b.13, IN ONE STATEMENT                                           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE VERDICT, WITH THE PREMISE DISCHARGE IN FRONT OF IT.** PROVED. Every
+ * conjunct is one of the guards above, and the order is the order the gate
+ * asks for: the hypothesis first, the verdict second, the identification of the
+ * refutation third.
+ *)
+let guard_ri_id_verdict ()
+  : Lemma (
+      // 1: THE PREMISE IS DISCHARGED, at both provenances.
+      pequivariant_fn_at fcl_rel ([] <: pworld) ricons /\
+      pequivariant_fn_at fcl_rel qw_pin3 ricons /\
+      // 2: THE VERDICT -- the law is REFUTED, at both.
+      ~(law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc ricons) /\
+      ~(law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc ricons) /\
+      // 3: and it is the CONSEQUENT that is false, not the hypothesis.
+      ~(pnobs_tr_eq_wf_at xboundary ([] <: pworld) rilhs rirhs) /\
+      ~(pnobs_tr_eq_wf_at xboundary qw_pin3 rilhs rirhs) /\
+      // 4: THE REFUTATION IS THE SPECIMEN.  The stores the two runs END at
+      //    are B2b.5's mid-point pair, and the left's extra entry is the
+      //    produced context with one `post >>= pure` composed into it.
+      (fst (prun flook xapply 30 ricf_l)).store == qmid_sl /\
+      (fst (prun flook xapply 30 ricf_r)).store == qmid_sr /\
+      qext == extend_ctx_C xpl qprod (PVar #fv #fcl) /\
+      // 5: and the two answers are the handles of exactly those two entries,
+      //    so `psrel` is FORCED to compare them -- which is what the earlier
+      //    instance's garbage collection avoided.
+      pnconverges flook xapply ricf_l ([] <: list string) (PCtxKey 1) qmid_sl /\
+      pnconverges flook xapply ricf_r ([] <: list string) (PCtxKey 0) qmid_sr /\
+      pstore_lookup 1 qmid_sl == Some qext /\
+      pstore_lookup 0 qmid_sr == Some qprod)
+  = guard_ri_id_premise_discharged ();
+    guard_ri_id_law_refuted ();
+    guard_ri_id_law_refuted_at_pin ();
+    guard_ri_id_conclusion_refuted ();
+    guard_ri_id_conclusion_refuted_at_pin ();
+    guard_ri_id_final_stores_are_the_specimen ();
+    guard_ri_id_runs ();
+    assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+    assert_norm (pstore_lookup 0 qmid_sr == Some qprod)
+
+(* ================================================================== *)
+(*  B2b.13 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED                                                     *)
+(*                                                                     *)
+(*   1. THE PREMISE IS DISCHARGED, and it is discharged FIRST.         *)
+(*      `guard_ri_id_consumer_equivariant` proves                      *)
+(*      `pequivariant_fn_at fcl_rel w0 ricons` at an ARBITRARY `w0`,   *)
+(*      so at `[]` and at `qw_pin3` alike                              *)
+(*      (`guard_ri_id_premise_discharged`).  The verdict below is      *)
+(*      therefore about the CONSEQUENT.                                *)
+(*                                                                     *)
+(*   2. THE VERDICT IS **REFUTED**, at both provenances                *)
+(*      (`guard_ri_id_law_refuted`,                                    *)
+(*      `guard_ri_id_law_refuted_at_pin`), by                          *)
+(*      `lemma_law_ri_ext_at_of_conforming` applied to a FALSE          *)
+(*      conclusion (`guard_ri_id_conclusion_refuted`,                  *)
+(*      `guard_ri_id_conclusion_refuted_at_pin`).  Since the           *)
+(*      observation is antitone in `w0`, the refutation at `qw_pin3`   *)
+(*      is the stronger of the two and is proved from `gsto`, whose    *)
+(*      anchor extends it.                                             *)
+(*                                                                     *)
+(*   3. THE REFUTATION **IS** THE SPECIMEN.                            *)
+(*      `guard_ri_id_final_stores_are_the_specimen` proves the two     *)
+(*      final stores are `qmid_sl` and `qmid_sr` -- the pair B2b.5     *)
+(*      exhibited at the MID-POINT and B2b.12 related by               *)
+(*      `padm_srel`.  The left's extra entry is the produced context   *)
+(*      with one `post >>= pure` composed in, and nothing else         *)
+(*      separates the two stores.                                      *)
+(*                                                                     *)
+(*   4. AND IT IS NOT A GARBAGE-COLLECTION ACCIDENT REVERSED.  At      *)
+(*      `qcons` the two answers name a LATER context that `xapply`     *)
+(*      allocated, so the specimen is unnamed and `psrel` skips it     *)
+(*      (`guard_qce_world`).  At `ricons` the answers name the         *)
+(*      specimen ITSELF, so `pval_rel` forces the world onto it and    *)
+(*      `guard_ri_ext_midpoint_unrelated` refuses.  The difference     *)
+(*      between the two verdicts is entirely in WHICH HANDLES THE      *)
+(*      ANSWERS NAME.                                                  *)
+(*                                                                     *)
+(*  WHAT THIS SETTLES ABOUT THE ORDERING                               *)
+(*                                                                     *)
+(*   - THE QUESTION WAS PRIOR TO THE BRIDGE, and the answer says the   *)
+(*     bridge is not the missing piece.  No administrative congruence, *)
+(*     no simulation lemma and no preservation lemma is used or        *)
+(*     needed above: the refutation is four machine runs, one          *)
+(*     uniqueness argument and `guard_ri_ext_midpoint_unrelated`.      *)
+(*                                                                     *)
+(*   - SO `law_right_identity_ext_at` IS FALSE, and a bridge FROM      *)
+(*     `padm_srel` TO `psrel` cannot repair it -- there is nothing to  *)
+(*     repair a false statement into.  Placing an ADMINISTRATIVE       *)
+(*     OBSERVATION BESIDE `pnobs_tr_eq_wf_at`, one whose final-store   *)
+(*     clause is `padm_srel` rather than `psrel`, is what the law      *)
+(*     would have to be restated over.  That restatement is NOT made   *)
+(*     here.                                                          *)
+(*                                                                     *)
+(*  WHAT IS NOT PROVED, AND IS NOT CLAIMED                              *)
+(*                                                                     *)
+(*   - NO administrative observation is defined.  The paragraph above  *)
+(*     says what the refutation POINTS AT; it is prose, not a          *)
+(*     definition, and nothing below depends on it.                    *)
+(*   - NOTHING is proved about the law at any OTHER consumer.  In      *)
+(*     particular `guard_ri_ext_survives_xapply` and                   *)
+(*     `guard_final_instance_survives_xapply` STAND: the observation   *)
+(*     at `qcons` is still true at their configurations.  A law FALSE  *)
+(*     at one conforming consumer and TRUE at an instance of another   *)
+(*     is not a contradiction -- the law is quantified over `f` by     *)
+(*     whoever states it, and B2b.13 refutes the universal reading.    *)
+(*   - THE OTHER LAWS are not touched.                                 *)
+(*   - `padm_srel`, `padm_xrel`, `padm_pcomp`, `padm_pctx` are NOT     *)
+(*     MENTIONED in any proof above.  B2b.12 is untouched, and so is   *)
+(*     the observation that `padm_pctx`'s residual clause is not       *)
+(*     exercised.                                                      *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`, NO    *)
+(*     `val` without a body, NO axiom, NO warning.                     *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  GUARDS FIRED, AND WHERE EACH LANDED                                *)
+(*                                                                     *)
+(*  Each was applied to a scratch copy and the repository file was     *)
+(*  never left mutated.  Six of seven landed where predicted; the      *)
+(*  seventh was ACCEPTED and is reported as such.                      *)
+(*                                                                     *)
+(*   - the POSITIVE law asserted in place of its negation:  REJECTED   *)
+(*     at `guard_ri_id_law_refuted`.  So the context is not            *)
+(*     contradictory and the refutation is not free.                   *)
+(*   - the POSITIVE observation asserted in place of its negation:     *)
+(*     REJECTED at `guard_ri_id_conclusion_refuted`.  Same reason, one *)
+(*     level in.                                                       *)
+(*   - `~(pequivariant_fn_at fcl_rel w0 ricons)` asserted in place of  *)
+(*     the premise:  REJECTED at `guard_ri_id_consumer_equivariant`.   *)
+(*     So the premise really is discharged and the instance is NOT     *)
+(*     vacuous -- this is the guard the whole verdict rests on.        *)
+(*   - `guard_ri_ext_midpoint_unrelated` call deleted:  REJECTED at    *)
+(*     `guard_ri_id_stores_no_world`.  So the refusal comes from the   *)
+(*     two CONTEXTS, not from the key arithmetic or from `pval_rel`.   *)
+(*   - the store lemma's left lookup changed from `qext` to `qprod`    *)
+(*     -- i.e. THE SPECIMEN REMOVED:  REJECTED at                      *)
+(*     `guard_ri_id_stores_no_world`.  So the refutation IS the        *)
+(*     specimen: with the extra `post >>= pure` gone there is nothing  *)
+(*     left to refute with.                                            *)
+(*   - the left run's final store claimed to hold `qprod` at key 1     *)
+(*     instead of `qext`:  REJECTED at `guard_ri_id_runs`.  So the     *)
+(*     MACHINE really writes the extension into the stored closure;    *)
+(*     the specimen is read off `prun`, not asserted.                  *)
+(*   - `guard_ri_id_consumer_equivariant` call deleted from            *)
+(*     `guard_ri_id_law_refuted`:  **ACCEPTED** -- the module still    *)
+(*     verifies.  `pequivariant_fn_at` UNFOLDS in goal and             *)
+(*     precondition position, and at `ricons` the resulting goal is    *)
+(*     trivial enough that Z3 re-proves it without the lemma.  So      *)
+(*     this mutation is recorded as a WEAK guard, and what stands in   *)
+(*     its place is the pair above it:                                 *)
+(*     `guard_ri_id_premise_discharged` proves the premise             *)
+(*     STANDALONE, and the third guard proves its negation is NOT      *)
+(*     provable.  The explicit call is kept for readability, not       *)
+(*     because the proof needs it.                                     *)
+(* ================================================================== *)
