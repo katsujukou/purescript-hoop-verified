@@ -4709,8 +4709,11 @@ the earlier degeneration, antitonicity and reuse facts transport along it.
 
 Three things, kept apart:
 
-1. **The statement is fixed** — provenance, consumer premise, well-formed
-   observation domain, and the shape of the two sides.
+1. **The statement's computational shape and quantification domain are fixed** —
+   the provenance quantification, the consumer premise, the well-formed starting
+   domain, and the shape of the two computations compared. **Which observation
+   relation it finally uses — the existing nominal one, or an administrative one
+   — is not yet settled**; the gate below is why.
 2. **The premise is substantive** — dropping it makes the conclusion *false*,
    under the very same `pnobs_tr_eq_wf_at`.
 3. **The law itself is still unproved** — that every conforming consumer gets
@@ -4770,6 +4773,110 @@ Item 5 keeps the policy that has been worth keeping throughout: **consumer
 equivariance and administrative congruence stay apart.** One is about names, the
 other about computations, and mixing them has each time hidden which was doing
 the work.
+
+#### The relation exists; the bridge to the law does not
+
+Targets 1–5 met, target 6 split. 958 lines appended, `z3rlimit` still zero. A
+full re-check now takes **2–4 minutes**, which future estimates should assume.
+
+*The specimen is related, and the relation is not loose.* `padm_srel` relates
+`(qmid_sl, qmid_sr)` at the world relating the two mid-point computations, and
+`psrel` relates them at none. At the fixture, three contexts agree on payload
+and on all four residual frames and differ **only** in the stored closure:
+`post >>= pure` is related, while `post >>= xg` (which performs) and a closure
+that discards its argument are refused.
+
+*Target 3 is a theorem, not a fixture reading:*
+
+```fstar
+lemma_padm_pcrel_unit_var_inv r w y1 y2 f
+  : Lemma (requires padm_pcrel r w (pbind (PVar y1) f) (PVar y2))
+          (ensures pval_rel w y1 y2)
+```
+
+for **every** `f` — absorbing administrative units cannot lose the result.
+
+*And the balance is not where it looks.* What refuses a changed result is
+**not** the strip clause's side condition: the lemma above holds for arbitrary
+`f`. It is that the strip reaches only the head, and the recursion bottoms out
+in `pcomp_rel`, which joins two different constructors nowhere. The side
+condition buys something else and is separately load-bearing — a `POp` whose
+continuation is not `PVar` is not absorbed. **Two knobs, two jobs**, worth
+knowing before either is touched.
+
+*Position relative to `padm_stack`:* parallel, not reused, and neither calls the
+other. `padm_stack` is mode-indexed because a stack is driven by a consumer; a
+stored `post` is driven by nothing, so there is no mode and no regime here. Both
+are deliberately directional. The step index drops on each strip, which is what
+stops "strip forever".
+
+#### Target 6 split, and the split is the finding
+
+Under the configuration-level reading it goes through: the correspondence the
+negative blocked now holds, and `pconf_rel` holds at no world.
+
+Under **the observation's own consequent it does not**, and it was not
+engineered around. `pnobs_tr_le_wf_at` demands `psrel` at the final stores, and
+
+```fstar
+guard_padm_srel_strictly_weaker ()
+  : Lemma ((forall w s1 s2. psrel fcl_rel w s1 s2 ==> padm_srel fcl_rel w s1 s2) /\
+           padm_srel fcl_rel qmid_w qmid_sl qmid_sr /\
+           ~(psrel fcl_rel qmid_w qmid_sl qmid_sr))
+```
+
+so relating the mid-point administratively does not produce the witness the
+observation asks for. At this instance the witness is still the `psrel` obtained
+without the new relation.
+
+> **The relation is built; the bridge to the law is not.** What remains is not
+> the relation's definition but a soundness theorem connecting it to an
+> observation.
+
+**`padm_srel ⟹ psrel` is not the goal** — the specimen is itself a
+counterexample to that implication, so that direction is already closed. Nor is
+replacing the existing observation by `padm_srel` the immediate move. The layers
+should be:
+
+```text
+pcrel / psrel            the strong lockstep relation, for the fundamental theorem
+        ↓
+padm_pcrel / padm_srel   administrative simulation
+        ↓
+                         the observational equivalence the laws are stated over
+```
+
+— existing observations **kept**, an administrative observation
+(`pnobs_tr_le_adm_at` and its symmetric form, comparing final stores by
+`padm_srel`) placed **beside** them, with its soundness proved in B2b.3b. Not a
+weakening replacement; a division of labour.
+
+*One guard was accepted, and it is carried forward as a debt.* Setting
+`padm_pctx`'s residual clause to `True` still verifies, because every fixture
+has the same residual on both sides. The clause is `pctx_rel`'s verbatim, so its
+tightness is **inherited, not demonstrated**. Before any simulation work, one
+negative specimen is needed: same `post` with corresponding residuals, against
+same `post` with residuals that mean something different.
+
+*Also unfinished:* no simulation — the two configurations are shown to
+correspond, not to *stay* corresponding, and `padm_srel` is not shown preserved
+by `pstep`; `padm_pcomp` absorbs at the head only, which is all `extend_ctx_C`
+needs today; and the law remains unproved.
+
+#### The order after the bridge finding
+
+1. instantiate the fixed signature at the **simplest conforming consumer**, one
+   that returns the handle unchanged, and decide, under the *current*
+   observation, whether it holds or is refuted;
+2. make `padm_pctx`'s residual clause non-vacuous;
+3. if step 1 refutes, place an administrative observation beside the existing
+   one;
+4. one-step and finite-run simulation for `padm`;
+5. connect the law to the administrative observation.
+
+This is not a step backwards. The computation-level relation's granularity
+holds, and the remaining hole has narrowed from "what should the relation be"
+to "which soundness theorem connects it to an observation".
 
 ### A discriminating example: `catch` against a prompt-local `Var`
 

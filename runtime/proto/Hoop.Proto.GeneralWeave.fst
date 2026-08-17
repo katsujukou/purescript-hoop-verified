@@ -22444,3 +22444,961 @@ let guard_b2b11_summary ()
 (*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`, NO    *)
 (*     `val` without a body, NO axiom.                                 *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.12 -- THE ADMINISTRATIVE CONGRUENCE, ONE LEVEL IN              *)
+(*                                                                     *)
+(*  B2b.11's ledger closed with a named gap:                           *)
+(*                                                                     *)
+(*    "NO ADMINISTRATIVE CONGRUENCE is stated or used anywhere in      *)
+(*     B2b.11.  Nothing identifies `c` with `pbind c PVar`, and no     *)
+(*     two `post`s differing by one frame are related."                *)
+(*                                                                     *)
+(*  This block states one, and aims it at ONE specimen:                *)
+(*  `guard_ri_ext_midpoint_no_world`'s store pair                      *)
+(*  `(qmid_sl, qmid_sr)` -- the two post-prefix stores of the fixed    *)
+(*  signature's own instance, which NO world relates under `psrel`.    *)
+(*                                                                     *)
+(*  THE DECISION POINT, STATED FIRST.  A relation that relates the     *)
+(*  specimen by relating everything is worthless.  The balance here    *)
+(*  is set by ONE clause and by what that clause does NOT do:          *)
+(*                                                                     *)
+(*    - it may strip a `POp _ f` from the LEFT, provided `f` sends     *)
+(*      related arguments to `PVar`-related computations -- i.e.       *)
+(*      provided `f` IS `pure`, relationally;                          *)
+(*    - it strips NOTHING ELSE, and at every other node it is          *)
+(*      `pcomp_rel` verbatim.                                          *)
+(*                                                                     *)
+(*  And the tightness is a THEOREM, not a reading of the definition:   *)
+(*  `lemma_padm_pcrel_unit_var_inv` PROVES that                        *)
+(*                                                                     *)
+(*    padm_pcrel r w (POp (PVar y1) f) (PVar y2)  ==>  pval_rel w y1 y2*)
+(*                                                                     *)
+(*  for EVERY `f` -- so absorbing the administrative unit cannot lose  *)
+(*  the result.  Two `post`s that genuinely return different values    *)
+(*  are refused however many units are stripped.                       *)
+(*                                                                     *)
+(*  POSITION RELATIVE TO `padm_stack`:  PARALLEL, NOT REUSED.          *)
+(*  `padm_stack` is mode-indexed, absorbs dormant `PSiteF`s and lives  *)
+(*  in a marker regime, because a STACK is driven by a consumer.  A    *)
+(*  stored `post` is not driven by anything: it is a closure, and the  *)
+(*  only difference `extend_ctx_C` puts into one is a right unit of    *)
+(*  `pbind`.  So there is no mode here, no marker regime, and the      *)
+(*  residual clause stays at `pframes_rel` -- STRICTLY TIGHTER than    *)
+(*  `padm_stack` would be.  Neither relation calls the other.          *)
+(*                                                                     *)
+(*  INDEPENDENCE FROM THE CONSUMER CONDITION.  Nothing below mentions  *)
+(*  `pequivariant_fn_at`, `pconsumer_nom`, `pfn_rel_at` in a           *)
+(*  DEFINITION, or any `ctx_ops` field.  The definitions speak of      *)
+(*  `pcomp_rel`, `pframes_rel`, `pval_rel`, `pwext` and `pwf_world`    *)
+(*  and of nothing else.  `pfn_rel_at` appears in the HYPOTHESIS of    *)
+(*  one lemma, where it is a statement about two `post`s and not       *)
+(*  about a consumer.                                                  *)
+(* ================================================================== *)
+
+(**
+ * **THE ADMINISTRATIVE RELATION ON COMPUTATIONS.**
+ *
+ * Step-indexed, as `pcomp_rel` is, and the intersection of the approximants is
+ * taken below exactly as `pcrel` takes `pcomp_rel`'s.
+ *
+ * Two disjuncts and no more:
+ *
+ *   - `pcomp_rel r n w c1 c2`. The lockstep congruence, unweakened. So the new
+ *     relation CONTAINS the old one at every index
+ *     (`lemma_padm_pcomp_of_pcomp_rel`), and everything B2b.1 proved about
+ *     `pcomp_rel` transports along that containment.
+ *
+ *   - the LEFT is `POp a1 f1` where `f1` is `pure`, relationally -- it sends
+ *     every related pair to a `PVar`-comparison -- and `a1` stands in the same
+ *     relation to the WHOLE of `c2`, one index down.
+ *
+ * The index drops on the strip. That is not an accident of the measure: it is
+ * what keeps the relation from relating two computations by stripping units
+ * forever. At index `n` at most `n` units come off.
+ *
+ * **DIRECTIONAL, and deliberately.** Only the LEFT may carry the extra unit.
+ * `padm_stack` is directional for the same reason -- the left is the residual
+ * the consumer drove -- and here the left is the side that ran the extra
+ * `o_extend_ctx pl _ pure`. A symmetric version is a different relation and is
+ * not built.
+ *)
+let rec padm_pcomp (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                   (c1 c2: pcomp v cl)
+  : GTot prop (decreases n)
+  = if n = 0 then True
+    else
+      pcomp_rel r n w c1 c2
+      \/
+      (match c1 with
+       | POp a1 f1 ->
+         (forall (w': pworld) (y1 y2: pval v).
+            pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+            pcomp_rel r (n - 1) w' (f1 y1) (PVar y2)) /\
+         padm_pcomp r (n - 1) w a1 c2
+       | _ -> False)
+
+(** The intersection of the approximants, exactly as `pcrel` is taken from
+    `pcomp_rel` and `padm` from `padm_stack`. *)
+let padm_pcrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (n: nat). padm_pcomp r n w c1 c2
+
+(**
+ * **THE LIFT TO CONTEXTS.** `pctx_rel` with `pcomp_rel` replaced by
+ * `padm_pcomp` in the `post` clause AND NOWHERE ELSE.
+ *
+ * The payload still has to correspond by `pval_rel`; the residual still has to
+ * correspond FRAME FOR FRAME by `pframes_rel`. Only the stored closure is read
+ * up to administrative units, because that is the only place `extend_ctx_C`
+ * writes one. `PCtxDone` against `PCtxRequests` is still `False`.
+ *)
+let padm_pctx (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+              (cx1 cx2: pctx v cl)
+  : GTot prop
+  = if n = 0 then True
+    else
+      match cx1, cx2 with
+      | PCtxDone y1, PCtxDone y2 -> pval_rel w y1 y2
+      | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+        pval_rel w x1 x2 /\ pframes_rel r n w rs1 rs2 /\
+        (forall (w': pworld) (y1 y2: pval v).
+           pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           padm_pcomp r n w' (p1 y1) (p2 y2))
+      | _, _ -> False
+
+let padm_xrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (cx1 cx2: pctx v cl)
+  : GTot prop
+  = forall (n: nat). padm_pctx r n w cx1 cx2
+
+(**
+ * **THE LIFT TO STORES.** `psrel` with `pxrel` replaced by `padm_xrel`, and
+ * the `{:pattern}` kept for the same reason: every proof goes from the world's
+ * domain to the two lookups, not the other way.
+ *)
+let padm_srel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (s1 s2: pstore v cl)
+  : GTot prop
+  = forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+      pwlookup_l i w == Some j ==>
+      (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+       padm_xrel r w (psget i s1) (psget j s2))
+
+(** The anchored form, exactly as `pxrel_at` is the anchored form of `pxrel`. *)
+let padm_xrel_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                 (cx1 cx2: pctx v cl) : GTot prop
+  = forall (w: pworld). pwf_world w /\ pwext w w0 ==> padm_xrel r w cx1 cx2
+
+(* ------------------------------------------------------------------ *)
+(*  CONTAINMENT: THE NEW RELATION IS A RELAXATION OF THE OLD, NOT A     *)
+(*  DIFFERENT PREDICATE                                                *)
+(* ------------------------------------------------------------------ *)
+
+let lemma_padm_pcomp_of_pcomp_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                                  (w: pworld) (c1 c2: pcomp v cl)
+  : Lemma (requires pcomp_rel r n w c1 c2) (ensures padm_pcomp r n w c1 c2)
+  = if n = 0 then () else ()
+
+let lemma_padm_pcrel_of_pcrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                              (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r w c1 c2) (ensures padm_pcrel r w c1 c2)
+  = introduce forall (n: nat). padm_pcomp r n w c1 c2
+    with lemma_padm_pcomp_of_pcomp_rel r n w c1 c2
+
+let lemma_padm_pctx_of_pctx_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                                (w: pworld) (cx1 cx2: pctx v cl)
+  : Lemma (requires pctx_rel r n w cx1 cx2) (ensures padm_pctx r n w cx1 cx2)
+  = if n = 0 then ()
+    else
+      match cx1, cx2 with
+      | PCtxRequests _ _ p1, PCtxRequests _ _ p2 ->
+        introduce forall (w': pworld) (y1 y2: pval v).
+            (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+             padm_pcomp r n w' (p1 y1) (p2 y2))
+        with (introduce _ ==> _
+              with lemma_padm_pcomp_of_pcomp_rel r n w' (p1 y1) (p2 y2))
+      | _, _ -> ()
+
+let lemma_padm_xrel_of_pxrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (cx1 cx2: pctx v cl)
+  : Lemma (requires pxrel r w cx1 cx2) (ensures padm_xrel r w cx1 cx2)
+  = introduce forall (n: nat). padm_pctx r n w cx1 cx2
+    with lemma_padm_pctx_of_pctx_rel r n w cx1 cx2
+
+(** **THE STORE RELATION IS CONSERVATIVE OVER `psrel`.** PROVED. So the new
+    relation is a genuine RELAXATION: everywhere the old one holds -- the ends
+    of both runs included -- the new one holds too, and one relation covers a
+    whole run where `psrel` covers only its ends. *)
+let lemma_padm_srel_of_psrel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (s1 s2: pstore v cl)
+  : Lemma (requires psrel r w s1 s2) (ensures padm_srel r w s1 s2)
+  = introduce forall (i j: nat).
+        (pwlookup_l i w == Some j ==>
+         (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+          padm_xrel r w (psget i s1) (psget j s2)))
+    with (introduce _ ==> _
+          with (assert (pxrel r w (psget i s1) (psget j s2));
+                lemma_padm_xrel_of_pxrel r w (psget i s1) (psget j s2)))
+
+let lemma_padm_xrel_at_of_pxrel_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                                   (cx1 cx2: pctx v cl)
+  : Lemma (requires pxrel_at r w0 cx1 cx2) (ensures padm_xrel_at r w0 cx1 cx2)
+  = introduce forall (w: pworld). (pwf_world w /\ pwext w w0 ==> padm_xrel r w cx1 cx2)
+    with (introduce _ ==> _ with lemma_padm_xrel_of_pxrel r w cx1 cx2)
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 3: THE RELATION REFUSES A CHANGED RESULT.  IN GENERAL.      *)
+(* ------------------------------------------------------------------ *)
+
+(** At two `PVar` heads the relation IS `pval_rel`: the strip disjunct cannot
+    fire, because `PVar _` is not a `POp`. PROVED at index 1. *)
+let lemma_padm_pcrel_var_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                             (y1 y2: pval v)
+  : Lemma (requires padm_pcrel r w (PVar #v #cl y1) (PVar #v #cl y2))
+          (ensures pval_rel w y1 y2)
+  = assert (padm_pcomp r 1 w (PVar #v #cl y1) (PVar #v #cl y2))
+
+(**
+ * **STRIPPING IS FORCED, NOT CHOSEN, WHEN THE HEADS DIFFER.** PROVED.
+ *
+ * `pcomp_rel` at `POp` against `PVar` is `False` -- there is no clause joining
+ * two different constructors -- so the first disjunct is unavailable at every
+ * index above 0, and whatever holds must hold through the strip.
+ *)
+let lemma_padm_pcrel_op_strip (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                              (a1: pcomp v cl) (f1: pval v -> pcomp v cl)
+                              (y2: pval v)
+  : Lemma (requires padm_pcrel r w (POp a1 f1) (PVar #v #cl y2))
+          (ensures padm_pcrel r w a1 (PVar #v #cl y2))
+  = introduce forall (m: nat). padm_pcomp r m w a1 (PVar #v #cl y2)
+    with begin
+      assert (padm_pcomp r (m + 1) w (POp a1 f1) (PVar #v #cl y2));
+      assert (~(pcomp_rel r (m + 1) w (POp a1 f1) (PVar #v #cl y2)))
+    end
+
+(**
+ * **THE BALANCE, AS A THEOREM.** PROVED, for EVERY `f`.
+ *
+ * A `post` whose body is `POp (PVar y1) f` -- which is what `extend_ctx_C`
+ * writes when the extension is `pure`, with `f := PVar` -- is related to a
+ * `post` whose body is `PVar y2` ONLY IF `y1` and `y2` correspond. So the
+ * administrative unit is absorbed and THE RESULT IS NOT: two `post`s that
+ * genuinely return different values are refused, at every world, however the
+ * strip disjunct is used.
+ *
+ * Note that `f` is arbitrary. Even the loosest reading of the strip clause --
+ * one that let ANY `f` come off -- would still refuse a changed result. The
+ * `f`-is-`pure` side condition is therefore not what buys tightness here; it is
+ * what stops the relation from absorbing a `POp` that does real work, which is
+ * a different obligation and is what `lemma_padm_pcomp_unit`'s hypothesis pays
+ * for in the other direction.
+ *)
+let lemma_padm_pcrel_unit_var_inv (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                  (y1 y2: pval v) (f: pval v -> pcomp v cl)
+  : Lemma (requires padm_pcrel r w (pbind (PVar #v #cl y1) f) (PVar #v #cl y2))
+          (ensures pval_rel w y1 y2)
+  = lemma_padm_pcrel_op_strip r w (PVar #v #cl y1) f y2;
+    lemma_padm_pcrel_var_inv r w y1 y2
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 2: THE UNIT IS ABSORBED                                     *)
+(* ------------------------------------------------------------------ *)
+
+let lemma_padm_pcomp_unit (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w: pworld)
+                          (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r w c1 c2)
+          (ensures padm_pcomp r n w (pbind c1 (PVar #v #cl)) c2)
+  = if n = 0 then ()
+    else begin
+      assert (pcomp_rel r (n - 1) w c1 c2);
+      lemma_padm_pcomp_of_pcomp_rel r (n - 1) w c1 c2;
+      introduce forall (w': pworld) (y1 y2: pval v).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel r (n - 1) w' (PVar #v #cl y1) (PVar #v #cl y2))
+      with (introduce _ ==> _ with ())
+    end
+
+(** **`c >>= pure` IS RELATED TO `c`.** PROVED, and this is the sentence
+    B2b.11's ledger recorded as absent. *)
+let lemma_padm_pcrel_unit (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r w c1 c2)
+          (ensures padm_pcrel r w (pbind c1 (PVar #v #cl)) c2)
+  = introduce forall (n: nat). padm_pcomp r n w (pbind c1 (PVar #v #cl)) c2
+    with lemma_padm_pcomp_unit r n w c1 c2
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 1, IN GENERAL: THE LIFT TO `pctx`                           *)
+(* ------------------------------------------------------------------ *)
+
+(** `PVar` is `pure`, and `pure` sends related arguments to related
+    computations at every anchor. PROVED, and it is the only fact about the
+    extension `extend_ctx_C` records that the lift below uses. *)
+let lemma_pvar_fn_rel_at (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+  : Lemma (pfn_rel_at r w0 (PVar #v #cl) (PVar #v #cl))
+  = introduce forall (w: pworld) (y1 y2: pval v).
+        (pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+         pcrel r w (PVar #v #cl y1) (PVar #v #cl y2))
+    with (introduce _ ==> _
+          with (introduce forall (n: nat).
+                    pcomp_rel r n w (PVar #v #cl y1) (PVar #v #cl y2)
+                with ()))
+
+(**
+ * **A CONTEXT WHOSE `post` HAS BEEN RIGHT-UNIT-EXTENDED IS RELATED TO THE ONE
+ * IT CAME FROM.** PROVED, and stated of two ARBITRARY `post`s rather than of
+ * one and itself, because the two runs hold different closures.
+ *
+ * The payload must still correspond and the residual must still correspond
+ * frame for frame: neither is relaxed. Only the closure is read up to one
+ * administrative unit per index.
+ *)
+let lemma_padm_xrel_post_unit
+    (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel w x1 x2 /\ pkrel r w rs1 rs2 /\ pfn_rel_at r w p1 p2)
+          (ensures padm_xrel r w
+                     (PCtxRequests x1 rs1 (fun (z: pval v) -> pbind (p1 z) (PVar #v #cl)))
+                     (PCtxRequests x2 rs2 p2))
+  = introduce forall (n: nat).
+        padm_pctx r n w
+          (PCtxRequests x1 rs1 (fun (z: pval v) -> pbind (p1 z) (PVar #v #cl)))
+          (PCtxRequests x2 rs2 p2)
+    with (if n = 0 then ()
+          else begin
+            assert (pframes_rel r n w rs1 rs2);
+            introduce forall (w': pworld) (y1 y2: pval v).
+                (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                 padm_pcomp r n w' (pbind (p1 y1) (PVar #v #cl)) (p2 y2))
+            with (introduce _ ==> _
+                  with (assert (pcrel r w' (p1 y1) (p2 y2));
+                        lemma_padm_pcomp_unit r n w' (p1 y1) (p2 y2)))
+          end)
+
+(** The same, with the extension written as the machine writes it. The step
+    from the lambda to `extend_ctx_C` is by normalisation, because a
+    definition's NAME and the lambda it abbreviates are not one SMT term. *)
+let lemma_padm_xrel_of_extend_ctx_pure
+    (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (pl: plan v cl)
+    (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel w x1 x2 /\ pkrel r w rs1 rs2 /\ pfn_rel_at r w p1 p2)
+          (ensures padm_xrel r w
+                     (extend_ctx_C pl (PCtxRequests x1 rs1 p1) (PVar #v #cl))
+                     (PCtxRequests x2 rs2 p2))
+  = lemma_padm_xrel_post_unit r w x1 x2 rs1 rs2 p1 p2;
+    assert_norm (extend_ctx_C pl (PCtxRequests x1 rs1 p1) (PVar #v #cl)
+                 == PCtxRequests x1 rs1
+                      (fun (z: pval v) -> pbind (p1 z) (PVar #v #cl)))
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 4: THE PROVENANCE ANCHOR, AND WORLD EXTENSION               *)
+(* ------------------------------------------------------------------ *)
+
+(** Anchored relatedness already owned at `w0` is still owned at every world
+    extending `w0`. PROVED, exactly as `lemma_pxrel_at_mono`. *)
+let lemma_padm_xrel_at_mono (#v #cl: Type) (r: pcl_rel_t cl) (w1 w0: pworld)
+                            (cx1 cx2: pctx v cl)
+  : Lemma (requires padm_xrel_at r w0 cx1 cx2 /\ pwext w1 w0)
+          (ensures padm_xrel_at r w1 cx1 cx2)
+  = introduce forall (w: pworld).
+        (pwf_world w /\ pwext w w1 ==> padm_xrel r w cx1 cx2)
+    with (introduce _ ==> _ with lemma_pwext_trans w w1 w0)
+
+(**
+ * **THE ANCHORED FORM OF THE LIFT.** PROVED.
+ *
+ * The hypotheses are anchored at `w0` and nothing is reproved at each future
+ * world: `pval_rel` is monotone, `pkrel_at` and `pfn_rel_at` are already the
+ * anchored forms, and `lemma_pfn_rel_at_mono` carries the closure hypothesis
+ * forward. So the relation SURVIVES WORLD EXTENSION and PRESERVES THE ANCHOR:
+ * what is owned at `w0` is owned at every `w` extending it, and the anchor is
+ * not enlarged anywhere.
+ *)
+let lemma_padm_xrel_at_of_extend_ctx_pure
+    (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld) (pl: plan v cl)
+    (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel w0 x1 x2 /\ pkrel_at r w0 rs1 rs2 /\
+                    pfn_rel_at r w0 p1 p2)
+          (ensures padm_xrel_at r w0
+                     (extend_ctx_C pl (PCtxRequests x1 rs1 p1) (PVar #v #cl))
+                     (PCtxRequests x2 rs2 p2))
+  = introduce forall (w: pworld).
+        (pwf_world w /\ pwext w w0 ==>
+         padm_xrel r w
+           (extend_ctx_C pl (PCtxRequests x1 rs1 p1) (PVar #v #cl))
+           (PCtxRequests x2 rs2 p2))
+    with (introduce _ ==> _
+          with begin
+            lemma_pval_rel_mono w w0 x1 x2;
+            lemma_pfn_rel_at_mono r w w0 p1 p2;
+            assert (pkrel r w rs1 rs2);
+            lemma_padm_xrel_of_extend_ctx_pure r w pl x1 x2 rs1 rs2 p1 p2
+          end)
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 1, AT THE SPECIMEN                                          *)
+(* ------------------------------------------------------------------ *)
+
+(** The produced residual is self-related at every index and every world: four
+    frames, none holding a handle, the site frame carrying `pure`. PROVED,
+    exactly as `lemma_qresid_selfrel` is for the answer's residual. *)
+let lemma_qresid0_selfrel (n: nat) (w: pworld)
+  : Lemma (pframes_rel fcl_rel n w qresid0 qresid0)
+  = if n = 0 then ()
+    else begin
+      lemma_ptable_selfrel n w xltbl;
+      lemma_ptable_selfrel n w xtbl0;
+      introduce forall (w': pworld) (y1 y2: pval fv).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel fcl_rel n w' (PVar y1) (PVar y2))
+      with (introduce _ ==> _ with ())
+    end
+
+let lemma_qresid0_pkrel (w: pworld)
+  : Lemma (pkrel fcl_rel w qresid0 qresid0)
+  = introduce forall (n: nat). pframes_rel fcl_rel n w qresid0 qresid0
+    with lemma_qresid0_selfrel n w
+
+(**
+ * **THE PRODUCED CONTEXT AND ITS PURE EXTENSION ARE RELATED.** PROVED, at
+ * every well-formed world -- so this is not a fact about `qmid_w`.
+ *
+ * `guard_ri_ext_midpoint_unrelated` proves the same pair is NOT `pxrel`-related
+ * at ANY world. The two statements are about the same two contexts and the
+ * difference between them is the whole content of this block.
+ *)
+let guard_padm_relates_the_context (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures padm_xrel fcl_rel w qext qprod /\
+                   ~(pxrel fcl_rel w qext qprod))
+  = guard_ri_ext_midpoint_unrelated w fone qresid0;
+    lemma_qresid0_pkrel w;
+    lemma_pvar_fn_rel_at #fv #fcl fcl_rel w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qext == extend_ctx_C xpl
+                           (PCtxRequests fone qresid0 (PVar #fv #fcl))
+                           (PVar #fv #fcl));
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    lemma_padm_xrel_of_extend_ctx_pure fcl_rel w xpl fone fone qresid0 qresid0
+      (PVar #fv #fcl) (PVar #fv #fcl)
+
+(**
+ * **AND SO THE SPECIMEN IS RELATED: THE TWO MID-POINT STORES CORRESPOND, AT
+ * THE WORLD THAT RELATES THE TWO MID-POINT COMPUTATIONS.** PROVED.
+ *
+ * This is `guard_ri_ext_midpoint_no_world` answered. That negative says NO
+ * world relating the two computations relates the two stores under `psrel`;
+ * this says the world which does relate the two computations relates the two
+ * stores under `padm_srel`. Both conjuncts are proved here, side by side, so
+ * neither can be read without the other.
+ *)
+let guard_padm_relates_the_specimen ()
+  : Lemma (pwf_world qmid_w /\
+           pcrel fcl_rel qmid_w (PExtendC xpl (PCtxKey 1) xg)
+                                (PExtendC xpl (PCtxKey 0) xg) /\
+           padm_xrel fcl_rel qmid_w qext qprod /\
+           padm_srel fcl_rel qmid_w qmid_sl qmid_sr /\
+           ~(psrel fcl_rel qmid_w qmid_sl qmid_sr))
+  = guard_ri_ext_midpoint_comps_related ();
+    guard_ri_ext_midpoint_no_world qmid_w;
+    guard_padm_relates_the_context qmid_w;
+    assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (psget 1 qmid_sl == qext);
+    assert_norm (psget 0 qmid_sr == qprod);
+    assert_norm (Some? (pstore_lookup 1 qmid_sl));
+    assert_norm (Some? (pstore_lookup 0 qmid_sr));
+    introduce forall (i j: nat).
+        (pwlookup_l i qmid_w == Some j ==>
+         (Some? (pstore_lookup i qmid_sl) /\ Some? (pstore_lookup j qmid_sr) /\
+          padm_xrel fcl_rel qmid_w (psget i qmid_sl) (psget j qmid_sr)))
+    with (introduce _ ==> _ with assert (i == 1 /\ j == 0))
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 3, AT THE SPECIMEN: A CHANGED RESULT IS REFUSED             *)
+(* ------------------------------------------------------------------ *)
+
+(** The same payload, the same residual frame for frame, and a `post` that
+    DISCARDS its argument and answers `FU` instead. Everything `padm_pctx`
+    reads except the closure is identical to `qprod`'s. *)
+let qbadpost : pval fv -> pcomp fv fcl = fun (_: pval fv) -> PVar (fpv FU)
+let qbad : pctx fv fcl = PCtxRequests fone qresid0 qbadpost
+
+(**
+ * **AND IT IS REFUSED, AT EVERY WELL-FORMED WORLD.** PROVED.
+ *
+ * `qext` differs from `qprod` by an administrative unit and IS related;
+ * `qbad` differs from `qprod` by what it RETURNS and is NOT, even though it
+ * agrees with `qprod` on the payload and on all four residual frames. So the
+ * relation is not relating contexts by ignoring their closures.
+ *
+ * The refusal is not an argument about `qbad` in particular: it is
+ * `lemma_padm_pcrel_unit_var_inv` -- absorbing units cannot lose the result --
+ * instantiated at one witness.
+ *)
+let guard_padm_refuses_a_changed_post (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures ~(padm_xrel fcl_rel w qext qbad) /\
+                   ~(padm_xrel fcl_rel w qprod qbad))
+  = lemma_pwext_refl w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qext == PCtxRequests fone qresid0
+                           (fun (z: pval fv) -> pbind (PVar z) (PVar #fv #fcl)));
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    assert_norm (qbad == PCtxRequests fone qresid0 qbadpost);
+    assert_norm (qbadpost fone == PVar (fpv FU));
+    assert (~(pval_rel #fv w fone (fpv FU)));
+    introduce padm_xrel fcl_rel w qext qbad ==> False
+    with begin
+      introduce forall (n: nat).
+          padm_pcomp fcl_rel n w (pbind (PVar fone) (PVar #fv #fcl)) (PVar (fpv FU))
+      with assert (padm_pctx fcl_rel n w qext qbad);
+      lemma_padm_pcrel_unit_var_inv fcl_rel w fone (fpv FU) (PVar #fv #fcl)
+    end;
+    introduce padm_xrel fcl_rel w qprod qbad ==> False
+    with begin
+      introduce forall (n: nat). padm_pcomp fcl_rel n w (PVar fone) (PVar (fpv FU))
+      with assert (padm_pctx fcl_rel n w qprod qbad);
+      lemma_padm_pcrel_var_inv fcl_rel w fone (fpv FU)
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 3, THE OTHER HALF: THE STRIP CLAUSE'S SIDE CONDITION IS      *)
+(*  LOAD-BEARING                                                        *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **A `POp` WHOSE CONTINUATION DOES REAL WORK IS NOT ABSORBED.** PROVED, at
+ * index 2 and from the side condition alone.
+ *
+ * The witness `y` is taken as an ARGUMENT rather than existentially quantified
+ * in the hypothesis, so nothing here depends on an existential in hypothesis
+ * position or on a pattern firing.
+ *
+ * At index 2 the strip clause must show `pcomp_rel r 1 w' (f1 y1) (PVar y2)`
+ * for every related pair. Instantiated at `y` against itself that is
+ * `pcomp_rel r 1 w (f1 y) (PVar y)`, and `pcomp_rel` at index 1 joins two
+ * different head constructors NOWHERE. So the strip is unavailable, and
+ * `pcomp_rel` at `POp` against `PVar` is `False` as well.
+ *
+ * This is what stops the relation from being loose: it may drop an
+ * administrative unit and it may drop NOTHING ELSE.
+ *)
+let lemma_padm_pcrel_strip_needs_pure
+    (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (a1: pcomp v cl) (f1: pval v -> pcomp v cl) (y2 y: pval v)
+  : Lemma (requires pwf_world w /\ pval_rel w y y /\ ~(PVar? (f1 y)))
+          (ensures ~(padm_pcrel r w (POp a1 f1) (PVar #v #cl y2)))
+  = lemma_pwext_refl w;
+    introduce padm_pcrel r w (POp a1 f1) (PVar #v #cl y2) ==> False
+    with begin
+      assert (~(pcomp_rel r 1 w (f1 y) (PVar #v #cl y)));
+      assert (~(pcomp_rel r 2 w (POp a1 f1) (PVar #v #cl y2)));
+      assert (padm_pcomp r 2 w (POp a1 f1) (PVar #v #cl y2))
+    end
+
+(** The same context as `qext` -- same payload, same four residual frames, same
+    `POp` at the head of the stored closure -- except that what is composed on
+    is `xg`, which PERFORMS, rather than `pure`. *)
+let qwork : pctx fv fcl =
+  PCtxRequests fone qresid0 (fun (z: pval fv) -> pbind (PVar z) xg)
+
+(**
+ * **AND IT IS REFUSED.** PROVED, at every well-formed world.
+ *
+ * `qext` and `qwork` differ from `qprod` in the SAME PLACE and by the SAME
+ * CONSTRUCTOR -- one `POp` at the head of the stored `post`. `qext`'s is
+ * `pure` and is absorbed; `qwork`'s performs and is not. So what the relation
+ * reads is what the composed function DOES, not that a `POp` is there.
+ *)
+let guard_padm_refuses_a_working_post (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures ~(padm_xrel fcl_rel w qwork qprod))
+  = lemma_pwext_refl w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qwork == PCtxRequests fone qresid0
+                            (fun (z: pval fv) -> pbind (PVar z) xg));
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    assert_norm (~(PVar? (xg fone)));
+    introduce padm_xrel fcl_rel w qwork qprod ==> False
+    with begin
+      introduce forall (n: nat).
+          padm_pcomp fcl_rel n w (pbind (PVar fone) xg) (PVar fone)
+      with assert (padm_pctx fcl_rel n w qwork qprod);
+      lemma_padm_pcrel_strip_needs_pure fcl_rel w (PVar fone) xg fone fone
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  THE CONTAINMENT IS STRICT                                          *)
+(* ------------------------------------------------------------------ *)
+
+(** **`padm_srel` CONTAINS `psrel`, AND STRICTLY.** PROVED, with the witness of
+    strictness being the specimen itself. So the relaxation is real and it is
+    exactly one step wide: the pair `psrel` refuses. *)
+let guard_padm_srel_strictly_weaker ()
+  : Lemma ((forall (w: pworld) (s1 s2: pstore fv fcl).
+              psrel fcl_rel w s1 s2 ==> padm_srel fcl_rel w s1 s2) /\
+           padm_srel fcl_rel qmid_w qmid_sl qmid_sr /\
+           ~(psrel fcl_rel qmid_w qmid_sl qmid_sr))
+  = guard_padm_relates_the_specimen ();
+    introduce forall (w: pworld) (s1 s2: pstore fv fcl).
+        (psrel fcl_rel w s1 s2 ==> padm_srel fcl_rel w s1 s2)
+    with (introduce _ ==> _ with lemma_padm_srel_of_psrel fcl_rel w s1 s2)
+
+(* ------------------------------------------------------------------ *)
+(*  TARGET 6: THE CONSEQUENT, AT AN INSTANCE OF THE FIXED SIGNATURE    *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **CONFIGURATIONS CORRESPOND** -- the computation, the ambient stack and the
+ * store, under one world. `pcrel` and `pkrel` are B2b.1's, unweakened; only the
+ * STORE is read up to the administrative relation, because the store is the one
+ * place a `post` closure is kept.
+ *
+ * This is the shape `guard_ri_ext_midpoint_no_world` denies for `psrel`: it
+ * proves that at every world relating the two mid-point COMPUTATIONS, the two
+ * mid-point STORES are unrelated -- so no `psrel`-based configuration relation
+ * holds there, at any world.
+ *)
+let padm_conf (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+              (cf1 cf2: pconf v cl) : GTot prop
+  = (match cf1.st, cf2.st with
+     | PDone y1, PDone y2 -> pval_rel w y1 y2
+     | PStep c1 k1, PStep c2 k2 -> pcrel r w c1 c2 /\ pkrel r w k1 k2
+     | _, _ -> False) /\
+    padm_srel r w cf1.store cf2.store
+
+(** The `psrel` reading of the same shape, kept only so that the two can be
+    stated side by side and neither read without the other. *)
+let pconf_rel (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+              (cf1 cf2: pconf v cl) : GTot prop
+  = (match cf1.st, cf2.st with
+     | PDone y1, PDone y2 -> pval_rel w y1 y2
+     | PStep c1 k1, PStep c2 k2 -> pcrel r w c1 c2 /\ pkrel r w k1 k2
+     | _, _ -> False) /\
+    psrel r w cf1.store cf2.store
+
+(** **THE TWO MID-POINT CONFIGURATIONS CORRESPOND.** PROVED. Split off from the
+    statement below so that the query stays one query: the ambient stacks are
+    both empty, the computations are `pcrel`-related and the stores are related
+    by `padm_srel`. *)
+let guard_padm_conf_related ()
+  : Lemma (padm_conf fcl_rel qmid_w (fst (prun flook xapply 7 qcf_l))
+                                    (fst (prun flook xapply 4 qcf_r)))
+  = guard_qce_midpoint ();
+    guard_padm_relates_the_specimen ();
+    lemma_pkrel_nil #fv #fcl fcl_rel qmid_w
+
+(** **AND THEY DO NOT CORRESPOND UNDER THE `psrel` READING, AT ANY WORLD.**
+    PROVED, from `guard_ri_ext_midpoint_no_world` and nothing else: relating the
+    two computations is what its hypothesis asks for, and `pconf_rel` supplies
+    it. Split off for the same reason. *)
+let guard_padm_conf_no_world (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures ~(pconf_rel fcl_rel w (fst (prun flook xapply 7 qcf_l))
+                                         (fst (prun flook xapply 4 qcf_r))))
+  = guard_qce_midpoint ();
+    introduce pconf_rel fcl_rel w (fst (prun flook xapply 7 qcf_l))
+                                  (fst (prun flook xapply 4 qcf_r)) ==> False
+    with (assert (pcrel fcl_rel w (PExtendC xpl (PCtxKey 1) xg)
+                                  (PExtendC xpl (PCtxKey 0) xg));
+          guard_ri_ext_midpoint_no_world w)
+
+(**
+ * **THE CONSEQUENT, AT AN INSTANCE OF THE FIXED SIGNATURE.** PROVED.
+ *
+ * The instance is `law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc
+ * qcons`, whose two sides are `qlhs` and `qrhs` -- the first conjunct is
+ * `guard_final_instance_survives_xapply`'s, so the sides are the SIGNATURE'S
+ * OWN and not lookalikes. The configurations are the MACHINE'S, seven steps
+ * along the left and four along the right, with empty traces on both.
+ *
+ * And at those configurations:
+ *
+ *   - `padm_conf fcl_rel qmid_w` HOLDS.  The computations are `pcrel`-related,
+ *     the ambient stacks are both empty, and the stores are related by the
+ *     administrative store relation.
+ *   - `pconf_rel fcl_rel w` holds at NO world `w` that relates the two
+ *     computations -- which is `guard_ri_ext_midpoint_no_world`, restated at
+ *     the configuration level and proved from it.
+ *
+ * That is the consequent this gate was aimed at, and it is the one the negative
+ * blocked.
+ *)
+let guard_padm_conf_at_the_instance ()
+  : Lemma (
+      // the two sides are the fixed signature's own, at its own instance
+      pequivariant_fn_at fcl_rel qw_pin3 qcons /\
+      (law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc qcons
+       <==> pnobs_tr_eq_wf_at xboundary qw_pin3 qlhs qrhs) /\
+      // the two configurations are the machine's, and the traces are empty
+      (fst (prun flook xapply 7 qcf_l)).st
+        == PStep (PExtendC xpl (PCtxKey 1) xg) ([] <: pstack fv fcl) /\
+      (fst (prun flook xapply 4 qcf_r)).st
+        == PStep (PExtendC xpl (PCtxKey 0) xg) ([] <: pstack fv fcl) /\
+      (fst (prun flook xapply 7 qcf_l)).store == qmid_sl /\
+      (fst (prun flook xapply 4 qcf_r)).store == qmid_sr /\
+      snd (prun flook xapply 7 qcf_l) == ([] <: list string) /\
+      snd (prun flook xapply 4 qcf_r) == ([] <: list string) /\
+      // THE CONSEQUENT: the two configurations correspond
+      padm_conf fcl_rel qmid_w (fst (prun flook xapply 7 qcf_l))
+                               (fst (prun flook xapply 4 qcf_r)) /\
+      // and they do NOT, at any world at all, under the `psrel` reading
+      (forall (w: pworld). pwf_world w ==>
+         ~(pconf_rel fcl_rel w (fst (prun flook xapply 7 qcf_l))
+                               (fst (prun flook xapply 4 qcf_r)))))
+  = guard_final_instance_survives_xapply ();
+    guard_qce_midpoint ();
+    guard_padm_conf_related ();
+    introduce forall (w: pworld). pwf_world w ==>
+        ~(pconf_rel fcl_rel w (fst (prun flook xapply 7 qcf_l))
+                              (fst (prun flook xapply 4 qcf_r)))
+    with (introduce _ ==> _ with guard_padm_conf_no_world w)
+
+(**
+ * **ONE RELATION COVERS THE WHOLE RUN OF THE INSTANCE, AND `psrel` COVERS ONLY
+ * ITS ENDS.** PROVED.
+ *
+ * At the ENDS both relations hold -- `guard_qce_world` gives `psrel` and the
+ * containment carries it to `padm_srel`. At the MID-POINT only the new one
+ * does. So the relation is not a replacement for `psrel` at the ends and does
+ * not have to be: it agrees with it wherever `psrel` has an answer, and it has
+ * an answer at the one place `psrel` provably has none.
+ *)
+let guard_padm_covers_the_run ()
+  : Lemma (pnconverges flook xapply qcf_l ([] <: list string) (PCtxKey 2) qsl /\
+           pnconverges flook xapply qcf_r ([] <: list string) (PCtxKey 1) qsr /\
+           psrel fcl_rel qw qsl qsr /\ padm_srel fcl_rel qw qsl qsr /\
+           psrel fcl_rel qw' qsr qsl /\ padm_srel fcl_rel qw' qsr qsl /\
+           padm_srel fcl_rel qmid_w qmid_sl qmid_sr /\
+           ~(psrel fcl_rel qmid_w qmid_sl qmid_sr))
+  = guard_qce_runs ();
+    guard_qce_world ();
+    guard_padm_relates_the_specimen ();
+    lemma_padm_srel_of_psrel fcl_rel qw qsl qsr;
+    lemma_padm_srel_of_psrel fcl_rel qw' qsr qsl
+
+(* ------------------------------------------------------------------ *)
+(*  B2b.12, IN ONE STATEMENT                                           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE SIX TARGETS AT ONCE.** PROVED, so that none can be read apart from the
+ * others -- in particular so that target 1 (relate the specimen) cannot be read
+ * apart from target 3 (refuse a changed result).
+ *
+ * NONE of these is the law. `law_right_identity_ext_at` is not proved here, at
+ * this instance or any other, and nothing here is a step of a simulation: the
+ * mid-point correspondence is exhibited, not propagated.
+ *)
+let guard_b2b12_summary ()
+  : Lemma (
+      // 1: the specimen is related
+      padm_xrel fcl_rel qmid_w qext qprod /\
+      padm_srel fcl_rel qmid_w qmid_sl qmid_sr /\
+      ~(psrel fcl_rel qmid_w qmid_sl qmid_sr) /\
+      // 2: `c >>= pure` is absorbed against `c`, in general
+      (forall (w: pworld) (c1 c2: pcomp fv fcl).
+         pcrel fcl_rel w c1 c2 ==>
+         padm_pcrel fcl_rel w (pbind c1 (PVar #fv #fcl)) c2) /\
+      // 3: and a changed result is refused, in general and at the fixture
+      (forall (w: pworld) (y1 y2: pval fv) (f: pval fv -> pcomp fv fcl).
+         padm_pcrel fcl_rel w (pbind (PVar #fv #fcl y1) f) (PVar #fv #fcl y2) ==>
+         pval_rel w y1 y2) /\
+      (forall (w: pworld). pwf_world w ==> ~(padm_xrel fcl_rel w qext qbad)) /\
+      (forall (w: pworld). pwf_world w ==> ~(padm_xrel fcl_rel w qwork qprod)) /\
+      // 4: the anchor is preserved and the relation survives world extension
+      (forall (w1 w0: pworld) (cx1 cx2: pctx fv fcl).
+         padm_xrel_at fcl_rel w0 cx1 cx2 /\ pwext w1 w0 ==>
+         padm_xrel_at fcl_rel w1 cx1 cx2) /\
+      padm_xrel_at fcl_rel qmid_w qext qprod /\
+      // and the old relation is contained, strictly
+      (forall (w: pworld) (s1 s2: pstore fv fcl).
+         psrel fcl_rel w s1 s2 ==> padm_srel fcl_rel w s1 s2) /\
+      // 6: the consequent, at an instance of the fixed signature
+      (law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc qcons
+       <==> pnobs_tr_eq_wf_at xboundary qw_pin3 qlhs qrhs) /\
+      padm_conf fcl_rel qmid_w (fst (prun flook xapply 7 qcf_l))
+                               (fst (prun flook xapply 4 qcf_r)) /\
+      (forall (w: pworld). pwf_world w ==>
+         ~(pconf_rel fcl_rel w (fst (prun flook xapply 7 qcf_l))
+                               (fst (prun flook xapply 4 qcf_r)))))
+  = guard_padm_relates_the_specimen ();
+    guard_padm_srel_strictly_weaker ();
+    guard_padm_conf_at_the_instance ();
+    introduce forall (w: pworld) (c1 c2: pcomp fv fcl).
+        (pcrel fcl_rel w c1 c2 ==>
+         padm_pcrel fcl_rel w (pbind c1 (PVar #fv #fcl)) c2)
+    with (introduce _ ==> _ with lemma_padm_pcrel_unit fcl_rel w c1 c2);
+    introduce forall (w: pworld) (y1 y2: pval fv) (f: pval fv -> pcomp fv fcl).
+        (padm_pcrel fcl_rel w (pbind (PVar #fv #fcl y1) f) (PVar #fv #fcl y2) ==>
+         pval_rel w y1 y2)
+    with (introduce _ ==> _ with lemma_padm_pcrel_unit_var_inv fcl_rel w y1 y2 f);
+    introduce forall (w: pworld).
+        (pwf_world w ==> ~(padm_xrel fcl_rel w qext qbad))
+    with (introduce _ ==> _ with guard_padm_refuses_a_changed_post w);
+    introduce forall (w: pworld).
+        (pwf_world w ==> ~(padm_xrel fcl_rel w qwork qprod))
+    with (introduce _ ==> _ with guard_padm_refuses_a_working_post w);
+    introduce forall (w1 w0: pworld) (cx1 cx2: pctx fv fcl).
+        (padm_xrel_at fcl_rel w0 cx1 cx2 /\ pwext w1 w0 ==>
+         padm_xrel_at fcl_rel w1 cx1 cx2)
+    with (introduce _ ==> _ with lemma_padm_xrel_at_mono fcl_rel w1 w0 cx1 cx2);
+    introduce forall (w: pworld).
+        (pwf_world w /\ pwext w qmid_w ==> padm_xrel fcl_rel w qext qprod)
+    with (introduce _ ==> _ with guard_padm_relates_the_context w)
+
+(* ================================================================== *)
+(*  B2b.12 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  This block APPENDS.  It changes no definition and no proof above   *)
+(*  it.  In particular `law_right_identity_ext_at`, `pcrel`, `pxrel`,  *)
+(*  `psrel`, `pctx_rel`, `pcomp_rel`, `padm_stack`, `padm_comp`,       *)
+(*  `extend_ctx_C` and `guard_ri_ext_midpoint_no_world` are UNTOUCHED. *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  THE RELATION                                                       *)
+(*                                                                     *)
+(*    padm_pcomp r n w c1 c2                                           *)
+(*      = n = 0 \/ pcomp_rel r n w c1 c2                               *)
+(*        \/ (c1 = POp a1 f1 /\ "f1 is pure at n-1"                    *)
+(*            /\ padm_pcomp r (n-1) w a1 c2)                           *)
+(*    padm_pcrel r w   = forall n. padm_pcomp r n w                    *)
+(*    padm_pctx  r n w = pctx_rel's body with `padm_pcomp` in the      *)
+(*                       `post` clause and NOWHERE else                *)
+(*    padm_xrel  r w   = forall n. padm_pctx r n w                     *)
+(*    padm_srel  r w   = psrel's body with `padm_xrel` for `pxrel`     *)
+(*    padm_xrel_at r w0 = forall w >= w0, wf. padm_xrel r w            *)
+(*    padm_conf  r w   = pcrel on the computation, pkrel on the        *)
+(*                       ambient stack, padm_srel on the store         *)
+(*                                                                     *)
+(*  POSITION RELATIVE TO `padm_stack`:  PARALLEL, NOT REUSED, and      *)
+(*  neither calls the other.  `padm_stack` is mode-indexed and lives   *)
+(*  in a marker regime because a STACK is driven by a consumer; a      *)
+(*  stored `post` is not driven by anything, so there is no mode here  *)
+(*  and no regime.  The residual clause of `padm_pctx` stays at        *)
+(*  `pframes_rel` -- STRICTLY TIGHTER than `padm_stack` would be.      *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  WHAT IS PROVED HERE                                                *)
+(*                                                                     *)
+(*   1. THE SPECIMEN IS RELATED.  `guard_padm_relates_the_specimen`    *)
+(*      PROVES `padm_srel fcl_rel qmid_w qmid_sl qmid_sr` AND          *)
+(*      `~(psrel fcl_rel qmid_w qmid_sl qmid_sr)` IN ONE STATEMENT,    *)
+(*      at the world that relates the two mid-point computations.      *)
+(*      `guard_padm_relates_the_context` PROVES the same of the two    *)
+(*      contexts at EVERY well-formed world, beside                    *)
+(*      `guard_ri_ext_midpoint_unrelated`'s negative about the same    *)
+(*      pair.                                                          *)
+(*   2. THE UNIT IS ABSORBED.  `lemma_padm_pcrel_unit`:                *)
+(*      `pcrel r w c1 c2 ==> padm_pcrel r w (pbind c1 PVar) c2`,       *)
+(*      in general, for every `r`, `w`, `c1`, `c2`.  This is the       *)
+(*      sentence B2b.11's ledger recorded as ABSENT.                   *)
+(*   3. A CHANGED RESULT IS REFUSED, AND SO IS A `POp` THAT WORKS.     *)
+(*      `lemma_padm_pcrel_unit_var_inv` PROVES, for EVERY `f`,         *)
+(*        padm_pcrel r w (pbind (PVar y1) f) (PVar y2)                 *)
+(*          ==> pval_rel w y1 y2,                                      *)
+(*      so absorbing units cannot lose the result.                     *)
+(*      `lemma_padm_pcrel_strip_needs_pure` PROVES that a `POp` whose  *)
+(*      continuation is not `PVar` at one related witness is NOT       *)
+(*      absorbed, so the side condition is load-bearing.               *)
+(*      At the fixture: `qext`, `qwork` and `qbad` agree with `qprod`  *)
+(*      on payload and on all four residual frames, and differ only    *)
+(*      in the stored closure.  `qext` (composed with `pure`) IS       *)
+(*      related; `qwork` (composed with `xg`, which performs) and      *)
+(*      `qbad` (which discards its argument) are NOT                   *)
+(*      -- `guard_padm_refuses_a_working_post`,                        *)
+(*      `guard_padm_refuses_a_changed_post`.                           *)
+(*   4. THE ANCHOR AND WORLD EXTENSION.                                *)
+(*      `lemma_padm_xrel_at_of_extend_ctx_pure` PROVES the lift in     *)
+(*      ANCHORED form: hypotheses at `w0`, conclusion at every         *)
+(*      well-formed `w` extending `w0`, with the anchor NOT enlarged.  *)
+(*      `lemma_padm_xrel_at_mono` PROVES that what is owned at `w0`    *)
+(*      is owned at every `w1` extending it.                           *)
+(*   5. INDEPENDENCE FROM THE CONSUMER CONDITION.  No definition in    *)
+(*      this block mentions `pequivariant_fn_at`, `pconsumer_nom`,     *)
+(*      `pfn_rel_at` or any `ctx_ops` field.  `pfn_rel_at` appears in  *)
+(*      the HYPOTHESIS of the lift lemmas, where it is a statement     *)
+(*      about two `post` closures and not about a consumer.            *)
+(*   6. THE CONSEQUENT, AT AN INSTANCE OF THE FIXED SIGNATURE.         *)
+(*      `guard_padm_conf_at_the_instance` PROVES, in one statement:    *)
+(*      the instance is `law_right_identity_ext_at xboundary qw_pin3   *)
+(*      ref_ops xpl qc qcons`, whose two sides ARE `qlhs` and `qrhs`   *)
+(*      (`guard_final_instance_survives_xapply`); the two             *)
+(*      configurations are the MACHINE'S, seven steps and four with    *)
+(*      empty traces (`guard_qce_midpoint`); `padm_conf fcl_rel        *)
+(*      qmid_w` HOLDS of them; and `pconf_rel fcl_rel w` holds at NO   *)
+(*      well-formed world at all.                                      *)
+(*      `guard_padm_covers_the_run` PROVES that at the ENDS both       *)
+(*      relations hold, so ONE relation covers the mid-point and both  *)
+(*      ends of the instance's two runs where `psrel` covers only the  *)
+(*      ends.  `guard_padm_srel_strictly_weaker` PROVES the            *)
+(*      containment `psrel ==> padm_srel` and its STRICTNESS, with     *)
+(*      the specimen as the witness.                                   *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  WHAT IS NOT PROVED, AND NAMED                                      *)
+(*                                                                     *)
+(*   - THE LAW.  `law_right_identity_ext_at` is NOT PROVED, at this    *)
+(*     instance or any other.  B2b.11's entry stands unchanged.        *)
+(*   - NO SIMULATION.  Nothing here propagates the mid-point           *)
+(*     correspondence one step, in either direction.  The two          *)
+(*     configurations are shown to CORRESPOND; they are not shown to   *)
+(*     STAY corresponding, and `padm_srel` is NOT shown to be          *)
+(*     preserved by `pstep`.  B2b.3b is untouched.                     *)
+(*   - `padm_srel` DOES NOT DISCHARGE THE OBSERVATION'S CONSEQUENT.    *)
+(*     `pnobs_tr_le_wf_at` asks for `psrel` at the two final stores,   *)
+(*     and `padm_srel` is STRICTLY WEAKER                              *)
+(*     (`guard_padm_srel_strictly_weaker`), so relating the mid-point  *)
+(*     by `padm_srel` does not by itself produce that witness.  At     *)
+(*     this instance the witness is `guard_qce_world`'s `psrel` at the *)
+(*     ends and is not obtained from this block.                       *)
+(*   - THE RELATION IS DIRECTIONAL.  Only the LEFT may carry the       *)
+(*     administrative unit, as only the left carries the marker in     *)
+(*     `padm_stack`.  No symmetric version is built and none is        *)
+(*     claimed.                                                        *)
+(*   - THE RESIDUAL CLAUSE IS NOT EXERCISED.  Every fixture here has   *)
+(*     `qresid0` on both sides, so nothing proved above would fail if  *)
+(*     `padm_pctx`'s `pframes_rel` conjunct were dropped.  It is kept  *)
+(*     because it is `pctx_rel`'s, verbatim, and dropping it would     *)
+(*     make the relation looser than the question asks; but its        *)
+(*     TIGHTNESS is inherited, not demonstrated.                       *)
+(*   - `padm_pcomp` ABSORBS AT THE HEAD ONLY.  A unit buried under a   *)
+(*     `PHandle`, a `PSplice` or a `PWeave` is reached by the          *)
+(*     `pcomp_rel` disjunct alone, which does not absorb it.  Nothing  *)
+(*     here needs more, because `extend_ctx_C` writes its unit at the  *)
+(*     head of the stored closure and nowhere else.                    *)
+(*   - THE OTHER LAWS are not touched, and neither is the algebraic    *)
+(*     half of `law_assoc`, whose bracketings are a DIFFERENT          *)
+(*     administrative difference from the one absorbed here.           *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`, NO    *)
+(*     `val` without a body, NO axiom, NO warning.                     *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  GUARDS FIRED, AND WHERE EACH LANDED                                *)
+(*                                                                     *)
+(*  Each was applied to a scratch copy and the repository file was     *)
+(*  never left mutated.  All five mutations that were expected to be   *)
+(*  rejected were rejected, each at the predicted definition.          *)
+(*                                                                     *)
+(*   - strip disjunct made unavailable (`False /\ ...`):  REJECTED at  *)
+(*     `lemma_padm_pcomp_unit`.  So the specimen is not being related  *)
+(*     by the `pcomp_rel` disjunct in disguise.                        *)
+(*   - `f is pure` side condition deleted:  REJECTED at                *)
+(*     `lemma_padm_pcrel_strip_needs_pure`.  So the side condition is  *)
+(*     load-bearing.                                                   *)
+(*   - `padm_srel` reads `pxrel` instead of `padm_xrel`:  REJECTED at  *)
+(*     `guard_padm_relates_the_specimen`.  So the store lift is doing  *)
+(*     the work and is not a rename.                                   *)
+(*   - `padm_pctx`'s `post` clause replaced by `True`:  REJECTED at    *)
+(*     `guard_padm_refuses_a_changed_post`.  So the refusals come      *)
+(*     from comparing the two closures, not from the payload or the    *)
+(*     residual.                                                       *)
+(*   - `qbadpost` changed to return its argument:  REJECTED at         *)
+(*     `guard_padm_refuses_a_changed_post`, but at a bookkeeping       *)
+(*     `assert_norm` rather than at the refusal, so this one is        *)
+(*     recorded as a WEAK guard and the clause above is what stands    *)
+(*     in its place.                                                   *)
+(*   - `padm_pctx`'s residual clause replaced by `True`:  ACCEPTED --  *)
+(*     the module still verifies.  This is the negative recorded       *)
+(*     above under "the residual clause is not exercised", and it is   *)
+(*     reported rather than engineered around.                         *)
+(* ================================================================== *)
