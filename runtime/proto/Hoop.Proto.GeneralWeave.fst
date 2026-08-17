@@ -21674,3 +21674,773 @@ let guard_b2b10_summary ()
 (*     B2b.9 and earlier are UNTOUCHED.  B2b.10 appends;               *)
 (*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.11 -- CONSOLIDATION: ONE SIGNATURE                             *)
+(*                                                                     *)
+(*  Nothing new is discovered here.  What B2b.8, B2b.9 and B2b.10      *)
+(*  established is FIXED INTO ONE SIGNATURE, and the four things that  *)
+(*  were checked of the CONSUMER PREDICATE are re-checked AGAINST THE  *)
+(*  SIGNATURE -- that is, the law is instantiated at each consumer and *)
+(*  its hypothesis is shown to discharge, or to fail, as expected.     *)
+(*                                                                     *)
+(*    law_right_identity_ext_at b w0 ops pl c f                        *)
+(*      = pequivariant_fn_at b.b_rel w0 f                              *)
+(*        ==> pnobs_tr_eq_wf_at b w0 <lhs> <rhs>                       *)
+(*                                                                     *)
+(*  `f` is an ARBITRARY `pval v -> pcomp v cl`: B2b.6's syntactic      *)
+(*  restriction to `fun cy -> ops.o_extend pl cy g` is WITHDRAWN, and  *)
+(*  what keeps the handle-reading consumers out is the hypothesis.     *)
+(*                                                                     *)
+(*  THE LAW ITSELF IS STILL NOT PROVED, in general or at any           *)
+(*  instance.  What is settled is its STATEMENT and its DOMAIN OF      *)
+(*  QUANTIFICATION.                                                    *)
+(*                                                                     *)
+(*  NO administrative congruence is stated or used: nothing here       *)
+(*  identifies `c` with `pbind c PVar`, and no two `post`s differing   *)
+(*  by one frame are related.                                          *)
+(*                                                                     *)
+(*  NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`.  Every   *)
+(*  definition of B2b.10 and earlier is UNTOUCHED; B2b.11 appends.     *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  THE SIGNATURE                                                      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **RIGHT IDENTITY OVER AN EXTENDED CONTEXT, AT A PROVENANCE ANCHOR `w0`.**
+ *
+ * Character for character `law_right_identity_ext_nom_cons_at`'s body, under
+ * the name the consolidation fixes. The two sides still differ by exactly one
+ * `o_extend_ctx pl _ pure`, production still happens once on each side, and no
+ * `post` is identified with any other.
+ *
+ * Read the two indices together, because each is useless without the other:
+ *
+ *   - `pequivariant_fn_at b.b_rel w0 f` is the consumer's whole obligation. It
+ *     is a statement about what `f` DOES to handles the world identifies, not
+ *     about how `f` is written;
+ *   - `pnobs_tr_eq_wf_at b w0` observes only at initial stores whose anchor
+ *     EXTENDS `w0`, so the law never starts the comparison at a store that does
+ *     not own what the consumer was entitled to have captured.
+ *
+ * `lemma_law_ri_ext_at_is_cons_at` proves this is B2b.10's form, so nothing
+ * below re-establishes what B2b.10 proved of that form: the degeneration at
+ * `w0 = []`, the antitonicity in `w0`, and the reuse across an allocation all
+ * transport along that biconditional.
+ *)
+let law_right_identity_ext_at
+    (#v #cl: Type)
+    (b: pboundary v cl)
+    (w0: pworld)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+    (f: pval v -> pcomp v cl)
+  : GTot prop
+  = pequivariant_fn_at b.b_rel w0 f ==>
+    pnobs_tr_eq_wf_at b w0
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f)
+
+(** A `GTot prop` applied in HYPOTHESIS position is an atom to the SMT encoding.
+    These two casts put the body in the context and take it back; they have no
+    proof obligation at all and go through by conversion. *)
+let law_ri_ext_at_unfold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (law_right_identity_ext_at b w0 ops pl c f))
+  : squash (pequivariant_fn_at b.b_rel w0 f ==>
+            pnobs_tr_eq_wf_at b w0
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+              (pbind (ops.o_enter_ctx pl c) f))
+  = h
+
+let law_ri_ext_at_fold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (pequivariant_fn_at b.b_rel w0 f ==>
+                pnobs_tr_eq_wf_at b w0
+                  (pbind (ops.o_enter_ctx pl c)
+                         (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                  (pbind (ops.o_enter_ctx pl c) f)))
+  : squash (law_right_identity_ext_at b w0 ops pl c f)
+  = h
+
+(** The same cast for the indexed observation, which B2b.10 gave for
+    `pnobs_tr_le_wf_at` but not for the two-directional form. By conversion. *)
+let pnobs_tr_eq_wf_at_unfold (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                             (c1 c2: pcomp v cl)
+                             (h: squash (pnobs_tr_eq_wf_at b w0 c1 c2))
+  : squash (pnobs_tr_le_wf_at b w0 c1 c2 /\ pnobs_tr_le_wf_at b w0 c2 c1)
+  = h
+
+(** **THE SIGNATURE IS B2b.10's FORM.** PROVED, both directions, by the two
+    casts and nothing else -- so this is a naming, not a new statement, and
+    every fact B2b.10 proved about `law_right_identity_ext_nom_cons_at`
+    transports. *)
+let lemma_law_ri_ext_at_is_cons_at
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (law_right_identity_ext_at b w0 ops pl c f
+           <==> law_right_identity_ext_nom_cons_at b w0 ops pl c f)
+  = introduce law_right_identity_ext_at b w0 ops pl c f ==>
+              law_right_identity_ext_nom_cons_at b w0 ops pl c f
+    with law_ri_ext_cons_at_fold b w0 ops pl c f
+           (law_ri_ext_at_unfold b w0 ops pl c f ());
+    introduce law_right_identity_ext_nom_cons_at b w0 ops pl c f ==>
+              law_right_identity_ext_at b w0 ops pl c f
+    with law_ri_ext_at_fold b w0 ops pl c f
+           (law_ri_ext_cons_at_unfold b w0 ops pl c f ())
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 2.  THE CONSUMER'S OBLIGATION, AND WHAT MEETING IT BUYS       *)
+(*                                                                     *)
+(*  These two lemmas are what "against this signature" means below:    *)
+(*  a consumer that MEETS the obligation turns the law into its        *)
+(*  conclusion, and a consumer that FAILS it makes the law hold with   *)
+(*  no conclusion drawn at all.  Every verdict in items 3, 4 and 5 is  *)
+(*  one of these two applied to a named consumer.                      *)
+(* ------------------------------------------------------------------ *)
+
+(** **THE OBLIGATION DISCHARGED: THE LAW IS EXACTLY ITS CONCLUSION.** PROVED. So
+    at a conforming consumer the law claims something, and what it claims is the
+    indexed observation and nothing weaker. *)
+let lemma_law_ri_ext_at_of_conforming
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (requires pequivariant_fn_at b.b_rel w0 f)
+          (ensures (law_right_identity_ext_at b w0 ops pl c f
+                    <==>
+                    pnobs_tr_eq_wf_at b w0
+                      (pbind (ops.o_enter_ctx pl c)
+                             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                      (pbind (ops.o_enter_ctx pl c) f)))
+  = introduce law_right_identity_ext_at b w0 ops pl c f ==>
+              pnobs_tr_eq_wf_at b w0
+                (pbind (ops.o_enter_ctx pl c)
+                       (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                (pbind (ops.o_enter_ctx pl c) f)
+    with law_ri_ext_at_unfold b w0 ops pl c f ();
+    introduce pnobs_tr_eq_wf_at b w0
+                (pbind (ops.o_enter_ctx pl c)
+                       (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                (pbind (ops.o_enter_ctx pl c) f) ==>
+              law_right_identity_ext_at b w0 ops pl c f
+    with law_ri_ext_at_fold b w0 ops pl c f ()
+
+(** **THE OBLIGATION FAILED: THE LAW HOLDS AND SAYS NOTHING.** PROVED. This is
+    the vacuity that the refusals below rest on, and it is stated once so that
+    each refusal is visibly the same step. *)
+let lemma_law_ri_ext_at_vacuous
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (requires ~(pequivariant_fn_at b.b_rel w0 f))
+          (ensures law_right_identity_ext_at b w0 ops pl c f)
+  = law_ri_ext_at_fold b w0 ops pl c f ()
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 6.  `pconsumer_nom` SURVIVES, AND THE RELATION IS PROVED      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **`pconsumer_nom` IS THE EMPTY-ANCHOR SPECIAL CASE OF THE SIGNATURE'S
+ * HYPOTHESIS, AND THE SIGNATURE AT `w0 = []` IS B2b.9's LAW OVER B2b.7's
+ * DOMAIN.** PROVED, as one biconditional at the condition and one at the law,
+ * with the right-hand sides written in EXISTING symbols only.
+ *
+ * So B2b.9's form is a SPECIAL CASE and not a superseded mistake: it is what
+ * the signature says when no provenance is recorded.
+ *)
+let lemma_law_ri_ext_at_empty_is_pconsumer_nom
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma ((pconsumer_nom b.b_rel f <==> pequivariant_fn_at b.b_rel ([] <: pworld) f) /\
+           (law_right_identity_ext_at b ([] <: pworld) ops pl c f
+            <==>
+            (pconsumer_nom b.b_rel f ==>
+             pnobs_tr_eq_wf b
+               (pbind (ops.o_enter_ctx pl c)
+                      (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+               (pbind (ops.o_enter_ctx pl c) f))))
+  = lemma_pconsumer_nom_is_empty_anchor b.b_rel f;
+    lemma_law_ri_ext_cons_at_empty b ops pl c f;
+    lemma_law_ri_ext_at_is_cons_at b ([] <: pworld) ops pl c f
+
+(**
+ * **AND `pconsumer_nom` SURVIVES AS AN AUDIT DEFINITION: IT DISCHARGES THE
+ * SIGNATURE'S HYPOTHESIS AT EVERY PROVENANCE AT ONCE.** PROVED.
+ *
+ * That is its remaining use. A consumer audited once against the strong,
+ * anchor-free condition never has to be re-examined at any particular
+ * provenance -- which is exactly what B2b.10 showed is too strong to DEMAND,
+ * and exactly what makes it convenient to OFFER.
+ *)
+let lemma_pconsumer_nom_conforms_everywhere
+    (#v #cl: Type) (r: pcl_rel_t cl) (f: pval v -> pcomp v cl) (w0: pworld)
+  : Lemma (requires pconsumer_nom r f)
+          (ensures pequivariant_fn_at r w0 f)
+  = lemma_pconsumer_nom_is_empty_anchor r f;
+    lemma_pequivariant_fn_at_mono r w0 ([] <: pworld) f
+
+(** **THE AUDIT DEFINITION, AGAINST THE SIGNATURE.** PROVED: a consumer that
+    passes the audit turns the law into its conclusion at EVERY provenance, so
+    the audit is a sufficient condition for the signature's hypothesis and never
+    a necessary one. *)
+let lemma_law_ri_ext_at_of_audited
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (requires pconsumer_nom b.b_rel f)
+          (ensures (law_right_identity_ext_at b w0 ops pl c f
+                    <==>
+                    pnobs_tr_eq_wf_at b w0
+                      (pbind (ops.o_enter_ctx pl c)
+                             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                      (pbind (ops.o_enter_ctx pl c) f)))
+  = lemma_pconsumer_nom_conforms_everywhere b.b_rel f w0;
+    lemma_law_ri_ext_at_of_conforming b w0 ops pl c f
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 1.  THE SYNTACTIC RESTRICTION IS WITHDRAWN                    *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **B2b.6's RESTRICTED LAW IS AN INSTANCE OF THE SIGNATURE.** PROVED, in
+ * general -- for every boundary, every algebra, every plan, every body and
+ * every extension `g`. The consumer is the one B2b.6 could write,
+ * `fun cy -> ops.o_extend pl cy g`, and the provenance is the empty one, which
+ * is where B2b.6's observation lives.
+ *
+ * This is the direction that makes the withdrawal a GENERALISATION: nothing
+ * B2b.6 could state is lost.
+ *)
+let lemma_law_ri_ext_at_of_nom
+    (#v #cl: Type) (b: pboundary v cl) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (g: pval v -> pcomp v cl)
+  : Lemma (requires law_right_identity_ext_nom b ops pl c g)
+          (ensures law_right_identity_ext_at b ([] <: pworld) ops pl c
+                     (fun cy -> ops.o_extend pl cy g))
+  = lemma_ri_ext_cons_of_nom b ops pl c g;
+    lemma_law_ri_ext_cons_at_empty_of_cons b ops pl c
+      (fun cy -> ops.o_extend pl cy g);
+    lemma_law_ri_ext_at_is_cons_at b ([] <: pworld) ops pl c
+      (fun cy -> ops.o_extend pl cy g)
+
+(** The branching consumer's two sides ARE the signature's two sides at
+    `f := qcons_branch`. By definition -- `rlhs_b` and `rrhs_b` were written in
+    that shape when B2b.9 refuted the unconditional form. *)
+let guard_branch_sides_are_the_signature_s ()
+  : Lemma (rlhs_b == pbind (ref_ops.o_enter_ctx xpl qc)
+                       (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                        qcons_branch) /\
+           rrhs_b == pbind (ref_ops.o_enter_ctx xpl qc) qcons_branch)
+  = ()
+
+let guard_wb_rlhs_b () : Lemma (pterm_wb rlhs_b) = ()
+let guard_wb_rrhs_b () : Lemma (pterm_wb rrhs_b) = ()
+
+(**
+ * **THE REFUTATION ARGUMENT, AT THE SIGNATURE'S OWN OBSERVATION.** PROVED. It
+ * is `lemma_le_refuted_tr` with two changes and no others: the hypothesis is
+ * `pnobs_tr_le_wf_at` at the empty provenance instead of `pnobs_tr_le`, and the
+ * two computations must be judged -- which is what `guard_xce_dom` turns into
+ * membership of B2b.7's domain, and is therefore the whole of what the two
+ * restrictions cost here.
+ *
+ * The empty provenance's side condition, `pwext (panchor sto) []`, is
+ * discharged where the quantifier is instantiated and needs no fact about the
+ * store.
+ *)
+let lemma_le_wf_at_refuted_tr (c1 c2: pcomp fv fcl) (tr1 tr2: list string)
+                              (x1 x2v: pval fv) (sl sr: pstore fv fcl)
+  : Lemma (requires
+             (let cfl : pconf fv fcl =
+                { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+              let cfr : pconf fv fcl =
+                { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+              pnobs_tr_le_wf_at xboundary ([] <: pworld) c1 c2 /\
+              pterm_wb c1 /\ pterm_wb c2 /\
+              pnconverges flook xapply cfl tr1 x1 sl /\
+              pnconverges flook xapply cfr tr2 x2v sr /\
+              ~(tr1 == tr2)))
+          (ensures False)
+  = guard_xce_dom c1;
+    guard_xce_dom c2;
+    let cfl : pconf fv fcl =
+      { st = PStep c1 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let cfr : pconf fv fcl =
+      { st = PStep c2 ([] <: pstack fv fcl); store = []; next = 0 } in
+    let hle : squash (pnobs_tr_le_wf_at xboundary ([] <: pworld) c1 c2) = () in
+    pnobs_tr_le_wf_at_unfold xboundary ([] <: pworld) c1 c2 hle;
+    assert (pwext (panchor ([] <: pstore fv fcl)) ([] <: pworld));
+    assert (pnconverges xboundary.b_lk xboundary.b_apply cfl tr1 x1 sl);
+    eliminate exists (y2: pval fv) (s2': pstore fv fcl) (w: pworld).
+        (pnconverges flook xapply cfr tr1 y2 s2' /\
+         pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+         pval_rel w x1 y2 /\ psrel fcl_rel w sl s2')
+    with lemma_pnconverges_unique flook xapply cfr tr1 tr2 y2 x2v s2' sr
+
+(**
+ * **THE SIGNATURE'S CONCLUSION AT THE BRANCHING CONSUMER IS FALSE.** PROVED, at
+ * the empty provenance, at the boundary `xboundary`, the plan `xpl`, the body
+ * `qc`, on the EMPTY ambient stack, at the EMPTY store and at counter ZERO --
+ * the configuration B2b.9's `guard_branch_runs` runs both sides on.
+ *
+ * This is what makes the vacuity below load-bearing rather than decorative: the
+ * law at `qcons_branch` is true ONLY because the hypothesis refuses that
+ * consumer. Were the hypothesis dropped, the signature would be a FALSE
+ * statement -- and now it is false at the signature's OWN observation, not only
+ * at B2b.6's unrestricted one, which is all
+ * `guard_open_form_refuted_by_branching` established.
+ *)
+let guard_final_conclusion_refuted_by_branching ()
+  : Lemma (~(pnobs_tr_le_wf_at xboundary ([] <: pworld) rlhs_b rrhs_b) /\
+           ~(pnobs_tr_eq_wf_at xboundary ([] <: pworld) rlhs_b rrhs_b))
+  = guard_branch_runs ();
+    guard_wb_rlhs_b ();
+    guard_wb_rrhs_b ();
+    introduce pnobs_tr_le_wf_at xboundary ([] <: pworld) rlhs_b rrhs_b ==> False
+    with lemma_le_wf_at_refuted_tr rlhs_b rrhs_b ["one"] ["two"]
+           (fpv FU) (fpv FU) rsl_b rsr_b;
+    introduce pnobs_tr_eq_wf_at xboundary ([] <: pworld) rlhs_b rrhs_b ==> False
+    with (pnobs_tr_eq_wf_at_unfold xboundary ([] <: pworld) rlhs_b rrhs_b ();
+          lemma_le_wf_at_refuted_tr rlhs_b rrhs_b ["one"] ["two"]
+            (fpv FU) (fpv FU) rsl_b rsr_b)
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 3.  BRANCHING AND ORDERING, REFUSED AGAINST THE SIGNATURE     *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **RAW-NUMBER BRANCHING: REFUSED, AGAINST THE SIGNATURE.** PROVED, and the
+ * three conjuncts have to be read together:
+ *
+ *   - the hypothesis FAILS, at the empty provenance and at a provenance that
+ *     pins a handle, so the refusal is not an artefact of recording nothing;
+ *   - the law therefore HOLDS at this consumer, at both provenances, and
+ *     holds VACUOUSLY -- `lemma_law_ri_ext_at_vacuous` and nothing else;
+ *   - and the conclusion it would otherwise have claimed is FALSE. So the
+ *     hypothesis is doing exactly the work B2b.6's syntactic restriction did.
+ *)
+let guard_final_branching_refused ()
+  : Lemma (~(pequivariant_fn_at fcl_rel ([] <: pworld) qcons_branch) /\
+           ~(pequivariant_fn_at fcl_rel qw_pin3 qcons_branch) /\
+           law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc qcons_branch /\
+           law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc qcons_branch /\
+           ~(pnobs_tr_eq_wf_at xboundary ([] <: pworld) rlhs_b rrhs_b))
+  = guard_qcons_branch_refused_empty ();
+    guard_check3_branch_refused_at_pin ();
+    assert_norm (xboundary.b_rel == fcl_rel);
+    lemma_law_ri_ext_at_vacuous xboundary ([] <: pworld) ref_ops xpl qc qcons_branch;
+    lemma_law_ri_ext_at_vacuous xboundary qw_pin3 ref_ops xpl qc qcons_branch;
+    guard_final_conclusion_refuted_by_branching ()
+
+(**
+ * **ORDERING ON HANDLES: REFUSED, AGAINST THE SIGNATURE, AT A PROVENANCE THAT
+ * PINS THE HANDLE THE CONSUMER HOLDS.** PROVED. The consumer honestly owns key
+ * 3 and is still refused, so the law holds at it vacuously: order is not a
+ * nominal notion however much provenance is recorded.
+ *)
+let guard_final_ordering_refused ()
+  : Lemma (~(pequivariant_fn_at fcl_rel qw_pin3 (qcons_lt 3)) /\
+           law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc (qcons_lt 3) /\
+           ~(pequivariant_fn_at fcl_rel ([] <: pworld) (qcons_lt 3)) /\
+           law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc (qcons_lt 3))
+  = guard_check5_ordering_refused_at_pin ();
+    lemma_qw_pin3_facts ();
+    assert_norm (xboundary.b_rel == fcl_rel);
+    lemma_law_ri_ext_at_vacuous xboundary qw_pin3 ref_ops xpl qc (qcons_lt 3);
+    introduce pequivariant_fn_at fcl_rel ([] <: pworld) (qcons_lt 3) ==> False
+    with lemma_pequivariant_fn_at_mono fcl_rel qw_pin3 ([] <: pworld) (qcons_lt 3);
+    lemma_law_ri_ext_at_vacuous xboundary ([] <: pworld) ref_ops xpl qc (qcons_lt 3)
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 4.  IDENTITY COMPARISON, ADMITTED AGAINST THE SIGNATURE       *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **HANDLE IDENTITY COMPARISON: ADMITTED, AGAINST THE SIGNATURE.** PROVED, and
+ * the second conjunct is what "admitted" means here: the hypothesis DISCHARGES,
+ * so the law at this consumer is not vacuously true -- it is EXACTLY the
+ * indexed observation of its two sides, and nothing weaker.
+ *
+ * Read against `guard_final_branching_refused`: same signature, same
+ * provenance, same plan and body; one consumer reads the NUMBER and the law
+ * says nothing about it, the other reads the HANDLE and the law is a full
+ * obligation about it.
+ *)
+let guard_final_identity_admitted ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 (qcons_eq (PCtxKey 3)) /\
+           (law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc
+              (qcons_eq (PCtxKey 3))
+            <==>
+            pnobs_tr_eq_wf_at xboundary qw_pin3
+              (pbind (ref_ops.o_enter_ctx xpl qc)
+                     (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                      (qcons_eq (PCtxKey 3))))
+              (pbind (ref_ops.o_enter_ctx xpl qc) (qcons_eq (PCtxKey 3)))))
+  = guard_check4_identity_conforms_at_pin ();
+    lemma_qw_pin3_facts ();
+    assert_norm (xboundary.b_rel == fcl_rel);
+    lemma_law_ri_ext_at_of_conforming xboundary qw_pin3 ref_ops xpl qc
+      (qcons_eq (PCtxKey 3))
+
+(**
+ * **AND THE ADMITTED CONSUMER IS OUTSIDE B2b.6's SYNTACTIC RANGE.** PROVED, so
+ * item 1's withdrawal is not a re-labelling: the signature admits, NON-
+ * VACUOUSLY, a consumer that no instance of `fun cy -> ops.o_extend pl cy g`
+ * can be -- the two disagree already at the point `PCtxKey 3`, for EVERY plan
+ * and EVERY extension.
+ *)
+let guard_final_admits_a_non_extend_consumer ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 (qcons_eq (PCtxKey 3)) /\
+           (forall (pl: plan fv fcl) (g: pval fv -> pcomp fv fcl).
+              ~(qcons_eq (PCtxKey 3) (PCtxKey 3) == ref_ops.o_extend pl (PCtxKey 3) g)))
+  = guard_check4_identity_conforms_at_pin ();
+    lemma_qw_pin3_facts ();
+    assert_norm (qcons_eq (PCtxKey 3) (PCtxKey 3) == PEmit "same" (PVar (fpv FU)));
+    introduce forall (pl: plan fv fcl) (g: pval fv -> pcomp fv fcl).
+        ~(qcons_eq (PCtxKey 3) (PCtxKey 3) == ref_ops.o_extend pl (PCtxKey 3) g)
+    with lemma_ref_ops_extend_is_node pl g (PCtxKey 3)
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 5.  A CAPTURED HANDLE, ADMITTED WHERE `w0` RECORDS OWNERSHIP  *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **A CAPTURED HANDLE: ADMITTED AGAINST THE SIGNATURE WHERE `w0` RECORDS
+ * OWNERSHIP OF IT, AND ONLY THERE.** PROVED, and the four conjuncts are two
+ * pairs:
+ *
+ *   - at `w0 = qw_pin3`, which speaks for key 3, the hypothesis DISCHARGES and
+ *     the law is exactly the indexed observation of its two sides;
+ *   - at `w0 = []`, which speaks for nothing, the hypothesis FAILS and the law
+ *     is vacuous.
+ *
+ * One term, one signature, two provenances, opposite readings. That is the
+ * defect B2b.10 named -- B2b.9's `pconsumer_nom` gives this consumer the
+ * empty-provenance verdict everywhere -- fixed at the signature rather than at
+ * the predicate.
+ *)
+let guard_final_capture_admitted ()
+  : Lemma (pequivariant_fn_at fcl_rel qw_pin3 qcons_cap /\
+           (law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc qcons_cap
+            <==>
+            pnobs_tr_eq_wf_at xboundary qw_pin3
+              (pbind (ref_ops.o_enter_ctx xpl qc)
+                     (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                      qcons_cap))
+              (pbind (ref_ops.o_enter_ctx xpl qc) qcons_cap)) /\
+           ~(pequivariant_fn_at fcl_rel ([] <: pworld) qcons_cap) /\
+           law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc qcons_cap /\
+           ~(pconsumer_nom fcl_rel qcons_cap))
+  = lemma_qw_pin3_facts ();
+    guard_qcons_cap_at_pin ();
+    guard_qcons_cap_not_at_empty ();
+    lemma_pconsumer_nom_is_empty_anchor fcl_rel qcons_cap;
+    assert_norm (xboundary.b_rel == fcl_rel);
+    lemma_law_ri_ext_at_of_conforming xboundary qw_pin3 ref_ops xpl qc qcons_cap;
+    lemma_law_ri_ext_at_vacuous xboundary ([] <: pworld) ref_ops xpl qc qcons_cap
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 7.  THE PREVIOUSLY CHECKED INSTANCE, UNDER THE SIGNATURE      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **B2b.10's INSTANCE GOES THROUGH UNDER THE FINAL SIGNATURE, UNCHANGED.**
+ * PROVED. Same boundary, same interpreter, same plan, same body, same consumer,
+ * same machine-built store `gsto` at counter 4, same provenance `qw_pin3`.
+ *
+ * What is added to `guard_ri_ext_cons_at_survives_xapply` is the first
+ * conjunct: at the final signature's name, the law at this consumer and this
+ * provenance IS the indexed observation of `qlhs` and `qrhs`, because the
+ * hypothesis discharges. The rest is that guard's conjunction verbatim -- the
+ * inhabited-and-real restriction, the machine-built store, domain membership on
+ * both sides, both sides running, and the two consequents with their witnesses.
+ *
+ * **What this is NOT.** It is ONE ambient stack, ONE store, ONE counter and ONE
+ * body. The law quantifies over every admitted `k`, every admitted store, every
+ * counter, every plan and every `c`. Nothing here proves that.
+ *)
+let guard_final_instance_survives_xapply ()
+  : Lemma (
+      // the signature at the instance's consumer IS the indexed observation
+      pequivariant_fn_at fcl_rel qw_pin3 qcons /\
+      (law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc qcons
+       <==> pnobs_tr_eq_wf_at xboundary qw_pin3 qlhs qrhs) /\
+      // (a) the restriction is inhabited, and it is a restriction
+      pwext (panchor gsto) qw_pin3 /\
+      ~(pwext (panchor ([] <: pstore fv fcl)) qw_pin3) /\
+      // (b) and the store that inhabits it is one the MACHINE BUILDS
+      pterm_wb gseed /\
+      (fst (prun flook xapply 40 (pload gseed))).store == gsto /\
+      (fst (prun flook xapply 40 (pload gseed))).next == 4 /\
+      // (c) the admitted store is inside the well-formedness domain, both sides
+      pnobs_dom xboundary qlhs ([] <: pstack fv fcl) gsto 4 /\
+      pnobs_dom xboundary qrhs ([] <: pstack fv fcl) gsto 4 /\
+      gcons_cf_l == gcf_l /\ gcons_cf_r == gcf_r /\
+      // (d) both sides really run on it, to the same trace
+      pnconverges flook xapply gcf_l ([] <: list string) (PCtxKey 6) gsl /\
+      pnconverges flook xapply gcf_r ([] <: list string) (PCtxKey 5) gsr /\
+      // and the two consequents, with their witnesses
+      (exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply gcf_r ([] <: list string) x2 s2' /\
+         pwf_world w /\ pwext w (panchor gsto) /\
+         pval_rel w (PCtxKey 6) x2 /\ psrel fcl_rel w gsl s2') /\
+      (exists (x1: pval fv) (s1': pstore fv fcl) (w: pworld).
+         pnconverges flook xapply gcf_l ([] <: list string) x1 s1' /\
+         pwf_world w /\ pwext w (panchor gsto) /\
+         pval_rel w (PCtxKey 5) x1 /\ psrel fcl_rel w gsr s1') /\
+      // and the capturing consumer conforms at THIS store's own anchor
+      pequivariant_fn_at fcl_rel (panchor gsto) qcons_cap)
+  = guard_ri_ext_cons_at_survives_xapply ();
+    guard_ri_ext_cons_sides_are_the_instance ();
+    assert_norm (xboundary.b_rel == fcl_rel);
+    lemma_law_ri_ext_at_of_conforming xboundary qw_pin3 ref_ops xpl qc qcons
+
+(* ------------------------------------------------------------------ *)
+(*  ITEM 6, AT THE FIXTURE                                             *)
+(* ------------------------------------------------------------------ *)
+
+(** **`pconsumer_nom` AS THE EMPTY-PROVENANCE READING, AT THE FIXTURE.** PROVED,
+    at the condition and at the law. The general statements are
+    `lemma_pconsumer_nom_is_empty_anchor` and
+    `lemma_law_ri_ext_at_empty_is_pconsumer_nom`; this is them at `qcons_cap`
+    and at the instance's own consumer, with the two sides written as `qlhs`
+    and `qrhs`. *)
+let guard_final_empty_reading_at_the_fixture ()
+  : Lemma ((pconsumer_nom fcl_rel qcons_cap
+            <==> pequivariant_fn_at fcl_rel ([] <: pworld) qcons_cap) /\
+           (law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc qcons
+            <==> (pconsumer_nom fcl_rel qcons ==> pnobs_tr_eq_wf xboundary qlhs qrhs)))
+  = lemma_pconsumer_nom_is_empty_anchor fcl_rel qcons_cap;
+    assert_norm (xboundary.b_rel == fcl_rel);
+    guard_ri_ext_cons_sides_are_the_instance ();
+    lemma_law_ri_ext_at_empty_is_pconsumer_nom xboundary ref_ops xpl qc qcons
+
+(* ------------------------------------------------------------------ *)
+(*  B2b.11, IN ONE STATEMENT                                           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE CONSOLIDATION, IN ONE STATEMENT.** PROVED. Items 1 to 7 at once, at ONE
+ * signature, ONE boundary, ONE plan, ONE body and ONE provenance, so that they
+ * cannot be read apart from each other. Item 6's two biconditionals appear as
+ * their instances at the fixture; the general statements are
+ * `lemma_pconsumer_nom_is_empty_anchor` and
+ * `lemma_law_ri_ext_at_empty_is_pconsumer_nom`.
+ *
+ * Every conjunct is about `law_right_identity_ext_at` or about the hypothesis
+ * it takes. NONE of them is the law: the law is not proved here, at this
+ * instance or any other.
+ *)
+let guard_b2b11_summary ()
+  : Lemma (
+      // 1: the syntactic restriction is withdrawn -- the signature admits, and
+      //    admits NON-VACUOUSLY, a consumer no `o_extend` term can be
+      (forall (pl: plan fv fcl) (g: pval fv -> pcomp fv fcl).
+         ~(qcons_eq (PCtxKey 3) (PCtxKey 3) == ref_ops.o_extend pl (PCtxKey 3) g)) /\
+      // 2 and 4: the obligation is `pequivariant_fn_at ... w0`, and discharging
+      //    it turns the law into its conclusion and nothing weaker
+      pequivariant_fn_at fcl_rel qw_pin3 (qcons_eq (PCtxKey 3)) /\
+      (law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc
+         (qcons_eq (PCtxKey 3))
+       <==>
+       pnobs_tr_eq_wf_at xboundary qw_pin3
+         (pbind (ref_ops.o_enter_ctx xpl qc)
+                (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                 (qcons_eq (PCtxKey 3))))
+         (pbind (ref_ops.o_enter_ctx xpl qc) (qcons_eq (PCtxKey 3)))) /\
+      // 3: raw-number branching and ordering are REFUSED against the signature,
+      //    the law holds at them vacuously, and the conclusion the branching
+      //    one would otherwise have claimed is FALSE
+      ~(pequivariant_fn_at fcl_rel qw_pin3 qcons_branch) /\
+      law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc qcons_branch /\
+      ~(pnobs_tr_eq_wf_at xboundary ([] <: pworld) rlhs_b rrhs_b) /\
+      ~(pequivariant_fn_at fcl_rel qw_pin3 (qcons_lt 3)) /\
+      law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc (qcons_lt 3) /\
+      // 5: a captured handle is ADMITTED where `w0` records ownership of it,
+      //    and the law is vacuous where nothing does
+      pequivariant_fn_at fcl_rel qw_pin3 qcons_cap /\
+      ~(pequivariant_fn_at fcl_rel ([] <: pworld) qcons_cap) /\
+      law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc qcons_cap /\
+      ~(pconsumer_nom fcl_rel qcons_cap) /\
+      // 6: `pconsumer_nom` survives as the empty-anchor special case, at the
+      //    condition and at the law
+      (pconsumer_nom fcl_rel qcons_cap
+       <==> pequivariant_fn_at fcl_rel ([] <: pworld) qcons_cap) /\
+      (law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc qcons
+       <==> (pconsumer_nom fcl_rel qcons ==> pnobs_tr_eq_wf xboundary qlhs qrhs)) /\
+      // 7: the instance B2b.10 checked goes through under the signature
+      pequivariant_fn_at fcl_rel qw_pin3 qcons /\
+      (law_right_identity_ext_at xboundary qw_pin3 ref_ops xpl qc qcons
+       <==> pnobs_tr_eq_wf_at xboundary qw_pin3 qlhs qrhs) /\
+      pwext (panchor gsto) qw_pin3 /\
+      ~(pwext (panchor ([] <: pstore fv fcl)) qw_pin3) /\
+      pnobs_dom xboundary qlhs ([] <: pstack fv fcl) gsto 4 /\
+      pnobs_dom xboundary qrhs ([] <: pstack fv fcl) gsto 4 /\
+      pnconverges flook xapply gcf_l ([] <: list string) (PCtxKey 6) gsl /\
+      pnconverges flook xapply gcf_r ([] <: list string) (PCtxKey 5) gsr)
+  = guard_final_admits_a_non_extend_consumer ();
+    guard_final_identity_admitted ();
+    guard_final_branching_refused ();
+    guard_final_ordering_refused ();
+    guard_final_capture_admitted ();
+    guard_final_instance_survives_xapply ();
+    guard_final_empty_reading_at_the_fixture ()
+
+(* ================================================================== *)
+(*  B2b.11 -- THE LEDGER, BROUGHT UP TO DATE                           *)
+(*                                                                     *)
+(*  This supersedes the "WHAT IS PROVED, AND WHAT IS NOT" blocks of    *)
+(*  B2b.6, B2b.9 and B2b.10 on the points it repeats.  Where it is     *)
+(*  silent, those blocks still stand.                                  *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  THE FINAL SIGNATURE                                                *)
+(*                                                                     *)
+(*    law_right_identity_ext_at b w0 ops pl c f                        *)
+(*      = pequivariant_fn_at b.b_rel w0 f                              *)
+(*        ==> pnobs_tr_eq_wf_at b w0                                   *)
+(*              (pbind (ops.o_enter_ctx pl c)                          *)
+(*                     (fun cx -> pbind (ops.o_extend_ctx pl cx PVar)  *)
+(*                                      f))                            *)
+(*              (pbind (ops.o_enter_ctx pl c) f)                       *)
+(*                                                                     *)
+(*  `f` is an ARBITRARY `pval v -> pcomp v cl`.  `w0` indexes BOTH the *)
+(*  consumer's obligation and the observation's domain, and neither    *)
+(*  index is any use without the other.                                *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  WHAT IS PROVED HERE                                                *)
+(*                                                                     *)
+(*   1. THE SYNTACTIC RESTRICTION IS WITHDRAWN.  `lemma_law_ri_ext_at_ *)
+(*      of_nom` PROVES, in general, that B2b.6's restricted law is the *)
+(*      instance of the signature at `f := fun cy -> ops.o_extend pl   *)
+(*      cy g` and `w0 = []`, so nothing B2b.6 could state is lost.     *)
+(*      And the range really grows: `guard_final_admits_a_non_extend_  *)
+(*      consumer` PROVES that `qcons_eq (PCtxKey 3)`, which the        *)
+(*      signature admits NON-VACUOUSLY, differs from EVERY             *)
+(*      `ref_ops.o_extend pl _ g` already at the point `PCtxKey 3`.    *)
+(*      Only the one direction is proved: no biconditional between     *)
+(*      B2b.6's form and the signature is claimed, because             *)
+(*      `pnobs_tr_eq_wf` is `pnobs_tr_eq` WEAKENED and the converse    *)
+(*      would need the strengthening.                                  *)
+(*   2. THE OBLIGATION IS `pequivariant_fn_at b.b_rel w0 f`, and what  *)
+(*      it buys is PROVED both ways:                                   *)
+(*      `lemma_law_ri_ext_at_of_conforming` -- met, the law IS its     *)
+(*      conclusion; `lemma_law_ri_ext_at_vacuous` -- failed, the law   *)
+(*      holds and claims nothing.  Every verdict in 3, 4 and 5 is one  *)
+(*      of these two applied to a named consumer, which is what        *)
+(*      "against this signature" means.                                *)
+(*   3. RAW-NUMBER BRANCHING AND ORDERING ARE REFUSED AGAINST THE      *)
+(*      SIGNATURE (`guard_final_branching_refused`,                    *)
+(*      `guard_final_ordering_refused`): the hypothesis FAILS, at the  *)
+(*      empty provenance AND at one that pins a handle, and the law    *)
+(*      holds at those consumers VACUOUSLY.  The vacuity is            *)
+(*      load-bearing: `guard_final_conclusion_refuted_by_branching`    *)
+(*      PROVES `~(pnobs_tr_eq_wf_at xboundary [] rlhs_b rrhs_b)` -- so *)
+(*      the conclusion the branching consumer would otherwise have     *)
+(*      claimed is FALSE at the SIGNATURE'S OWN observation, and not   *)
+(*      merely at B2b.6's unrestricted one.                            *)
+(*   4. HANDLE IDENTITY COMPARISON IS ADMITTED AGAINST THE SIGNATURE   *)
+(*      (`guard_final_identity_admitted`): at `qw_pin3` the hypothesis *)
+(*      DISCHARGES, so the law at that consumer is EXACTLY the indexed *)
+(*      observation of its two sides.                                  *)
+(*   5. A CAPTURED HANDLE IS ADMITTED WHERE `w0` RECORDS OWNERSHIP     *)
+(*      (`guard_final_capture_admitted`): at `qw_pin3` the hypothesis  *)
+(*      discharges and the law is a full obligation; at `[]` it fails  *)
+(*      and the law is vacuous.  One term, one signature, two          *)
+(*      provenances, opposite readings.                                *)
+(*   6. `pconsumer_nom` SURVIVES, and the relation is PROVED, not      *)
+(*      asserted -- see the next block.                                *)
+(*   7. B2b.10's INSTANCE GOES THROUGH UNDER THE SIGNATURE             *)
+(*      (`guard_final_instance_survives_xapply`), unchanged: same      *)
+(*      boundary, plan, body, consumer, machine-built store `gsto` at  *)
+(*      counter 4 and provenance `qw_pin3`, with the hypothesis        *)
+(*      discharged AT THE SIGNATURE'S NAME and the body of the         *)
+(*      conclusion exhibited at that one configuration.                *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  WHAT EACH EARLIER FORM NOW IS                                      *)
+(*                                                                     *)
+(*   - `law_right_identity_ext_nom_cons_at` (B2b.10):  THE SAME        *)
+(*     STATEMENT as the final signature, PROVED equal in both          *)
+(*     directions by `lemma_law_ri_ext_at_is_cons_at` (two casts, by   *)
+(*     conversion).  It is the signature under its development name,   *)
+(*     and every fact B2b.10 proved of it -- degeneration at `w0 =     *)
+(*     []`, antitonicity in `w0`, reuse across an allocation -- holds  *)
+(*     of the signature along that biconditional.                      *)
+(*   - `law_right_identity_ext_nom_cons` (B2b.9):  SUPERSEDED as the   *)
+(*     law's form, retained as its EMPTY-PROVENANCE reading.  Proved:  *)
+(*     it IMPLIES the signature at `w0 = []`                           *)
+(*     (`lemma_law_ri_ext_cons_at_empty_of_cons`), and the signature   *)
+(*     at `w0 = []` is exactly "`pconsumer_nom` implies                *)
+(*     `pnobs_tr_eq_wf`" (`lemma_law_ri_ext_at_empty_is_pconsumer_     *)
+(*     nom`, a biconditional).  The converse implication is NOT        *)
+(*     proved and is not expected: B2b.9's conclusion is               *)
+(*     `pnobs_tr_eq`, which is STRONGER than `pnobs_tr_eq_wf`.         *)
+(*   - `law_right_identity_ext_nom` (B2b.6, restricted syntactically   *)
+(*     to `ops.o_extend pl _ g`):  SUPERSEDED.  It is an INSTANCE of   *)
+(*     the signature (item 1).  Its restriction is no longer needed:   *)
+(*     what it kept out is refused by the hypothesis instead, and that *)
+(*     is now a theorem (`guard_open_form_refuted_by_branching` for    *)
+(*     the disclosure, `guard_final_conclusion_refuted_by_branching`   *)
+(*     for the same fact at the signature's own observation).          *)
+(*   - `law_right_identity_ext_nom_open` (B2b.9):  REFUTED, and it     *)
+(*     stays in the file as the refutation.                            *)
+(*   - `pconsumer_nom` (B2b.9):  survives TWICE OVER.  (i) As the      *)
+(*     EMPTY-ANCHOR SPECIAL CASE of the signature's hypothesis --      *)
+(*     `lemma_pconsumer_nom_is_empty_anchor` at the condition and      *)
+(*     `lemma_law_ri_ext_at_empty_is_pconsumer_nom` at the law, both   *)
+(*     biconditionals.  (ii) As an AUDIT DEFINITION: a consumer that   *)
+(*     passes it discharges the signature's hypothesis at EVERY        *)
+(*     provenance at once (`lemma_pconsumer_nom_conforms_everywhere`,  *)
+(*     `lemma_law_ri_ext_at_of_audited`).  It is SUFFICIENT and NOT    *)
+(*     NECESSARY, and `qcons_cap` is the proof that it is not          *)
+(*     necessary -- refused by the audit, admitted by the signature at *)
+(*     a provenance that owns what it captured.                        *)
+(*   - `pnobs_tr_le_wf`, `pnobs_tr_eq_wf` (B2b.7):  the `w0 = []`      *)
+(*     SPECIAL CASE of the indexed observation, biconditionally        *)
+(*     (`lemma_pnobs_tr_le_wf_at_empty`, `lemma_pnobs_tr_eq_wf_at_     *)
+(*     empty`), and the stronger audit form at any `w0`                *)
+(*     (`lemma_pnobs_tr_le_wf_at_of_wf`).                              *)
+(*   - `pnobs_tr_le`, `pnobs_tr_eq`, `pnobs_dom`, `panchor`, `pwext`,  *)
+(*     `pfn_rel_at`, `pequivariant_fn_at`, `pcrel`, `pxrel`, `psrel`   *)
+(*     and every other definition of B2b.10 and earlier:  UNTOUCHED.   *)
+(*     B2b.11 only appends.                                            *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  WHAT REMAINS UNPROVED, AND NAMED                                   *)
+(*                                                                     *)
+(*   - THE LAW ITSELF.  `law_right_identity_ext_at` is NOT PROVED, at  *)
+(*     any provenance, in general or at any instance.  What is settled *)
+(*     is its STATEMENT and its DOMAIN OF QUANTIFICATION.              *)
+(*     `guard_final_instance_survives_xapply` exhibits the BODY of     *)
+(*     `pnobs_tr_eq_wf_at` at ONE ambient stack, ONE store, ONE        *)
+(*     counter and ONE body, exactly as B2b.6, B2b.9 and B2b.10 did at *)
+(*     theirs.  A law quantifies over every admitted `k`, every        *)
+(*     admitted store, every counter, every plan and every `c`.        *)
+(*   - THE REFUTATION OF THE HYPOTHESIS-FREE FORM is at `w0 = []` and  *)
+(*     at the branching consumer ONLY.  No refutation at a NON-EMPTY   *)
+(*     provenance is claimed: the counterexample runs at the EMPTY     *)
+(*     store, which `qw_pin3` excludes, and no fixture refuting the    *)
+(*     conclusion at a non-empty provenance is exhibited.              *)
+(*   - THE TWO LAWS ARE INCOMPARABLE AT A NON-EMPTY `w0`.  B2b.10's    *)
+(*     note stands: both the hypothesis and the conclusion weaken with *)
+(*     `w0`, so neither the signature nor B2b.9's form implies the     *)
+(*     other there, and no such implication is claimed.  Only the      *)
+(*     `w0 = []` direction is proved.                                  *)
+(*   - NO ADMINISTRATIVE CONGRUENCE is stated or used anywhere in      *)
+(*     B2b.11.  Nothing identifies `c` with `pbind c PVar`, and no two *)
+(*     `post`s differing by one frame are related.  The two sides of   *)
+(*     the signature still differ by exactly one `o_extend_ctx pl _    *)
+(*     pure`, and production still happens once on each side.          *)
+(*   - THE OTHER LAWS, the computation-level relation, its lift to     *)
+(*     `pctx` and to the store, and B2b.3b are NOT TOUCHED.            *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`, NO    *)
+(*     `val` without a body, NO axiom.                                 *)
+(* ================================================================== *)

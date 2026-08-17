@@ -4599,7 +4599,8 @@ reproducibility and stability, not about the machine.
    quantifier order is wrong;
 5. ~~provenance-anchor-indexed observation~~ — **done**: the order is repaired,
    with the empty-anchor case proved to be the existing relation;
-6. fix the consumer-carrying law's signature;
+6. ~~fix the consumer-carrying law's signature~~ — **done**: statement fixed,
+   premise proved necessary, law still unproved;
 7. the computation-level administrative relation, built against
    `(qmid_sl, qmid_sr)`;
 8. lift it to `pctx` and the store;
@@ -4691,6 +4692,84 @@ What that settles:
 
 And the boundary holds: **no administrative congruence yet.** That waits for the
 computation-level relation, which is the gate after.
+
+#### The signature, fixed
+
+```fstar
+let law_right_identity_ext_at (b) (w0) (ops) (pl) (c) (f) : GTot prop
+  = pequivariant_fn_at b.b_rel w0 f ==>
+    pnobs_tr_eq_wf_at b w0
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f)
+```
+
+proved equal to the development form in both directions, so this is a naming and
+the earlier degeneration, antitonicity and reuse facts transport along it.
+
+Three things, kept apart:
+
+1. **The statement is fixed** — provenance, consumer premise, well-formed
+   observation domain, and the shape of the two sides.
+2. **The premise is substantive** — dropping it makes the conclusion *false*,
+   under the very same `pnobs_tr_eq_wf_at`.
+3. **The law itself is still unproved** — that every conforming consumer gets
+   the consequent is what the computation-level relation is for.
+
+> The gate fixes the law's **statement**, not its truth. It proves that the
+> provenance-indexed formulation is the intended one, that its consumer premise
+> is necessary, and that the premise admits strictly more than the former
+> syntactic `o_extend` restriction. Proving the consequent for every conforming
+> consumer remains the next semantic obligation.
+
+*The refutation guard's job, precisely.*
+`guard_final_conclusion_refuted_by_branching` shows the premise is
+**needed**: it proves `~(pnobs_tr_eq_wf_at xboundary [] rlhs_b rrhs_b)`, so
+the conclusion the hypothesis-free form would have claimed is false at the
+signature's *own* observation, not merely at the older unrestricted one. It
+does **not** show that the conditional law holds. Those are different
+statements, and only the first is proved.
+
+*Withdrawal of the syntactic restriction is not formal.*
+`guard_final_admits_a_non_extend_consumer` exhibits an admitted consumer that
+differs from **every** `o_extend` term already at a point, so the range really
+grew.
+
+*`pconsumer_nom`'s standing*, which the ledger now records per form:
+
+- a **sufficient** condition, usable at every provenance, the empty one
+  included;
+- **not necessary**: it refuses capturing consumers, and `qcons_cap` is the
+  witness;
+- useful for backward compatibility and as an audit definition;
+- the final law's premise is `pequivariant_fn_at … w0`, not this.
+
+*No refutation is claimed at a non-empty provenance*, and that is the right
+restraint: the counterexample runs at the empty store, which an owning anchor
+excludes, and transplanting it would have meant manufacturing a refutation
+rather than finding one.
+
+*A reproducibility note, not a result.* A full re-check of the module now takes
+about 90–100 s on this machine, not the ~50 s a brief estimated. Worth
+recording for future gate estimates.
+
+#### What the computation-level relation should aim at first
+
+Without changing the signature just fixed:
+
+| # | target |
+|---|---|
+| 1 | relate `(qmid_sl, qmid_sr)` |
+| 2 | absorb `post >>= pure` against `post` |
+| 3 | refuse `post`s that genuinely return different results |
+| 4 | preserve the provenance anchor and world extension |
+| 5 | be defined **independently of** the consumer condition |
+| 6 | then derive the consequent at an instance of the fixed signature |
+
+Item 5 keeps the policy that has been worth keeping throughout: **consumer
+equivariance and administrative congruence stay apart.** One is about names, the
+other about computations, and mixing them has each time hidden which was doing
+the work.
 
 ### A discriminating example: `catch` against a prompt-local `Var`
 
