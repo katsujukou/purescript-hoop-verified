@@ -23957,3 +23957,577 @@ let guard_ri_id_verdict ()
 (*     provable.  The explicit call is kept for readability, not       *)
 (*     because the proof needs it.                                     *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.14 -- THE RESIDUAL CLAUSE, MADE LOAD-BEARING                   *)
+(*                                                                     *)
+(*  B2b.12 closed with a debt, recorded there in as many words: the    *)
+(*  residual conjunct of `padm_pctx` is `pctx_rel`'s `pframes_rel`,    *)
+(*  copied verbatim, and NOTHING ABOVE EXERCISES IT.  Every fixture    *)
+(*  in that block carries `qresid0` on BOTH sides, so replacing the    *)
+(*  conjunct by `True` left the module verifying -- the mutation was   *)
+(*  fired and ACCEPTED.  The clause's tightness was therefore          *)
+(*  INHERITED from `pctx_rel` and not demonstrated here.               *)
+(*                                                                     *)
+(*  THIS BLOCK PAYS THAT DEBT, and it pays it with NEGATIVE            *)
+(*  SPECIMENS: contexts with the SAME PAYLOAD and the SAME `post`      *)
+(*  -- the identical closure `PVar`, not two closures that happen to   *)
+(*  agree -- whose RESIDUALS differ.  So the payload clause and the    *)
+(*  `post` clause are both satisfied outright, and the residual        *)
+(*  conjunct is the ONLY thing left that can refuse the pair.          *)
+(*                                                                     *)
+(*  AND THE DIFFERENCE IS ABOUT MEANING, NOT ONLY ABOUT SHAPE.         *)
+(*  `pframes_rel` is structural, so a specimen differing by a frame    *)
+(*  COUNT or a frame CONSTRUCTOR would make the guard a statement      *)
+(*  about frame shapes and nothing more.  All three residuals here     *)
+(*  have the SAME LENGTH, the SAME FOUR CONSTRUCTORS IN THE SAME       *)
+(*  ORDER and the same two tables: each is `qresid0` with ONE FRAME'S  *)
+(*  BODY changed -- the plan's recorded site frame, whose body is      *)
+(*  `pure` in `qresid0` and is an emitting answer here.  What          *)
+(*  separates them is what that body DOES, and there are two           *)
+(*  independent separations:                                            *)
+(*                                                                     *)
+(*    - `qresidL` against `qresidR`: different EVENT and different      *)
+(*      VALUE;                                                         *)
+(*    - `qresidL` against `qresidV`: the SAME EVENT and a different    *)
+(*      VALUE, so the two are indistinguishable in the trace and       *)
+(*      separated by the answer alone.                                 *)
+(*                                                                     *)
+(*  `guard_padm_residual_observably_differs` RUNS THE MACHINE on a     *)
+(*  program that consumes each of the three and reads the traces and   *)
+(*  the answers off `prun`, so dropping the conjunct would relate      *)
+(*  contexts a program can tell apart.                                 *)
+(*                                                                     *)
+(*  WHAT IS NOT DONE HERE.  No administrative observation is defined;  *)
+(*  no simulation, preservation or congruence lemma is stated or       *)
+(*  used; no law is touched; NO EXISTING DEFINITION IS CHANGED.  The   *)
+(*  whole block is additive, and the only relations it mentions are    *)
+(*  `padm_pctx`, `padm_xrel`, `padm_srel` and the `pkrel`/`pfrel`      *)
+(*  inversions B2b.1 already proved.                                   *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  THE THREE SITE BODIES, AND THEY ARE THE ONLY DIFFERENCE            *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * The answers a perform site could have recorded. Each EMITS and then returns a
+ * payload. `qsiteL` and `qsiteR` differ in both; `qsiteL` and `qsiteV` differ in
+ * the payload ALONE and emit the same event. None performs, so none depends on a
+ * handler being in reach and the clause interpreter `fapply` is never consulted
+ * on any of them.
+ *)
+let qsiteL : pval fv -> pcomp fv fcl = fun (_: pval fv) -> PEmit "left"  (PVar (fpv (FI 7)))
+let qsiteR : pval fv -> pcomp fv fcl = fun (_: pval fv) -> PEmit "right" (PVar (fpv (FI 8)))
+let qsiteV : pval fv -> pcomp fv fcl = fun (_: pval fv) -> PEmit "left"  (PVar (fpv (FI 8)))
+
+(**
+ * **THE THREE RESIDUALS.** `qresid0` with the site frame's body replaced. Same
+ * length, same four constructors in the same order, same two tables, same
+ * provenance: read as SHAPES the three are indistinguishable.
+ *)
+let qresidL : pstack fv fcl =
+  [PBoundaryF; PSiteF qsiteL;
+   PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+let qresidR : pstack fv fcl =
+  [PBoundaryF; PSiteF qsiteR;
+   PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+let qresidV : pstack fv fcl =
+  [PBoundaryF; PSiteF qsiteV;
+   PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+
+(** **THE THREE CONTEXTS.** Same payload `fone`, same `post` -- the SAME TERM
+    `PVar`, which is `qprod`'s -- and the three residuals above. *)
+let qctxL : pctx fv fcl = PCtxRequests fone qresidL (PVar #fv #fcl)
+let qctxR : pctx fv fcl = PCtxRequests fone qresidR (PVar #fv #fcl)
+let qctxV : pctx fv fcl = PCtxRequests fone qresidV (PVar #fv #fcl)
+
+(** The tail all four residuals -- `qresid0` and the three specimens -- share:
+    the layer prompt and the owner prompt, which `plan_protocol_frames xpl` put
+    there and which no specimen touches. *)
+let qshared : pstack fv fcl =
+  [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+
+(**
+ * **THE SPECIMENS DIFFER FROM `qresid0` AND FROM EACH OTHER IN ONE FRAME'S BODY
+ * AND NOWHERE ELSE, AND ALL THREE ARE RESIDUALS THIS MACHINE COULD HAVE
+ * STORED.** PROVED by evaluation.
+ *
+ * The four equations are the "same shape" claim, machine-checked rather than
+ * eyeballed: each residual is `PBoundaryF :: PSiteF _ :: qshared`, so the head
+ * frame, the tail and its two tables are LITERALLY THE SAME TERMS on every side
+ * and the only variation is the argument of `PSiteF`. That is what makes the
+ * refusals below statements about a frame's MEANING: there is no shape left for
+ * them to be about.
+ *
+ * `presid_wf` is the production-side invariant `lemma_pyield_residual_wf`
+ * establishes of every residual `pyield` writes and
+ * `lemma_ctx_drive_answers_head` consumes: a boundary or a site frame at the
+ * head, no floor beneath it and no mode marker beneath it. All three specimens
+ * satisfy it, so none is a stack outside the machine's own discipline, and the
+ * runs below are not runs on nonsense.
+ *)
+let guard_padm_residual_specimen_wf ()
+  : Lemma (qresid0 == PBoundaryF :: PSiteF (PVar #fv #fcl) :: qshared /\
+           qresidL == PBoundaryF :: PSiteF qsiteL :: qshared /\
+           qresidR == PBoundaryF :: PSiteF qsiteR :: qshared /\
+           qresidV == PBoundaryF :: PSiteF qsiteV :: qshared /\
+           presid_wf qresidL == true /\ presid_wf qresidR == true /\
+           presid_wf qresidV == true)
+  = assert_norm (qresid0 == PBoundaryF :: PSiteF (PVar #fv #fcl) :: qshared);
+    assert_norm (qresidL == PBoundaryF :: PSiteF qsiteL :: qshared);
+    assert_norm (qresidR == PBoundaryF :: PSiteF qsiteR :: qshared);
+    assert_norm (qresidV == PBoundaryF :: PSiteF qsiteV :: qshared);
+    assert_norm (presid_wf qresidL == true);
+    assert_norm (presid_wf qresidR == true);
+    assert_norm (presid_wf qresidV == true)
+
+(* ------------------------------------------------------------------ *)
+(*  REQUIREMENT 2: THE DIFFERENCE IS OBSERVABLE, AND THE MACHINE SAYS  *)
+(*  SO                                                                 *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **The program that consumes a stored context**, written as a program and not
+ * as a call to `ctx_drive`: `resumeScope (key 0) pure`. The transition for
+ * `PResumeC` resolves the handle against the store, appeals to `resume_C` once,
+ * and the machine takes it from there -- so what is run below is the
+ * CONSUMPTION RULE, not a hand-assembled stack.
+ *)
+let qresume : pcomp fv fcl = PResumeC xpl (PCtxKey 0) (PVar #fv #fcl)
+
+let qstoreL : pstore fv fcl = [(0, qctxL)]
+let qstoreR : pstore fv fcl = [(0, qctxR)]
+let qstoreV : pstore fv fcl = [(0, qctxV)]
+
+let qcfL : pconf fv fcl = { st = PStep qresume []; store = qstoreL; next = 1 }
+let qcfR : pconf fv fcl = { st = PStep qresume []; store = qstoreR; next = 1 }
+let qcfV : pconf fv fcl = { st = PStep qresume []; store = qstoreV; next = 1 }
+
+(**
+ * **AND THE THREE CONSUMPTIONS DIFFER OBSERVABLY.** PROVED by RUNNING THE
+ * MACHINE -- `prun` with the fixtures' own `flook` and `fapply`, nothing
+ * reconstructed by hand.
+ *
+ * Read it as three runs and two separations. `qctxL` settles on `FI 7` with
+ * trace `["left"]`; `qctxR` on `FI 8` with trace `["right"]`; `qctxV` on `FI 8`
+ * with trace `["left"]`. So `L` and `R` differ in the trace AND in the answer,
+ * and `L` and `V` have the SAME TRACE and differ in the answer alone. All three
+ * leave `next` at `1`, so no run allocated a second context and no difference is
+ * a bookkeeping artefact of the store.
+ *
+ * This is what makes the refusals below statements about MEANING. The contexts
+ * agree on everything `padm_pctx` reads except the residual, they agree on the
+ * residual's SHAPE, and a program that consumes them still gets different
+ * answers. A relation that identified them would identify contexts the machine
+ * distinguishes.
+ *)
+let guard_padm_residual_observably_differs ()
+  : Lemma (PDone? (fst (prun flook fapply 20 qcfL)).st /\
+           fdone (fst (prun flook fapply 20 qcfL)) == fpv (FI 7) /\
+           snd (prun flook fapply 20 qcfL) == ["left"] /\
+           (fst (prun flook fapply 20 qcfL)).next == 1 /\
+           PDone? (fst (prun flook fapply 20 qcfR)).st /\
+           fdone (fst (prun flook fapply 20 qcfR)) == fpv (FI 8) /\
+           snd (prun flook fapply 20 qcfR) == ["right"] /\
+           (fst (prun flook fapply 20 qcfR)).next == 1 /\
+           PDone? (fst (prun flook fapply 20 qcfV)).st /\
+           fdone (fst (prun flook fapply 20 qcfV)) == fpv (FI 8) /\
+           snd (prun flook fapply 20 qcfV) == ["left"] /\
+           (fst (prun flook fapply 20 qcfV)).next == 1 /\
+           ~(snd (prun flook fapply 20 qcfL) == snd (prun flook fapply 20 qcfR)) /\
+           ~(fdone (fst (prun flook fapply 20 qcfL))
+             == fdone (fst (prun flook fapply 20 qcfR))) /\
+           snd (prun flook fapply 20 qcfL) == snd (prun flook fapply 20 qcfV) /\
+           ~(fdone (fst (prun flook fapply 20 qcfL))
+             == fdone (fst (prun flook fapply 20 qcfV))))
+  = assert_norm (PDone? (fst (prun flook fapply 20 qcfL)).st);
+    assert_norm (fdone (fst (prun flook fapply 20 qcfL)) == fpv (FI 7));
+    assert_norm (snd (prun flook fapply 20 qcfL) == ["left"]);
+    assert_norm ((fst (prun flook fapply 20 qcfL)).next == 1);
+    assert_norm (PDone? (fst (prun flook fapply 20 qcfR)).st);
+    assert_norm (fdone (fst (prun flook fapply 20 qcfR)) == fpv (FI 8));
+    assert_norm (snd (prun flook fapply 20 qcfR) == ["right"]);
+    assert_norm ((fst (prun flook fapply 20 qcfR)).next == 1);
+    assert_norm (PDone? (fst (prun flook fapply 20 qcfV)).st);
+    assert_norm (fdone (fst (prun flook fapply 20 qcfV)) == fpv (FI 8));
+    assert_norm (snd (prun flook fapply 20 qcfV) == ["left"]);
+    assert_norm ((fst (prun flook fapply 20 qcfV)).next == 1);
+    assert_norm (~(["left"] == (["right"] <: list string)));
+    assert_norm (~(fpv (FI 7) == fpv (FI 8)))
+
+(** **Each consumption takes eleven transitions.** PROVED by `pcost`, and it is
+    here so that the three runs are known to have the same length: what separates
+    them is what they DID, not how far each got before the fuel ran out. *)
+let guard_padm_residual_same_work ()
+  : Lemma (pcost flook fapply 20 qcfL == Some 11 /\
+           pcost flook fapply 20 qcfR == Some 11 /\
+           pcost flook fapply 20 qcfV == Some 11)
+  = assert_norm (pcost flook fapply 20 qcfL == Some 11);
+    assert_norm (pcost flook fapply 20 qcfR == Some 11);
+    assert_norm (pcost flook fapply 20 qcfV == Some 11)
+
+(* ------------------------------------------------------------------ *)
+(*  REQUIREMENT 1a: THE MATCHED PAIR IS RELATED                        *)
+(* ------------------------------------------------------------------ *)
+
+(** The left residual is self-related at every index and every world -- four
+    frames, none holding a handle, the site frame carrying `qsiteL`, which is
+    related to itself because the event and the payload are literally the same on
+    both sides. PROVED exactly as `lemma_qresid0_selfrel` is. *)
+let lemma_qresidL_selfrel (n: nat) (w: pworld)
+  : Lemma (pframes_rel fcl_rel n w qresidL qresidL)
+  = if n = 0 then ()
+    else begin
+      lemma_ptable_selfrel n w xltbl;
+      lemma_ptable_selfrel n w xtbl0;
+      introduce forall (w': pworld) (y1 y2: pval fv).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           pcomp_rel fcl_rel n w' (qsiteL y1) (qsiteL y2))
+      with (introduce _ ==> _ with ())
+    end
+
+let lemma_qresidL_pkrel (w: pworld)
+  : Lemma (pkrel fcl_rel w qresidL qresidL)
+  = introduce forall (n: nat). pframes_rel fcl_rel n w qresidL qresidL
+    with lemma_qresidL_selfrel n w
+
+(**
+ * **SAME `post`, CORRESPONDING RESIDUALS: RELATED.** PROVED, at every
+ * well-formed world.
+ *
+ * This is the POSITIVE half of the specimen and it is not decoration: without
+ * it the refusals below could be read as saying that `padm_xrel` refuses
+ * everything of this shape. It goes through `pxrel` and the containment
+ * `lemma_padm_xrel_of_pxrel`, so no administrative unit is involved anywhere --
+ * the pair is related by the lockstep congruence alone.
+ *)
+let guard_padm_relates_the_matched_residual (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures pxrel fcl_rel w qctxL qctxL /\ padm_xrel fcl_rel w qctxL qctxL)
+  = lemma_qresidL_pkrel w;
+    lemma_pvar_fn_rel_at #fv #fcl fcl_rel w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qctxL == PCtxRequests fone qresidL (PVar #fv #fcl));
+    lemma_pxrel_requests fcl_rel w fone fone qresidL qresidL
+      (PVar #fv #fcl) (PVar #fv #fcl);
+    lemma_padm_xrel_of_pxrel fcl_rel w qctxL qctxL
+
+(* ------------------------------------------------------------------ *)
+(*  REQUIREMENT 1: THE CHANGED RESIDUAL IS REFUSED                     *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **SAME `post`, RESIDUALS THAT MEAN SOMETHING DIFFERENT: REFUSED.** PROVED, at
+ * every well-formed world, for BOTH separations.
+ *
+ * The proof is four inversions and no arithmetic. The residual conjunct of
+ * `padm_pctx`, read index by index, gives `pkrel` on the two residuals; two
+ * `lemma_pkrel_cons_inv`s peel the shared boundary frame and expose the two
+ * site frames; `lemma_pfrel_site_inv` turns those into `pfn_rel_at` on the two
+ * bodies; and that, instantiated at `w` itself and at the related pair
+ * `(fone, fone)`, says the two `PEmit` nodes are `pcrel`-related. The
+ * contradiction is then read off ONE index:
+ *
+ *   - against `qctxR`, INDEX 1, where `pcomp_rel`'s `PEmit` clause demands
+ *     `"left" == "right"`;
+ *   - against `qctxV`, INDEX 2, where the events agree and the clause descends
+ *     to the returned payloads and demands `pval_rel w (PV (FI 7)) (PV (FI 8))`.
+ *
+ * So neither half of the observable difference is doing the work on its own: the
+ * conjunct refuses a changed EVENT and refuses a changed ANSWER, separately.
+ *
+ * The residual conjunct is read INLINE rather than through a reusable inversion
+ * lemma, so that a mutation weakening the conjunct to `True` is rejected AT
+ * THESE GUARDS and not at a lemma one definition above them.
+ *
+ * The witness world and the witness value are supplied as ARGUMENTS to the
+ * inversion lemmas rather than left to a pattern: `lemma_pwext_refl` and the
+ * `assert_norm` on `pval_rel` are what discharge the two side conditions, so
+ * nothing here depends on a quantifier firing.
+ *
+ * **What this settles.** The refusals cannot come from the payload -- all three
+ * carry `fone` -- and they cannot come from `post` -- all three carry the term
+ * `PVar`. They come from the residual conjunct, and
+ * `guard_padm_residual_observably_differs` has already shown that what the
+ * conjunct is refusing is a difference the machine itself makes.
+ *)
+let guard_padm_refuses_a_changed_residual (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures ~(padm_xrel fcl_rel w qctxL qctxR))
+  = lemma_pwext_refl w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qctxL == PCtxRequests fone qresidL (PVar #fv #fcl));
+    assert_norm (qctxR == PCtxRequests fone qresidR (PVar #fv #fcl));
+    assert_norm (qsiteL fone == PEmit "left"  (PVar (fpv (FI 7))));
+    assert_norm (qsiteR fone == PEmit "right" (PVar (fpv (FI 8))));
+    introduce padm_xrel fcl_rel w qctxL qctxR ==> False
+    with begin
+      // THE RESIDUAL CONJUNCT, READ.  One of the two places in this block that
+      // read it, and it is read here rather than through a reusable inversion
+      // lemma so that weakening the conjunct is rejected at this guard.
+      introduce forall (n: nat). pframes_rel fcl_rel n w qresidL qresidR
+      with (if n = 0 then ()
+            else assert (padm_pctx fcl_rel n w
+                           (PCtxRequests fone qresidL (PVar #fv #fcl))
+                           (PCtxRequests fone qresidR (PVar #fv #fcl))));
+      lemma_pkrel_cons_inv fcl_rel w
+        (PBoundaryF #fv #fcl) (PBoundaryF #fv #fcl)
+        [PSiteF qsiteL; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PSiteF qsiteR; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pkrel_cons_inv fcl_rel w
+        (PSiteF qsiteL) (PSiteF qsiteR)
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pfrel_site_inv fcl_rel w qsiteL qsiteR;
+      assert (pcrel fcl_rel w (qsiteL fone) (qsiteR fone));
+      lemma_pcrel_shape fcl_rel w (qsiteL fone) (qsiteR fone)
+    end
+
+(**
+ * **THE SAME TRACE, A DIFFERENT ANSWER: ALSO REFUSED.** PROVED, at every
+ * well-formed world.
+ *
+ * `qresidV` and `qresidL` emit the SAME EVENT, so the two consumptions are
+ * indistinguishable in the trace and are separated by the answer alone
+ * (`guard_padm_residual_observably_differs`). The contradiction is therefore
+ * read at INDEX 2 rather than index 1: index 1 is satisfied -- the events agree
+ * -- and it is the descent into the returned payloads that fails.
+ *)
+let guard_padm_refuses_a_changed_answer (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures ~(padm_xrel fcl_rel w qctxL qctxV))
+  = lemma_pwext_refl w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (~(pval_rel #fv w (fpv (FI 7)) (fpv (FI 8))));
+    assert_norm (qctxL == PCtxRequests fone qresidL (PVar #fv #fcl));
+    assert_norm (qctxV == PCtxRequests fone qresidV (PVar #fv #fcl));
+    assert_norm (qsiteL fone == PEmit "left" (PVar (fpv (FI 7))));
+    assert_norm (qsiteV fone == PEmit "left" (PVar (fpv (FI 8))));
+    introduce padm_xrel fcl_rel w qctxL qctxV ==> False
+    with begin
+      // THE RESIDUAL CONJUNCT, READ -- the second of the two places.
+      introduce forall (n: nat). pframes_rel fcl_rel n w qresidL qresidV
+      with (if n = 0 then ()
+            else assert (padm_pctx fcl_rel n w
+                           (PCtxRequests fone qresidL (PVar #fv #fcl))
+                           (PCtxRequests fone qresidV (PVar #fv #fcl))));
+      lemma_pkrel_cons_inv fcl_rel w
+        (PBoundaryF #fv #fcl) (PBoundaryF #fv #fcl)
+        [PSiteF qsiteL; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PSiteF qsiteV; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pkrel_cons_inv fcl_rel w
+        (PSiteF qsiteL) (PSiteF qsiteV)
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pfrel_site_inv fcl_rel w qsiteL qsiteV;
+      assert (pcrel fcl_rel w (qsiteL fone) (qsiteV fone));
+      assert (pcomp_rel fcl_rel 2 w (qsiteL fone) (qsiteV fone))
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  THE SAME, AT THE STORE                                             *)
+(* ------------------------------------------------------------------ *)
+
+(** The world that pins key 0 to key 0 and speaks for nothing else. *)
+let qw00 : pworld = pwextend 0 0 []
+
+(**
+ * **AND SO `padm_srel` REFUSES THE STORES.** PROVED.
+ *
+ * The lift is the one B2b.12 built, and it inherits the refusals: at the one key
+ * the world speaks for, the two entries are the contexts above. The matched pair
+ * is related at the same world and by the same lift, so the store-level
+ * statement is a contrast and not a blanket refusal.
+ *)
+let guard_padm_srel_refuses_a_changed_residual ()
+  : Lemma (pwf_world qw00 /\
+           padm_srel fcl_rel qw00 qstoreL qstoreL /\
+           ~(padm_srel fcl_rel qw00 qstoreL qstoreR) /\
+           ~(padm_srel fcl_rel qw00 qstoreL qstoreV))
+  = lemma_pwextend_wf 0 0 [];
+    assert_norm (pwlookup_l 0 qw00 == Some 0);
+    assert_norm (pstore_lookup 0 qstoreL == Some qctxL);
+    assert_norm (pstore_lookup 0 qstoreR == Some qctxR);
+    assert_norm (pstore_lookup 0 qstoreV == Some qctxV);
+    assert_norm (psget 0 qstoreL == qctxL);
+    assert_norm (psget 0 qstoreR == qctxR);
+    assert_norm (psget 0 qstoreV == qctxV);
+    assert_norm (Some? (pstore_lookup 0 qstoreL));
+    assert_norm (Some? (pstore_lookup 0 qstoreR));
+    assert_norm (Some? (pstore_lookup 0 qstoreV));
+    guard_padm_relates_the_matched_residual qw00;
+    introduce forall (i j: nat).
+        (pwlookup_l i qw00 == Some j ==>
+         (Some? (pstore_lookup i qstoreL) /\ Some? (pstore_lookup j qstoreL) /\
+          padm_xrel fcl_rel qw00 (psget i qstoreL) (psget j qstoreL)))
+    with (introduce _ ==> _ with assert (i == 0 /\ j == 0));
+    introduce padm_srel fcl_rel qw00 qstoreL qstoreR ==> False
+    with begin
+      assert (padm_xrel fcl_rel qw00 (psget 0 qstoreL) (psget 0 qstoreR));
+      guard_padm_refuses_a_changed_residual qw00
+    end;
+    introduce padm_srel fcl_rel qw00 qstoreL qstoreV ==> False
+    with begin
+      assert (padm_xrel fcl_rel qw00 (psget 0 qstoreL) (psget 0 qstoreV));
+      guard_padm_refuses_a_changed_answer qw00
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  REQUIREMENT 4: THE EXISTING POSITIVES AND REFUSALS, UNTOUCHED      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **B2b.12'S VERDICTS AND B2b.14'S, IN ONE STATEMENT.** PROVED, by calling the
+ * guards that own each conjunct.
+ *
+ * The first two conjuncts are B2b.12's positives -- `qext` against `qprod` at
+ * the context and the two mid-point stores at the store. The next three are its
+ * three refusals: a `post` composed with `xg`, which performs; a `post` that
+ * discards its argument, against the production and against the extension. The
+ * last three are this block's. Nothing here is re-proved; the point of
+ * collecting them is that the new specimens are added BESIDE the old ones and
+ * displace none of them.
+ *)
+let guard_padm_residual_ledger ()
+  : Lemma (padm_xrel fcl_rel qmid_w qext qprod /\
+           padm_srel fcl_rel qmid_w qmid_sl qmid_sr /\
+           (forall (w: pworld). pwf_world w ==> ~(padm_xrel fcl_rel w qwork qprod)) /\
+           (forall (w: pworld). pwf_world w ==> ~(padm_xrel fcl_rel w qprod qbad)) /\
+           (forall (w: pworld). pwf_world w ==> ~(padm_xrel fcl_rel w qext qbad)) /\
+           (forall (w: pworld). pwf_world w ==> padm_xrel fcl_rel w qctxL qctxL) /\
+           (forall (w: pworld). pwf_world w ==> ~(padm_xrel fcl_rel w qctxL qctxR)) /\
+           (forall (w: pworld). pwf_world w ==> ~(padm_xrel fcl_rel w qctxL qctxV)))
+  = guard_padm_relates_the_specimen ();
+    introduce forall (w: pworld). (pwf_world w ==> ~(padm_xrel fcl_rel w qwork qprod))
+    with (introduce _ ==> _ with guard_padm_refuses_a_working_post w);
+    introduce forall (w: pworld). (pwf_world w ==> ~(padm_xrel fcl_rel w qprod qbad))
+    with (introduce _ ==> _ with guard_padm_refuses_a_changed_post w);
+    introduce forall (w: pworld). (pwf_world w ==> ~(padm_xrel fcl_rel w qext qbad))
+    with (introduce _ ==> _ with guard_padm_refuses_a_changed_post w);
+    introduce forall (w: pworld). (pwf_world w ==> padm_xrel fcl_rel w qctxL qctxL)
+    with (introduce _ ==> _ with guard_padm_relates_the_matched_residual w);
+    introduce forall (w: pworld). (pwf_world w ==> ~(padm_xrel fcl_rel w qctxL qctxR))
+    with (introduce _ ==> _ with guard_padm_refuses_a_changed_residual w);
+    introduce forall (w: pworld). (pwf_world w ==> ~(padm_xrel fcl_rel w qctxL qctxV))
+    with (introduce _ ==> _ with guard_padm_refuses_a_changed_answer w)
+
+(* ================================================================== *)
+(*  B2b.14 -- WHAT IS PROVED, AND WHAT IS NOT                          *)
+(*                                                                     *)
+(*  PROVED                                                             *)
+(*                                                                     *)
+(*   1. THE NEGATIVE SPECIMENS ARE REFUSED.                            *)
+(*      `guard_padm_refuses_a_changed_residual` proves                 *)
+(*      `~(padm_xrel fcl_rel w qctxL qctxR)` and                       *)
+(*      `guard_padm_refuses_a_changed_answer` proves                   *)
+(*      `~(padm_xrel fcl_rel w qctxL qctxV)`, both at EVERY            *)
+(*      well-formed world;                                             *)
+(*      `guard_padm_srel_refuses_a_changed_residual` carries both to   *)
+(*      the store lift.  The contexts agree on the payload and their    *)
+(*      `post`s are the SAME TERM, so the residual conjunct is the     *)
+(*      only clause that can be doing it.                              *)
+(*                                                                     *)
+(*   2. THE RESIDUALS DIFFER OBSERVABLY.                               *)
+(*      `guard_padm_residual_observably_differs` runs `prun` on        *)
+(*      `resumeScope (key 0) pure` against each store and reads off    *)
+(*      `["left"]`/`FI 7`, `["right"]`/`FI 8` and `["left"]`/`FI 8`,   *)
+(*      all three with `next` still `1`.  So `L` and `R` are separated *)
+(*      by the trace and by the answer, and `L` and `V` by the answer  *)
+(*      ALONE.  This is a MACHINE RUN, which is the strongest form of  *)
+(*      the claim available in this file.                              *)
+(*      `guard_padm_residual_same_work` adds that all three runs take  *)
+(*      eleven transitions, and `guard_padm_residual_specimen_wf` that *)
+(*      each residual is `PBoundaryF :: PSiteF _ :: qshared` -- the    *)
+(*      SAME SHAPE, checked and not eyeballed -- and that all three    *)
+(*      satisfy `presid_wf`, the production-side invariant.  So the    *)
+(*      runs are on stacks the machine's own rules could have written, *)
+(*      they differ in what they did rather than in how far they got,  *)
+(*      and what they differ in is a frame's BODY.                     *)
+(*                                                                     *)
+(*   3. THE MATCHED PAIR IS STILL RELATED.                             *)
+(*      `guard_padm_relates_the_matched_residual` proves               *)
+(*      `pxrel fcl_rel w qctxL qctxL` and hence `padm_xrel`, so the    *)
+(*      refusals in 1 are not the relation refusing this shape.        *)
+(*                                                                     *)
+(*   4. B2b.12'S VERDICTS ARE UNDISTURBED.                             *)
+(*      `guard_padm_residual_ledger` collects the two positives        *)
+(*      (`qext`/`qprod` at the context, the mid-point stores at the    *)
+(*      store) and the three refusals (`post >>= xg`, the             *)
+(*      argument-discarding `post` against `qprod` and against         *)
+(*      `qext`) beside the three new verdicts, in one checked          *)
+(*      statement.                                                     *)
+(*                                                                     *)
+(*  NOT PROVED, AND NOT CLAIMED                                        *)
+(*                                                                     *)
+(*   - NO ADMINISTRATIVE OBSERVATION is defined.  The prose above says *)
+(*     what the specimens would mean for one; it is prose.             *)
+(*   - NO SIMULATION and NO PRESERVATION.  Nothing here propagates any *)
+(*     correspondence through `pstep`, in either direction.  B2b.3b is *)
+(*     untouched.                                                      *)
+(*   - NO LAW is stated, proved or refuted.  B2b.11 and B2b.13 stand   *)
+(*     exactly as they were.                                           *)
+(*   - NOTHING IS CLAIMED ABOUT `padm_pcomp`.  The specimens' `post`s  *)
+(*     are identical, so the strip disjunct is never reached and this  *)
+(*     block says nothing new about it.                                *)
+(*   - THE RUNS ARE ON HAND-WRITTEN STORES.  All three residuals       *)
+(*     satisfy `presid_wf`, but no closed program is exhibited whose   *)
+(*     run REACHES a store holding any of them.  That is the same      *)
+(*     division of labour `guard_far_drive_reyields` stands under, and *)
+(*     nothing here needs more: the claim is about what consuming a    *)
+(*     residual does, not about how it got into the store.             *)
+(*   - THE RESIDUAL CONJUNCT IS NOT SHOWN TO BE *NECESSARY* FOR ANY    *)
+(*     LATER RESULT.  It is shown to be LOAD-BEARING HERE: there are   *)
+(*     now checked statements in this file that FAIL if the conjunct   *)
+(*     is weakened to `True`.  That is what B2b.12's ledger entry      *)
+(*     asked for and it is all that is claimed.                        *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`, NO    *)
+(*     `val` without a body, NO axiom, NO `expect_failure`, NO         *)
+(*     warning.                                                       *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  GUARDS FIRED, AND WHERE EACH LANDED                                *)
+(*                                                                     *)
+(*  Each was applied to a scratch copy of this file and the repository *)
+(*  file was never left mutated.  Line numbers are this file's.  F*    *)
+(*  stops at the first rejected definition, so each entry records ONE  *)
+(*  landing.                                                           *)
+(*                                                                     *)
+(*   - `padm_pctx`'s residual clause replaced by `True` -- THE         *)
+(*     MUTATION B2b.12 FIRED AND RECORDED AS ACCEPTED:  now REJECTED,  *)
+(*     at lines 24271-24273, inside                                    *)
+(*     `guard_padm_refuses_a_changed_residual` (which begins at 24255) *)
+(*     -- "Subtyping check failed / Expected type Prims.squash         *)
+(*     (pframes_rel fcl_rel n w qresidL qresidR), got type             *)
+(*     Prims.unit".  THE DEBT IS PAID: the conjunct is what refuses    *)
+(*     the specimen, and it is refused at a guard and not at a helper. *)
+(*     `guard_padm_refuses_a_changed_answer` reads the same conjunct   *)
+(*     the same way, but F* stops at the first rejected definition, so *)
+(*     only the first landing was observed.                            *)
+(*   - THE SPECIMEN REMOVED, first form -- `qsiteR` replaced by        *)
+(*     `qsiteL`'s body:  REJECTED at line 24149, inside               *)
+(*     `guard_padm_residual_observably_differs`.  It lands on the      *)
+(*     MACHINE RUN rather than on the refusal, which is the right      *)
+(*     place: with the two site bodies equal the two consumptions      *)
+(*     agree, and there is no observable difference left to refuse.    *)
+(*   - THE SPECIMEN REMOVED, second form -- `qsiteV`'s payload changed *)
+(*     to `FI 7`:  REJECTED at line 24153, in the same guard, for the  *)
+(*     same reason.                                                    *)
+(*   - `guard_padm_refuses_a_changed_answer`'s index 2 changed to      *)
+(*     index 1:  REJECTED at line 24325 -- "Expected type Prims.squash *)
+(*     Prims.l_False, got type Prims.unit".  So the second refusal is  *)
+(*     NOT the first one in disguise: at index 1 the two `PEmit`s      *)
+(*     agree, and only the descent into the payloads separates them.   *)
+(*   - the POSITIVE `padm_xrel fcl_rel w qctxL qctxR` asserted in      *)
+(*     place of its negation:  REJECTED at lines 24258-24285 --        *)
+(*     "Could not prove post-condition".  So the context is not        *)
+(*     contradictory and the refusal is not free.                      *)
+(*   - the `lemma_pfrel_site_inv` call at line 24282 deleted:          *)
+(*     **ACCEPTED** -- the module still verifies.  `pfrel` is `forall  *)
+(*     n. pframe_rel`, which UNFOLDS in the goal position the          *)
+(*     following `assert` puts it in, so Z3 re-derives the site        *)
+(*     inversion without the lemma.  Recorded as a WEAK guard; the     *)
+(*     call is kept for readability, and what stands in its place is   *)
+(*     the first mutation above, which shows the refusal really does   *)
+(*     travel through the residual conjunct.                           *)
+(* ================================================================== *)

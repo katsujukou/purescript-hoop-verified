@@ -4968,9 +4968,9 @@ proved standalone, plus a mutation showing its negation is not provable.
 
 #### The order, settled by the verdict
 
-1. make `padm_pctx`'s residual clause non-vacuous, with a negative specimen —
-   same `post` with corresponding residuals against same `post` with residuals
-   that mean something different;
+1. ~~make `padm_pctx`'s residual clause non-vacuous~~ — **done**: the
+   previously accepted mutation now lands, on a specimen that differs
+   observably;
 2. place an administrative observation **beside** the nominal one, the latter
    kept;
 3. check that this gate's identity-consumer counterexample becomes a
@@ -4980,6 +4980,74 @@ proved standalone, plus a mutation showing its negation is not provable.
 5. one-step and finite-run preservation for the administrative relation;
 6. soundness against public observation;
 7. only then, prove right identity again.
+
+#### The residual clause: debt paid
+
+The mutation B2b.12 recorded as **accepted** — `padm_pctx`'s residual clause
+set to `True` — now **lands inside the new refusal guard**. That is the whole
+of the debt, and it is paid rather than re-documented: the read of the residual
+clause was deliberately inlined into the guard so the rejection lands there
+rather than in a factored lemma.
+
+*The specimen is well made.* Three contexts share payload **and** `post` — the
+same term `PVar` that `qprod` carries — and their residuals differ only in the
+body of the `PSiteF`. Shape (length, the four constructors, both tables,
+provenance) agrees as terms. The observable difference is established by
+**running the machine**:
+
+| context | value | trace |
+|---|---|---|
+| `qctxL` | `FI 7` | `["left"]` |
+| `qctxR` | `FI 8` | `["right"]` |
+| `qctxV` | `FI 8` | **`["left"]`** |
+
+**`L` against `V` have identical traces and differ only in the answer**, which
+is what shows the clause is not merely catching trace differences. All three
+take the same number of transitions and end with the same counter, so neither
+fuel nor a side allocation is doing the work. The refusals divide by depth too:
+`L`/`R` contradicts at index 1 on the event, `L`/`V` passes index 1 and
+contradicts at index 2 on the value. And `padm_xrel w qctxL qctxL` holds, so
+the shape is not refused wholesale.
+
+*What `presid_wf` licenses, stated precisely:*
+
+> All three residuals satisfy `presid_wf`, so they lie inside the well-formed
+> observation domain and cannot be dismissed by the store invariant. A closed
+> machine execution that actually stores them is **not** established.
+
+That is enough here. Having decided the laws are stated over well-formed
+configurations, a specimen inside the domain tests the relation's discriminating
+power whether or not it is reachable.
+
+*Honest about the guards.* One mutation was accepted and is recorded as weak
+(`pfrel` unfolds in goal position, so Z3 re-derives the inversion without the
+lemma; M1 stands in its place). Two mutations landed on the **observation**
+guard rather than the refusal guard, so "removing the specimen removes the
+refusal" is **inferred, not observed** — F\* halts at the first failure.
+Whether the second refusal guard also fails under M1 is likewise unobserved.
+
+*A toolchain note, not a result.* A `Error 276` Z3 response-parsing failure was
+worked around with `--split_queries always` during development; the final
+inlined version needs no such flag and lands on `Error 19` under the plain
+command. Note that F\* v2026.08.16 has **removed** that option, so the
+workaround is specific to the toolchain in use at the time and does not affect
+the deliverable.
+
+#### What the administrative-observation gate must fix
+
+| # | requirement |
+|---|---|
+| 1 | the nominal observation is **unchanged**; the administrative one is added beside it |
+| 2 | the only thing that changes is the final-store clause: `psrel` becomes `padm_srel` |
+| 3 | the value relation, the trace's order and multiplicity, world extension, provenance and the well-formed starting domain are all **retained** |
+| 4 | the identity-consumer counterexample becomes a **positive** instance at the very same configuration |
+| 5 | a performing `post`, an argument-discarding `post`, and the `L`/`R` and `L`/`V` residual pairs are **still refused** under the new observation |
+| 6 | containment from the nominal observation into the administrative one is **proved** |
+| 7 | the new observation is **not** the universal relation, fixed by an independent negative |
+
+What this stage establishes is only that **a candidate observation has the
+expected discriminating power**. Soundness against public observation comes
+after one-step and finite-run preservation, as planned.
 
 ### A discriminating example: `catch` against a prompt-local `Var`
 
