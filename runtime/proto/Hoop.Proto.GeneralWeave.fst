@@ -28310,3 +28310,931 @@ let guard_static_residual_composes (n: nat)
 (*  confluence or a normal form, states a law, or changes any          *)
 (*  existing definition.                                               *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.20 -- NARROWING THE FUTURE-WORLD DOMAIN                        *)
+(*                                                                     *)
+(*  B2b.19 REFUTED future-world factorisation:                         *)
+(*  `guard_pwfactor_needs_right_freshness` exhibits a well-formed       *)
+(*  future world of a composite, adding exactly ONE pair, that NO pair  *)
+(*  of future worlds composes to cover.  The diagnosis recorded there   *)
+(*  was that `pwcompose w12 w23` FORGETS the middle run's name usage.   *)
+(*                                                                     *)
+(*  THIS SECTION DOES NOT CHANGE ANY RELATION.  It builds and tests,    *)
+(*  IN ISOLATION, the repair direction that section named: not to drop  *)
+(*  the Kripke quantification -- it is needed -- but to NARROW ITS      *)
+(*  DOMAIN, from every `pwext` extension to those an allocator could    *)
+(*  actually produce.                                                  *)
+(*                                                                     *)
+(*      forall w'. pwext w' w ==> ...                (too wide)         *)
+(*      forall w'. pwalloc_ext n1 n2 m1 m2 w' w ==> ...  (candidate)    *)
+(*                                                                     *)
+(*  Every name below is NEW.  Nothing above is touched.                 *)
+(* ================================================================== *)
+
+(* ---- 1. BOUNDED WORLDS ------------------------------------------- *)
+
+(** A world together with the two counters it lives under. `pwbound` was already
+    the shape of the fresh-name supply the previous gate asked for; this is that
+    shape given a name, so the counters travel with the world instead of being
+    re-supplied at every lemma. *)
+let pbounded_world (n1 n2: nat) (w: pworld) : prop
+  = pwf_world w /\ pwbound w n1 n2
+
+let lemma_pbounded_world_fresh (n1 n2: nat) (w: pworld)
+  : Lemma (requires pbounded_world n1 n2 w)
+          (ensures pwlookup_l n1 w == None /\ pwlookup_r n2 w == None)
+  = lemma_pwbound_fresh w n1 n2
+
+let lemma_pbounded_world_weaken (n1 n2 m1 m2: nat) (w: pworld)
+  : Lemma (requires pbounded_world n1 n2 w /\ n1 <= m1 /\ n2 <= m2)
+          (ensures pbounded_world m1 m2 w)
+  = ()
+
+let lemma_pbounded_world_alloc (n1 n2: nat) (w: pworld)
+  : Lemma (requires pbounded_world n1 n2 w)
+          (ensures (let w' = pwextend n1 n2 w in
+                    pbounded_world (n1 + 1) (n2 + 1) w' /\
+                    pwext w' w /\ pwlookup_l n1 w' == Some n2))
+  = lemma_pwbound_fresh w n1 n2;
+    lemma_pwextend_wf n1 n2 w;
+    lemma_pwl_cons n1 n2 w
+
+(* ---- 2. THE ALLOCATOR-RESPECTING FUTURE EXTENSION ----------------- *)
+
+(**
+ * **THE CANDIDATE.** `w'` extends `w`, and every pair `w'` has that `w` does
+ * NOT has BOTH names in the window the two allocators opened: at or above the
+ * counters the extension started from, and strictly below the counters it ended
+ * at. This is `pwext` plus the one thing `pwext` never said -- WHERE the new
+ * names came from.
+ *
+ * NO `{:pattern}` IS GIVEN, deliberately. `pwalloc_ext` is a plain `Tot prop`
+ * abbreviation, exactly like `pwext`, `pwbound` and `pwf_world`, so the encoding
+ * carries its defining equation and unfolds it in hypothesis position as well as
+ * in goal position -- the `GTot prop` atom problem that `pcfrel_unfold` exists
+ * to work around does not arise here. Attaching a trigger would additionally
+ * risk perturbing the `pwext` instantiations every proof above depends on.
+ *)
+let pwalloc_ext (n1 n2 m1 m2: nat) (w' w: pworld) : prop
+  = pwf_world w' /\ pwext w' w /\ n1 <= m1 /\ n2 <= m2 /\
+    (forall (i k: nat).
+       pwlookup_l i w' == Some k /\ pwlookup_l i w == None ==>
+       n1 <= i /\ i < m1 /\ n2 <= k /\ k < m2)
+
+let lemma_pwalloc_ext_is_pwext (n1 n2 m1 m2: nat) (w' w: pworld)
+  : Lemma (requires pwalloc_ext n1 n2 m1 m2 w' w)
+          (ensures pwf_world w' /\ pwext w' w)
+  = ()
+
+let lemma_pwalloc_ext_refl (n1 n2: nat) (w: pworld)
+  : Lemma (requires pwf_world w) (ensures pwalloc_ext n1 n2 n1 n2 w w)
+  = ()
+
+let lemma_pwalloc_ext_bound (n1 n2 m1 m2: nat) (w' w: pworld)
+  : Lemma (requires pbounded_world n1 n2 w /\ pwalloc_ext n1 n2 m1 m2 w' w)
+          (ensures pbounded_world m1 m2 w')
+  = introduce forall (i k: nat). (pwlookup_l i w' == Some k ==> i < m1 /\ k < m2)
+    with (introduce _ ==> _
+          with (match pwlookup_l i w with
+                | None -> ()
+                | Some k0 -> ()))
+
+let lemma_pwalloc_ext_trans (n1 n2 m1 m2 p1 p2: nat) (w'' w' w: pworld)
+  : Lemma (requires pwalloc_ext n1 n2 m1 m2 w' w /\ pwalloc_ext m1 m2 p1 p2 w'' w')
+          (ensures pwalloc_ext n1 n2 p1 p2 w'' w)
+  = introduce forall (i k: nat).
+        (pwlookup_l i w'' == Some k /\ pwlookup_l i w == None ==>
+         n1 <= i /\ i < p1 /\ n2 <= k /\ k < p2)
+    with (introduce _ ==> _
+          with (match pwlookup_l i w' with
+                | None -> ()
+                | Some k0 -> ()))
+
+(* ---- 3. THE MACHINE'S OWN ALLOCATION SATISFIES IT ----------------- *)
+
+(**
+ * **SOUNDNESS OF THE NARROWING.** PROVED. One paired allocation -- the ONLY way
+ * any world in this file grows -- is an allocator-respecting extension. Without
+ * this the predicate would be useless: it would exclude the counterexample by
+ * excluding everything.
+ *)
+let lemma_pwalloc_ext_of_alloc (n1 n2: nat) (w: pworld)
+  : Lemma (requires pbounded_world n1 n2 w)
+          (ensures pwalloc_ext n1 n2 (n1 + 1) (n2 + 1) (pwextend n1 n2 w) w)
+  = lemma_pbounded_world_alloc n1 n2 w;
+    lemma_pwl_cons n1 n2 w
+
+let lemma_pwalloc_ext_of_psrel_alloc
+      (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+      (s1 s2: pstore v cl) (m1 m2: nat) (cx1 cx2: pctx v cl)
+  : Lemma (requires pbounded_world m1 m2 w /\ psrel r w s1 s2 /\
+                    pxrel r w cx1 cx2 /\ pcl_mono r)
+          (ensures (let w' = pwextend m1 m2 w in
+                    pwalloc_ext m1 m2 (m1 + 1) (m2 + 1) w' w /\
+                    pbounded_world (m1 + 1) (m2 + 1) w' /\
+                    pval_rel #v w' (PCtxKey m1) (PCtxKey m2) /\
+                    psrel r w' ((m1, cx1) :: s1) ((m2, cx2) :: s2)))
+  = lemma_psrel_alloc r w s1 s2 m1 m2 cx1 cx2;
+    lemma_pwalloc_ext_of_alloc m1 m2 w
+
+(* ---- 4. THE REFUTATION FALLS OUTSIDE THE NEW DOMAIN --------------- *)
+
+(**
+ * **THE COUNTEREXAMPLE'S COUNTERS ARE FORCED.** PROVED. `fw12` sends 0 to 1 and
+ * `fw23` sends 5 to 7, so for the two to be bounded at all the left counter is
+ * at least 1, the middle at least 6, and the right at least 8. Nothing is
+ * chosen here -- the three numbers are read off the two worlds.
+ *)
+let lemma_bw_counters_forced (n1 n2 n3: nat)
+  : Lemma (requires pwbound fw12 n1 n2 /\ pwbound fw23 n2 n3)
+          (ensures 1 <= n1 /\ 2 <= n2 /\ 6 <= n2 /\ 8 <= n3)
+  = assert_norm (pwlookup_l 0 fw12 == Some 1);
+    assert_norm (pwlookup_l 5 fw23 == Some 7)
+
+(**
+ * **B2b.19's REFUTATION IS OUTSIDE THE NEW DOMAIN.** PROVED, for EVERY choice
+ * of counters under which the two factors are bounded and for EVERY pair of end
+ * counters.
+ *
+ * `fwtarget` adds the pair `0 -> 7` to the empty composite. Bounding `fw12` and
+ * `fw23` forces `n1 >= 1` and `n3 >= 8`, so the new pair's LEFT name is BELOW
+ * the left counter and its RIGHT name is BELOW the right counter -- twice over,
+ * this is a pair no allocator could have produced. It is not excluded by fiat:
+ * `guard_bw_nearby_pair_is_admitted` exhibits a neighbouring one-pair extension
+ * at the SAME counters that IS admitted, and
+ * `guard_bw_nearby_pair_really_factors` factors it.
+ *)
+let guard_bw_refutation_is_outside_the_domain (n1 n2 n3 m1 m3: nat)
+  : Lemma (requires pwbound fw12 n1 n2 /\ pwbound fw23 n2 n3)
+          (ensures pwcompose fw12 fw23 == ([] <: pworld) /\
+                   pwlookup_l 0 (pwcompose fw12 fw23) == None /\
+                   pwlookup_l 0 fwtarget == Some 7 /\
+                   pwext fwtarget (pwcompose fw12 fw23) /\
+                   1 <= n1 /\ 8 <= n3 /\
+                   ~(pwalloc_ext n1 n3 m1 m3 fwtarget (pwcompose fw12 fw23)))
+  = lemma_bw_counters_forced n1 n2 n3;
+    assert_norm (pwcompose fw12 fw23 == ([] <: pworld));
+    assert_norm (pwlookup_l 0 fwtarget == Some 7);
+    assert_norm (pwlookup_l 0 ([] <: pworld) == None);
+    introduce pwalloc_ext n1 n3 m1 m3 fwtarget (pwcompose fw12 fw23) ==> False
+    with begin
+      assert (pwlookup_l 0 fwtarget == Some 7 /\
+              pwlookup_l 0 (pwcompose fw12 fw23) == None)
+    end
+
+(** The neighbouring target: the pair `1 -> 8`, at the SAME two factor worlds
+    and the SAME counters `(1, 6, 8)`. One step up from `fwtarget` on each side
+    -- and that is the whole difference between a name an allocator hands out
+    and a name it has already spent. *)
+let bw_near : pworld = [(1, 8)]
+
+(** **AND THE GUARD DISCRIMINATES.** PROVED. At the very counters that refuse
+    `fwtarget`, `bw_near` is admitted. *)
+let guard_bw_nearby_pair_is_admitted ()
+  : Lemma (pwbound fw12 1 6 /\ pwbound fw23 6 8 /\
+           pwf_world fw12 /\ pwf_world fw23 /\
+           pwalloc_ext 1 8 2 9 bw_near (pwcompose fw12 fw23) /\
+           ~(pwalloc_ext 1 8 2 9 fwtarget (pwcompose fw12 fw23)))
+  = assert_norm (pwbound fw12 1 6);
+    assert_norm (pwbound fw23 6 8);
+    assert_norm (pwf_world fw12);
+    assert_norm (pwf_world fw23);
+    assert_norm (pwcompose fw12 fw23 == ([] <: pworld));
+    assert_norm (pwf_world bw_near);
+    assert_norm (forall (i k: nat). pwlookup_l i bw_near == Some k ==> i == 1 /\ k == 8);
+    guard_bw_refutation_is_outside_the_domain 1 6 8 2 9
+
+(**
+ * **AND THE ADMITTED ONE REALLY FACTORS -- WITH THE MIDDLE COUNTER AS THE
+ * MIDDLE NAME.** PROVED, by computation.
+ *
+ * `lemma_no_factor` shows no `a` and `b` at all cover `fwtarget`'s pair. Here
+ * `pwextend 1 6 fw12` and `pwextend 6 8 fw23` cover `bw_near`'s ON THE NOSE.
+ * The middle name is `6` -- the MIDDLE COUNTER `n2` -- and NOT `pwfresh2 fw12
+ * fw23`, which is `8`. The last two conjuncts record that the two differ; see
+ * `guard_bw_middle_counter_names_the_allocation` for what the difference costs.
+ *)
+let guard_bw_nearby_pair_really_factors ()
+  : Lemma (let a = pwextend 1 6 fw12 in
+           let b = pwextend 6 8 fw23 in
+           pwf_world a /\ pwf_world b /\ pwext a fw12 /\ pwext b fw23 /\
+           pwlookup_l 1 a == Some 6 /\ pwlookup_l 6 b == Some 8 /\
+           pwlookup_l 1 (pwcompose a b) == Some 8 /\
+           pwext (pwcompose a b) bw_near /\ pwext bw_near (pwcompose a b) /\
+           pwfresh2 fw12 fw23 == 8 /\ ~(pwfresh2 fw12 fw23 == 6))
+  = assert_norm (pwf_world fw12);
+    assert_norm (pwf_world fw23);
+    assert_norm (pwlookup_l 1 fw12 == None);
+    assert_norm (pwlookup_r 6 fw12 == None);
+    assert_norm (pwlookup_l 6 fw23 == None);
+    assert_norm (pwlookup_r 8 fw23 == None);
+    lemma_pwextend_wf 1 6 fw12;
+    lemma_pwextend_wf 6 8 fw23;
+    assert_norm (pwcompose (pwextend 1 6 fw12) (pwextend 6 8 fw23) == [(1, 8)]);
+    assert_norm (pwlookup_l 1 (pwextend 1 6 fw12) == Some 6);
+    assert_norm (pwlookup_l 6 (pwextend 6 8 fw23) == Some 8);
+    assert_norm (pwfresh2 fw12 fw23 == 8)
+
+(* ---- 6. ONE NEW PAIR FACTORS, WITH NO AD-HOC SIDE CONDITION ------- *)
+
+(**
+ * **THE MIDDLE NAME IS THE MIDDLE COUNTER.** Not `pwfresh2`, which reads
+ * `pwmaxname` off the two WORLDS and can therefore name something no run ever
+ * allocates, but `n2` -- the counter the middle configuration is holding, hence
+ * the name `palloc` is about to hand the middle run. `pwmidname`'s two-case
+ * split disappears with it: under the bounded discipline `w12` is always silent
+ * at a left name at or above `n1`, so the FORCED-middle-name case cannot arise.
+ *)
+let pwallocfactor_l (n2: nat) (w12: pworld) (i: nat) : pworld = pwextend i n2 w12
+let pwallocfactor_r (n2: nat) (w23: pworld) (k: nat) : pworld = pwextend n2 k w23
+
+(**
+ * **STEP 6 -- ONE NEW PAIR FACTORS, AND THE SIDE CONDITION IS GONE.** PROVED.
+ *
+ * `lemma_pwfactor_one` needed `pwlookup_r k w23 == None` as a HYPOTHESIS, and
+ * `guard_pwfactor_needs_right_freshness` refuted dropping it. Here it is a
+ * CONCLUSION: `k >= n3` and `pwbound w23 n2 n3` give it. So does
+ * `pwlookup_l i (pwcompose w12 w23) == None`, and so do the two middle-side
+ * freshness facts. The repair therefore buys exactly what it was meant to --
+ * the ad-hoc condition becomes a consequence of the allocator discipline.
+ *
+ * Both factors are moreover ALLOCATOR-RESPECTING extensions of what they
+ * factor, with the MIDDLE counter advancing from `n2` to `n2 + 1`: one middle
+ * allocation per end-to-end allocation, no more.
+ *)
+let lemma_pwallocfactor_one (w12 w23: pworld) (n1 n2 n3 i k: nat)
+  : Lemma (requires pbounded_world n1 n2 w12 /\ pbounded_world n2 n3 w23 /\
+                    n1 <= i /\ n3 <= k)
+          (ensures (let a = pwallocfactor_l n2 w12 i in
+                    let b = pwallocfactor_r n2 w23 k in
+                    let c0 = pwcompose w12 w23 in
+                    pwlookup_l i w12 == None /\ pwlookup_r n2 w12 == None /\
+                    pwlookup_l n2 w23 == None /\ pwlookup_r k w23 == None /\
+                    pwlookup_l i c0 == None /\
+                    pbounded_world (i + 1) (n2 + 1) a /\
+                    pbounded_world (n2 + 1) (k + 1) b /\
+                    pwalloc_ext n1 n2 (i + 1) (n2 + 1) a w12 /\
+                    pwalloc_ext n2 n3 (n2 + 1) (k + 1) b w23 /\
+                    pwext a w12 /\ pwext b w23 /\
+                    pwlookup_l i a == Some n2 /\ pwlookup_l n2 b == Some k /\
+                    pwlookup_l i (pwcompose a b) == Some k /\
+                    pwext (pwcompose a b) (pwextend i k c0) /\
+                    pwext (pwextend i k c0) (pwcompose a b)))
+  = let a = pwallocfactor_l n2 w12 i in
+    let b = pwallocfactor_r n2 w23 k in
+    let c0 = pwcompose w12 w23 in
+    assert (pwlookup_l i w12 == None);
+    assert (pwlookup_r n2 w12 == None);
+    assert (pwlookup_l n2 w23 == None);
+    assert (pwlookup_r k w23 == None);
+    lemma_pwcompose_l w12 w23 i;
+    lemma_pwextend_wf i n2 w12;
+    lemma_pwextend_wf n2 k w23;
+    lemma_pwl_cons i n2 w12;
+    lemma_pwl_cons n2 k w23;
+    lemma_pwextend_pwcompose i n2 k w12 w23
+
+(** The numeric side condition is what an allocator-respecting one-pair
+    extension of the composite SAYS; so step 6 applies to exactly the target
+    worlds step 2 admits. *)
+let lemma_pwalloc_ext_one_pair (n1 n3 m1 m3 i k: nat) (c0: pworld)
+  : Lemma (requires pwlookup_l i c0 == None /\
+                    pwalloc_ext n1 n3 m1 m3 (pwextend i k c0) c0)
+          (ensures n1 <= i /\ i < m1 /\ n3 <= k /\ k < m3)
+  = lemma_pwl_cons i k c0
+
+(* ---- 7. A FINITE RUN OF NEW PAIRS -------------------------------- *)
+
+(** **THE DISCIPLINE THE LIFT IS RESTRICTED TO**, and it is now purely NUMERIC:
+    each new pair allocates at or above the counters currently held, and the
+    counters advance past it. Compare `pwfactorable`, whose two clauses were
+    lookups into the worlds; nothing here reads a world at all. *)
+let rec pwallocfactorable (ps: list (nat & nat)) (n1 n3: nat) : Tot prop (decreases ps)
+  = match ps with
+    | [] -> True
+    | (i, k) :: rest -> n1 <= i /\ n3 <= k /\ pwallocfactorable rest (i + 1) (k + 1)
+
+let rec pwalloc_count_l (ps: list (nat & nat)) (n1: nat) : Tot nat (decreases ps)
+  = match ps with
+    | [] -> n1
+    | (i, _) :: rest -> pwalloc_count_l rest (i + 1)
+
+let rec pwalloc_count_m (ps: list (nat & nat)) (n2: nat) : Tot nat (decreases ps)
+  = match ps with
+    | [] -> n2
+    | _ :: rest -> pwalloc_count_m rest (n2 + 1)
+
+let rec pwalloc_count_r (ps: list (nat & nat)) (n3: nat) : Tot nat (decreases ps)
+  = match ps with
+    | [] -> n3
+    | (_, k) :: rest -> pwalloc_count_r rest (k + 1)
+
+let rec pwallocfactor_many_l (ps: list (nat & nat)) (n2: nat) (w12: pworld)
+  : Tot pworld (decreases ps)
+  = match ps with
+    | [] -> w12
+    | (i, _) :: rest -> pwallocfactor_many_l rest (n2 + 1) (pwallocfactor_l n2 w12 i)
+
+let rec pwallocfactor_many_r (ps: list (nat & nat)) (n2: nat) (w23: pworld)
+  : Tot pworld (decreases ps)
+  = match ps with
+    | [] -> w23
+    | (_, k) :: rest -> pwallocfactor_many_r rest (n2 + 1) (pwallocfactor_r n2 w23 k)
+
+let lemma_pwextend_pairs_cons (i k: nat) (rest: list (nat & nat)) (w: pworld)
+  : Lemma (pwextend_pairs ((i, k) :: rest) w ==
+           pwextend_pairs rest (pwextend i k w))
+  = ()
+
+(**
+ * **STEP 7 -- A FINITE RUN OF NEW PAIRS FACTORS.** PROVED, by induction.
+ *
+ * Both factors are worlds, each is an ALLOCATOR-RESPECTING extension of what it
+ * factors -- not merely a `pwext` of it -- and their composite agrees with the
+ * extended composite by MUTUAL `pwext`, this file's only equality on worlds.
+ * The middle counter advances by exactly one per pair (`pwalloc_count_m`), which
+ * is the middle run performing exactly one allocation per end-to-end one.
+ *
+ * The asserts in the inductive step are not decoration: `pwalloc_count_*`,
+ * `pwallocfactor_many_*` and `pwextend_pairs` are all recursive on `ps`, and the
+ * solver needs each unfolding at `ps == (i, k) :: rest` written out before the
+ * ensures can be matched against the recursive call's.
+ *)
+let rec lemma_pwallocfactor_many (ps: list (nat & nat)) (n1 n2 n3: nat) (w12 w23: pworld)
+  : Lemma (requires pbounded_world n1 n2 w12 /\ pbounded_world n2 n3 w23 /\
+                    pwallocfactorable ps n1 n3)
+          (ensures (let a = pwallocfactor_many_l ps n2 w12 in
+                    let b = pwallocfactor_many_r ps n2 w23 in
+                    let f1 = pwalloc_count_l ps n1 in
+                    let f2 = pwalloc_count_m ps n2 in
+                    let f3 = pwalloc_count_r ps n3 in
+                    pbounded_world f1 f2 a /\ pbounded_world f2 f3 b /\
+                    pwalloc_ext n1 n2 f1 f2 a w12 /\
+                    pwalloc_ext n2 n3 f2 f3 b w23 /\
+                    pwext (pwcompose a b) (pwextend_pairs ps (pwcompose w12 w23)) /\
+                    pwext (pwextend_pairs ps (pwcompose w12 w23)) (pwcompose a b)))
+          (decreases ps)
+  = match ps with
+    | [] -> lemma_pwalloc_ext_refl n1 n2 w12; lemma_pwalloc_ext_refl n2 n3 w23
+    | (i, k) :: rest ->
+      lemma_pwallocfactor_one w12 w23 n1 n2 n3 i k;
+      let a1 = pwallocfactor_l n2 w12 i in
+      let b1 = pwallocfactor_r n2 w23 k in
+      lemma_pwextend_pairs_cong rest (pwcompose a1 b1)
+                                     (pwextend i k (pwcompose w12 w23));
+      lemma_pwallocfactor_many rest (i + 1) (n2 + 1) (k + 1) a1 b1;
+      let a = pwallocfactor_many_l rest (n2 + 1) a1 in
+      let b = pwallocfactor_many_r rest (n2 + 1) b1 in
+      let f1 = pwalloc_count_l rest (i + 1) in
+      let f2 = pwalloc_count_m rest (n2 + 1) in
+      let f3 = pwalloc_count_r rest (k + 1) in
+      lemma_pwalloc_ext_trans n1 n2 (i + 1) (n2 + 1) f1 f2 a a1 w12;
+      lemma_pwalloc_ext_trans n2 n3 (n2 + 1) (k + 1) f2 f3 b b1 w23;
+      lemma_pwextend_pairs_cons i k rest (pwcompose w12 w23);
+      assert (ps == (i, k) :: rest);
+      assert (pwalloc_count_l ps n1 == pwalloc_count_l rest (i + 1));
+      assert (pwalloc_count_m ps n2 == pwalloc_count_m rest (n2 + 1));
+      assert (pwalloc_count_r ps n3 == pwalloc_count_r rest (k + 1));
+      assert (pwallocfactor_many_l ps n2 w12 == pwallocfactor_many_l rest (n2 + 1) a1);
+      assert (pwallocfactor_many_r ps n2 w23 == pwallocfactor_many_r rest (n2 + 1) b1);
+      assert (pbounded_world f1 f2 a);
+      assert (pbounded_world f2 f3 b);
+      assert (pwalloc_ext n1 n2 f1 f2 a w12);
+      assert (pwalloc_ext n2 n3 f2 f3 b w23);
+      assert (pwextend_pairs ps (pwcompose w12 w23) ==
+              pwextend_pairs rest (pwextend i k (pwcompose w12 w23)));
+      assert (pwext (pwcompose a b) (pwextend_pairs rest (pwcompose a1 b1)));
+      assert (pwext (pwextend_pairs rest (pwcompose a1 b1))
+                    (pwextend_pairs rest (pwextend i k (pwcompose w12 w23))))
+
+(* ---- 8. THE MIDDLE NAME NAMES A REAL MIDDLE ALLOCATION ----------- *)
+
+(**
+ * **STEP 8 -- THE CHOSEN MIDDLE NAME IS THE HANDLE `palloc` HANDS THE MIDDLE
+ * RUN.** PROVED, against a real middle CONFIGURATION and not merely a store.
+ *
+ * A middle name can be chosen logically and still name nothing; then the
+ * factorisation has FABRICATED a name rather than found one. The hypothesis
+ * here is `pconf_wf cf2 /\ cf2.next == n2` -- the middle configuration is well
+ * formed and is holding the counter the factorisation used -- and the
+ * conclusion exhibits `palloc cx2 cf2` returning the handle `PCtxKey n2`, the
+ * grown store holding `n2`, the ungrown store NOT holding it, and the two
+ * factor worlds using `n2` as the middle of the chain `i -> n2 -> k`.
+ *
+ * This is what forces `n2` rather than `pwfresh2`:
+ * `guard_pwfresh2_names_nothing_in_the_middle_store` shows that whenever
+ * `pwfresh2` exceeds the middle counter -- which it does at the very worlds of
+ * B2b.19's refutation -- the name it picks is absent from the middle store even
+ * AFTER the middle run's allocation.
+ *)
+let lemma_pwallocfactor_one_middle_store
+      (#v #cl: Type) (w12 w23: pworld) (n1 n2 n3 i k: nat)
+      (cf2: pconf v cl) (cx2: pctx v cl)
+  : Lemma (requires pbounded_world n1 n2 w12 /\ pbounded_world n2 n3 w23 /\
+                    n1 <= i /\ n3 <= k /\ pconf_wf cf2 /\ cf2.next == n2)
+          (ensures (let a = pwallocfactor_l n2 w12 i in
+                    let b = pwallocfactor_r n2 w23 k in
+                    let h2 = fst (palloc cx2 cf2) in
+                    let cf2' = snd (palloc cx2 cf2) in
+                    h2 == PCtxKey n2 /\ cf2'.next == n2 + 1 /\ pconf_wf cf2' /\
+                    psfresh cf2.store n2 /\ psfresh cf2'.store (n2 + 1) /\
+                    pstore_lookup n2 cf2.store == None /\
+                    pstore_lookup n2 cf2'.store == Some cx2 /\
+                    pwlookup_l i a == Some n2 /\ pwlookup_r n2 a == Some i /\
+                    pwlookup_l n2 b == Some k /\ pwlookup_r k b == Some n2 /\
+                    pwlookup_l i (pwcompose a b) == Some k))
+  = lemma_pwallocfactor_one w12 w23 n1 n2 n3 i k;
+    lemma_psfresh_of_conf_wf cf2;
+    lemma_alloc_wf cx2 cf2;
+    lemma_psfresh_alloc cf2.store n2 cx2;
+    lemma_pstore_lookup_cons n2 cx2 cf2.store;
+    lemma_pwl_cons i n2 w12;
+    lemma_pwr_cons i n2 w12;
+    lemma_pwl_cons n2 k w23;
+    lemma_pwr_cons n2 k w23
+
+(**
+ * **`pwfresh2` NAMES NOTHING.** PROVED. A name fresh for the two WORLDS is not
+ * the same thing as a name the middle RUN is about to allocate. Whenever the
+ * former exceeds the middle counter, it is absent from the middle store even
+ * after the middle run's allocation -- it is a name, and it names nothing.
+ *)
+let guard_pwfresh2_names_nothing_in_the_middle_store
+      (#v #cl: Type) (w12 w23: pworld) (n2: nat)
+      (sto2: pstore v cl) (cx2: pctx v cl)
+  : Lemma (requires psfresh sto2 n2 /\ n2 < pwfresh2 w12 w23)
+          (ensures pstore_lookup n2 ((n2, cx2) :: sto2) == Some cx2 /\
+                   pstore_lookup (pwfresh2 w12 w23) ((n2, cx2) :: sto2) == None)
+  = lemma_psfresh_alloc sto2 n2 cx2;
+    lemma_pstore_lookup_cons n2 cx2 sto2
+
+let guard_pwfresh2_names_nothing_at_the_refutation
+      (#v #cl: Type) (sto2: pstore v cl) (cx2: pctx v cl)
+  : Lemma (requires psfresh sto2 6)
+          (ensures pwbound fw12 1 6 /\ pwbound fw23 6 8 /\
+                   pwfresh2 fw12 fw23 == 8 /\ 6 < pwfresh2 fw12 fw23 /\
+                   pstore_lookup 6 ((6, cx2) :: sto2) == Some cx2 /\
+                   pstore_lookup (pwfresh2 fw12 fw23) ((6, cx2) :: sto2) == None)
+  = assert_norm (pwbound fw12 1 6);
+    assert_norm (pwbound fw23 6 8);
+    assert_norm (pwfresh2 fw12 fw23 == 8);
+    guard_pwfresh2_names_nothing_in_the_middle_store fw12 fw23 6 sto2 cx2
+
+(* ---- 9. B2b.2's STEP THEOREM SATISFIES THE NEW DISCIPLINE --------- *)
+
+(**
+ * The step theorem's conclusion, STRENGTHENED: the world handed back is not
+ * merely a `pwext` of the world handed in, it is an allocator-respecting
+ * extension between the two configurations' counters.
+ *
+ * WHY THIS HAS TO BE RE-PROVED AND CANNOT BE DERIVED. `pstep_compat_at`
+ * EXISTENTIALLY quantifies the successor world and records nothing about which
+ * one it is, and `pcfrel r w' cf1' cf2'` bounds `w'` ABOVE the successor
+ * counters without bounding the new pairs BELOW the starting ones. So the
+ * strengthening is genuinely new information about the proof, not a consequence
+ * of the statement, and the three lemmas below re-derive it at the three -- and
+ * only three -- rules at which B2b.2's world grows.
+ *)
+let pstep_alloc_compat_at (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    (exists (w': pworld).
+       pwalloc_ext cf1.next cf2.next
+                   (fst (pstep_tr lk apply cf1)).next
+                   (fst (pstep_tr lk apply cf2)).next w' w /\
+       pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+
+let pstep_alloc_compat_unfold
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (h: squash (pstep_alloc_compat_at r lk apply w cf1 cf2))
+  : squash (snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+            (exists (w': pworld).
+               pwalloc_ext cf1.next cf2.next
+                           (fst (pstep_tr lk apply cf1)).next
+                           (fst (pstep_tr lk apply cf2)).next w' w /\
+               pcfrel r w' (fst (pstep_tr lk apply cf1))
+                           (fst (pstep_tr lk apply cf2))))
+  = h
+
+(** The strengthened conclusion IMPLIES B2b.2's, so nothing already proved is
+    contradicted: the discipline refines the step theorem, it does not compete
+    with it. *)
+let lemma_pstep_alloc_compat_is_stronger
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pstep_alloc_compat_at r lk apply w cf1 cf2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = pstep_alloc_compat_unfold r lk apply w cf1 cf2 ();
+    eliminate exists (w': pworld).
+        (pwalloc_ext cf1.next cf2.next
+                     (fst (pstep_tr lk apply cf1)).next
+                     (fst (pstep_tr lk apply cf2)).next w' w /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with
+      introduce exists (w'': pworld).
+          (pwf_world w'' /\ pwext w'' w /\
+           pcfrel r w'' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+      with w' and ()
+
+let lemma_step_alloc_world (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                           (apply: papply_t v cl) (w w1: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwalloc_ext cf1.next cf2.next
+                                (fst (pstep_tr lk apply cf1)).next
+                                (fst (pstep_tr lk apply cf2)).next w1 w /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    pcfrel r w1 (fst (pstep_tr lk apply cf1))
+                                (fst (pstep_tr lk apply cf2)))
+          (ensures pstep_alloc_compat_at r lk apply w cf1 cf2)
+  = introduce exists (w': pworld).
+        (pwalloc_ext cf1.next cf2.next
+                     (fst (pstep_tr lk apply cf1)).next
+                     (fst (pstep_tr lk apply cf2)).next w' w /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with w1 and ()
+
+(** GROWTH SITE 1 of 3 -- the SCOPE FLOOR (`PVar` under `PScopeF`). *)
+let lemma_step_scope_alloc_ext
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (x1 x2: pval v) (t1 t2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) (PScopeF :: t1) /\
+                    cf2.st == PStep (PVar x2) (PScopeF :: t2) /\
+                    pcrel #v #cl r w (PVar x1) (PVar x2) /\
+                    pkrel r w (PScopeF :: t1) (PScopeF :: t2))
+          (ensures pstep_alloc_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_var_inv #v #cl r w x1 x2;
+    lemma_pkrel_cons_inv r w (PScopeF #v #cl) (PScopeF #v #cl) t1 t2;
+    let n1 = cf1.next in
+    let n2 = cf2.next in
+    let w1 = pwextend n1 n2 w in
+    lemma_pxrel_done #v #cl r w x1 x2;
+    lemma_psrel_alloc r w cf1.store cf2.store n1 n2 (PCtxDone x1) (PCtxDone x2);
+    lemma_pwalloc_ext_of_alloc n1 n2 w;
+    lemma_pkrel_mono r w1 w t1 t2;
+    lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+    lemma_step_alloc_world r lk apply w w1 cf1 cf2
+
+(** GROWTH SITE 2 of 3 -- `PExtendCtxC`. *)
+let lemma_step_extendctxc_alloc_ext
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (pl1 pl2: plan v cl) (h1 h2: pval v)
+      (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PExtendCtxC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PExtendCtxC pl2 h2 g2) k2 /\
+                    pcrel r w (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_alloc_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_extendctxc_inv r w pl1 pl2 h1 h2 g1 g2;
+    lemma_presolve_rel r w cf1.store cf2.store h1 h2;
+    match presolve cf1.store h1, presolve cf2.store h2 with
+    | Some cx1, Some cx2 ->
+      lemma_extend_ctx_C_rel r w pl1 pl2 cx1 cx2 g1 g2;
+      let n1 = cf1.next in
+      let n2 = cf2.next in
+      let d1 = extend_ctx_C pl1 cx1 g1 in
+      let d2 = extend_ctx_C pl2 cx2 g2 in
+      let w1 = pwextend n1 n2 w in
+      lemma_psrel_alloc r w cf1.store cf2.store n1 n2 d1 d2;
+      lemma_pwalloc_ext_of_alloc n1 n2 w;
+      lemma_pkrel_mono r w1 w k1 k2;
+      lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+      lemma_step_alloc_world r lk apply w w1 cf1 cf2
+    | _, _ ->
+      lemma_pwalloc_ext_refl cf1.next cf2.next w;
+      lemma_step_alloc_world r lk apply w w cf1 cf2
+
+(** GROWTH SITE 3 of 3 -- PRODUCTION (`pyield`). *)
+let lemma_pyield_alloc_ext
+      (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+      (x1 x2: pval v) (hd1 hd2: pframe v cl)
+      (rest1 rest2: pstack v cl) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pval_rel w x1 x2 /\
+                    pfrel r w hd1 hd2 /\ pkrel r w rest1 rest2 /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next)
+          (ensures (exists (w': pworld).
+                      pwalloc_ext cf1.next cf2.next
+                                  (pyield x1 hd1 rest1 cf1).next
+                                  (pyield x2 hd2 rest2 cf2).next w' w /\
+                      pcfrel r w' (pyield x1 hd1 rest1 cf1)
+                                  (pyield x2 hd2 rest2 cf2)))
+  = lemma_pcut_scope_rel r w rest1 rest2;
+    match pcut_scope rest1, pcut_scope rest2 with
+    | None, None ->
+      lemma_pkrel_cons r w hd1 hd2 rest1 rest2;
+      lemma_pwalloc_ext_refl cf1.next cf2.next w;
+      introduce exists (w': pworld).
+          (pwalloc_ext cf1.next cf2.next
+                       (pyield x1 hd1 rest1 cf1).next
+                       (pyield x2 hd2 rest2 cf2).next w' w /\
+           pcfrel r w' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with w and ()
+    | Some (a1, b1), Some (a2, b2) ->
+      let n1 = cf1.next in
+      let n2 = cf2.next in
+      let w1 = pwextend n1 n2 w in
+      lemma_pkrel_cons r w hd1 hd2 a1 a2;
+      lemma_pfn_rel_at_pvar #v #cl r w;
+      lemma_pxrel_requests r w x1 x2 (hd1 :: a1) (hd2 :: a2) (PVar #v #cl) (PVar #v #cl);
+      lemma_psrel_alloc r w cf1.store cf2.store n1 n2
+                        (PCtxRequests x1 (hd1 :: a1) (PVar #v #cl))
+                        (PCtxRequests x2 (hd2 :: a2) (PVar #v #cl));
+      lemma_pwalloc_ext_of_alloc n1 n2 w;
+      lemma_pkrel_mono r w1 w b1 b2;
+      lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+      introduce exists (w': pworld).
+          (pwalloc_ext cf1.next cf2.next
+                       (pyield x1 hd1 rest1 cf1).next
+                       (pyield x2 hd2 rest2 cf2).next w' w /\
+           pcfrel r w' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with w1 and ()
+    | _, _ -> ()
+
+(* ---- 10. A BELOW-COUNTER HANDLE NEVER COMES BACK ------------------ *)
+
+(**
+ * **THE CLAIM, PROVED UNDER THE DISCIPLINE.** A handle allocated before the
+ * current counters but absent from the current world stays absent, and a handle
+ * the world is silent about is related to NOTHING -- so it can never become
+ * publicly observable.
+ *
+ * `guard_bw_revival_under_plain_pwext` is the matching REFUTATION: under plain
+ * `pwext` the same claim is FALSE. So this is not a fact about worlds, it is a
+ * fact about the narrowed domain, and it is one of the things the narrowing
+ * buys.
+ *)
+let lemma_bw_below_counter_stays_silent
+      (#v: Type) (n1 n2 m1 m2 i: nat) (w' w: pworld)
+  : Lemma (requires pwalloc_ext n1 n2 m1 m2 w' w /\ i < n1 /\
+                    pwlookup_l i w == None)
+          (ensures pwlookup_l i w' == None /\
+                   (forall (x2: pval v). ~(pval_rel #v w' (PCtxKey i) x2)))
+  = introduce forall (x2: pval v). ~(pval_rel #v w' (PCtxKey i) x2)
+    with guard_nom_forged_handle_unrelated #v w' i x2
+
+let lemma_bw_below_counter_stays_silent_across_two_runs
+      (#v: Type) (n1 n2 m1 m2 p1 p2 i: nat) (w'' w' w: pworld)
+  : Lemma (requires pwalloc_ext n1 n2 m1 m2 w' w /\
+                    pwalloc_ext m1 m2 p1 p2 w'' w' /\
+                    i < n1 /\ pwlookup_l i w == None)
+          (ensures pwlookup_l i w'' == None /\
+                   (forall (x2: pval v). ~(pval_rel #v w'' (PCtxKey i) x2)))
+  = lemma_pwalloc_ext_trans n1 n2 m1 m2 p1 p2 w'' w' w;
+    lemma_bw_below_counter_stays_silent #v n1 n2 p1 p2 i w'' w
+
+(** THE ESCAPE CLAUSE, CHARACTERISED. A world that extends the anchor is silent
+    at `i` only when the anchor did not record `i` -- so "unless the provenance
+    anchor already recorded it" is not an extra caveat, it is exactly the
+    negation of the hypothesis. *)
+let lemma_bw_silent_means_not_anchored
+      (#v #cl: Type) (sto: pstore v cl) (w: pworld) (i: nat)
+  : Lemma (requires pwext w (panchor sto) /\ pwlookup_l i w == None)
+          (ensures pstore_lookup i sto == None /\
+                   pwlookup_l i (panchor sto) == None)
+  = lemma_panchor_l i sto
+
+(** REFUTATION ATTEMPT A -- SUCCEEDS, against PLAIN `pwext`. With the future
+    world quantified by `pwext` alone, a name below both counters and absent
+    from the world IS revived and IS publicly observable. The very same pair is
+    refused by `pwalloc_ext`. So the claim of step 10 is FALSE for `pwext` and
+    the discipline is exactly what makes it true. *)
+let guard_bw_revival_under_plain_pwext ()
+  : Lemma (pwf_world ([] <: pworld) /\ pwf_world [(0, 0)] /\
+           pwext [(0, 0)] ([] <: pworld) /\
+           pwbound ([] <: pworld) 5 5 /\
+           pwlookup_l 0 ([] <: pworld) == None /\
+           pwlookup_l 0 [(0, 0)] == Some 0 /\
+           pval_rel #fv [(0, 0)] (PCtxKey 0) (PCtxKey 0) /\
+           (forall (m1 m2: nat). ~(pwalloc_ext 5 5 m1 m2 [(0, 0)] ([] <: pworld))))
+  = assert_norm (pwf_world ([] <: pworld));
+    assert_norm (pwf_world [(0, 0)]);
+    assert_norm (pwlookup_l 0 ([] <: pworld) == None);
+    assert_norm (pwlookup_l 0 [(0, 0)] == Some 0);
+    introduce forall (m1 m2: nat). ~(pwalloc_ext 5 5 m1 m2 [(0, 0)] ([] <: pworld))
+    with (introduce pwalloc_ext 5 5 m1 m2 [(0, 0)] ([] <: pworld) ==> False
+          with assert (pwlookup_l 0 [(0, 0)] == Some 0 /\
+                       pwlookup_l 0 ([] <: pworld) == None))
+
+(** REFUTATION ATTEMPT B -- BLOCKED, at the machine. A paired allocation adds
+    the single left name `m1`, which is NOT below `m1`; every left name the
+    world was silent about and that is below the counter is still silent after
+    the step, and still related to nothing. *)
+let guard_bw_alloc_never_revives_a_below_counter_name
+      (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (s1 s2: pstore v cl)
+      (m1 m2 i: nat) (cx1 cx2: pctx v cl)
+  : Lemma (requires pbounded_world m1 m2 w /\ psrel r w s1 s2 /\
+                    pxrel r w cx1 cx2 /\ pcl_mono r /\
+                    i < m1 /\ pwlookup_l i w == None)
+          (ensures (let w' = pwextend m1 m2 w in
+                    pwlookup_l i w' == None /\
+                    (forall (x2: pval v). ~(pval_rel #v w' (PCtxKey i) x2)) /\
+                    psrel r w' ((m1, cx1) :: s1) ((m2, cx2) :: s2)))
+  = lemma_pwalloc_ext_of_psrel_alloc r w s1 s2 m1 m2 cx1 cx2;
+    lemma_bw_below_counter_stays_silent #v m1 m2 (m1 + 1) (m2 + 1) i
+                                        (pwextend m1 m2 w) w
+
+(* ---- BOTH NUMERIC SIDE CONDITIONS OF ITEM 6 DO WORK -------------- *)
+
+let guard_bw_factor_needs_both_counters ()
+  : Lemma (~(pwf_world (pwallocfactor_l 6 fw12 0)) /\
+           ~(pwf_world (pwallocfactor_r 6 fw23 7)) /\
+           pwf_world (pwallocfactor_l 6 fw12 1) /\
+           pwf_world (pwallocfactor_r 6 fw23 8))
+  = assert_norm (pwf_world fw12);
+    assert_norm (pwf_world fw23);
+    assert_norm (pwlookup_l 1 fw12 == None);
+    assert_norm (pwlookup_r 6 fw12 == None);
+    assert_norm (pwlookup_l 6 fw23 == None);
+    assert_norm (pwlookup_r 8 fw23 == None);
+    lemma_pwextend_wf 1 6 fw12;
+    lemma_pwextend_wf 6 8 fw23;
+    introduce pwf_world (pwallocfactor_l 6 fw12 0) ==> False
+    with begin
+      assert_norm (pwlookup_r 1 (pwallocfactor_l 6 fw12 0) == Some 0);
+      assert_norm (pwlookup_l 0 (pwallocfactor_l 6 fw12 0) == Some 6)
+    end;
+    introduce pwf_world (pwallocfactor_r 6 fw23 7) ==> False
+    with begin
+      assert_norm (pwlookup_l 5 (pwallocfactor_r 6 fw23 7) == Some 7);
+      assert_norm (pwlookup_r 7 (pwallocfactor_r 6 fw23 7) == Some 6)
+    end
+
+(* ---- ITEM 8, AT A CONCRETE MIDDLE STORE -------------------------- *)
+
+let bw_mid_cx : pctx fv fcl = PCtxDone (PCtxKey 0)
+
+let bw_mid_sto : pstore fv fcl = [(5, bw_mid_cx); (4, bw_mid_cx); (3, bw_mid_cx);
+                                  (2, bw_mid_cx); (1, bw_mid_cx); (0, bw_mid_cx)]
+
+let guard_bw_middle_counter_names_the_allocation ()
+  : Lemma (psfresh bw_mid_sto 6 /\
+           pstore_lookup 6 bw_mid_sto == None /\
+           pstore_lookup 6 ((6, bw_mid_cx) :: bw_mid_sto) == Some bw_mid_cx /\
+           pwfresh2 fw12 fw23 == 8 /\
+           pstore_lookup (pwfresh2 fw12 fw23) ((6, bw_mid_cx) :: bw_mid_sto) == None)
+  = assert_norm (psfresh bw_mid_sto 6);
+    assert_norm (pstore_lookup 6 bw_mid_sto == None);
+    assert_norm (pstore_lookup 6 ((6, bw_mid_cx) :: bw_mid_sto) == Some bw_mid_cx);
+    assert_norm (pwfresh2 fw12 fw23 == 8);
+    assert_norm (pstore_lookup 8 ((6, bw_mid_cx) :: bw_mid_sto) == None)
+
+(* ---- 5. EVERY OTHER WORLD-GROWTH SITE, CHECKED ------------------- *)
+
+(** The sibling JOIN (`pwunion` under `lemma_pwcompat_of_ranges`) respects the
+    discipline: a later branch's world speaks only about names at or above the
+    counters the earlier branch stopped at. *)
+let lemma_pwalloc_ext_of_union (wA wB: pworld) (n1 n2 m1 m2: nat)
+  : Lemma (requires pbounded_world n1 n2 wA /\ pwf_world wB /\
+                    pwabove wB n1 n2 /\ pwbound wB m1 m2 /\ n1 <= m1 /\ n2 <= m2)
+          (ensures pwalloc_ext n1 n2 m1 m2 (pwunion wA wB) wA)
+  = lemma_pwcompat_of_ranges wA wB n1 n2;
+    lemma_pwunion_wf wA wB;
+    introduce forall (i k: nat).
+        (pwlookup_l i (pwunion wA wB) == Some k /\ pwlookup_l i wA == None ==>
+         n1 <= i /\ i < m1 /\ n2 <= k /\ k < m2)
+    with (introduce _ ==> _ with lemma_pwl_append i wA wB)
+
+(** The ANCHOR's own growth (`lemma_panchor_grows`) respects the discipline:
+    it is the paired allocation at `(n0, n0)`. *)
+let lemma_pwalloc_ext_of_anchor_growth
+      (#v #cl: Type) (sto: pstore v cl) (n0: nat) (cx: pctx v cl)
+  : Lemma (requires psfresh sto n0)
+          (ensures pwalloc_ext n0 n0 (n0 + 1) (n0 + 1)
+                               (panchor ((n0, cx) :: sto)) (panchor sto))
+  = lemma_panchor_wf sto;
+    lemma_panchor_bound sto n0;
+    lemma_panchor_grows sto n0 cx;
+    lemma_pwalloc_ext_of_alloc n0 n0 (panchor sto)
+
+(** The one growth site that is NOT a paired allocation at the counters --
+    `guard_nom_anchor_never_pins_a_future_name`'s probe world -- still respects
+    the discipline, because both of its names are at or above the counter. *)
+let lemma_pwalloc_ext_of_future_name_probe
+      (#v #cl: Type) (sto: pstore v cl) (n0 i: nat)
+  : Lemma (requires psfresh sto n0 /\ i >= n0)
+          (ensures pwalloc_ext n0 n0 (i + 1) (i + 2)
+                               (pwextend i (i + 1) (panchor sto)) (panchor sto))
+  = lemma_panchor_wf sto;
+    lemma_panchor_bound sto n0;
+    lemma_panchor_l i sto;
+    lemma_panchor_r (i + 1) sto;
+    lemma_pwextend_wf i (i + 1) (panchor sto);
+    lemma_pwl_cons i (i + 1) (panchor sto)
+
+(** And the ALLOCATION SQUARE of the previous gate is an allocator-respecting
+    extension on both factors and on the composite, at the counters the three
+    runs hold. *)
+let lemma_pwalloc_ext_of_the_square (w12 w23: pworld) (n1 n2 n3: nat)
+  : Lemma (requires pbounded_world n1 n2 w12 /\ pbounded_world n2 n3 w23)
+          (ensures (let a = pwextend n1 n2 w12 in
+                    let b = pwextend n2 n3 w23 in
+                    pwalloc_ext n1 n2 (n1 + 1) (n2 + 1) a w12 /\
+                    pwalloc_ext n2 n3 (n2 + 1) (n3 + 1) b w23 /\
+                    pwlookup_l n1 (pwcompose a b) == Some n3 /\
+                    pwext (pwcompose a b) (pwextend n1 n3 (pwcompose w12 w23)) /\
+                    pwext (pwextend n1 n3 (pwcompose w12 w23)) (pwcompose a b)))
+  = lemma_pwallocfactor_one w12 w23 n1 n2 n3 n1 n3
+
+(** **THE CRUX OF STEP 5, AT THE WORLD LEVEL.** Under the bounded discipline
+    every new end-to-end pair is CASE 4 of the gate's taxonomy: both ends fresh,
+    middle name chosen. Cases 1, 2 and 3 -- the ones with a FORCED middle name --
+    cannot arise, because a left name at or above `n1` is one `w12` has never
+    spoken for and a right name at or above `n3` is one `w23` has never
+    produced. *)
+let guard_bw_case_four_only (w12 w23: pworld) (n1 n2 n3 i k: nat)
+  : Lemma (requires pbounded_world n1 n2 w12 /\ pbounded_world n2 n3 w23 /\
+                    n1 <= i /\ n3 <= k)
+          (ensures pwlookup_l i w12 == None /\
+                   pwlookup_r k w23 == None /\
+                   pwlookup_l n2 w23 == None /\
+                   pwlookup_r n2 w12 == None /\
+                   pwimg w12 w23 i == None)
+  = ()
+
+(** And the machine's own step never attaches a correspondence to an identity
+    either side already has: the pair it adds is `(n1, n2)`, and the world is
+    silent at `n1` on the left and at `n2` on the right BEFORE the step. *)
+let guard_bw_machine_alloc_is_case_four (n1 n2 i: nat) (w: pworld)
+  : Lemma (requires pbounded_world n1 n2 w)
+          (ensures pwlookup_l n1 w == None /\ pwlookup_r n2 w == None /\
+                   (let w' = pwextend n1 n2 w in
+                    (pwlookup_l i w == None /\ ~(i == n1) ==> pwlookup_l i w' == None) /\
+                    (Some? (pwlookup_l i w) ==> pwlookup_l i w' == pwlookup_l i w)))
+  = lemma_pwbound_fresh w n1 n2;
+    lemma_pwl_cons n1 n2 w
+
+(* ================================================================== *)
+(*  B2b.20 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  THE GATE DOES NOT STOP.  The narrowing is sound for the machine,    *)
+(*  it excludes B2b.19's counterexample, it discharges the ad-hoc side  *)
+(*  condition, and it ties the middle name to a real allocation.        *)
+(*                                                                     *)
+(*  WHAT IS PROVED.                                                     *)
+(*   1. `pbounded_world`, with allocation, weakening and freshness.     *)
+(*   2. `pwalloc_ext`, reflexive, transitive, and carrying `pwbound`    *)
+(*      from the starting counters to the ending ones                   *)
+(*      (`lemma_pwalloc_ext_bound`).                                    *)
+(*   3. `lemma_pwalloc_ext_of_alloc` / `_of_psrel_alloc` -- the         *)
+(*      machine's paired allocation IS allocator-respecting, so the     *)
+(*      predicate admits what the machine really does.                  *)
+(*   4. `guard_bw_refutation_is_outside_the_domain` -- B2b.19's         *)
+(*      counterexample is refused, at EVERY counters the two factors    *)
+(*      admit; `guard_bw_nearby_pair_is_admitted` and                   *)
+(*      `guard_bw_nearby_pair_really_factors` are the discrimination.   *)
+(*   5. `guard_bw_case_four_only` -- under the discipline every new     *)
+(*      end-to-end pair has both ends fresh, so no middle name is ever  *)
+(*      FORCED; `guard_bw_machine_alloc_is_case_four`,                  *)
+(*      `lemma_pwalloc_ext_of_union`, `_of_anchor_growth`,              *)
+(*      `_of_future_name_probe` and `_of_the_square` check the          *)
+(*      remaining world-growth sites.                                   *)
+(*   6. `lemma_pwallocfactor_one` -- ONE new pair factors with NO       *)
+(*      ad-hoc side condition; `pwlookup_r k w23 == None` is now a      *)
+(*      CONCLUSION.  Middle name = the middle counter `n2`.             *)
+(*   7. `lemma_pwallocfactor_many` -- a finite run factors, with both   *)
+(*      factors allocator-respecting and the middle counter advancing   *)
+(*      by exactly one per pair.                                        *)
+(*   8. `lemma_pwallocfactor_one_middle_store` -- the middle name IS    *)
+(*      the handle `palloc` hands the middle run;                       *)
+(*      `guard_pwfresh2_names_nothing_in_the_middle_store` and          *)
+(*      `guard_bw_middle_counter_names_the_allocation` show that        *)
+(*      `pwfresh2` would name nothing.                                  *)
+(*   9. `lemma_step_scope_alloc_ext`,                                   *)
+(*      `lemma_step_extendctxc_alloc_ext`, `lemma_pyield_alloc_ext` --  *)
+(*      B2b.2's three world-growth rules re-proved with the             *)
+(*      strengthened conclusion, and                                    *)
+(*      `lemma_pstep_alloc_compat_is_stronger` shows it implies         *)
+(*      B2b.2's.  So the discipline REFINES the step theorem; nothing   *)
+(*      already proved is contradicted.                                 *)
+(*  10. `lemma_bw_below_counter_stays_silent` -- under the discipline   *)
+(*      a below-counter name the world is silent about stays silent     *)
+(*      and stays related to nothing;                                   *)
+(*      `lemma_bw_silent_means_not_anchored` shows the anchor clause    *)
+(*      is exactly the negation of the hypothesis.                      *)
+(*                                                                     *)
+(*  WHAT IS REFUTED.  `guard_bw_revival_under_plain_pwext`.  Under      *)
+(*  PLAIN `pwext` a below-counter name absent from the world IS         *)
+(*  revived and IS publicly observable.  So item 10 is a fact about     *)
+(*  the NARROWED domain and not about worlds, and the narrowing is      *)
+(*  what buys it.                                                       *)
+(*                                                                     *)
+(*  WHAT IS NOT DONE, AND IS NOT CLAIMED.  No relation is changed.      *)
+(*  `pcomp_rel`, `padm_pcomp` and the observation relations still       *)
+(*  quantify over `pwext`; substituting `pwalloc_ext` into them, and    *)
+(*  re-proving everything that rests on the substitution, is NOT        *)
+(*  attempted here.  The dispatcher `lemma_pstep_tr_compat` is NOT      *)
+(*  restated with the strengthened conclusion -- only the three rules   *)
+(*  at which the world grows are -- because the remaining forty-odd     *)
+(*  rules would have to be re-proved from scratch: their world is `w`   *)
+(*  itself, but `pstep_compat_at` records only that SOME world works    *)
+(*  and cannot be strengthened after the fact.  Nothing here defines    *)
+(*  an observation, rebuilds `padm_join`, proves confluence or a        *)
+(*  normal form, or states a law.                                       *)
+(* ================================================================== *)

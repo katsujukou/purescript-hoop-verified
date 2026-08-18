@@ -5568,6 +5568,157 @@ Kripke closure needs it. The middle counter is the smallest candidate, and its
 admission condition is not only that a name is fresh but that it is an identity
 really present in the middle run.
 
+#### The bounded-world gate: the repair's local sufficiency, established
+
+The gate did not stop. What it settles, at exactly that strength:
+
+> The bounded allocator discipline is sufficient for the one-pair factorisation
+> required by the three allocating transition rules, and the chosen middle
+> identity is the identity actually allocated by the middle machine
+> configuration. It has not yet been propagated through the whole transition
+> dispatcher or installed into the logical relations and observations.
+
+Three things make this more than a repair candidate kept alive.
+
+**The counterexample is excluded by the allocator's discipline, not by an
+ad-hoc lookup condition.** The old `lemma_pwfactor_one` had to *assume*
+`pwlookup_r k w23 == None` — a condition read off the worlds, which the previous
+gate refuted the deletion of. In the new `lemma_pwallocfactor_one` that
+condition is a **conclusion**, derived from `k >= n3` and `pwbound w23 n2 n3`:
+
+```fstar
+let pwalloc_ext (n1 n2 m1 m2: nat) (w' w: pworld) : prop
+  = pwf_world w' /\ pwext w' w /\ n1 <= m1 /\ n2 <= m2 /\
+    (forall (i k: nat).
+       pwlookup_l i w' == Some k /\ pwlookup_l i w == None ==>
+       n1 <= i /\ i < m1 /\ n2 <= k /\ k < m2)
+```
+
+The hypotheses of step 6 are now two `pbounded_world`s and two numeric
+inequalities; no world lookup appears. Step 7's discipline is likewise purely
+numeric — `pwallocfactorable` mentions no world at all. A mutation guard fixes
+that this is load-bearing: deleting only `n3 <= k` and leaving the proof body
+alone fails at `assert (pwlookup_r k w23 == None)`, the very conclusion the
+inequality buys.
+
+**The middle identity is constructed, not fabricated.** The prediction held: the
+middle name is not `pwfresh2 w12 w23` but the middle allocator's `n2`.
+`lemma_pwallocfactor_one_middle_store` is stated against a middle
+*configuration*, and shows the chosen name is the handle `PCtxKey n2` that
+`palloc` hands the middle run and the key its store then holds. The negative
+half is proved too: whenever `n2 < pwfresh2 w12 w23`, the `pwfresh2` name is
+absent from the middle store *even after* the middle run allocates. At the
+refutation's own worlds the middle counter is `6` while `pwfresh2 fw12 fw23`
+is `8`, and in a concrete middle store with keys `0..5` the post-allocation
+lookup gives `Some cx` at `6` and `None` at `8`. A name fresh for two *worlds*
+names nothing; a name the middle *run* is about to allocate names something.
+Instantiating the lemma at those worlds, at the counters they force, with a
+real middle configuration, and reading concrete facts out of it confirms the
+hypotheses are satisfiable — a lemma with unsatisfiable hypotheses could not do
+that.
+
+**Narrowing the quantifier's domain buys a semantic property.** Under plain
+`pwext`, identity revival really happens: `guard_bw_revival_under_plain_pwext`
+exhibits a handle below the counters, absent from the world, that a legal
+`pwext` future makes publicly observable again. `pwalloc_ext` rejects it for
+every choice of end counters. So step 10's claim is not a fact about worlds; it
+is a fact about the **narrowed domain**, and the narrowing is what pays for it.
+
+#### Where each step landed
+
+| # | status |
+|---|---|
+| 1 | PROVED `pbounded_world`, preserved by paired allocation |
+| 2 | PROVED `pwalloc_ext`; `lemma_pwalloc_ext_bound` **derives** the counter growth rather than assuming it; no `{:pattern}` needed, since it is a plain `Tot prop` abbreviation that unfolds in hypothesis position |
+| 3 | PROVED — one paired allocation of the machine is an allocator-respecting extension (soundness: the predicate admits what the machine really does) |
+| 4 | REFUTED — the previous gate's `[(0,7)]` lies outside the domain for **every** admissible counter assignment (`n1 >= 1`, `n2 >= 6`, `n3 >= 8`; the new pair violates both ends); the neighbouring pair `[(1,8)]` is admitted and really factors, through middle name `6` |
+| 5 | see below |
+| 6 | PROVED — the ad-hoc side condition is gone, moved from hypothesis to conclusion |
+| 7 | PROVED — `pwallocfactorable` is numeric; no world occurs in it |
+| 8 | PROVED — the middle name is `n2`, tied to a real middle allocation |
+| 9 | PROVED — the three world-growing rules of B2b.2 re-proved with the strengthened conclusion, and strengthened ⟹ the existing `pstep_compat_at`; the discipline **refines** the proved theorem rather than contradicting it |
+| 10 | PROVED under the discipline; REFUTED under plain `pwext` |
+
+#### The verdict on cases 2 and 3, limited
+
+Every site where a world grows is a *paired* allocation
+`pwextend cf1.next cf2.next w` under `pwbound w cf1.next cf2.next`. There are
+three in the machine — `lemma_step_extendctxc` (`PExtendCtxC`),
+`lemma_pyield_compat` (production), and the `PScopeF` branch of
+`lemma_step_var` (the scope floor). Every other rule goes through
+`lemma_step_same_world` and leaves the world alone. The non-machine sites —
+anchor growth, the sibling union, the probe world, the fixed guard fixtures —
+were each checked against the discipline separately.
+
+The conclusion is to be read at this strength and no wider:
+
+> Cases 2 and 3 do not occur for a pair newly introduced by a related machine
+> transition under the bounded-world invariant.
+
+It says nothing about arbitrary mathematical `pwext`, nothing about pairs
+already inside a world, and nothing about a future implementation. The
+disappearance of `pwmidname`'s two-case branch — forced middle name versus
+chosen one — holds inside the allocator-respecting extension domain, not
+generally.
+
+The exhaustiveness of the enumeration is a **grep-based reading**, not a
+machine-checked claim. Each individual site's conformance is machine-checked;
+that these are all the sites is not. This is precisely what the next gate is
+for.
+
+#### The gap that must close before the relations move
+
+The strengthened conclusion was proved for the three world-growing rules only.
+The whole dispatcher `lemma_pstep_tr_compat` — some forty rules — has **not**
+been re-proved with it, and this **cannot be derived after the fact**:
+`pstep_compat_at` merely existentially quantifies a successor world without
+recording which one it is, so the upper bound `pcfrel` supplies (keys below the
+successor counters) yields no lower bound (keys at or above the starting
+counters). The forty rules have to be re-proved from scratch.
+
+The quantification domain of the relations must not be swapped before that
+lands. The strengthened theorem has to retain at least:
+
+- the successor world satisfies `pbounded_world` at the two successor
+  configurations' counters;
+- the world's change is either *unchanged* or *extended by the pair of the two
+  sides' current counters*, and nothing else;
+- in the allocating rules, the added key pair is the actual `palloc` result on
+  each side;
+- the non-allocating rules leave the world untouched;
+- the existing `lemma_pstep_tr_compat` follows from the strengthened one.
+
+In that form the forty rules are not bulk work: they promote "only three rules
+grow the world" from an observation about `grep` output into an exhaustive
+machine proof about the dispatcher.
+
+The stop condition is correspondingly sharp. If any remaining rule changes the
+world, advances a counter alone, or does not let the successor world's
+provenance be recovered, the gate reports and the quantification domain does
+not move.
+
+#### Position
+
+> The bounded-world repair's local sufficiency is established; it is not yet
+> adopted as a preservation theorem for the machine as a whole.
+
+The direction is settled. Integration waits on the next gate.
+
+#### What this gate did not prove
+
+- **No relation was changed** — `pcomp_rel`, `padm_pcomp`, `pframe_rel` and the
+  observations are untouched, and what breaks when `pwalloc_ext` is substituted
+  into them is unknown.
+- The full dispatcher, as above.
+- The enumeration's exhaustiveness, as above.
+- Step 10's machine-level refutation attempt did **not** succeed. Two routes
+  were tried and blocked: building a transition that revives a below-counter
+  handle (blocked because all three growth sites add only `cf1.next`), and
+  reaching observability through the store while bypassing the world (blocked
+  because `pval_rel`'s `PCtxKey` clause requires the world to speak, and the
+  emission trace is `list string` and carries no keys). A blocked refutation
+  attempt is an observation, not a proof.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
