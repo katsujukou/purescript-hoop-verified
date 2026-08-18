@@ -29238,3 +29238,1024 @@ let guard_bw_machine_alloc_is_case_four (n1 n2 i: nat) (w: pworld)
 (*  an observation, rebuilds `padm_join`, proves confluence or a        *)
 (*  normal form, or states a law.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.4 -- THE DISPATCHER, RE-PROVED AT PROVENANCE STRENGTH          *)
+(*                                                                     *)
+(*  What B2b.3 left open, and why it CANNOT be closed after the fact.  *)
+(*                                                                     *)
+(*  B2b.3 showed that the bounded allocator discipline is sufficient    *)
+(*  for one-pair factorisation, and re-derived it at the three rules    *)
+(*  at which the world grows.  It did NOT re-prove the dispatcher, and  *)
+(*  the dispatcher's conclusion cannot be strengthened afterwards:      *)
+(*  `pstep_compat_at` EXISTENTIALLY quantifies the successor world and  *)
+(*  records nothing about WHICH one it is, so the upper bound `pcfrel`  *)
+(*  supplies -- every key the world speaks for is below the successor   *)
+(*  counters -- yields no lower bound, and a world that had grown by    *)
+(*  five pairs, or by none while a counter moved, would satisfy it      *)
+(*  just as well.  Every rule therefore has to be re-proved.            *)
+(*                                                                     *)
+(*  AND `pwalloc_ext` IS STILL NOT ENOUGH.  B2b.3's                     *)
+(*  `pstep_alloc_compat_at` pins the new pairs to the counter WINDOW,   *)
+(*  and a window is an interval: it admits two pairs as readily as one, *)
+(*  and it admits a step that advances both counters while adding no    *)
+(*  pair at all.  `guard_prov_refuses_two_pairs_in_one_window` and      *)
+(*  `guard_prov_refuses_a_lone_counter_advance` are those two gaps as   *)
+(*  closed instances.  The predicate below therefore says the world's   *)
+(*  change is one of exactly TWO shapes -- unchanged with both counters *)
+(*  still, or extended by the single pair of the two current counters   *)
+(*  with both counters advanced by one -- and, in the second shape,     *)
+(*  that the pair added is the pair of keys `palloc` ACTUALLY HANDED    *)
+(*  OUT on the two sides.                                              *)
+(*                                                                     *)
+(*  The chain proved below is                                          *)
+(*                                                                     *)
+(*    pstep_prov_compat_at ==> pstep_alloc_compat_at ==> pstep_compat_at *)
+(*                                                                     *)
+(*  so nothing already established is disturbed: B2b.2's dispatcher and *)
+(*  B2b.3's discipline are both CONSEQUENCES of the new one             *)
+(*  (`lemma_pstep_tr_compat_from_prov`,                                 *)
+(*   `lemma_pstep_tr_alloc_compat_from_prov`), not competitors to it.   *)
+(*                                                                     *)
+(*  Every name below is NEW.  Nothing above is touched.                 *)
+(* ================================================================== *)
+
+(* ---- 1. READING A KEY, AND WHAT `palloc` HANDS OUT ---------------- *)
+
+(** The index of a handle. Total, because `pval` has a second constructor; the
+    `PV` case is never reached below, since every argument it is applied to is a
+    `palloc` result. *)
+let pkey_id (#v: Type) (x: pval v) : nat
+  = match x with
+    | PCtxKey i -> i
+    | PV _ -> 0
+
+(**
+ * **`palloc`'s three effects, in one place.** PROVED, by unfolding. The key it
+ * returns is `PCtxKey cf.next` -- a function of the CONFIGURATION and not of the
+ * context stored -- the counter goes up by exactly one, and the store gains
+ * exactly one entry, at that key. Everything the predicate below says about the
+ * allocating shape is said through this lemma, so the phrase "the added key pair
+ * is the actual `palloc` result" is not an informal gloss on `(cf1.next,
+ * cf2.next)`: it is that equation.
+ *)
+let lemma_palloc_shape (#v #cl: Type) (cx: pctx v cl) (cf: pconf v cl)
+  : Lemma (fst (palloc cx cf) == PCtxKey cf.next /\
+           pkey_id (fst (palloc cx cf)) == cf.next /\
+           (snd (palloc cx cf)).next == cf.next + 1 /\
+           (snd (palloc cx cf)).store == (cf.next, cx) :: cf.store)
+  = ()
+
+(* ---- 2. THE TWO PERMITTED SHAPES ---------------------------------- *)
+
+(**
+ * **THE ALLOCATING SHAPE.** The two successor configurations are what `palloc`
+ * returns from the two starting ones -- same store, same counter -- and the
+ * world is the world plus the pair of the two keys `palloc` returned. The
+ * contexts are existentially quantified because they differ from rule to rule
+ * (`PCtxDone` at the scope floor, `extend_ctx_C ...` at `PExtendCtxC`,
+ * `PCtxRequests ...` at production); what does NOT differ is that they went
+ * through `palloc`, which is the whole content of the clause.
+ *)
+let pprov_alloc_at (#v #cl: Type) (w' w: pworld) (cf1 cf2 cf1' cf2': pconf v cl)
+  : prop
+  = exists (cx1: pctx v cl) (cx2: pctx v cl).
+      cf1'.store == (snd (palloc cx1 cf1)).store /\
+      cf1'.next == (snd (palloc cx1 cf1)).next /\
+      cf2'.store == (snd (palloc cx2 cf2)).store /\
+      cf2'.next == (snd (palloc cx2 cf2)).next /\
+      w' == pwextend (pkey_id (fst (palloc cx1 cf1)))
+                     (pkey_id (fst (palloc cx2 cf2))) w
+
+(**
+ * **THE DICHOTOMY.** Either nothing happened -- the world is the SAME world and
+ * NEITHER COUNTER MOVED -- or one paired allocation happened, in the shape
+ * above. There is no third case, and in particular no case in which a counter
+ * advances and the world does not: that is the possibility `pwalloc_ext` leaves
+ * open and this predicate closes, and `guard_prov_refuses_a_lone_counter_advance`
+ * is the closed instance separating the two.
+ *
+ * A plain `Tot prop`, like `pwext`, `pwbound` and `pwalloc_ext`, so the encoding
+ * carries its defining equation and unfolds it in hypothesis position as well as
+ * in goal position. No `{:pattern}`, for the reason given at `pwalloc_ext`.
+ *)
+let pprov_step_at (#v #cl: Type) (w' w: pworld) (cf1 cf2 cf1' cf2': pconf v cl)
+  : prop
+  = (w' == w /\ cf1'.next == cf1.next /\ cf2'.next == cf2.next) \/
+    (w' == pwextend cf1.next cf2.next w /\
+     cf1'.next == cf1.next + 1 /\ cf2'.next == cf2.next + 1 /\
+     pprov_alloc_at w' w cf1 cf2 cf1' cf2')
+
+(** The allocating shape, INTRODUCED from the two contexts a rule actually
+    allocated. Every growth site below reaches the predicate through this one
+    lemma, so "which context was stored" is supplied once per rule and nowhere
+    else. *)
+let lemma_pprov_alloc_intro (#v #cl: Type) (w: pworld) (cf1 cf2 cf1' cf2': pconf v cl)
+                            (cx1 cx2: pctx v cl)
+  : Lemma (requires cf1'.store == (snd (palloc cx1 cf1)).store /\
+                    cf1'.next == (snd (palloc cx1 cf1)).next /\
+                    cf2'.store == (snd (palloc cx2 cf2)).store /\
+                    cf2'.next == (snd (palloc cx2 cf2)).next)
+          (ensures pprov_step_at (pwextend cf1.next cf2.next w) w cf1 cf2 cf1' cf2')
+  = lemma_palloc_shape cx1 cf1;
+    lemma_palloc_shape cx2 cf2;
+    introduce exists (d1: pctx v cl) (d2: pctx v cl).
+        (cf1'.store == (snd (palloc d1 cf1)).store /\
+         cf1'.next == (snd (palloc d1 cf1)).next /\
+         cf2'.store == (snd (palloc d2 cf2)).store /\
+         cf2'.next == (snd (palloc d2 cf2)).next /\
+         pwextend cf1.next cf2.next w
+           == pwextend (pkey_id (fst (palloc d1 cf1)))
+                       (pkey_id (fst (palloc d2 cf2))) w)
+    with cx1 cx2 and ()
+
+(**
+ * **THE FIRST LINK OF THE CHAIN.** PROVED. The dichotomy implies B2b.3's
+ * allocator-respecting extension, and carries the bounded world across.
+ *
+ * The `pbounded_world` hypothesis is LOAD-BEARING and not decoration: without
+ * it the second shape is not even a `pwext`, because a world that had already
+ * spoken for the left counter would be CONTRADICTED by the extension rather
+ * than extended by it. `guard_prov_needs_the_bound` is that instance.
+ *)
+let lemma_pprov_step_is_alloc_ext
+      (#v #cl: Type) (w' w: pworld) (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires pbounded_world cf1.next cf2.next w /\
+                    pprov_step_at w' w cf1 cf2 cf1' cf2')
+          (ensures pwalloc_ext cf1.next cf2.next cf1'.next cf2'.next w' w /\
+                   pbounded_world cf1'.next cf2'.next w')
+  = if w' = w && cf1'.next = cf1.next && cf2'.next = cf2.next
+    then lemma_pwalloc_ext_refl cf1.next cf2.next w
+    else begin
+      lemma_pbounded_world_alloc cf1.next cf2.next w;
+      lemma_pwl_cons cf1.next cf2.next w
+    end
+
+
+(* ---- 3. THE STEP THEOREM'S CONCLUSION, AT PROVENANCE STRENGTH ----- *)
+
+(**
+ * **THE CONCLUSION EVERY RULE BELOW HAS TO SUPPLY.**
+ *
+ * Three things, of which only the last is B2b.2's:
+ *
+ *   - the successor world is `pbounded_world` AT THE SUCCESSOR COUNTERS, so the
+ *     invariant the next step needs is re-established and not merely implied;
+ *   - the world's change is one of the two shapes of `pprov_step_at`, and the
+ *     counters move with it -- so the successor world's provenance can be READ
+ *     OFF (`lemma_pprov_step_recovers_the_pair`) and not merely bounded;
+ *   - the two steps emit the same event list.
+ *
+ * `pcfrel` at the successor world is the relation itself, unchanged.
+ *)
+let pstep_prov_compat_at (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                         (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    (exists (w': pworld).
+       pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                  (fst (pstep_tr lk apply cf2)) /\
+       pbounded_world (fst (pstep_tr lk apply cf1)).next
+                      (fst (pstep_tr lk apply cf2)).next w' /\
+       pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+
+(** The `squash`-to-`squash` cast, accepted BY CONVERSION, that puts the body of
+    the predicate where the solver can see it. See `pcfrel_unfold` for why a
+    `GTot prop` applied to arguments is otherwise an ATOM in hypothesis
+    position. *)
+let pstep_prov_compat_unfold
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (h: squash (pstep_prov_compat_at r lk apply w cf1 cf2))
+  : squash (snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+            (exists (w': pworld).
+               pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                          (fst (pstep_tr lk apply cf2)) /\
+               pbounded_world (fst (pstep_tr lk apply cf1)).next
+                              (fst (pstep_tr lk apply cf2)).next w' /\
+               pcfrel r w' (fst (pstep_tr lk apply cf1))
+                           (fst (pstep_tr lk apply cf2))))
+  = h
+
+(** **THE CHAIN, LINK ONE.** PROVED. The new conclusion implies B2b.3's. *)
+let lemma_pstep_prov_compat_is_stronger
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pbounded_world cf1.next cf2.next w /\
+                    pstep_prov_compat_at r lk apply w cf1 cf2)
+          (ensures pstep_alloc_compat_at r lk apply w cf1 cf2)
+  = pstep_prov_compat_unfold r lk apply w cf1 cf2 ();
+    eliminate exists (w': pworld).
+        (pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                    (fst (pstep_tr lk apply cf2)) /\
+         pbounded_world (fst (pstep_tr lk apply cf1)).next
+                        (fst (pstep_tr lk apply cf2)).next w' /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with
+      (lemma_pprov_step_is_alloc_ext w' w cf1 cf2
+         (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2));
+       lemma_step_alloc_world r lk apply w w' cf1 cf2)
+
+(** **THE CHAIN, BOTH LINKS.** PROVED. The new conclusion implies B2b.2's,
+    through B2b.3's -- so the strengthening refines the step theorem and does not
+    compete with it. *)
+let lemma_pstep_prov_compat_gives_compat
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pbounded_world cf1.next cf2.next w /\
+                    pstep_prov_compat_at r lk apply w cf1 cf2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = lemma_pstep_prov_compat_is_stronger r lk apply w cf1 cf2;
+    lemma_pstep_alloc_compat_is_stronger r lk apply w cf1 cf2
+
+let lemma_step_prov_of_exists
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    (exists (w': pworld).
+                       pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                                  (fst (pstep_tr lk apply cf2)) /\
+                       pbounded_world (fst (pstep_tr lk apply cf1)).next
+                                      (fst (pstep_tr lk apply cf2)).next w' /\
+                       pcfrel r w' (fst (pstep_tr lk apply cf1))
+                                   (fst (pstep_tr lk apply cf2))))
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = ()
+
+(**
+ * **THE NON-ALLOCATING TAIL.** The shared exit of every rule that leaves the
+ * world alone -- and note the two COUNTER HYPOTHESES. They are the obligation
+ * that makes "no rule advances a counter alone" a proof rather than a reading:
+ * a rule that moved `next` without extending the world could not reach this
+ * lemma, and `lemma_step_prov_alloc_world` would not take it either.
+ *)
+let lemma_step_prov_same_world
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pbounded_world cf1.next cf2.next w /\
+                    (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+                    (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    pcfrel r w (fst (pstep_tr lk apply cf1))
+                               (fst (pstep_tr lk apply cf2)))
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = introduce exists (w': pworld).
+        (pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                    (fst (pstep_tr lk apply cf2)) /\
+         pbounded_world (fst (pstep_tr lk apply cf1)).next
+                        (fst (pstep_tr lk apply cf2)).next w' /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with w and ()
+
+(**
+ * **THE ALLOCATING TAIL.** The shared exit of the three growth sites. The two
+ * contexts are handed in EXPLICITLY, so each site has to name the context it
+ * stored, and the successor configurations are checked to be exactly what
+ * `palloc` returns from them.
+ *)
+let lemma_step_prov_alloc_world
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (cx1 cx2: pctx v cl)
+  : Lemma (requires pbounded_world cf1.next cf2.next w /\
+                    (fst (pstep_tr lk apply cf1)).store == (snd (palloc cx1 cf1)).store /\
+                    (fst (pstep_tr lk apply cf1)).next == (snd (palloc cx1 cf1)).next /\
+                    (fst (pstep_tr lk apply cf2)).store == (snd (palloc cx2 cf2)).store /\
+                    (fst (pstep_tr lk apply cf2)).next == (snd (palloc cx2 cf2)).next /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    pcfrel r (pwextend cf1.next cf2.next w)
+                             (fst (pstep_tr lk apply cf1))
+                             (fst (pstep_tr lk apply cf2)))
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pprov_alloc_intro w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                            (fst (pstep_tr lk apply cf2)) cx1 cx2;
+    lemma_pbounded_world_alloc cf1.next cf2.next w;
+    introduce exists (w': pworld).
+        (pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                    (fst (pstep_tr lk apply cf2)) /\
+         pbounded_world (fst (pstep_tr lk apply cf1)).next
+                        (fst (pstep_tr lk apply cf2)).next w' /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with (pwextend cf1.next cf2.next w) and ()
+
+(* ---- The terminal rule, at provenance strength -------------------- *)
+
+(**
+ * **THE RULES, ONE BY ONE, AT THE NEW STRENGTH.** Each is B2b.2's proof with
+ * one line changed -- the exit -- and each therefore additionally DISCHARGES
+ * the counter obligation `lemma_step_prov_same_world` carries. That is where the
+ * exhaustiveness lives: it is not that the other rules were inspected and found
+ * not to allocate, it is that each of them proved it.
+ *)
+let lemma_step_terminal_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcfrel r w cf1 cf2 /\
+                    ~(PStep? cf1.st) /\ ~(PStep? cf2.st))
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = pcfrel_unfold r w cf1 cf2 ();
+    assert (fst (pstep_tr lk apply cf1) == cf1);
+    assert (fst (pstep_tr lk apply cf2) == cf2);
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- POp ---------------------------------------------------------- *)
+
+let lemma_step_op_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+      (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (POp a1 f1) k1 /\ cf2.st == PStep (POp a2 f2) k2 /\
+                    pcrel r w (POp a1 f1) (POp a2 f2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_op_inv r w a1 a2 f1 f2;
+    lemma_pfrel_bind r w f1 f2;
+    lemma_pkrel_cons r w (PBindF f1) (PBindF f2) k1 k2;
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PHandle ------------------------------------------------------ *)
+
+let lemma_step_handle_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+      (pv1 pv2: prompt_provenance) (b1 b2: pcomp v cl)
+      (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PHandle t1 ret1 pv1 b1) k1 /\
+                    cf2.st == PStep (PHandle t2 ret2 pv2 b2) k2 /\
+                    pcrel r w (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_handle_inv r w t1 t2 ret1 ret2 pv1 pv2 b1 b2;
+    lemma_pfrel_prompt r w t1 t2 ret1 ret2 pv1;
+    lemma_pkrel_cons r w (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2) k1 k2;
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PEmit -------------------------------------------------------- *)
+
+let lemma_step_emit_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (e1 e2: string) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PEmit e1 b1) k1 /\ cf2.st == PStep (PEmit e2 b2) k2 /\
+                    pcrel r w (PEmit e1 b1) (PEmit e2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_emit_inv r w e1 e2 b1 b2;
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PSplice ------------------------------------------------------ *)
+
+let lemma_step_splice_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PSplice fs1 b1) k1 /\
+                    cf2.st == PStep (PSplice fs2 b2) k2 /\
+                    pcrel r w (PSplice fs1 b1) (PSplice fs2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_splice_inv r w fs1 fs2 b1 b2;
+    lemma_pkrel_append r w fs1 fs2 k1 k2;
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PNewP -------------------------------------------------------- *)
+
+let lemma_step_newp_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (l1 l2: string) (i1 i2: pval v) (b1 b2: pcomp v cl)
+      (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PNewP l1 i1 b1) k1 /\
+                    cf2.st == PStep (PNewP l2 i2 b2) k2 /\
+                    pcrel r w (PNewP l1 i1 b1) (PNewP l2 i2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_newp_inv r w l1 l2 i1 i2 b1 b2;
+    lemma_pfrel_param #v #cl r w l1 i1 i2;
+    lemma_pkrel_cons r w (PParamF l1 i1) (PParamF l2 i2) k1 k2;
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PReadP / PWriteP --------------------------------------------- *)
+
+let lemma_step_readp_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (l1 l2: string) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PReadP l1) k1 /\ cf2.st == PStep (PReadP l2) k2 /\
+                    pcrel #v #cl r w (PReadP l1) (PReadP l2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_readp_inv #v #cl r w l1 l2;
+    lemma_pfind_param_rel r w l1 k1 k2;
+    (match pfind_param l1 k1, pfind_param l2 k2 with
+     | Some x1, Some x2 -> lemma_pcrel_var r w x1 x2
+     | _, _ -> ());
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+let lemma_step_writep_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (l1 l2: string) (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PWriteP l1 x1) k1 /\
+                    cf2.st == PStep (PWriteP l2 x2) k2 /\
+                    pcrel #v #cl r w (PWriteP l1 x1) (PWriteP l2 x2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_writep_inv #v #cl r w l1 l2 x1 x2;
+    lemma_pset_param_rel r w l1 x1 x2 k1 k2;
+    lemma_pcrel_var r w x1 x2;
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PEnterCtx ---------------------------------------------------- *)
+
+let lemma_step_enterctx_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (pl1 pl2: plan v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_down r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PEnterCtx pl1 b1) k1 /\
+                    cf2.st == PStep (PEnterCtx pl2 b2) k2 /\
+                    pcrel r w (PEnterCtx pl1 b1) (PEnterCtx pl2 b2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_enterctx_inv r w pl1 pl2 b1 b2;
+    lemma_plan_protocol_frames_rel r w pl1 pl2;
+    lemma_pfrel_scope #v #cl r w;
+    lemma_pkrel_cons r w PScopeF PScopeF k1 k2;
+    lemma_pkrel_append r w (plan_protocol_frames pl1) (plan_protocol_frames pl2)
+                           (PScopeF :: k1) (PScopeF :: k2);
+    lemma_pfrel_boundary #v #cl r w;
+    lemma_pkrel_cons r w PBoundaryF PBoundaryF
+                         (plan_protocol_frames pl1 @ (PScopeF :: k1))
+                         (plan_protocol_frames pl2 @ (PScopeF :: k2));
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PPerform ----------------------------------------------------- *)
+
+let lemma_step_perform_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (e1 o1 e2 o2: string) (p1 p2: list (pval v))
+      (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PPerform e1 o1 p1) k1 /\
+                    cf2.st == PStep (PPerform e2 o2 p2) k2 /\
+                    pcrel #v #cl r w (PPerform e1 o1 p1) (PPerform e2 o2 p2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_perform_inv #v #cl r w e1 o1 e2 o2 p1 p2;
+    lemma_pfind_prompt_rel r lk w e1 o1 k1 k2;
+    apply_patterned r apply ();
+    (match pfind_prompt lk e1 o1 k1, pfind_prompt lk e2 o2 k2 with
+     | Some (cap1, c1, b1), Some (cap2, c2, b2) ->
+       lemma_pkont_of_rel r w cap1 cap2;
+       (match c1.kind with
+        | KScoped -> ()
+        | _ -> assert (pcrel r w (apply c1.body p1 (pkont_of cap1))
+                                 (apply c2.body p2 (pkont_of cap2))))
+     | _, _ -> ());
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PWeave ------------------------------------------------------- *)
+
+let lemma_step_weave_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (e1 o1 e2 o2: string) (is1 is2: pstack v cl)
+      (ow1 ow2: powner v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_down r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PWeave e1 o1 is1 ow1 b1) k1 /\
+                    cf2.st == PStep (PWeave e2 o2 is2 ow2 b2) k2 /\
+                    pcrel r w (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_weave_inv r w e1 o1 e2 o2 is1 is2 ow1 ow2 b1 b2;
+    lemma_plan_of_rel r w is1 is2 ow1 ow2;
+    (match plan_of is1 ow1, plan_of is2 ow2 with
+     | Inr pl1, Inr pl2 -> lemma_enter_C_rel r w pl1 pl2 b1 b2
+     | _, _ -> ());
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- PExtendC / PResumeC ------------------------------------------ *)
+
+let lemma_step_extendc_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (pl1 pl2: plan v cl) (h1 h2: pval v)
+      (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PExtendC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PExtendC pl2 h2 g2) k2 /\
+                    pcrel r w (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_extendc_inv r w pl1 pl2 h1 h2 g1 g2;
+    lemma_presolve_rel r w cf1.store cf2.store h1 h2;
+    (match presolve cf1.store h1, presolve cf2.store h2 with
+     | Some cx1, Some cx2 -> lemma_extend_C_rel r w pl1 pl2 cx1 cx2 g1 g2
+     | _, _ -> ());
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+let lemma_step_resumec_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (pl1 pl2: plan v cl) (h1 h2: pval v)
+      (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PResumeC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PResumeC pl2 h2 g2) k2 /\
+                    pcrel r w (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_resumec_inv r w pl1 pl2 h1 h2 g1 g2;
+    lemma_presolve_rel r w cf1.store cf2.store h1 h2;
+    (match presolve cf1.store h1, presolve cf2.store h2 with
+     | Some cx1, Some cx2 -> lemma_resume_C_rel r w pl1 pl2 cx1 cx2 g1 g2
+     | _, _ -> ());
+    lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- GROWTH SITE 2 of 3: PExtendCtxC ------------------------------ *)
+
+(**
+ * **GROWTH SITE 2 of 3 -- `PExtendCtxC` (`bindScope`).** The context stored is
+ * `extend_ctx_C pl cx g`, and the `None` arm of the resolution -- a handle that
+ * does not resolve -- is a `PStuck` that allocates nothing, so it exits through
+ * the non-allocating tail and proves its counters still.
+ *)
+let lemma_step_extendctxc_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (pl1 pl2: plan v cl) (h1 h2: pval v)
+      (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PExtendCtxC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PExtendCtxC pl2 h2 g2) k2 /\
+                    pcrel r w (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2) /\
+                    pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_extendctxc_inv r w pl1 pl2 h1 h2 g1 g2;
+    lemma_presolve_rel r w cf1.store cf2.store h1 h2;
+    match presolve cf1.store h1, presolve cf2.store h2 with
+    | Some cx1, Some cx2 ->
+      lemma_extend_ctx_C_rel r w pl1 pl2 cx1 cx2 g1 g2;
+      let n1 = cf1.next in
+      let n2 = cf2.next in
+      let d1 = extend_ctx_C pl1 cx1 g1 in
+      let d2 = extend_ctx_C pl2 cx2 g2 in
+      let w1 = pwextend n1 n2 w in
+      lemma_psrel_alloc r w cf1.store cf2.store n1 n2 d1 d2;
+      lemma_pkrel_mono r w1 w k1 k2;
+      lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+      lemma_step_prov_alloc_world r lk apply w cf1 cf2 d1 d2
+    | _, _ -> lemma_step_prov_same_world r lk apply w cf1 cf2
+
+(* ---- GROWTH SITE 3 of 3: production ------------------------------- *)
+
+(**
+ * **GROWTH SITE 3 of 3 -- PRODUCTION.** Both sides cut at the same position, so
+ * both store a residual of the same shape; the context stored is
+ * `PCtxRequests`, and the world grows by the pair of the two counters and by
+ * nothing computed from either final store. The `None` arm -- a boundary with no
+ * floor beneath it -- is `PPaused`, which allocates nothing.
+ *)
+let lemma_pyield_prov_compat
+      (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+      (x1 x2: pval v) (hd1 hd2: pframe v cl)
+      (rest1 rest2: pstack v cl) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pval_rel w x1 x2 /\
+                    pfrel r w hd1 hd2 /\ pkrel r w rest1 rest2 /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next)
+          (ensures (exists (w': pworld).
+                      pprov_step_at w' w cf1 cf2
+                                    (pyield x1 hd1 rest1 cf1)
+                                    (pyield x2 hd2 rest2 cf2) /\
+                      pbounded_world (pyield x1 hd1 rest1 cf1).next
+                                     (pyield x2 hd2 rest2 cf2).next w' /\
+                      pcfrel r w' (pyield x1 hd1 rest1 cf1)
+                                  (pyield x2 hd2 rest2 cf2)))
+  = lemma_pcut_scope_rel r w rest1 rest2;
+    match pcut_scope rest1, pcut_scope rest2 with
+    | None, None ->
+      lemma_pkrel_cons r w hd1 hd2 rest1 rest2;
+      introduce exists (w': pworld).
+          (pprov_step_at w' w cf1 cf2
+                         (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2) /\
+           pbounded_world (pyield x1 hd1 rest1 cf1).next
+                          (pyield x2 hd2 rest2 cf2).next w' /\
+           pcfrel r w' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with w and ()
+    | Some (a1, b1), Some (a2, b2) ->
+      let n1 = cf1.next in
+      let n2 = cf2.next in
+      let w1 = pwextend n1 n2 w in
+      let d1 = PCtxRequests x1 (hd1 :: a1) (PVar #v #cl) in
+      let d2 = PCtxRequests x2 (hd2 :: a2) (PVar #v #cl) in
+      lemma_pkrel_cons r w hd1 hd2 a1 a2;
+      lemma_pfn_rel_at_pvar #v #cl r w;
+      lemma_pxrel_requests r w x1 x2 (hd1 :: a1) (hd2 :: a2) (PVar #v #cl) (PVar #v #cl);
+      lemma_psrel_alloc r w cf1.store cf2.store n1 n2 d1 d2;
+      lemma_pkrel_mono r w1 w b1 b2;
+      lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+      lemma_pprov_alloc_intro w cf1 cf2 (pyield x1 hd1 rest1 cf1)
+                              (pyield x2 hd2 rest2 cf2) d1 d2;
+      lemma_pbounded_world_alloc n1 n2 w;
+      introduce exists (w': pworld).
+          (pprov_step_at w' w cf1 cf2
+                         (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2) /\
+           pbounded_world (pyield x1 hd1 rest1 cf1).next
+                          (pyield x2 hd2 rest2 cf2).next w' /\
+           pcfrel r w' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with w1 and ()
+    | _, _ -> ()
+
+(* ---- GROWTH SITE 1 of 3: the scope floor -------------------------- *)
+
+(**
+ * **GROWTH SITE 1 of 3 -- THE SCOPE FLOOR.** A scope that reached its floor with
+ * no request outstanding stores `PCtxDone` and hands the handle on.
+ *)
+let lemma_step_scope_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (x1 x2: pval v) (t1 t2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) (PScopeF :: t1) /\
+                    cf2.st == PStep (PVar x2) (PScopeF :: t2) /\
+                    pcrel #v #cl r w (PVar x1) (PVar x2) /\
+                    pkrel r w (PScopeF :: t1) (PScopeF :: t2))
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_var_inv #v #cl r w x1 x2;
+    lemma_pkrel_cons_inv r w (PScopeF #v #cl) (PScopeF #v #cl) t1 t2;
+    let n1 = cf1.next in
+    let n2 = cf2.next in
+    let w1 = pwextend n1 n2 w in
+    lemma_pxrel_done #v #cl r w x1 x2;
+    lemma_psrel_alloc r w cf1.store cf2.store n1 n2 (PCtxDone x1) (PCtxDone x2);
+    lemma_pkrel_mono r w1 w t1 t2;
+    lemma_pcrel_var #v #cl r w1 (PCtxKey n1) (PCtxKey n2);
+    lemma_step_prov_alloc_world r lk apply w cf1 cf2 (PCtxDone x1) (PCtxDone x2)
+
+(* ---- the two protocol arms --------------------------------------- *)
+
+(** The boundary arm: with a consumer in scope the value goes to that consumer's
+    responder and nothing is allocated; with none, the scope YIELDS. *)
+let lemma_step_var_boundary_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (x1 x2: pval v) (t1 t2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) (PBoundaryF :: t1) /\
+                    cf2.st == PStep (PVar x2) (PBoundaryF :: t2) /\
+                    pval_rel w x1 x2 /\ pkrel r w t1 t2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pfind_mode_rel r w t1 t2;
+    match pfind_mode t1, pfind_mode t2 with
+    | None, None ->
+      lemma_pfrel_boundary #v #cl r w;
+      lemma_pyield_prov_compat r w x1 x2 PBoundaryF PBoundaryF t1 t2 cf1 cf2;
+      lemma_step_prov_of_exists r lk apply w cf1 cf2
+    | Some (m1, g1), Some (m2, g2) ->
+      lemma_pfn_apply r w w g1 g2 x1 x2;
+      lemma_step_prov_same_world r lk apply w cf1 cf2
+    | _, _ -> ()
+
+(** The recorded perform-site arm: under `MResume` the site's own continuation
+    fires, under `MExtend` it is skipped, and with no consumer in scope the scope
+    yields exactly as at a boundary. *)
+let lemma_step_var_site_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (x1 x2: pval v) (g1 g2: pval v -> pcomp v cl)
+      (t1 t2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) (PSiteF g1 :: t1) /\
+                    cf2.st == PStep (PVar x2) (PSiteF g2 :: t2) /\
+                    pval_rel w x1 x2 /\ pfn_rel_at r w g1 g2 /\ pkrel r w t1 t2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pfind_mode_rel r w t1 t2;
+    match pfind_mode t1, pfind_mode t2 with
+    | None, None ->
+      lemma_pfrel_site r w g1 g2;
+      lemma_pyield_prov_compat r w x1 x2 (PSiteF g1) (PSiteF g2) t1 t2 cf1 cf2;
+      lemma_step_prov_of_exists r lk apply w cf1 cf2
+    | Some (m1, _), Some (m2, _) ->
+      (match m1 with
+       | MResume -> lemma_pfn_apply r w w g1 g2 x1 x2
+       | MExtend -> lemma_pcrel_var #v #cl r w x1 x2);
+      lemma_step_prov_same_world r lk apply w cf1 cf2
+    | _, _ -> ()
+
+(* ---- the value rules, all eight arms ------------------------------ *)
+
+(**
+ * **THE VALUE RULES, ALL EIGHT ARMS, AT THE NEW STRENGTH.** Six leave the world
+ * and both counters alone; the scope floor allocates; the boundary and the
+ * recorded perform-site allocate exactly when the mode search finds no consumer.
+ *)
+let lemma_step_var_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+      (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    psrel r w cf1.store cf2.store /\ pwbound w cf1.next cf2.next /\
+                    cf1.st == PStep (PVar x1) k1 /\ cf2.st == PStep (PVar x2) k2 /\
+                    pcrel #v #cl r w (PVar x1) (PVar x2) /\ pkrel r w k1 k2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = lemma_pcrel_var_inv #v #cl r w x1 x2;
+    lemma_pkrel_shape r w k1 k2;
+    match k1, k2 with
+    | [], [] -> lemma_step_prov_same_world r lk apply w cf1 cf2
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pkrel_cons_inv r w f1 f2 t1 t2;
+      assert (pframe_rel r 1 w f1 f2);
+      (match f1, f2 with
+       | PBindF g1, PBindF g2 ->
+         lemma_pfrel_bind_inv r w g1 g2;
+         lemma_pfn_apply r w w g1 g2 x1 x2;
+         lemma_step_prov_same_world r lk apply w cf1 cf2
+       | PParamF _ _, PParamF _ _ ->
+         lemma_pcrel_var #v #cl r w x1 x2;
+         lemma_step_prov_same_world r lk apply w cf1 cf2
+       | PModeF _ _, PModeF _ _ ->
+         lemma_pcrel_var #v #cl r w x1 x2;
+         lemma_step_prov_same_world r lk apply w cf1 cf2
+       | PScopeF, PScopeF ->
+         lemma_step_scope_prov r lk apply w cf1 cf2 x1 x2 t1 t2
+       | PBoundaryF, PBoundaryF ->
+         lemma_step_var_boundary_prov r lk apply w cf1 cf2 x1 x2 t1 t2
+       | PSiteF g1, PSiteF g2 ->
+         lemma_pfrel_site_inv r w g1 g2;
+         lemma_step_var_site_prov r lk apply w cf1 cf2 x1 x2 g1 g2 t1 t2
+       | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+         lemma_pfrel_prompt_inv r w tb1 tb2 rc1 rc2 pv1 pv2;
+         (match rc1, rc2 with
+          | Some g1, Some g2 -> lemma_pfn_apply r w w g1 g2 x1 x2
+          | None, None -> lemma_pcrel_var #v #cl r w x1 x2
+          | _, _ -> ());
+         lemma_step_prov_same_world r lk apply w cf1 cf2
+       | _, _ -> ())
+    | _, _ -> ()
+
+(* ================================================================== *)
+(*  THE DISPATCHER, AT PROVENANCE STRENGTH                             *)
+(* ================================================================== *)
+
+(**
+ * **TRANSITION COMPATIBILITY, STRENGTHENED.** PROVED, every arm.
+ *
+ * Two configurations related at `w` step to two configurations related at a
+ * world that is EITHER `w` ITSELF, with both counters unmoved, OR `w` PLUS THE
+ * SINGLE PAIR of the two current counters, with both counters advanced by one
+ * and the pair being the keys `palloc` actually handed out; the successor world
+ * is bounded at the successor counters; and the two steps emit the same event
+ * list.
+ *
+ * **WHY THIS IS AN EXHAUSTIVENESS RESULT AND NOT AN OBSERVATION.** "Only three
+ * rules grow the world" was, until here, a reading of the text of `pstep`: the
+ * three sites are the three occurrences of `palloc`, and every other arm goes
+ * through `keep`, which copies `store` and `next`. That reading is now a
+ * machine-checked theorem, because the case analysis below is the transition's
+ * own and every arm had to supply one of the two shapes -- including the
+ * counter clause of the non-allocating one, which no rule that moved `next`
+ * without extending the world could have supplied.
+ *)
+let lemma_pstep_tr_prov_compat
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures pstep_prov_compat_at r lk apply w cf1 cf2)
+  = pcfrel_unfold r w cf1 cf2 ();
+    pstrel_unfold r w cf1.st cf2.st ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      assert (pcomp_rel r 1 w c1 c2);
+      (match c1, c2 with
+       | PVar x1, PVar x2 -> lemma_step_var_prov r lk apply w cf1 cf2 x1 x2 k1 k2
+       | POp a1 f1, POp a2 f2 -> lemma_step_op_prov r lk apply w cf1 cf2 a1 a2 f1 f2 k1 k2
+       | PPerform e1 o1 p1, PPerform e2 o2 p2 ->
+         lemma_step_perform_prov r lk apply w cf1 cf2 e1 o1 e2 o2 p1 p2 k1 k2
+       | PHandle t1 rc1 pv1 b1, PHandle t2 rc2 pv2 b2 ->
+         lemma_step_handle_prov r lk apply w cf1 cf2 t1 t2 rc1 rc2 pv1 pv2 b1 b2 k1 k2
+       | PSplice fs1 b1, PSplice fs2 b2 ->
+         lemma_step_splice_prov r lk apply w cf1 cf2 fs1 fs2 b1 b2 k1 k2
+       | PEmit e1 b1, PEmit e2 b2 ->
+         lemma_step_emit_prov r lk apply w cf1 cf2 e1 e2 b1 b2 k1 k2
+       | PWeave e1 o1 is1 ow1 b1, PWeave e2 o2 is2 ow2 b2 ->
+         lemma_step_weave_prov r lk apply w cf1 cf2 e1 o1 e2 o2 is1 is2 ow1 ow2 b1 b2 k1 k2
+       | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+         lemma_step_enterctx_prov r lk apply w cf1 cf2 pl1 pl2 b1 b2 k1 k2
+       | PExtendC pl1 h1 g1, PExtendC pl2 h2 g2 ->
+         lemma_step_extendc_prov r lk apply w cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PExtendCtxC pl1 h1 g1, PExtendCtxC pl2 h2 g2 ->
+         lemma_step_extendctxc_prov r lk apply w cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PResumeC pl1 h1 g1, PResumeC pl2 h2 g2 ->
+         lemma_step_resumec_prov r lk apply w cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PNewP l1 i1 b1, PNewP l2 i2 b2 ->
+         lemma_step_newp_prov r lk apply w cf1 cf2 l1 l2 i1 i2 b1 b2 k1 k2
+       | PReadP l1, PReadP l2 -> lemma_step_readp_prov r lk apply w cf1 cf2 l1 l2 k1 k2
+       | PWriteP l1 y1, PWriteP l2 y2 ->
+         lemma_step_writep_prov r lk apply w cf1 cf2 l1 l2 y1 y2 k1 k2
+       | _, _ -> ())
+    | PDone _, PDone _ -> lemma_step_terminal_prov r lk apply w cf1 cf2
+    | PPaused _ _, PPaused _ _ -> lemma_step_terminal_prov r lk apply w cf1 cf2
+    | PStuck _ _, PStuck _ _ -> lemma_step_terminal_prov r lk apply w cf1 cf2
+    | PRejected _, PRejected _ -> lemma_step_terminal_prov r lk apply w cf1 cf2
+    | _, _ -> ()
+
+(** B2b.2's dispatcher, DERIVED from the strengthened one. *)
+let lemma_pstep_tr_compat_from_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures pstep_compat_at r lk apply w cf1 cf2)
+  = pcfrel_unfold r w cf1 cf2 ();
+    lemma_pstep_tr_prov_compat r lk apply w cf1 cf2;
+    lemma_pstep_prov_compat_gives_compat r lk apply w cf1 cf2
+
+(** ... and B2b.3's, likewise. *)
+let lemma_pstep_tr_alloc_compat_from_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures pstep_alloc_compat_at r lk apply w cf1 cf2)
+  = pcfrel_unfold r w cf1 cf2 ();
+    lemma_pstep_tr_prov_compat r lk apply w cf1 cf2;
+    lemma_pstep_prov_compat_is_stronger r lk apply w cf1 cf2
+
+(* ---- WHAT THE STRENGTHENED CONCLUSION LETS ONE READ OFF ----------- *)
+
+(**
+ * **THE SUCCESSOR WORLD'S PROVENANCE, READ OFF.** PROVED. In the growing shape
+ * the world SAYS what the left counter's key is partnered with, and the two
+ * stores are the two starting stores with one entry each, at the keys `palloc`
+ * returned. This is the LOWER bound `pcfrel` could not give: `pcfrel` says every
+ * key the world speaks for is below the successor counters, and says nothing
+ * about which keys at or above the starting ones it speaks for.
+ *)
+let lemma_pprov_step_recovers_the_pair
+      (#v #cl: Type) (w' w: pworld) (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires pbounded_world cf1.next cf2.next w /\
+                    pprov_step_at w' w cf1 cf2 cf1' cf2')
+          (ensures (w' == w /\ cf1'.next == cf1.next /\ cf2'.next == cf2.next) \/
+                   (cf1'.next == cf1.next + 1 /\ cf2'.next == cf2.next + 1 /\
+                    pwlookup_l cf1.next w' == Some cf2.next /\
+                    (exists (cx1: pctx v cl) (cx2: pctx v cl).
+                       cf1'.store == (cf1.next, cx1) :: cf1.store /\
+                       cf2'.store == (cf2.next, cx2) :: cf2.store /\
+                       fst (palloc cx1 cf1) == PCtxKey cf1.next /\
+                       fst (palloc cx2 cf2) == PCtxKey cf2.next)))
+  = if w' = w && cf1'.next = cf1.next && cf2'.next = cf2.next
+    then ()
+    else begin
+      lemma_pwl_cons cf1.next cf2.next w;
+      eliminate exists (cx1: pctx v cl) (cx2: pctx v cl).
+          (cf1'.store == (snd (palloc cx1 cf1)).store /\
+           cf1'.next == (snd (palloc cx1 cf1)).next /\
+           cf2'.store == (snd (palloc cx2 cf2)).store /\
+           cf2'.next == (snd (palloc cx2 cf2)).next /\
+           w' == pwextend (pkey_id (fst (palloc cx1 cf1)))
+                          (pkey_id (fst (palloc cx2 cf2))) w)
+      with
+        (lemma_palloc_shape cx1 cf1;
+         lemma_palloc_shape cx2 cf2;
+         introduce exists (d1: pctx v cl) (d2: pctx v cl).
+             (cf1'.store == (cf1.next, d1) :: cf1.store /\
+              cf2'.store == (cf2.next, d2) :: cf2.store /\
+              fst (palloc d1 cf1) == PCtxKey cf1.next /\
+              fst (palloc d2 cf2) == PCtxKey cf2.next)
+         with cx1 cx2 and ())
+    end
+
+(**
+ * **AT MOST ONE ALLOCATION PER STEP, AND THE TWO SIDES IN LOCKSTEP.** PROVED.
+ *
+ * This is what promotes "only three rules grow the world" from an observation
+ * about the text of `pstep` into a machine-checked exhaustiveness result: every
+ * arm of the dispatcher had to supply one of the two disjuncts, and a rule that
+ * advanced a counter without extending the world could supply NEITHER.
+ *)
+let lemma_pstep_tr_counter_dichotomy
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures ((fst (pstep_tr lk apply cf1)).next == cf1.next /\
+                    (fst (pstep_tr lk apply cf2)).next == cf2.next) \/
+                   ((fst (pstep_tr lk apply cf1)).next == cf1.next + 1 /\
+                    (fst (pstep_tr lk apply cf2)).next == cf2.next + 1))
+  = pcfrel_unfold r w cf1 cf2 ();
+    lemma_pstep_tr_prov_compat r lk apply w cf1 cf2;
+    pstep_prov_compat_unfold r lk apply w cf1 cf2 ();
+    eliminate exists (w': pworld).
+        (pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                    (fst (pstep_tr lk apply cf2)) /\
+         pbounded_world (fst (pstep_tr lk apply cf1)).next
+                        (fst (pstep_tr lk apply cf2)).next w' /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with ()
+
+(* ---- THE GUARDS: what the sharper predicate REFUSES --------------- *)
+
+let gprov_cx : pctx nat nat = PCtxDone (PV 0)
+let gprov_cf (n: nat) : pconf nat nat = { st = PDone (PV 0); store = []; next = n }
+let gprov_cf_a : pconf nat nat = { st = PDone (PV 0); store = []; next = 0 }
+let gprov_cf_b : pconf nat nat =
+  { st = PDone (PV 0); store = [(0, gprov_cx)]; next = 1 }
+
+(**
+ * **GUARD 1 -- `pwalloc_ext` ADMITS TWO PAIRS IN ONE WINDOW, THE NEW PREDICATE
+ * REFUSES THEM.** REFUTED, by a closed instance. This is exactly the gap the
+ * previous gate left: the counter window is an interval, and an interval of
+ * width two admits two allocations, which no single transition of this machine
+ * performs.
+ *)
+let guard_prov_refuses_two_pairs_in_one_window () : Lemma
+  (ensures pwalloc_ext 0 0 2 2 [(0,0); (1,1)] [] /\
+           ~(pprov_step_at #nat #nat [(0,0); (1,1)] []
+                           (gprov_cf 0) (gprov_cf 0) (gprov_cf 2) (gprov_cf 2)))
+  = assert_norm (pwlookup_l 0 [(0,0); (1,1)] == Some 0);
+    assert_norm (pwlookup_l 1 [(0,0); (1,1)] == Some 1);
+    assert_norm (pwextend 0 0 [] == [(0,0)])
+
+(**
+ * **GUARD 2 -- A COUNTER ADVANCED ALONE.** REFUTED. A step that increments
+ * `next` on both sides while leaving the world untouched satisfies
+ * `pwalloc_ext` -- vacuously, since it adds no pair -- and is REJECTED here.
+ * That is the case the stop condition names, and it is machine-checked to be
+ * outside the two permitted shapes rather than argued to be absent.
+ *)
+let guard_prov_refuses_a_lone_counter_advance () : Lemma
+  (ensures pwalloc_ext 0 0 1 1 [] [] /\
+           ~(pprov_step_at #nat #nat [] []
+                           (gprov_cf 0) (gprov_cf 0) (gprov_cf 1) (gprov_cf 1)))
+  = assert_norm (pwextend 0 0 [] == [(0,0)])
+
+(**
+ * **GUARD 3 -- THE BOUND IS LOAD-BEARING.** REFUTED. Without
+ * `pbounded_world cf1.next cf2.next w` the second shape is not even a `pwext`:
+ * a world that already spoke for the left counter is CONTRADICTED by the
+ * extension, not extended by it. So the hypothesis of
+ * `lemma_pprov_step_is_alloc_ext` is not decoration.
+ *)
+let guard_prov_needs_the_bound () : Lemma
+  (ensures pprov_step_at #nat #nat [(0,0); (0,5)] [(0,5)]
+                         gprov_cf_a gprov_cf_a gprov_cf_b gprov_cf_b /\
+           ~(pbounded_world 0 0 [(0,5)]) /\
+           ~(pwext [(0,0); (0,5)] [(0,5)]))
+  = assert_norm (pwlookup_l 0 [(0,5)] == Some 5);
+    assert_norm (pwlookup_l 0 [(0,0); (0,5)] == Some 0);
+    assert_norm ((snd (palloc gprov_cx gprov_cf_a)).store == [(0, gprov_cx)]);
+    assert_norm ((snd (palloc gprov_cx gprov_cf_a)).next == 1);
+    assert_norm (pkey_id (fst (palloc gprov_cx gprov_cf_a)) == 0);
+    introduce exists (d1: pctx nat nat) (d2: pctx nat nat).
+        (gprov_cf_b.store == (snd (palloc d1 gprov_cf_a)).store /\
+         gprov_cf_b.next == (snd (palloc d1 gprov_cf_a)).next /\
+         gprov_cf_b.store == (snd (palloc d2 gprov_cf_a)).store /\
+         gprov_cf_b.next == (snd (palloc d2 gprov_cf_a)).next /\
+         [(0,0); (0,5)] == pwextend (pkey_id (fst (palloc d1 gprov_cf_a)))
+                                    (pkey_id (fst (palloc d2 gprov_cf_a))) [(0,5)])
+    with gprov_cx gprov_cx and ()
+
+(**
+ * **GUARD 4 -- BOTH DISJUNCTS ARE INHABITED BY ACTUAL TRANSITIONS.** So the
+ * dichotomy above is not one-sided: the scope floor really does advance the
+ * counter, and the emitting rule really does not.
+ *)
+let gprov_scope_cf : pconf nat nat =
+  { st = PStep (PVar (PV 3)) [PScopeF]; store = []; next = 0 }
+let gprov_emit_cf : pconf nat nat =
+  { st = PStep (PEmit "e" (PVar (PV 3))) []; store = []; next = 0 }
+
+let guard_prov_both_shapes_occur () : Lemma
+  (ensures (fst (pstep_tr glk gapply gprov_scope_cf)).next == 1 /\
+           (fst (pstep_tr glk gapply gprov_emit_cf)).next == 0 /\
+           snd (pstep_tr glk gapply gprov_emit_cf) == ["e"])
+  = assert_norm ((fst (pstep_tr glk gapply gprov_scope_cf)).next == 1);
+    assert_norm ((fst (pstep_tr glk gapply gprov_emit_cf)).next == 0);
+    assert_norm (snd (pstep_tr glk gapply gprov_emit_cf) == ["e"])

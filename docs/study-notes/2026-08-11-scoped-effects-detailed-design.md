@@ -5719,6 +5719,122 @@ The direction is settled. Integration waits on the next gate.
   emission trace is `list string` and carries no keys). A blocked refutation
   attempt is an observation, not a proof.
 
+#### The dispatcher gate: a preservation theorem for every related step
+
+The gate did not stop. The previous gate's local sufficiency is now a
+preservation theorem for the machine's whole one-step relation:
+
+> For every related machine step, the successor world either remains unchanged
+> together with both allocation frontiers, or is extended by exactly the pair of
+> identities returned by the two corresponding allocations, with both frontiers
+> advanced once.
+
+It is a **relative** theorem, and the premise belongs next to the statement:
+
+> The dichotomy is a relative preservation theorem under the bounded-world
+> invariant. In the intended dispatcher use this premise is supplied by
+> `pcfrel`; as a standalone statement it is necessary and cannot be dropped.
+
+So this is not a result about conveniently chosen initial worlds. It preserves a
+property across the legitimate machine states the relation itself guarantees.
+That the premise cannot be dropped is machine-checked:
+`guard_prov_needs_the_bound` refutes the version of the first implication with
+`pbounded_world` removed.
+
+The dichotomy, with the counter clause that does the work:
+
+```fstar
+let pprov_step_at (#v #cl: Type) (w' w: pworld) (cf1 cf2 cf1' cf2': pconf v cl)
+  : prop
+  = (w' == w /\ cf1'.next == cf1.next /\ cf2'.next == cf2.next) \/
+    (w' == pwextend cf1.next cf2.next w /\
+     cf1'.next == cf1.next + 1 /\ cf2'.next == cf2.next + 1 /\
+     pprov_alloc_at w' w cf1 cf2 cf1' cf2')
+```
+
+`pprov_alloc_at` pins the added pair to `palloc`'s actual result on each side,
+so the second disjunct cannot be satisfied by an arbitrary fresh pair.
+
+#### What is established: semantic exhaustiveness
+
+- every arm of the dispatcher proves one of the two shapes;
+- a hidden world growth could satisfy neither shape, and the proof would fail;
+- an arm advancing a counter alone fails the same way;
+- on growth the pair is not any fresh pair but the two sides' actual `palloc`
+  results;
+- the existing one-step compatibility is a corollary of the strengthened
+  theorem — `lemma_pstep_tr_prov_compat` carries **exactly** the hypotheses of
+  `lemma_pstep_tr_compat`, and the old theorem is derived from it.
+
+The chain `pstep_prov_compat_at ==> pstep_alloc_compat_at ==> pstep_compat_at`
+is proved, so nothing previously established is disturbed. One by-product is
+worth naming: `lemma_pprov_step_recovers_the_pair` reads the added
+correspondence and both stores' shape back out of a growing step. That is the
+**lower bound** the previous gate showed `pcfrel` alone could never supply, and
+its absence was the whole reason the dispatcher had to be re-proved rather than
+patched.
+
+All nineteen named rule lemmas, the two plumbing lemmas, the terminal and
+mismatch arms, the dispatcher, and the two derivations are machine-checked.
+Nothing stopped and nothing was left unattempted.
+
+The dichotomy discriminates on real transitions in both directions.
+Independently of the gate, four checks were run against the finished file:
+claiming the scope-floor transition has the unchanged shape fails; claiming the
+emitting transition has the allocating shape fails; and both matching claims
+pass. No rule can choose its own shape.
+
+#### What is explicitly not claimed
+
+- **Not** a syntactic theorem that `palloc` occurs at only three sites. The
+  `grep` reading remains a syntactic claim; what was theorematised is the
+  semantic one. The syntactic claim implies the semantic one, and the converse
+  is not asserted.
+- **Not** an unconditional dichotomy for arbitrary initial configurations — see
+  the bounded-world premise above.
+- **Not** allocator provenance across a finite run.
+- **Not** any change to the logical relations: the future-world quantification
+  domain has **not** been swapped, and what breaks when it is remains unknown.
+- **Not** full store invariance on the unchanged branch. What the first disjunct
+  fixes directly is the world and the two counters. Ruling out overwriting or
+  deleting an existing entry needs a separate store-monotonicity or
+  single-writer lemma; the earlier "`palloc` is the only writer" result may
+  serve, but it is not part of this gate's result and should not be folded into
+  it.
+
+#### Position
+
+> The bounded-world repair is now established as a preservation theorem for
+> every related single machine transition. Its finite-run closure and its
+> installation into the Kripke quantification remain open.
+
+The gap is narrower and has changed character. The question is no longer whether
+the dispatcher has an exceptional arm. It is how to fold a proved one-step
+provenance along a finite sequence, and how to transplant the result into the
+relation's quantification domain.
+
+#### The finite-run order
+
+1. derive one-step `pwalloc_ext` from one-step `pprov_step_at`;
+2. prove transitivity of `pwalloc_ext` with the middle counters connected;
+3. induct over `prun` / `psteps`, showing the final world is an
+   allocator-respecting extension of the starting world;
+4. read off that the final counters advanced by the same amount on both sides,
+   and that each added correspondence lies within that range;
+5. derive the existing finite-run compatibility from the strengthened one;
+6. only once all of that lands, move the relation's quantification domain.
+
+Beyond `pwalloc_ext n1 n2 n1' n2' w' w`, the finite-run theorem should also
+yield
+
+```text
+n1' - n1 == n2' - n2
+```
+
+— equivalently, that related runs perform the same number of allocations on each
+side. The one-step dichotomy should give it naturally, since each step either
+advances neither frontier or advances both by one.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
