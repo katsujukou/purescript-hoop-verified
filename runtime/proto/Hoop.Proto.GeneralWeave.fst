@@ -27521,3 +27521,792 @@ let guard_padm_xrel_transitive_at_the_composed_world ()
 (*  pair, whose `post` clause quantifies over FUTURE worlds and whose  *)
 (*  composition is the next gate's real work.                          *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.19 -- LIFTING THE RELATION ONTO THE WORLD ALGEBRA:             *)
+(*            WHAT COMPOSES, AND WHERE IT STOPS                        *)
+(*                                                                     *)
+(*  The previous gate closed the WORLD and VALUE levels and said       *)
+(*  plainly what it had not touched: a `PCtxRequests` pair, whose      *)
+(*  `post` clause quantifies over FUTURE worlds.  This section is      *)
+(*  that clause.                                                       *)
+(*                                                                     *)
+(*  IT DOES NOT CLOSE.  The obstruction is isolated, named, and        *)
+(*  REFUTED rather than merely left unproved:                          *)
+(*  `guard_pwfactor_needs_right_freshness` exhibits two well-formed    *)
+(*  worlds and one well-formed future world of their composite that    *)
+(*  NO pair of future worlds factors -- not up to mutual `pwext`, not  *)
+(*  up to one-sided `pwext`, not at all, because no pair of future     *)
+(*  worlds composes to cover even the single correspondence at issue.  *)
+(*  Everything the factorisation is used for is therefore stated       *)
+(*  under the side condition the counterexample shows to be            *)
+(*  necessary, and nothing downstream of it is claimed.                *)
+(* ================================================================== *)
+
+(* ---- 1. `PCtxDone` COMPOSES, AS A GENERAL LEMMA ------------------ *)
+
+(**
+ * **THE `PCtxDone` CLAUSE COMPOSES.** PROVED, at every index, with no
+ * hypothesis at all -- not even well-formedness, because at `PCtxDone` the
+ * relation IS `pval_rel` and `lemma_pval_rel_compose` needs nothing.
+ *
+ * `guard_padm_xrel_transitive_at_the_composed_world` is the concrete instance
+ * of this; this is the general statement it was an instance of.
+ *)
+let lemma_padm_pctx_compose_done (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                                 (w12 w23: pworld) (y1 y2 y3: pval v)
+  : Lemma (requires padm_pctx r n w12 (PCtxDone y1) (PCtxDone y2) /\
+                    padm_pctx r n w23 (PCtxDone y2) (PCtxDone y3))
+          (ensures padm_pctx r n (pwcompose w12 w23) (PCtxDone y1) (PCtxDone y3))
+  = if n = 0 then () else lemma_pval_rel_compose w12 w23 y1 y2 y3
+
+let lemma_padm_xrel_compose_done (#v #cl: Type) (r: pcl_rel_t cl)
+                                 (w12 w23: pworld) (y1 y2 y3: pval v)
+  : Lemma (requires padm_xrel r w12 (PCtxDone y1) (PCtxDone y2) /\
+                    padm_xrel r w23 (PCtxDone y2) (PCtxDone y3))
+          (ensures padm_xrel r (pwcompose w12 w23) (PCtxDone y1) (PCtxDone y3))
+  = introduce forall (n: nat).
+        padm_pctx r n (pwcompose w12 w23) (PCtxDone y1) (PCtxDone y3)
+    with lemma_padm_pctx_compose_done r n w12 w23 y1 y2 y3
+
+(* ---- 2. THE PAYLOAD OF `PCtxRequests` COMPOSES ------------------- *)
+
+(**
+ * **THE FIRST CONJUNCT OF THE `PCtxRequests` CLAUSE COMPOSES.** PROVED.
+ *
+ * The payload a suspended context is carrying is compared by `pval_rel`, so it
+ * composes exactly as `PCtxDone` does. This is stated as an EXTRACTION from the
+ * two `padm_pctx` hypotheses and not as a restatement of
+ * `lemma_pval_rel_compose`, so that it says something about the clause and not
+ * merely about values.
+ *)
+let lemma_padm_pctx_requests_payload_compose
+      (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w12 w23: pworld)
+      (x1 x2 x3: pval v)
+      (rs1 rs2 rs3: list (pframe v cl))
+      (p1 p2 p3: pval v -> pcomp v cl)
+  : Lemma (requires n > 0 /\
+                    padm_pctx r n w12 (PCtxRequests x1 rs1 p1)
+                                      (PCtxRequests x2 rs2 p2) /\
+                    padm_pctx r n w23 (PCtxRequests x2 rs2 p2)
+                                      (PCtxRequests x3 rs3 p3))
+          (ensures pval_rel (pwcompose w12 w23) x1 x3)
+  = lemma_pval_rel_compose w12 w23 x1 x2 x3
+
+(* ---- 3. THE RESIDUAL COMPOSES, FRAME FOR FRAME ------------------- *)
+
+(**
+ * **THE RESIDUAL CLAUSE COMPOSES AS SOON AS ITS FRAMES DO.** PROVED, by
+ * induction on the list, and this is the whole of the list-level content: the
+ * two residuals correspond frame for frame, so composing them is composing each
+ * frame and nothing else. The pointwise hypothesis is passed as a QUANTIFIED
+ * FORMULA over the three frames and is discharged at the two instances below.
+ *)
+let rec lemma_pframes_rel_compose_of_pointwise
+      (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w12 w23: pworld)
+      (fs1 fs2 fs3: list (pframe v cl))
+  : Lemma (requires pframes_rel r n w12 fs1 fs2 /\
+                    pframes_rel r n w23 fs2 fs3 /\
+                    (forall (a1 a2 a3: pframe v cl).
+                       pframe_rel r n w12 a1 a2 /\ pframe_rel r n w23 a2 a3 ==>
+                       pframe_rel r n (pwcompose w12 w23) a1 a3))
+          (ensures pframes_rel r n (pwcompose w12 w23) fs1 fs3)
+          (decreases fs1)
+  = if n = 0 then ()
+    else
+      match fs1, fs2, fs3 with
+      | a1 :: t1, a2 :: t2, a3 :: t3 ->
+        assert (pframe_rel r n w12 a1 a2);
+        assert (pframes_rel r n w12 t1 t2);
+        assert (pframe_rel r n w23 a2 a3);
+        assert (pframes_rel r n w23 t2 t3);
+        lemma_pframes_rel_compose_of_pointwise r n w12 w23 t1 t2 t3;
+        assert (pframe_rel r n (pwcompose w12 w23) a1 a3);
+        assert (pframes_rel r n (pwcompose w12 w23) (a1 :: t1) (a3 :: t3))
+      | [], [], [] -> ()
+      | _, _, _ ->
+        assert (pframes_rel r n w12 fs1 fs2);
+        assert (pframes_rel r n w23 fs2 fs3)
+
+(**
+ * **THE FRAMES THAT CARRY NO CLOSURE COMPOSE UNCONDITIONALLY.** PROVED.
+ *
+ * `PParamF` compares its cell by `pval_rel`; `PBoundaryF` and `PScopeF` compare
+ * by nothing. These are exactly the frames whose clause in `pframe_rel` has NO
+ * `forall w'` in it, and they are exactly the frames this gate can compose. The
+ * other four -- `PBindF`, `PSiteF`, `PModeF`, `PPromptF` -- each quantify over
+ * future worlds in the same shape the `post` clause does, and are blocked by the
+ * same counterexample.
+ *)
+let pframe_static (#v #cl: Type) (f: pframe v cl) : bool
+  = match f with
+    | PParamF _ _ -> true
+    | PBoundaryF -> true
+    | PScopeF -> true
+    | _ -> false
+
+let rec pframes_static (#v #cl: Type) (fs: list (pframe v cl))
+  : Tot bool (decreases fs)
+  = match fs with
+    | [] -> true
+    | f :: rest -> pframe_static f && pframes_static rest
+
+let lemma_pframe_static_compose
+      (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w12 w23: pworld)
+      (f1 f2 f3: pframe v cl)
+  : Lemma (requires pframe_static f1 /\
+                    pframe_rel r n w12 f1 f2 /\ pframe_rel r n w23 f2 f3)
+          (ensures pframe_rel r n (pwcompose w12 w23) f1 f3)
+  = if n = 0 then ()
+    else
+      match f1, f2, f3 with
+      | PParamF l1 a1, PParamF l2 a2, PParamF l3 a3 ->
+        lemma_pval_rel_compose w12 w23 a1 a2 a3
+      | _, _, _ -> ()
+
+let rec lemma_pframes_static_compose
+      (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w12 w23: pworld)
+      (fs1 fs2 fs3: list (pframe v cl))
+  : Lemma (requires pframes_static fs1 /\
+                    pframes_rel r n w12 fs1 fs2 /\ pframes_rel r n w23 fs2 fs3)
+          (ensures pframes_rel r n (pwcompose w12 w23) fs1 fs3)
+          (decreases fs1)
+  = if n = 0 then ()
+    else
+      match fs1, fs2, fs3 with
+      | a1 :: t1, a2 :: t2, a3 :: t3 ->
+        assert (pframe_rel r n w12 a1 a2);
+        assert (pframes_rel r n w12 t1 t2);
+        assert (pframe_rel r n w23 a2 a3);
+        assert (pframes_rel r n w23 t2 t3);
+        lemma_pframe_static_compose r n w12 w23 a1 a2 a3;
+        lemma_pframes_static_compose r n w12 w23 t1 t2 t3;
+        assert (pframes_rel r n (pwcompose w12 w23) (a1 :: t1) (a3 :: t3))
+      | [], [], [] -> ()
+      | _, _, _ ->
+        assert (pframes_rel r n w12 fs1 fs2);
+        assert (pframes_rel r n w23 fs2 fs3)
+
+(** The residual half of the `PCtxRequests` clause, composed, for a residual the
+    gate can reach. PROVED. *)
+let lemma_padm_pctx_requests_residual_compose
+      (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (w12 w23: pworld)
+      (x1 x2 x3: pval v)
+      (rs1 rs2 rs3: list (pframe v cl))
+      (p1 p2 p3: pval v -> pcomp v cl)
+  : Lemma (requires n > 0 /\ pframes_static rs1 /\
+                    padm_pctx r n w12 (PCtxRequests x1 rs1 p1)
+                                      (PCtxRequests x2 rs2 p2) /\
+                    padm_pctx r n w23 (PCtxRequests x2 rs2 p2)
+                                      (PCtxRequests x3 rs3 p3))
+          (ensures pframes_rel r n (pwcompose w12 w23) rs1 rs3)
+  = lemma_pframes_static_compose r n w12 w23 rs1 rs2 rs3
+
+(* ================================================================== *)
+(*  A FRESH MIDDLE NAME                                                *)
+(* ================================================================== *)
+
+(** The largest name a world mentions, on either side. A world is a finite list,
+    so this exists; `pwfresh2` turns it into a name NEITHER of two worlds has
+    ever mentioned, on EITHER side. Names are `nat`, so there is always one. *)
+let rec pwmaxname (w: pworld) : Tot nat (decreases w)
+  = match w with
+    | [] -> 0
+    | (a, b) :: rest ->
+      let m = pwmaxname rest in
+      let ab = if a >= b then a else b in
+      if ab >= m then ab else m
+
+let rec lemma_pwmaxname_bound_l (i: nat) (w: pworld)
+  : Lemma (ensures (match pwlookup_l i w with
+                    | None -> True
+                    | Some j -> i <= pwmaxname w /\ j <= pwmaxname w))
+          (decreases w)
+  = match w with
+    | [] -> ()
+    | (a, b) :: rest -> lemma_pwmaxname_bound_l i rest
+
+let rec lemma_pwmaxname_bound_r (j: nat) (w: pworld)
+  : Lemma (ensures (match pwlookup_r j w with
+                    | None -> True
+                    | Some i -> i <= pwmaxname w /\ j <= pwmaxname w))
+          (decreases w)
+  = match w with
+    | [] -> ()
+    | (a, b) :: rest -> lemma_pwmaxname_bound_r j rest
+
+(** **THE FRESH MIDDLE NAME, CHOSEN AND NOT ASSUMED.** PROVED silent on all four
+    sides: it is not a left name of `w12`, not a right name of `w12`, not a left
+    name of `w23`, not a right name of `w23`. *)
+let pwfresh2 (w12 w23: pworld) : nat
+  = let a = pwmaxname w12 in
+    let b = pwmaxname w23 in
+    1 + (if a >= b then a else b)
+
+let lemma_pwfresh2 (w12 w23: pworld)
+  : Lemma (let j = pwfresh2 w12 w23 in
+           pwlookup_l j w12 == None /\ pwlookup_r j w12 == None /\
+           pwlookup_l j w23 == None /\ pwlookup_r j w23 == None)
+  = let j = pwfresh2 w12 w23 in
+    lemma_pwmaxname_bound_l j w12;
+    lemma_pwmaxname_bound_r j w12;
+    lemma_pwmaxname_bound_l j w23;
+    lemma_pwmaxname_bound_r j w23
+
+(* ================================================================== *)
+(*  4. FUTURE-WORLD FACTORISATION FOR A SINGLE NEW PAIR                *)
+(* ================================================================== *)
+
+(**
+ * **THE MIDDLE NAME IS NOT ALWAYS FRESH, AND MUST NOT BE.**
+ *
+ * Given a new correspondence `i -> k` to be added to `pwcompose w12 w23`, the
+ * middle name is FORCED whenever `w12` already speaks at `i`: a future world of
+ * `w12` may not revise what `w12` says, so the middle name is `w12`'s own
+ * answer, and a fresh one would be wrong. Only when `w12` is silent at `i` is
+ * there a choice, and then `pwfresh2` makes it.
+ *
+ * So the gate's own sketch -- "each newly added `i -> k` needs a FRESH middle
+ * name `j`" -- is right in one case of two and wrong in the other; the
+ * definition below decides which case it is by the world's own lookup, exactly
+ * as `pwcompose_from` does.
+ *)
+let pwmidname (w12 w23: pworld) (i: nat) : nat
+  = match pwlookup_l i w12 with
+    | Some j -> j
+    | None -> pwfresh2 w12 w23
+
+let pwfactor_l (w12 w23: pworld) (i: nat) : pworld
+  = match pwlookup_l i w12 with
+    | Some _ -> w12
+    | None -> pwextend i (pwfresh2 w12 w23) w12
+
+let pwfactor_r (w12 w23: pworld) (i k: nat) : pworld
+  = pwextend (pwmidname w12 w23 i) k w23
+
+(**
+ * **STEP 4 -- ONE NEW PAIR FACTORS, UNDER ONE SIDE CONDITION.** PROVED.
+ *
+ * Both factors are worlds, both extend the world they factor, the composite
+ * agrees with `w13 + (i -> k)` BY MUTUAL `pwext` -- which is this file's only
+ * equality on worlds -- and the middle name is exhibited, with the two lookups
+ * that make the chain `i -> j -> k` run.
+ *
+ * THE SIDE CONDITION IS `pwlookup_r k w23 == None`: the new RIGHT name must be
+ * one the middle-to-right world has never produced. It is not a convenience and
+ * it cannot be dropped -- `guard_pwfactor_needs_right_freshness` refutes the
+ * unrestricted statement. It is also exactly what a genuine ALLOCATION on the
+ * right run gives, which is why `lemma_pwextend_pwcompose` -- the allocation
+ * square of the previous gate -- discharges half of this proof.
+ *)
+let lemma_pwfactor_one (w12 w23: pworld) (i k: nat)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23 /\
+                    pwlookup_l i (pwcompose w12 w23) == None /\
+                    pwlookup_r k w23 == None)
+          (ensures (let a = pwfactor_l w12 w23 i in
+                    let b = pwfactor_r w12 w23 i k in
+                    let j = pwmidname w12 w23 i in
+                    pwf_world a /\ pwf_world b /\
+                    pwext a w12 /\ pwext b w23 /\
+                    pwlookup_l i a == Some j /\ pwlookup_l j b == Some k /\
+                    pwext (pwcompose a b) (pwextend i k (pwcompose w12 w23)) /\
+                    pwext (pwextend i k (pwcompose w12 w23)) (pwcompose a b)))
+  = lemma_pwcompose_l w12 w23 i;
+    let c0 = pwcompose w12 w23 in
+    match pwlookup_l i w12 with
+    | None ->
+      lemma_pwfresh2 w12 w23;
+      let j = pwfresh2 w12 w23 in
+      lemma_pwextend_wf i j w12;
+      lemma_pwextend_wf j k w23;
+      lemma_pwextend_pwcompose i j k w12 w23
+    | Some j ->
+      (* the middle name is fixed by `w12`; `w23` must be silent at it, and it
+         is -- otherwise `pwcompose w12 w23` would speak at `i`. *)
+      assert (pwlookup_l j w23 == None);
+      lemma_pwextend_wf j k w23;
+      let b = pwextend j k w23 in
+      lemma_pwcompose_wf w12 w23;
+      lemma_pwcompose_fresh_r w12 w23 k;
+      lemma_pwextend_wf i k c0;
+      lemma_pwl_cons j k w23;
+      lemma_pwl_cons i k c0;
+      introduce forall (x y: nat).
+          (pwlookup_l x (pwcompose w12 b) == Some y <==>
+           pwlookup_l x (pwextend i k c0) == Some y)
+      with begin
+        lemma_pwcompose_l w12 b x;
+        lemma_pwcompose_l w12 w23 x;
+        (match pwlookup_l x w12 with
+         | None -> ()
+         | Some jx -> assert (pwlookup_r jx w12 == Some x))
+      end
+
+(* ---- THE SIDE CONDITION IS NECESSARY: A REFUTATION ---------------- *)
+
+(** `fw12` sends 0 to 1 and `fw23` sends 5 to 7. Both are worlds. Their
+    composite is EMPTY -- `w23` is silent at 1 -- so `fwtarget`, which sends 0
+    to 7, is a well-formed future world of it. *)
+let fw12 : pworld = [(0, 1)]
+let fw23 : pworld = [(5, 7)]
+let fwtarget : pworld = [(0, 7)]
+
+(** Two one-line readings of the definitions, used only so that no step of the
+    refutation depends on a definition unfolding under a quantifier. *)
+let lemma_pwext_says (w' w: pworld) (i j: nat)
+  : Lemma (requires pwext w' w /\ pwlookup_l i w == Some j)
+          (ensures pwlookup_l i w' == Some j)
+  = ()
+
+let lemma_pwf_flip (w: pworld) (i j: nat)
+  : Lemma (requires pwf_world w /\ pwlookup_l i w == Some j)
+          (ensures pwlookup_r j w == Some i)
+  = ()
+
+let lemma_no_factor (a b: pworld)
+  : Lemma (requires pwf_world a /\ pwf_world b /\ pwext a fw12 /\ pwext b fw23)
+          (ensures ~(pwlookup_l 0 (pwcompose a b) == Some 7))
+  = assert_norm (pwlookup_l 0 fw12 == Some 1);
+    assert_norm (pwlookup_l 5 fw23 == Some 7);
+    lemma_pwext_says a fw12 0 1;
+    lemma_pwext_says b fw23 5 7;
+    lemma_pwf_flip b 5 7;
+    lemma_pwcompose_l a b 0;
+    introduce pwlookup_l 1 b == Some 7 ==> False
+    with begin
+      lemma_pwf_flip b 1 7
+    end
+
+(**
+ * **STEP 4 IS FALSE WITHOUT THE SIDE CONDITION.** PROVED, by counterexample,
+ * and this is the stop condition of this gate.
+ *
+ * `fwtarget` is a WELL-FORMED future world of `pwcompose fw12 fw23`, and it adds
+ * exactly ONE new pair. There is NO pair of future worlds `a` of `fw12` and `b`
+ * of `fw23` whose composite covers even that single pair -- and the statement is
+ * proved in the weakest form there is: not "no factorisation up to mutual
+ * `pwext`", not "no factorisation by fresh middle names", but *no `a` and `b`
+ * at all* with `pwlookup_l 0 (pwcompose a b) == Some 7`.
+ *
+ * THE ARGUMENT, in three lines. A future world of `fw12` still sends 0 to 1,
+ * so the composite's middle name at 0 is 1 and nothing else. A future world of
+ * `fw23` still sends 5 to 7, so -- being a partial BIJECTION -- it is the only
+ * middle name it sends to 7. Hence the composite sends 0 to 7 only if 1 = 5.
+ *
+ * WHAT IT MEANS. The composite `pwcompose fw12 fw23` has FORGOTTEN that the
+ * middle run's name 7 was already spoken for; its future worlds are free to
+ * hand 7 out again, and no factorisation can then exist. The freshness the
+ * factorisation needs is freshness for the MIDDLE run's world, and that is
+ * information the composite does not carry.
+ *)
+let guard_pwfactor_needs_right_freshness ()
+  : Lemma (pwf_world fw12 /\ pwf_world fw23 /\ pwf_world fwtarget /\
+           pwcompose fw12 fw23 == [] /\
+           pwext fwtarget (pwcompose fw12 fw23) /\
+           pwlookup_l 0 fwtarget == Some 7 /\
+           pwlookup_r 7 fw23 == Some 5 /\
+           (forall (a b: pworld).
+              pwf_world a /\ pwf_world b /\ pwext a fw12 /\ pwext b fw23 ==>
+              ~(pwlookup_l 0 (pwcompose a b) == Some 7)) /\
+           ~(exists (a b: pworld).
+               pwf_world a /\ pwf_world b /\ pwext a fw12 /\ pwext b fw23 /\
+               pwlookup_l 0 (pwcompose a b) == Some 7))
+  = assert_norm (pwcompose fw12 fw23 == ([] <: pworld));
+    assert_norm (pwlookup_l 0 fwtarget == Some 7);
+    assert_norm (pwlookup_r 7 fw23 == Some 5);
+    introduce forall (a b: pworld).
+        (pwf_world a /\ pwf_world b /\ pwext a fw12 /\ pwext b fw23 ==>
+         ~(pwlookup_l 0 (pwcompose a b) == Some 7))
+    with (introduce _ ==> _ with lemma_no_factor a b);
+    assert_norm (pwlookup_l 0 fw12 == Some 1);
+    assert_norm (pwlookup_r 1 fw12 == Some 0);
+    assert_norm (pwlookup_l 5 fw23 == Some 7);
+    assert_norm (pwlookup_r 7 fwtarget == Some 0)
+
+(* ================================================================== *)
+(*  5. A FINITE RUN OF NEW PAIRS                                       *)
+(* ================================================================== *)
+
+let rec pwextend_pairs (ps: list (nat & nat)) (w: pworld)
+  : Tot pworld (decreases ps)
+  = match ps with
+    | [] -> w
+    | (i, k) :: rest -> pwextend_pairs rest (pwextend i k w)
+
+(** Adding the same pairs to two worlds that SAY THE SAME THING yields two
+    worlds that say the same thing. PROVED -- and needed because the factorised
+    composite agrees with its target by mutual `pwext` and not by `==`. *)
+let rec lemma_pwextend_pairs_cong (ps: list (nat & nat)) (u v: pworld)
+  : Lemma (requires pwext u v /\ pwext v u)
+          (ensures pwext (pwextend_pairs ps u) (pwextend_pairs ps v) /\
+                   pwext (pwextend_pairs ps v) (pwextend_pairs ps u))
+          (decreases ps)
+  = match ps with
+    | [] -> ()
+    | (i, k) :: rest ->
+      lemma_pwl_cons i k u;
+      lemma_pwl_cons i k v;
+      lemma_pwextend_pairs_cong rest (pwextend i k u) (pwextend i k v)
+
+let rec pwfactor_many (ps: list (nat & nat)) (w12 w23: pworld)
+  : Tot (pworld & pworld) (decreases ps)
+  = match ps with
+    | [] -> (w12, w23)
+    | (i, k) :: rest ->
+      pwfactor_many rest (pwfactor_l w12 w23 i) (pwfactor_r w12 w23 i k)
+
+(**
+ * **THE DISCIPLINE THE LIFT IS RESTRICTED TO**, stated once and referred to
+ * everywhere below. At each new pair the left name must be one the composite so
+ * far is silent about, and the right name one the middle-to-right world so far
+ * has never produced. The second half is the side condition of
+ * `lemma_pwfactor_one` and `guard_pwfactor_needs_right_freshness` refutes
+ * dropping it.
+ *)
+let rec pwfactorable (ps: list (nat & nat)) (w12 w23: pworld)
+  : Tot prop (decreases ps)
+  = match ps with
+    | [] -> True
+    | (i, k) :: rest ->
+      pwlookup_l i (pwcompose w12 w23) == None /\ pwlookup_r k w23 == None /\
+      pwfactorable rest (pwfactor_l w12 w23 i) (pwfactor_r w12 w23 i k)
+
+(**
+ * **STEP 5 -- AN ARBITRARY FACTORABLE FINITE EXTENSION FACTORS.** PROVED, by
+ * induction on the list of new pairs. Both factors are worlds, each extends
+ * what it factors, and their composite agrees with the extended composite by
+ * MUTUAL `pwext`.
+ *
+ * WHAT THIS IS NOT. It is NOT "an arbitrary finite world extension factors":
+ * the hypothesis is `pwfactorable`, and `guard_pwfactor_needs_right_freshness`
+ * shows a well-formed one-pair extension that is not factorable. So step 5 is
+ * reached along the freshness discipline and along no other route, and every
+ * use of it downstream would inherit that discipline as a hypothesis.
+ *)
+let rec lemma_pwfactor_many (ps: list (nat & nat)) (w12 w23: pworld)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23 /\ pwfactorable ps w12 w23)
+          (ensures (let a = fst (pwfactor_many ps w12 w23) in
+                    let b = snd (pwfactor_many ps w12 w23) in
+                    pwf_world a /\ pwf_world b /\ pwext a w12 /\ pwext b w23 /\
+                    pwext (pwcompose a b)
+                          (pwextend_pairs ps (pwcompose w12 w23)) /\
+                    pwext (pwextend_pairs ps (pwcompose w12 w23))
+                          (pwcompose a b)))
+          (decreases ps)
+  = match ps with
+    | [] -> ()
+    | (i, k) :: rest ->
+      lemma_pwfactor_one w12 w23 i k;
+      let a1 = pwfactor_l w12 w23 i in
+      let b1 = pwfactor_r w12 w23 i k in
+      lemma_pwfactor_many rest a1 b1;
+      lemma_pwextend_pairs_cong rest (pwcompose a1 b1)
+                                     (pwextend i k (pwcompose w12 w23))
+
+(* ---- DISTINCT NEW CORRESPONDENCES GET DISTINCT MIDDLE NAMES ------- *)
+
+(** When the middle name IS chosen -- the case where `w12` is silent at `i` --
+    it is fresh on both sides of both worlds, and after the step it is in the
+    RANGE of the grown left factor. PROVED. That is what makes the next step's
+    choice differ from it. *)
+let lemma_pwfactor_one_middle_fresh (w12 w23: pworld) (i k: nat)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23 /\
+                    pwlookup_l i w12 == None /\
+                    pwlookup_l i (pwcompose w12 w23) == None /\
+                    pwlookup_r k w23 == None)
+          (ensures (let j = pwmidname w12 w23 i in
+                    pwlookup_r j w12 == None /\ pwlookup_l j w23 == None /\
+                    pwlookup_r j (pwfactor_l w12 w23 i) == Some i /\
+                    pwlookup_l j (pwfactor_r w12 w23 i k) == Some k))
+  = lemma_pwfresh2 w12 w23;
+    let j = pwfresh2 w12 w23 in
+    lemma_pwr_cons i j w12;
+    lemma_pwl_cons j k w23
+
+(** **TWO NEW CORRESPONDENCES NEVER SHARE A MIDDLE NAME.** PROVED. The second
+    choice is fresh for the world the first step already put its name into, so
+    the two differ -- and injectivity of the middle is not an extra property to
+    be checked, it is a consequence of choosing against the GROWN world. *)
+let lemma_pwfactor_middle_names_distinct
+      (w12 w23: pworld) (i1 k1 i2 k2: nat)
+  : Lemma (requires (let a1 = pwfactor_l w12 w23 i1 in
+                     let b1 = pwfactor_r w12 w23 i1 k1 in
+                     pwf_world w12 /\ pwf_world w23 /\
+                     pwlookup_l i1 w12 == None /\
+                     pwlookup_l i1 (pwcompose w12 w23) == None /\
+                     pwlookup_r k1 w23 == None /\
+                     pwlookup_l i2 a1 == None /\
+                     pwlookup_l i2 (pwcompose a1 b1) == None /\
+                     pwlookup_r k2 b1 == None))
+          (ensures (let a1 = pwfactor_l w12 w23 i1 in
+                    let b1 = pwfactor_r w12 w23 i1 k1 in
+                    ~(pwmidname w12 w23 i1 == pwmidname a1 b1 i2)))
+  = lemma_pwfactor_one_middle_fresh w12 w23 i1 k1;
+    let a1 = pwfactor_l w12 w23 i1 in
+    let b1 = pwfactor_r w12 w23 i1 k1 in
+    lemma_pwfresh2 a1 b1
+
+(* ================================================================== *)
+(*  10. A FACTORISATION THAT REUSES A MIDDLE NAME IS REFUSED           *)
+(* ================================================================== *)
+
+(** Two new correspondences, `0 -> 20` and `1 -> 30`, over two empty worlds. *)
+let reuse_ps : list (nat & nat) = [(0, 20); (1, 30)]
+
+(** **THE WRONG IMPLEMENTATION**: one middle name, `9`, for BOTH new pairs. *)
+let reuse_l : pworld = [(1, 9); (0, 9)]
+let reuse_r : pworld = [(9, 30); (9, 20)]
+
+(**
+ * **AND IT IS CAUGHT, TWICE OVER.** PROVED, by computation.
+ *
+ * Neither factor is a world -- `reuse_l` aliases two left names onto `9`,
+ * `reuse_r` aliases `9` onto two right names -- so `lemma_pwfactor_one`'s
+ * conclusion is already unavailable. That alone would be a type-level refusal
+ * and could be dismissed as bookkeeping, so the guard also reads out the
+ * SEMANTIC damage: the composite sends `0` to `30`, the target sends `0` to
+ * `20`, and the composite therefore does not even `pwext` the target. Reusing
+ * a middle name does not merely fail to be well formed; it computes the wrong
+ * correspondence.
+ *)
+let guard_middle_name_reuse_is_refused ()
+  : Lemma (pwextend_pairs reuse_ps ([] <: pworld) == [(1, 30); (0, 20)] /\
+           ~(pwf_world reuse_l) /\ ~(pwf_world reuse_r) /\
+           pwcompose reuse_l reuse_r == [(1, 30); (0, 30)] /\
+           pwlookup_l 0 (pwcompose reuse_l reuse_r) == Some 30 /\
+           pwlookup_l 0 (pwextend_pairs reuse_ps ([] <: pworld)) == Some 20 /\
+           ~(pwext (pwcompose reuse_l reuse_r)
+                   (pwextend_pairs reuse_ps ([] <: pworld))))
+  = assert_norm (pwextend_pairs reuse_ps ([] <: pworld) == [(1, 30); (0, 20)]);
+    assert_norm (pwlookup_l 0 reuse_l == Some 9);
+    assert_norm (pwlookup_r 9 reuse_l == Some 1);
+    assert_norm (pwlookup_r 20 reuse_r == Some 9);
+    assert_norm (pwlookup_l 9 reuse_r == Some 30);
+    assert_norm (pwcompose reuse_l reuse_r == [(1, 30); (0, 30)]);
+    assert_norm (pwlookup_l 0 (pwcompose reuse_l reuse_r) == Some 30);
+    assert_norm (pwlookup_l 0 (pwextend_pairs reuse_ps ([] <: pworld)) == Some 20)
+
+(**
+ * **AND THE HONEST ONE, ON THE SAME TWO PAIRS.** PROVED, by computation, and
+ * this is the NON-VACUITY CHECK on `pwfactorable` and on `pwfactor_many`: the
+ * discipline is inhabited, the two middle names it picks are `1` and `21` and
+ * are DISTINCT, and the composite of the two factors is the target ON THE NOSE
+ * -- not merely up to `pwext`.
+ *)
+let guard_pwfactor_many_is_non_vacuous ()
+  : Lemma (pwfactorable reuse_ps ([] <: pworld) ([] <: pworld) /\
+           pwfactor_many reuse_ps ([] <: pworld) ([] <: pworld) ==
+             ([(1, 21); (0, 1)], [(21, 30); (1, 20)]) /\
+           pwmidname ([] <: pworld) ([] <: pworld) 0 == 1 /\
+           pwmidname [(0, 1)] [(1, 20)] 1 == 21 /\
+           ~(pwmidname ([] <: pworld) ([] <: pworld) 0 ==
+             pwmidname [(0, 1)] [(1, 20)] 1) /\
+           pwcompose [(1, 21); (0, 1)] [(21, 30); (1, 20)] ==
+             pwextend_pairs reuse_ps ([] <: pworld))
+  = assert_norm (pwfactorable reuse_ps ([] <: pworld) ([] <: pworld));
+    assert_norm (pwfactor_many reuse_ps ([] <: pworld) ([] <: pworld) ==
+                   ([(1, 21); (0, 1)], [(21, 30); (1, 20)]));
+    assert_norm (pwmidname ([] <: pworld) ([] <: pworld) 0 == 1);
+    assert_norm (pwmidname [(0, 1)] [(1, 20)] 1 == 21);
+    assert_norm (pwcompose [(1, 21); (0, 1)] [(21, 30); (1, 20)] ==
+                   [(1, 30); (0, 20)]);
+    assert_norm (pwextend_pairs reuse_ps ([] <: pworld) == [(1, 30); (0, 20)])
+
+(* ================================================================== *)
+(*  9. A GUARD AT A REAL `PCtxRequests` TRIPLE                         *)
+(* ================================================================== *)
+
+(** The post closure that answers with what it is given. It is the one closure
+    whose `post` clause is decidable at every world without any composition
+    principle for `padm_pcomp` -- which is exactly why the guard below can be
+    stated at `PCtxRequests` while the general lemma cannot. *)
+let ppost_id (#v #cl: Type) (y: pval v) : pcomp v cl = PVar y
+
+let qrA : pctx fv fcl = PCtxRequests (PCtxKey 0) [] ppost_id
+let qrB : pctx fv fcl = PCtxRequests (PCtxKey 1) [] ppost_id
+let qrC : pctx fv fcl = PCtxRequests (PCtxKey 2) [] ppost_id
+
+let lemma_padm_pctx_requests_id (n: nat) (w: pworld) (x1 x2: pval fv)
+  : Lemma (requires pval_rel w x1 x2)
+          (ensures padm_pctx fcl_rel n w
+                     (PCtxRequests x1 [] (ppost_id #fv #fcl))
+                     (PCtxRequests x2 [] (ppost_id #fv #fcl)))
+  = if n = 0 then ()
+    else
+      introduce forall (w': pworld) (y1 y2: pval fv).
+          (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+           padm_pcomp fcl_rel n w' (ppost_id #fv #fcl y1) (ppost_id #fv #fcl y2))
+      with (introduce _ ==> _
+            with assert (pcomp_rel fcl_rel n w'
+                              (PVar #fv #fcl y1) (PVar #fv #fcl y2)))
+
+let lemma_padm_xrel_requests_id (w: pworld) (x1 x2: pval fv)
+  : Lemma (requires pval_rel w x1 x2)
+          (ensures padm_xrel fcl_rel w
+                     (PCtxRequests x1 [] (ppost_id #fv #fcl))
+                     (PCtxRequests x2 [] (ppost_id #fv #fcl)))
+  = introduce forall (n: nat).
+        padm_pctx fcl_rel n w
+          (PCtxRequests x1 [] (ppost_id #fv #fcl))
+          (PCtxRequests x2 [] (ppost_id #fv #fcl))
+    with lemma_padm_pctx_requests_id n w x1 x2
+
+(**
+ * **THE COMPOSED WORLD RECOVERS TRANSITIVITY AT A `PCtxRequests` TRIPLE TOO.**
+ * PROVED, and the last conjunct is the non-vacuity check: at the FIXED world
+ * `qw012` the same triple is NOT related, exactly as
+ * `guard_padm_xrel_not_transitive` had it at `PCtxDone`.
+ *
+ * WHAT THIS GUARD DOES AND DOES NOT SHOW. It is a REAL `PCtxRequests` triple --
+ * the `post` clause is present, quantified over future worlds, and discharged --
+ * so it is not the `PCtxDone` case in disguise. But it is discharged because
+ * `ppost_id` is EQUIVARIANT: it hands back what it is given, so its future-world
+ * clause reduces to the very hypothesis the clause supplies, at any world, with
+ * no factorisation. A general `post` has no such reduction, and
+ * `guard_pwfactor_needs_right_freshness` is why. This guard is therefore a
+ * WITNESS that the `PCtxRequests` clause can compose, not evidence that it
+ * always does.
+ *)
+let guard_padm_xrel_requests_compose_at_the_composed_world ()
+  : Lemma (pwf_world qw012 /\
+           padm_xrel fcl_rel qw012 qrA qrB /\
+           padm_xrel fcl_rel qw012 qrB qrC /\
+           pwf_world (pwcompose qw012 qw012) /\
+           padm_xrel fcl_rel (pwcompose qw012 qw012) qrA qrC /\
+           ~(padm_xrel fcl_rel qw012 qrA qrC))
+  = guard_padm_xrel_not_transitive ();
+    assert_norm (pwlookup_l 0 qw012 == Some 1);
+    assert_norm (pwlookup_l 1 qw012 == Some 2);
+    assert (pval_rel #fv qw012 (PCtxKey 0) (PCtxKey 1));
+    assert (pval_rel #fv qw012 (PCtxKey 1) (PCtxKey 2));
+    lemma_padm_xrel_requests_id qw012 (PCtxKey 0) (PCtxKey 1);
+    lemma_padm_xrel_requests_id qw012 (PCtxKey 1) (PCtxKey 2);
+    lemma_pwcompose_wf qw012 qw012;
+    lemma_pval_rel_compose #fv qw012 qw012 (PCtxKey 0) (PCtxKey 1) (PCtxKey 2);
+    lemma_padm_xrel_requests_id (pwcompose qw012 qw012) (PCtxKey 0) (PCtxKey 2);
+    introduce padm_xrel fcl_rel qw012 qrA qrC ==> False
+    with begin
+      assert (padm_pctx fcl_rel 1 qw012 qrA qrC);
+      pval_rel_key_unfold #fv qw012 0 2 ()
+    end
+
+(* ---- STEP 3 IS NOT VACUOUS ---------------------------------------- *)
+
+(** A residual of exactly one cell frame, holding a HANDLE -- so the frame is
+    static but its content is not world-independent, and the composition below
+    is the world algebra doing work and not a triviality. *)
+let qres0 : list (pframe fv fcl) = [PParamF "p" (PCtxKey 0)]
+let qres1 : list (pframe fv fcl) = [PParamF "p" (PCtxKey 1)]
+let qres2 : list (pframe fv fcl) = [PParamF "p" (PCtxKey 2)]
+
+let lemma_qres_rel (n: nat) (w: pworld) (i j: nat)
+  : Lemma (requires n > 0 /\ pwlookup_l i w == Some j)
+          (ensures pframes_rel fcl_rel n w
+                     [PParamF #fv #fcl "p" (PCtxKey i)]
+                     [PParamF #fv #fcl "p" (PCtxKey j)])
+  = assert (pval_rel #fv w (PCtxKey i) (PCtxKey j));
+    assert (pframe_rel fcl_rel n w
+              (PParamF #fv #fcl "p" (PCtxKey i))
+              (PParamF #fv #fcl "p" (PCtxKey j)))
+
+(** **THE RESIDUAL CLAUSE REALLY COMPOSES, AT A REAL RESIDUAL.** PROVED, at
+    every index above 0, and the last conjunct is the non-vacuity check: at the
+    FIXED world the two ends of the chain are NOT related, so the composite is
+    doing the work. *)
+let guard_static_residual_composes (n: nat)
+  : Lemma (requires n > 0)
+          (ensures pframes_static qres0 /\
+                   pframes_rel fcl_rel n qw012 qres0 qres1 /\
+                   pframes_rel fcl_rel n qw012 qres1 qres2 /\
+                   pframes_rel fcl_rel n (pwcompose qw012 qw012) qres0 qres2 /\
+                   ~(pframes_rel fcl_rel n qw012 qres0 qres2))
+  = assert_norm (pwlookup_l 0 qw012 == Some 1);
+    assert_norm (pwlookup_l 1 qw012 == Some 2);
+    assert_norm (~(pwlookup_l 0 qw012 == Some 2));
+    lemma_qres_rel n qw012 0 1;
+    lemma_qres_rel n qw012 1 2;
+    lemma_pval_rel_compose #fv qw012 qw012 (PCtxKey 0) (PCtxKey 1) (PCtxKey 2);
+    lemma_pwcompose_l qw012 qw012 0;
+    lemma_pframes_static_compose fcl_rel n qw012 qw012 qres0 qres1 qres2;
+    introduce pframes_rel fcl_rel n qw012 qres0 qres2 ==> False
+    with begin
+      assert (pframe_rel fcl_rel n qw012
+                (PParamF #fv #fcl "p" (PCtxKey 0))
+                (PParamF #fv #fcl "p" (PCtxKey 2)));
+      pval_rel_key_unfold #fv qw012 0 2 ()
+    end
+
+(* ================================================================== *)
+(*  B2b.19 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  THE GATE STOPS, AND IT STOPS WITH A REFUTATION AND NOT WITH AN     *)
+(*  UNPROVED OBLIGATION.                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED.                                                    *)
+(*   1. `lemma_padm_pctx_compose_done`, `lemma_padm_xrel_compose_done` *)
+(*      -- the `PCtxDone` clause composes, at every index, with no      *)
+(*      hypothesis.  The previous gate's decisive guard is an          *)
+(*      instance.                                                      *)
+(*   2. `lemma_padm_pctx_requests_payload_compose` -- the payload      *)
+(*      conjunct of the `PCtxRequests` clause composes.                *)
+(*   3. `lemma_pframes_rel_compose_of_pointwise` -- the residual       *)
+(*      composes as soon as its frames do, by induction on the list;   *)
+(*      `lemma_pframe_static_compose` / `lemma_pframes_static_compose` *)
+(*      discharge the pointwise hypothesis UNCONDITIONALLY for the     *)
+(*      three frames whose clause has no `forall w'` in it, and        *)
+(*      `guard_static_residual_composes` fires that at a real          *)
+(*      handle-carrying residual, with the fixed-world non-relation    *)
+(*      as the non-vacuity check.                                      *)
+(*   4. `lemma_pwfactor_one` -- ONE new correspondence factors, under  *)
+(*      ONE side condition, with the middle name CHOSEN: `w12`'s own   *)
+(*      answer when it has one, `pwfresh2` when it does not.           *)
+(*   5. `lemma_pwfactor_many` -- a finite run of new correspondences   *)
+(*      factors, under the same side condition at each step, with the  *)
+(*      composite agreeing with the target by mutual `pwext`.          *)
+(*  10. `guard_middle_name_reuse_is_refused` -- a factorisation that   *)
+(*      spends one middle name on two new correspondences produces     *)
+(*      two non-worlds AND the wrong correspondence;                   *)
+(*      `lemma_pwfactor_middle_names_distinct` shows the honest one    *)
+(*      never does, because it chooses against the GROWN world;        *)
+(*      `guard_pwfactor_many_is_non_vacuous` computes both names.      *)
+(*   9. `guard_padm_xrel_requests_compose_at_the_composed_world` --    *)
+(*      a REAL `PCtxRequests` triple, `post` clause present and        *)
+(*      discharged, related at the composed world and NOT at the       *)
+(*      fixed one.                                                     *)
+(*                                                                     *)
+(*  WHAT IS REFUTED.  `guard_pwfactor_needs_right_freshness`.  The     *)
+(*  side condition on step 4 is NOT a proof convenience: there is a    *)
+(*  well-formed future world of a composite, adding exactly one pair,  *)
+(*  that NO pair of future worlds composes to cover.  So step 4 in     *)
+(*  its unrestricted form is FALSE, and step 5 with it.                *)
+(*                                                                     *)
+(*  WHAT THIS SAYS ABOUT THE RELATION.  The obstruction is that        *)
+(*  `pwcompose w12 w23` FORGETS the middle run's name usage.  A right  *)
+(*  name the middle-to-right world has already produced is invisible   *)
+(*  in the composite, so a future world of the composite may hand it   *)
+(*  out again to a different left name, and no factorisation can       *)
+(*  follow.  Of the three diagnoses the gate offered, this is the      *)
+(*  second: WORLDS NEED TO CARRY A FRESH-NAME SUPPLY.  `pwbound` is    *)
+(*  already the shape of it -- had the composite carried the middle    *)
+(*  and right counters, and had `pwext` been restricted to extensions  *)
+(*  by names at or above them, the counterexample would be excluded    *)
+(*  and `lemma_pwextend_pwcompose` would discharge every step.  The    *)
+(*  third diagnosis -- restate over COMPATIBLE PAIRS of future worlds  *)
+(*  -- is the same repair seen from the relation's side and is not     *)
+(*  refuted by anything here.                                          *)
+(*                                                                     *)
+(*  WHAT IS NOT DONE, AND IS NOT CLAIMED.  Steps 6, 7 and 8 -- post-   *)
+(*  closure composition, compositional transitivity of the             *)
+(*  `PCtxRequests` clause as a whole, and the lift to `padm_srel` --   *)
+(*  are NOT attempted.  They rest on a composition principle for       *)
+(*  `padm_pcomp`, and `padm_pcomp` unfolds to `pcomp_rel`, whose       *)
+(*  `POp`, `PHandle`, `PExtendC`, `PExtendCtxC` and `PResumeC`         *)
+(*  clauses each carry the SAME future-world quantifier in the SAME    *)
+(*  shape; the counterexample above is an obstruction to all of them   *)
+(*  at once and not to the `post` clause alone.  Assuming that         *)
+(*  principle as a hypothesis would have made steps 6 to 8 typecheck   *)
+(*  while assuming very nearly the theorem, and it is not done.        *)
+(*  Nothing here defines an observation, rebuilds `padm_join`, proves  *)
+(*  confluence or a normal form, states a law, or changes any          *)
+(*  existing definition.                                               *)
+(* ================================================================== *)

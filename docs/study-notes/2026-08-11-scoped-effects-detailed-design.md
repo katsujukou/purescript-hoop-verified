@@ -5357,6 +5357,217 @@ A run counts as successful only when **all three** hold:
 `Verified module: M` alone is **not** evidence — F\* prints it on failing runs
 too. Scripts that pipe F\*'s output need `pipefail` or the exit status is lost.
 
+#### The lift gate: factorisation is false, and that is the result
+
+The gate stopped at steps 4 and 5, and the stop is a **refutation**, not a
+failure to find a proof. Stated at the strength established:
+
+> The gate proves that unrestricted factorisation through plain `pwext` is
+> false, because composition forgets name usage in the middle run. Carrying the
+> middle allocation bound is the leading repair candidate, supported by the
+> existing `pwbound`/counter invariant, but its sufficiency is not established:
+> allocator-respecting future extension and the existence of corresponding
+> middle-store entries remain to be proved.
+
+The witness, `guard_pwfactor_needs_right_freshness`:
+
+```fstar
+let fw12 : pworld = [(0, 1)]
+let fw23 : pworld = [(5, 7)]
+let fwtarget : pworld = [(0, 7)]
+```
+
+`pwcompose fw12 fw23 == []` — the right world is silent at `1` — so `fwtarget`
+is a well-formed future world of the composite adding **exactly one** new pair,
+which is the setting of step 4 itself. And yet:
+
+```fstar
+~(exists (a b: pworld).
+    pwf_world a /\ pwf_world b /\ pwext a fw12 /\ pwext b fw23 /\
+    pwlookup_l 0 (pwcompose a b) == Some 7)
+```
+
+Three lines. A future world of `fw12` still sends `0` to `1`, so the middle
+name at `0` is fixed at `1`. A future world of `fw23` still sends `5` to `7`,
+and — being a partial **bijection** — `5` is the only middle name it sends to
+`7`. So the composite sends `0` to `7` only if `1 = 5`.
+
+The refutation is in the **existential** form: not "the constructed
+factorisation fails" but "no pair of future worlds covers the pair at all". The
+strong side conditions the brief had sketched — mutual `pwext`, fresh middle
+names — are not used, so there is no way around it by strengthening them.
+
+Two independent guards, run separately from the gate, fix what the obstruction
+is and is not:
+
+| guard | expectation | outcome |
+|---|---|---|
+| free the right name only — `[(5,8)]` in place of `[(5,7)]` | factorisation exists | exit 0; `a`, `b` constructed from `lemma_pwfactor_one` |
+| delete `pwlookup_r k w23 == None` from `lemma_pwfactor_one`, body unchanged | rejected | exit 1, at `lemma_pwextend_wf j k w23` — the deleted precondition itself |
+
+So the obstruction is exactly right-freshness of `k` in `w23`, and the side
+condition carrying step 4 is load-bearing rather than decorative.
+
+#### Where each step landed
+
+| # | status |
+|---|---|
+| 1 | PROVED `lemma_padm_pctx_compose_done`, `lemma_padm_xrel_compose_done` — all indices, no hypothesis |
+| 2 | PROVED `lemma_padm_pctx_requests_payload_compose` |
+| 3 | **split form only**: `lemma_pframes_rel_compose_of_pointwise` (pointwise ⟹ list, unconditional) plus unconditional discharge for `PParamF`/`PBoundaryF`/`PScopeF`. **General pointwise frame composition is not proved** |
+| 4–5 | PROVED under a side condition; the general form REFUTED |
+| 6–8 | not attempted — the stop condition |
+| 9 | PROVED: a real `PCtxRequests` triple with a discharged `post` clause relates at the composed world and **not** at the fixed world `qw012` |
+| 10 | PROVED: reusing a middle name is `~pwf_world`, and — so the rejection is not merely type-level — the composite sends `0` to `30` where the target sends `0` to `20`, so it does not even `pwext` |
+
+Steps 6–8 were not delivered as conditional lemmas because `padm_pcomp` unfolds
+to `pcomp_rel`, whose `POp` / `PHandle` / `PExtendC` / `PExtendCtxC` /
+`PResumeC` clauses all carry the **same** future-world quantification. Assuming
+compositionality of `padm_pcomp` would be close to assuming the theorem.
+
+#### The diagnosis, at its actual strength
+
+What is mechanically settled is this and no more: plain `pwcompose` together
+with **unrestricted** `pwext` makes future-world factorisation false, so the
+name usage the composite discards must be retained in some form.
+
+The tempting summary — "the future-world quantification in the post clause is
+too strong" — is not right as stated. The Kripke quantification itself is
+needed. What is too wide is its **domain**: quantifying over every `pwext`
+extension imposes obligations for extensions no allocator could produce. The
+refinement is
+
+```text
+forall w'. pwext w' w ==> ...
+```
+
+into
+
+```text
+forall w'. allocator_respecting_extension nL nR w w' ==> ...
+```
+
+and a fresh-name supply is the information that refinement needs. It is a
+narrowing of the quantifier's range, not its removal.
+
+Why the middle counter is the candidate: in the counterexample `1` and `5` are
+distinct identities in the middle space, but plain composition drops both
+unmatched edges and yields the empty world, which then admits `0 ↦ 7` as a
+future extension. Retaining the middle counter or support makes `1` and `5`
+both already-used middle identities, and a factorisation identifying them
+rejectable. The index of the relation should therefore be conceptually a
+**bounded world** `(nL, w, nR)`, composing as
+
+```text
+(n1, w12, n2)
+(n2, w23, n3)
+────────────────
+(n1, compose w12 w23, n3)
+```
+
+with the eliminated `n2` retained as a witness for the transitivity proof. The
+prototype already has the two halves of this: `pwbound w n1 n2` says every key
+the world speaks for is below the respective counter, and `pcfrel` carries
+`pwbound w cf1.next cf2.next` as part of the configuration relation. What is
+missing is the middle counter — and it is exactly what `pwfresh2` needs, since
+it computes from `pwmaxname w12 w23`, information the composite does not hold.
+
+#### Why counters alone may still be too coarse
+
+A new pair `(i, k)` in a future extension has at least four cases:
+
+1. `w12` already has `i ↦ j` and `w23` already has `j ↦ k` — an existing
+   composition;
+2. `w12` has `i ↦ j` but `w23` is undefined at `j` — the middle name is forced
+   to `j`, only `k` is fresh;
+3. `w23` has `j ↦ k` but `w12` has no correspondence into `j` — the middle name
+   is forced to `j`, only `i` is fresh;
+4. neither is defined — both ends fresh, and a new middle name `j >= n2` is
+   chosen.
+
+The counterexample poses as case 1 and is rejected because the two forced
+middle names disagree. Requiring `i >= n1 /\ k >= n3` of **every** new pair may
+therefore also exclude cases 2 and 3. Whether that is correct depends on
+whether the machine ever attaches a correspondence to an already-existing
+identity on one side — which is a question about the machine, not about worlds.
+
+Before adopting the counter-based repair, this has to be settled:
+
+> A handle allocated before the current counters but absent from the current
+> world can never later become publicly observable, unless it was already
+> recorded by the provenance anchor.
+
+If it holds, future world growth is confined to new allocations and the
+counter-above discipline is justified. If it does not, counters are
+insufficient, and the composite must retain unmatched intermediate mappings,
+existing-but-unpublished identities, and forced middle-name constraints —
+that is, the **span** `w12 -> middle <- w23` rather than a single world.
+
+#### The next scratch gate, before touching the relation
+
+1. `pbounded_world nL nR w = pwf_world w /\ pwbound w nL nR`;
+2. define a candidate allocator-respecting future extension;
+3. one paired allocation of the machine satisfies it;
+4. today's `0 ↦ 7` falls outside the extension domain;
+5. decide against the machine whether existing-left/fresh-right and
+   fresh-left/existing-right are to be admitted;
+6. single-pair factorisation;
+7. factorisation for finitely many pairs;
+8. the factor worlds agree with the middle store and counter;
+9. B2b.2's one-step world extension satisfies the new discipline;
+10. no counterexample where a captured handle suddenly enters the world later.
+
+Step 8 is the one that matters. A middle name `j` can be chosen logically and
+still name nothing: without a corresponding entry in the middle store the
+factorisation has fabricated a name rather than found one. `j` must correspond
+to an allocation of the middle run.
+
+#### The middle name is not always fresh
+
+The brief's sketch was wrong in one of two cases. If `w12` already speaks at
+`i`, no future world may revise that answer, so the middle name is **forced**
+and a fresh name is incorrect; the choice exists only where `w12` is silent at
+`i`. `pwmidname` therefore branches on the world's own lookup, as
+`pwcompose_from` does:
+
+```fstar
+let pwmidname (w12 w23: pworld) (i: nat) : nat
+  = match pwlookup_l i w12 with
+    | Some j -> j
+    | None -> pwfresh2 w12 w23
+```
+
+Injectivity of the middle names is not an extra property but a consequence of
+this choice: `pwfactor_many` re-takes `pwfresh2` against the **grown** worlds
+at each step, so an earlier middle name already lies in the left factor's
+range, and `lemma_pwfactor_middle_names_distinct` reads distinctness off that.
+
+#### What this gate does not claim
+
+- **The post clause's composition is not shown false.** Only the factorisation
+  route is. Several attempts at a counterexample to the clause itself died —
+  the future-world quantification pins the closure near the identity outside
+  the world's domain — but that is an observation, not a proof. Undecided.
+- Step 9's guard passes because `ppost_id` is equivariant, which reduces its
+  future-world clause to the hypothesis given. It witnesses that a
+  `PCtxRequests` clause **can** compose, not that one always does.
+- That `PBindF` / `PSiteF` / `PModeF` / `PPromptF` are blocked by the same
+  counterexample is read off the shape of `pframe_rel`. It is a claim about the
+  proof route, not a machine-checked fact.
+- The `pwbound` repair sketched above is an argument, not a theorem. Only the
+  refutation is proved.
+
+An unexplained phenomenon is recorded as an outstanding obligation: an Error
+168 (syntax) that occurs **only** in the full-file context, where textually
+identical code verifies in a small module. No minimal reproduction exists and
+the cause is unidentified; `#push-options` should not affect parsing.
+
+The stop does not refute the design. It locates what plain partial-bijection
+composition loses — the names the middle run has already used — and shows the
+Kripke closure needs it. The middle counter is the smallest candidate, and its
+admission condition is not only that a name is fresh but that it is an identity
+really present in the middle run.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
