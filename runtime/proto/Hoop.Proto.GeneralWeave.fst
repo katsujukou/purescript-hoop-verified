@@ -24531,3 +24531,2993 @@ let guard_padm_residual_ledger ()
 (*     the first mutation above, which shows the refusal really does   *)
 (*     travel through the residual conjunct.                           *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.15 -- THE ADMINISTRATIVE OBSERVATION, BESIDE THE NOMINAL ONE   *)
+(*                                                                     *)
+(*  B2b.13 closed with a verdict and a direction.  The verdict:        *)
+(*  `law_right_identity_ext_at` is FALSE at `ricons`, the simplest     *)
+(*  conforming consumer, and the refutation IS the mid-point specimen  *)
+(*  -- the two runs END at `qmid_sl` and `qmid_sr`, the answers NAME    *)
+(*  those two entries, and `psrel` refuses the pair                    *)
+(*  (`guard_ri_id_stores_no_world`).  The direction: place an          *)
+(*  observation BESIDE `pnobs_tr_eq_wf_at` whose final-store clause is *)
+(*  `padm_srel` rather than `psrel`, and see what it can tell apart.   *)
+(*                                                                     *)
+(*  THIS BLOCK BUILDS THAT OBSERVATION AND MEASURES IT.  It does not   *)
+(*  prove it sound against public observation, does not prove any      *)
+(*  one-step or finite-run preservation, does not prove any law, and   *)
+(*  CHANGES NO EXISTING DEFINITION.  Everything is appended.           *)
+(*                                                                     *)
+(*  THE ONLY DIFFERENCE FROM THE NOMINAL FORM IS THE FINAL-STORE       *)
+(*  CLAUSE.  `pnobs_tr_le_adm_at` is `pnobs_tr_le_wf_at` with          *)
+(*  `psrel b.b_rel w s1' s2'` replaced by `padm_srel b.b_rel w s1' s2'`*)
+(*  and NOTHING else touched: the same value relation `pval_rel w x1   *)
+(*  x2` on the answers, the SAME trace variable `tr` on both runs in   *)
+(*  the same order and multiplicity, `pwf_world w`, `pwext w (panchor  *)
+(*  sto)`, the provenance side condition `pwext (panchor sto) w0`, and *)
+(*  `pnobs_dom b _ k sto n0` at BOTH computations.                     *)
+(*                                                                     *)
+(*  WHAT THE MEASUREMENT SAYS, IN ADVANCE OF THE PROOFS.               *)
+(*                                                                     *)
+(*   - THE COUNTEREXAMPLE BECOMES POSITIVE, in the direction it was    *)
+(*     taken in.  At the very configuration `guard_ri_id_conclusion_   *)
+(*     refuted` stands at -- empty stack, empty store, counter zero,   *)
+(*     `rilhs` on the left -- the consequent the nominal observation   *)
+(*     demands is FALSE and the one the administrative observation     *)
+(*     demands is TRUE, with the same witnesses forced by uniqueness   *)
+(*     of convergence.                                                *)
+(*                                                                     *)
+(*   - AND THE OTHER DIRECTION IS STILL REFUSED, because `padm_pcomp`  *)
+(*     is DIRECTIONAL by construction: only the LEFT may carry the     *)
+(*     administrative unit.  So `pnobs_tr_le_adm_at` at `(rirhs,       *)
+(*     rilhs)` is FALSE, and therefore the two-directional             *)
+(*     `pnobs_tr_eq_adm_at` at `(rilhs, rirhs)` is FALSE too.  That is *)
+(*     PROVED below, not conjectured, and it is the honest measurement *)
+(*     of this candidate: retargeting the law at the ORDERED           *)
+(*     administrative observation removes the obstruction; retargeting *)
+(*     it at the SYMMETRISED one does not.                             *)
+(*                                                                     *)
+(*   - THE OBSERVATION IS NOT THE UNIVERSAL RELATION.  The            *)
+(*     left-identity counterexample of B2b.2 -- whose two answers name *)
+(*     contexts holding residuals of DIFFERENT LENGTHS, four against   *)
+(*     two -- refutes it, at the same configuration and by the same    *)
+(*     argument, because `padm_pctx` reads the residual with           *)
+(*     `pframes_rel` exactly as `pctx_rel` does.  That negative is     *)
+(*     INDEPENDENT of the specimen: it is about a stack length and     *)
+(*     mentions no `post` at all.                                      *)
+(*                                                                     *)
+(*  NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`, NO       *)
+(*  `val` without a body, NO axiom, NO `expect_failure`.               *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  THE TWO RELATIONS                                                  *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE ADMINISTRATIVE OBSERVATION, INDEXED BY A PROVENANCE ANCHOR.**
+ *
+ * Read it against `pnobs_tr_le_wf_at`, which it differs from in ONE place and
+ * nowhere else: the last conjunct of the consequent is `padm_srel` where the
+ * nominal one has `psrel`. Everything else is copied character for character --
+ * `pnobs_dom` at BOTH computations, the provenance side condition `pwext
+ * (panchor sto) w0`, the shared initial configuration, the SAME trace variable
+ * `tr` on both runs, the anchored world `pwext w (panchor sto)`, the partial
+ * bijection `pwf_world w`, the value relation on the two answers, and the two
+ * independently existential step counts hidden inside `pnconverges`.
+ *
+ * The side condition is a HYPOTHESIS INSIDE the quantified body, as it is in the
+ * nominal form, so nothing here depends on a `{:pattern}` firing.
+ *)
+let pnobs_tr_le_adm_at (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                       (c1 c2: pcomp v cl) : GTot prop
+  = forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+           (tr: list string) (x1: pval v) (s1': pstore v cl).
+      (pwext (panchor sto) w0 /\
+       pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+       pnconverges b.b_lk b.b_apply
+                   ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+      (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+         pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2')
+
+let pnobs_tr_eq_adm_at (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                       (c1 c2: pcomp v cl) : GTot prop
+  = pnobs_tr_le_adm_at b w0 c1 c2 /\ pnobs_tr_le_adm_at b w0 c2 c1
+
+(** A `GTot prop` applied in HYPOTHESIS position is an atom to the SMT encoding.
+    These casts put the body in the context and take it back; they have no proof
+    obligation at all and go through by conversion. *)
+let pnobs_tr_le_adm_at_unfold (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                              (c1 c2: pcomp v cl)
+                              (h: squash (pnobs_tr_le_adm_at b w0 c1 c2))
+  : squash (forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                   (tr: list string) (x1: pval v) (s1': pstore v cl).
+              (pwext (panchor sto) w0 /\
+               pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+               pnconverges b.b_lk b.b_apply
+                           ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+              (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                 pnconverges b.b_lk b.b_apply
+                             ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+                 pwf_world w /\ pwext w (panchor sto) /\
+                 pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2'))
+  = h
+
+let pnobs_tr_le_adm_at_fold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (c1 c2: pcomp v cl)
+    (h: squash (forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                       (tr: list string) (x1: pval v) (s1': pstore v cl).
+                  (pwext (panchor sto) w0 /\
+                   pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                   pnconverges b.b_lk b.b_apply
+                               ({ st = PStep c1 k; store = sto; next = n0 })
+                               tr x1 s1') ==>
+                  (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                     pnconverges b.b_lk b.b_apply
+                                 ({ st = PStep c2 k; store = sto; next = n0 })
+                                 tr x2 s2' /\
+                     pwf_world w /\ pwext w (panchor sto) /\
+                     pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2')))
+  : squash (pnobs_tr_le_adm_at b w0 c1 c2)
+  = h
+
+let pnobs_tr_eq_adm_at_unfold (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                              (c1 c2: pcomp v cl)
+                              (h: squash (pnobs_tr_eq_adm_at b w0 c1 c2))
+  : squash (pnobs_tr_le_adm_at b w0 c1 c2 /\ pnobs_tr_le_adm_at b w0 c2 c1)
+  = h
+
+let pnobs_tr_eq_adm_at_fold (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                            (c1 c2: pcomp v cl)
+                            (h: squash (pnobs_tr_le_adm_at b w0 c1 c2 /\
+                                        pnobs_tr_le_adm_at b w0 c2 c1))
+  : squash (pnobs_tr_eq_adm_at b w0 c1 c2)
+  = h
+
+(** The store-clause cast, exactly as `psrel_unfold` is for `psrel`, and the
+    `{:pattern}` is carried across for the same reason. *)
+let padm_srel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (s1 s2: pstore v cl) (h: squash (padm_srel r w s1 s2))
+  : squash (forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+              pwlookup_l i w == Some j ==>
+              (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+               padm_xrel r w (psget i s1) (psget j s2)))
+  = h
+
+(* ------------------------------------------------------------------ *)
+(*  THE TRACE IS NOT WEAKENED BY THE SUBSTITUTION                      *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE TRACE IS STILL MATCHED EXACTLY.** PROVED, by
+ * `guard_nom_trace_not_weakened_wf_at`'s argument verbatim: the trace the
+ * antecedent's convergence carries is the SAME variable the consequent's must
+ * carry, and the right run's convergence is unique. Replacing the store clause
+ * moved nothing here, and this is checked rather than argued.
+ *)
+let guard_adm_trace_not_weakened (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+    (c1 c2: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr1 tr2: list string) (x1 x2: pval v) (s1' s2': pstore v cl)
+  : Lemma (requires pnobs_tr_le_adm_at b w0 c1 c2 /\
+                    pwext (panchor sto) w0 /\
+                    pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c1 k; store = sto; next = n0 })
+                                tr1 x1 s1' /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr2 x2 s2')
+          (ensures tr1 == tr2)
+  = pnobs_tr_le_adm_at_unfold b w0 c1 c2 ();
+    eliminate exists (y2: pval v) (t2: pstore v cl) (w: pworld).
+        (pnconverges b.b_lk b.b_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr1 y2 t2 /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 y2 /\ padm_srel b.b_rel w s1' t2)
+    with
+      lemma_pnconverges_unique b.b_lk b.b_apply
+        ({ st = PStep c2 k; store = sto; next = n0 }) tr1 tr2 y2 x2 t2 s2'
+
+(* ------------------------------------------------------------------ *)
+(*  ANTITONE IN THE PROVENANCE, AND THE EMPTY-ANCHOR SPECIAL CASE      *)
+(* ------------------------------------------------------------------ *)
+
+(** **THE ADMINISTRATIVE OBSERVATION IS ANTITONE IN THE PROVENANCE.** PROVED, by
+    `lemma_pnobs_tr_le_wf_at_mono`'s argument verbatim. So the relationship
+    between provenances is the nominal one's and is not re-decided by the store
+    clause. *)
+let lemma_pnobs_tr_le_adm_at_mono (#v #cl: Type) (b: pboundary v cl) (w1 w0: pworld)
+                                  (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_le_adm_at b w0 c1 c2 /\ pwext w1 w0)
+          (ensures pnobs_tr_le_adm_at b w1 c1 c2)
+  = pnobs_tr_le_adm_at_unfold b w0 c1 c2 ();
+    pnobs_tr_le_adm_at_fold b w1 c1 c2
+      (introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                        (tr: list string) (x1: pval v) (s1': pstore v cl).
+          ((pwext (panchor sto) w1 /\
+            pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+            pnconverges b.b_lk b.b_apply
+                        ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+           (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+              pnconverges b.b_lk b.b_apply
+                          ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+              pwf_world w /\ pwext w (panchor sto) /\
+              pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2'))
+       with (introduce _ ==> _ with lemma_pwext_trans (panchor sto) w1 w0))
+
+let lemma_pnobs_tr_eq_adm_at_mono (#v #cl: Type) (b: pboundary v cl) (w1 w0: pworld)
+                                  (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_eq_adm_at b w0 c1 c2 /\ pwext w1 w0)
+          (ensures pnobs_tr_eq_adm_at b w1 c1 c2)
+  = lemma_pnobs_tr_le_adm_at_mono b w1 w0 c1 c2;
+    lemma_pnobs_tr_le_adm_at_mono b w1 w0 c2 c1
+
+(* ------------------------------------------------------------------ *)
+(*  REQUIREMENT 6: CONTAINMENT FROM NOMINAL INTO ADMINISTRATIVE        *)
+(* ------------------------------------------------------------------ *)
+
+(** The consequent, transported one witness at a time. The three witnesses are
+    PROOF-FUNCTION ARGUMENTS rather than existentially eliminated inside a
+    quantifier, so nothing here depends on a pattern firing. PROVED, from
+    `lemma_padm_srel_of_psrel` and nothing else. *)
+let lemma_adm_conseq_of_nom_conseq
+    (#v #cl: Type) (b: pboundary v cl)
+    (c2: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+    (x2: pval v) (s2': pstore v cl) (w: pworld)
+  : Lemma (requires pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr x2 s2' /\
+                    pwf_world w /\ pwext w (panchor sto) /\
+                    pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+          (ensures (exists (z2: pval v) (t2: pstore v cl) (w2: pworld).
+                      pnconverges b.b_lk b.b_apply
+                                  ({ st = PStep c2 k; store = sto; next = n0 })
+                                  tr z2 t2 /\
+                      pwf_world w2 /\ pwext w2 (panchor sto) /\
+                      pval_rel w2 x1 z2 /\ padm_srel b.b_rel w2 s1' t2))
+  = lemma_padm_srel_of_psrel b.b_rel w s1' s2'
+
+(**
+ * **THE NOMINAL OBSERVATION IS CONTAINED IN THE ADMINISTRATIVE ONE.** PROVED.
+ *
+ * So the administrative form is a WEAKENING of the nominal one and the two are
+ * not incomparable: every pair the nominal observation relates, at every
+ * provenance, the administrative one relates too. The step is
+ * `lemma_padm_srel_of_psrel` under the consequent's existential and nothing
+ * else -- no clause but the store clause is touched, which is why nothing else
+ * has to be re-established.
+ *)
+let lemma_pnobs_tr_le_adm_at_of_wf_at (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                                      (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_le_wf_at b w0 c1 c2)
+          (ensures pnobs_tr_le_adm_at b w0 c1 c2)
+  = pnobs_tr_le_wf_at_unfold b w0 c1 c2 ();
+    pnobs_tr_le_adm_at_fold b w0 c1 c2
+      (introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                        (tr: list string) (x1: pval v) (s1': pstore v cl).
+          ((pwext (panchor sto) w0 /\
+            pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+            pnconverges b.b_lk b.b_apply
+                        ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+           (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+              pnconverges b.b_lk b.b_apply
+                          ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+              pwf_world w /\ pwext w (panchor sto) /\
+              pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2'))
+       with (introduce _ ==> _
+             with (eliminate exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                       (pnconverges b.b_lk b.b_apply
+                                    ({ st = PStep c2 k; store = sto; next = n0 })
+                                    tr x2 s2' /\
+                        pwf_world w /\ pwext w (panchor sto) /\
+                        pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+                   with lemma_adm_conseq_of_nom_conseq b c2 k sto n0 tr x1 s1'
+                          x2 s2' w)))
+
+let lemma_pnobs_tr_eq_adm_at_of_wf_at (#v #cl: Type) (b: pboundary v cl) (w0: pworld)
+                                      (c1 c2: pcomp v cl)
+  : Lemma (requires pnobs_tr_eq_wf_at b w0 c1 c2)
+          (ensures pnobs_tr_eq_adm_at b w0 c1 c2)
+  = pnobs_tr_eq_wf_at_unfold b w0 c1 c2 ();
+    lemma_pnobs_tr_le_adm_at_of_wf_at b w0 c1 c2;
+    lemma_pnobs_tr_le_adm_at_of_wf_at b w0 c2 c1
+
+(* ------------------------------------------------------------------ *)
+(*  REQUIREMENT 2, MACHINE-CHECKED: THE STORE CLAUSE IS THE ONLY        *)
+(*  DIFFERENCE                                                          *)
+(*                                                                     *)
+(*  "The only difference is `psrel` -> `padm_srel`" is a claim about     *)
+(*  two texts, and a text can be eyeballed wrong.  The two lemmas       *)
+(*  below turn it into a checked statement: IF the two store relations  *)
+(*  coincided, the two observations would coincide -- so no other       *)
+(*  clause can be carrying any difference, in either direction.  One    *)
+(*  half of the biconditional is the unconditional containment already  *)
+(*  proved; the other is the hypothesis instantiated once.              *)
+(* ------------------------------------------------------------------ *)
+
+(** The consequent, transported BACK under the assumption that the two store
+    relations agree. The three witnesses are proof-function arguments, as they
+    are in `lemma_adm_conseq_of_nom_conseq`. PROVED. *)
+let lemma_nom_conseq_of_adm_conseq_under
+    (#v #cl: Type) (b: pboundary v cl)
+    (c2: pcomp v cl) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+    (x2: pval v) (s2': pstore v cl) (w: pworld)
+  : Lemma (requires (forall (w': pworld) (t1 t2: pstore v cl).
+                       padm_srel b.b_rel w' t1 t2 ==> psrel b.b_rel w' t1 t2) /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c2 k; store = sto; next = n0 })
+                                tr x2 s2' /\
+                    pwf_world w /\ pwext w (panchor sto) /\
+                    pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2')
+          (ensures (exists (z2: pval v) (t2: pstore v cl) (w2: pworld).
+                      pnconverges b.b_lk b.b_apply
+                                  ({ st = PStep c2 k; store = sto; next = n0 })
+                                  tr z2 t2 /\
+                      pwf_world w2 /\ pwext w2 (panchor sto) /\
+                      pval_rel w2 x1 z2 /\ psrel b.b_rel w2 s1' t2))
+  = assert (psrel b.b_rel w s1' s2')
+
+(**
+ * **THE TWO OBSERVATIONS DIFFER IN THE STORE CLAUSE AND IN NOTHING ELSE.**
+ * PROVED, as a biconditional under ONE hypothesis: that `padm_srel` and `psrel`
+ * agree.
+ *
+ * Read it as the check that requirement 2 asks for. The right-to-left half is
+ * `lemma_pnobs_tr_le_adm_at_of_wf_at`, which holds UNCONDITIONALLY. The
+ * left-to-right half holds as soon as the two store relations agree -- so
+ * every other clause of the two definitions must already be identical: the value
+ * relation on the answers, the trace variable and its two occurrences, the
+ * anchored world, the partial bijection, the provenance side condition and
+ * `pnobs_dom` at both computations. If any of them differed, no hypothesis about
+ * STORES would close this gap.
+ *
+ * The hypothesis is FALSE (`guard_padm_srel_strictly_weaker` exhibits the pair
+ * that separates them), so this lemma proves nothing about the observations
+ * themselves. It is a statement about the two DEFINITIONS, and that is what it
+ * is here for.
+ *)
+let guard_adm_differs_only_in_the_store_clause
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (c1 c2: pcomp v cl)
+  : Lemma (requires (forall (w: pworld) (s1 s2: pstore v cl).
+                       padm_srel b.b_rel w s1 s2 ==> psrel b.b_rel w s1 s2))
+          (ensures (pnobs_tr_le_adm_at b w0 c1 c2 <==>
+                    pnobs_tr_le_wf_at b w0 c1 c2))
+  = introduce pnobs_tr_le_wf_at b w0 c1 c2 ==> pnobs_tr_le_adm_at b w0 c1 c2
+    with lemma_pnobs_tr_le_adm_at_of_wf_at b w0 c1 c2;
+    introduce pnobs_tr_le_adm_at b w0 c1 c2 ==> pnobs_tr_le_wf_at b w0 c1 c2
+    with begin
+      pnobs_tr_le_adm_at_unfold b w0 c1 c2 ();
+      pnobs_tr_le_wf_at_fold b w0 c1 c2
+        (introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                          (tr: list string) (x1: pval v) (s1': pstore v cl).
+            ((pwext (panchor sto) w0 /\
+              pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+              pnconverges b.b_lk b.b_apply
+                          ({ st = PStep c1 k; store = sto; next = n0 })
+                          tr x1 s1') ==>
+             (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                pnconverges b.b_lk b.b_apply
+                            ({ st = PStep c2 k; store = sto; next = n0 })
+                            tr x2 s2' /\
+                pwf_world w /\ pwext w (panchor sto) /\
+                pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'))
+         with (introduce _ ==> _
+               with (eliminate exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                         (pnconverges b.b_lk b.b_apply
+                                      ({ st = PStep c2 k; store = sto; next = n0 })
+                                      tr x2 s2' /\
+                          pwf_world w /\ pwext w (panchor sto) /\
+                          pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2')
+                     with lemma_nom_conseq_of_adm_conseq_under b c2 k sto n0
+                            tr x1 s1' x2 s2' w)))
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  THE CONSEQUENT AT ONE CONFIGURATION, IN BOTH READINGS               *)
+(*                                                                     *)
+(*  These two are the observation's own consequent, at ONE `(k, sto,    *)
+(*  n0)` and ONE left run, written twice: once with `psrel` and once    *)
+(*  with `padm_srel`.  They are what "at the very same configuration"   *)
+(*  is said with, and the two lemmas below prove each really is the     *)
+(*  respective observation's consequent and not a lookalike.            *)
+(* ------------------------------------------------------------------ *)
+
+let pnobs_conseq_wf (#v #cl: Type) (b: pboundary v cl) (c2: pcomp v cl)
+                    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                    (tr: list string) (x1: pval v) (s1': pstore v cl) : GTot prop
+  = exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+      pnconverges b.b_lk b.b_apply
+                  ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+      pwf_world w /\ pwext w (panchor sto) /\
+      pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2'
+
+let pnobs_conseq_adm (#v #cl: Type) (b: pboundary v cl) (c2: pcomp v cl)
+                     (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (tr: list string) (x1: pval v) (s1': pstore v cl) : GTot prop
+  = exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+      pnconverges b.b_lk b.b_apply
+                  ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+      pwf_world w /\ pwext w (panchor sto) /\
+      pval_rel w x1 x2 /\ padm_srel b.b_rel w s1' s2'
+
+let pnobs_conseq_wf_unfold (#v #cl: Type) (b: pboundary v cl) (c2: pcomp v cl)
+                           (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                           (tr: list string) (x1: pval v) (s1': pstore v cl)
+                           (h: squash (pnobs_conseq_wf b c2 k sto n0 tr x1 s1'))
+  : squash (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+              pnconverges b.b_lk b.b_apply
+                          ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+              pwf_world w /\ pwext w (panchor sto) /\
+              pval_rel w x1 x2 /\ psrel b.b_rel w s1' s2')
+  = h
+
+let pnobs_conseq_adm_fold (#v #cl: Type) (b: pboundary v cl) (c2: pcomp v cl)
+                          (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                          (tr: list string) (x1: pval v) (s1': pstore v cl)
+                          (h: squash (exists (x2: pval v) (s2': pstore v cl)
+                                             (w: pworld).
+                                        pnconverges b.b_lk b.b_apply
+                                          ({ st = PStep c2 k; store = sto; next = n0 })
+                                          tr x2 s2' /\
+                                        pwf_world w /\ pwext w (panchor sto) /\
+                                        pval_rel w x1 x2 /\
+                                        padm_srel b.b_rel w s1' s2'))
+  : squash (pnobs_conseq_adm b c2 k sto n0 tr x1 s1')
+  = h
+
+(** **THE ADMINISTRATIVE OBSERVATION DEMANDS EXACTLY THAT CONSEQUENT.** PROVED,
+    by the unfold cast alone. So a positive at one configuration is a positive
+    for the observation's own body there, and not for a weaker statement. *)
+let lemma_pnobs_conseq_adm_of_le_adm_at
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (c1 c2: pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+  : Lemma (requires pnobs_tr_le_adm_at b w0 c1 c2 /\
+                    pwext (panchor sto) w0 /\
+                    pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c1 k; store = sto; next = n0 })
+                                tr x1 s1')
+          (ensures pnobs_conseq_adm b c2 k sto n0 tr x1 s1')
+  = pnobs_tr_le_adm_at_unfold b w0 c1 c2 ()
+
+(** **AND THE NOMINAL ONE DEMANDS THE OTHER.** PROVED likewise, so the negative
+    below is a failure of the nominal observation's own body. *)
+let lemma_pnobs_conseq_wf_of_le_wf_at
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (c1 c2: pcomp v cl)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (x1: pval v) (s1': pstore v cl)
+  : Lemma (requires pnobs_tr_le_wf_at b w0 c1 c2 /\
+                    pwext (panchor sto) w0 /\
+                    pnobs_dom b c1 k sto n0 /\ pnobs_dom b c2 k sto n0 /\
+                    pnconverges b.b_lk b.b_apply
+                                ({ st = PStep c1 k; store = sto; next = n0 })
+                                tr x1 s1')
+          (ensures pnobs_conseq_wf b c2 k sto n0 tr x1 s1')
+  = pnobs_tr_le_wf_at_unfold b w0 c1 c2 ()
+
+(* ================================================================== *)
+(*  REQUIREMENT 4 -- THE COUNTEREXAMPLE, AT THE VERY SAME              *)
+(*  CONFIGURATION, IN BOTH READINGS                                    *)
+(* ================================================================== *)
+
+(**
+ * **THE ANTECEDENT IS MET AT THAT CONFIGURATION, AND ALL OF IT IS DISCHARGED.**
+ * PROVED. Empty ambient stack, empty store, counter zero, the provenance `[]`:
+ * `panchor []` extends `[]`; both sides are judged, so `guard_xce_dom` puts the
+ * configuration inside B2b.7's domain at BOTH computations; and
+ * `guard_ri_id_runs` supplies the left convergence, silently, at `PCtxKey 1`
+ * with final store `qmid_sl`.
+ *
+ * This comes first because a positive obtained without the antecedent is idle
+ * and a negative obtained without it is impossible.
+ *)
+let guard_ri_id_antecedent_met ()
+  : Lemma (pwext (panchor ([] <: pstore fv fcl)) ([] <: pworld) /\
+           pnobs_dom xboundary rilhs ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+           pnobs_dom xboundary rirhs ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+           pnconverges flook xapply ricf_l ([] <: list string) (PCtxKey 1) qmid_sl /\
+           pnconverges flook xapply ricf_r ([] <: list string) (PCtxKey 0) qmid_sr)
+  = guard_wb_rilhs ();
+    guard_wb_rirhs ();
+    guard_xce_dom rilhs;
+    guard_xce_dom rirhs;
+    guard_ri_id_runs ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld))
+
+(**
+ * **THE NOMINAL CONSEQUENT IS FALSE THERE.** PROVED, and it is
+ * `guard_ri_id_conclusion_refuted`'s inner argument, isolated at the
+ * configuration so that the administrative reading can be taken at the SAME
+ * one. Uniqueness of convergence pins `x2 := PCtxKey 0` and `s2' := qmid_sr`,
+ * and `guard_ri_id_stores_no_world` refuses every world that identifies the two
+ * answers.
+ *)
+let guard_ri_id_nom_conseq_fails ()
+  : Lemma (~(pnobs_conseq_wf xboundary rirhs ([] <: pstack fv fcl)
+                             ([] <: pstore fv fcl) 0
+                             ([] <: list string) (PCtxKey 1) qmid_sl))
+  = guard_ri_id_runs ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+    assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+    introduce pnobs_conseq_wf xboundary rirhs ([] <: pstack fv fcl)
+                              ([] <: pstore fv fcl) 0
+                              ([] <: list string) (PCtxKey 1) qmid_sl ==> False
+    with begin
+      pnobs_conseq_wf_unfold xboundary rirhs ([] <: pstack fv fcl)
+                             ([] <: pstore fv fcl) 0
+                             ([] <: list string) (PCtxKey 1) qmid_sl ();
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply ricf_r ([] <: list string) x2 s2' /\
+           pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+           pval_rel w (PCtxKey 1) x2 /\ psrel fcl_rel w qmid_sl s2')
+      with begin
+        lemma_pnconverges_unique flook xapply ricf_r [] [] x2 (PCtxKey 0) s2' qmid_sr;
+        guard_ri_id_stores_no_world w 1 0 qmid_sl qmid_sr
+      end
+    end
+
+(**
+ * **AND THE ADMINISTRATIVE CONSEQUENT IS TRUE THERE.** PROVED, at the SAME
+ * configuration, the SAME left run and the SAME answer.
+ *
+ * The three witnesses are the ones uniqueness of convergence forces and no
+ * others: `x2 := PCtxKey 0` and `s2' := qmid_sr` are the right run's own answer
+ * and final store (`guard_ri_id_runs`), and `w := qmid_w` is the world that
+ * identifies the two answers (`guard_ri_id_store_worlds_exist`). The last
+ * conjunct is `guard_padm_relates_the_specimen`'s
+ * `padm_srel fcl_rel qmid_w qmid_sl qmid_sr` -- the pair `psrel` refuses.
+ *
+ * So the difference between the two readings at this configuration is EXACTLY
+ * the difference between `psrel` and `padm_srel` at `(qmid_sl, qmid_sr)`, which
+ * `guard_padm_srel_strictly_weaker` already isolated. Nothing else moved.
+ *)
+let guard_ri_id_adm_conseq_holds ()
+  : Lemma (pnobs_conseq_adm xboundary rirhs ([] <: pstack fv fcl)
+                            ([] <: pstore fv fcl) 0
+                            ([] <: list string) (PCtxKey 1) qmid_sl)
+  = guard_ri_id_runs ();
+    guard_padm_relates_the_specimen ();
+    guard_ri_id_store_worlds_exist ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    pnobs_conseq_adm_fold xboundary rirhs ([] <: pstack fv fcl)
+      ([] <: pstore fv fcl) 0 ([] <: list string) (PCtxKey 1) qmid_sl
+      (introduce exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+           (pnconverges xboundary.b_lk xboundary.b_apply
+                        ({ st = PStep rirhs ([] <: pstack fv fcl);
+                           store = ([] <: pstore fv fcl); next = 0 })
+                        ([] <: list string) x2 s2' /\
+            pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+            pval_rel w (PCtxKey 1) x2 /\
+            padm_srel xboundary.b_rel w qmid_sl s2')
+       with (PCtxKey 0) qmid_sr qmid_w and ())
+
+(* ================================================================== *)
+(*  REQUIREMENT 7 -- THE ADMINISTRATIVE OBSERVATION IS NOT THE          *)
+(*  UNIVERSAL RELATION.  AN INDEPENDENT NEGATIVE.                      *)
+(* ================================================================== *)
+
+(** **A CONTEXT PAIR RELATED BY `padm_xrel` HOLDS RESIDUALS OF THE SAME
+    LENGTH.** PROVED, at index 1, and it is the only fact about `padm_pctx` the
+    negative below needs. `padm_pctx` reads the residual with `pframes_rel`,
+    exactly as `pctx_rel` does, and `PCtxDone` against `PCtxRequests` is
+    `False` -- so the strip disjunct on `post` buys nothing here. *)
+let lemma_padm_xrel_resid_length (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                 (cx1 cx2: pctx v cl)
+  : Lemma (requires padm_xrel r w cx1 cx2)
+          (ensures length (presid_of cx1) == length (presid_of cx2))
+  = assert (padm_pctx r 1 w cx1 cx2);
+    match cx1, cx2 with
+    | PCtxRequests _ rs1 _, PCtxRequests _ rs2 _ ->
+      lemma_pframes_rel_length r 1 w rs1 rs2
+    | PCtxDone _, PCtxDone _ -> ()
+    | _, _ -> ()
+
+(** **NO WORLD RELATING TWO ANSWERS WHOSE CONTEXTS HOLD RESIDUALS OF DIFFERENT
+    LENGTHS SATISFIES `padm_srel` EITHER.** PROVED. This is `lemma_ce_no_world`
+    with `psrel` replaced by `padm_srel` and `lemma_pxrel_resid` by
+    `lemma_padm_xrel_resid_length`; the run-uniqueness step and the world step
+    are the same. *)
+let lemma_ce_no_world_adm (cfr: pconf fv fcl) (sl sr: pstore fv fcl)
+    (i j: nat) (w: pworld) (x2: pval fv) (s2': pstore fv fcl)
+  : Lemma (requires pnconverges flook xapply cfr ([] <: list string) x2 s2' /\
+                    pnconverges flook xapply cfr ([] <: list string) (PCtxKey j) sr /\
+                    pval_rel w (PCtxKey i) x2 /\ padm_srel fcl_rel w sl s2' /\
+                    Some? (pstore_lookup i sl) /\ Some? (pstore_lookup j sr) /\
+                    ~(length (presid_of (psget i sl))
+                      == length (presid_of (psget j sr))))
+          (ensures False)
+  = lemma_pnconverges_unique flook xapply cfr [] [] x2 (PCtxKey j) s2' sr;
+    pval_rel_key_unfold #fv w i j ();
+    padm_srel_unfold fcl_rel w sl sr ();
+    lemma_padm_xrel_resid_length fcl_rel w (psget i sl) (psget j sr)
+
+(**
+ * **THE ADMINISTRATIVE OBSERVATION IS REFUTED BY THE LEFT-IDENTITY
+ * COUNTEREXAMPLE.** PROVED, at the empty provenance, on the empty ambient
+ * stack, at the empty store and at counter zero.
+ *
+ * `xlhs` and `xrhs` are B2b.2's two sides: both converge silently, the answers
+ * are `PCtxKey 1` and `PCtxKey 0`, and the contexts those answers name hold
+ * residuals of length FOUR and TWO (`guard_xce_residuals`). The relation is
+ * therefore NOT universal, and the negative is INDEPENDENT of the mid-point
+ * specimen: it is about a stack LENGTH, mentions no stored `post`, and would
+ * stand however the strip disjunct were written.
+ *
+ * By antitonicity (`lemma_pnobs_tr_le_adm_at_mono`) a refutation at the empty
+ * provenance is the WEAKER of the family, so it is stated where it is cheapest
+ * and no claim is made at a bigger `w0`.
+ *)
+let guard_adm_not_universal ()
+  : Lemma (~(pnobs_tr_le_adm_at xboundary ([] <: pworld) xlhs xrhs) /\
+           ~(pnobs_tr_eq_adm_at xboundary ([] <: pworld) xlhs xrhs))
+  = guard_xce_runs ();
+    guard_wb_xlhs ();
+    guard_wb_xrhs ();
+    guard_xce_dom xlhs;
+    guard_xce_dom xrhs;
+    guard_xce_residuals ();
+    lemma_pnconverges_at flook xapply xcf_l 30 [] (PCtxKey 1) xsl;
+    lemma_pnconverges_at flook xapply xcf_r 30 [] (PCtxKey 0) xsr;
+    assert_norm (Some? (pstore_lookup 1 xsl));
+    assert_norm (Some? (pstore_lookup 0 xsr));
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    introduce pnobs_tr_le_adm_at xboundary ([] <: pworld) xlhs xrhs ==> False
+    with begin
+      pnobs_tr_le_adm_at_unfold xboundary ([] <: pworld) xlhs xrhs ();
+      assert (pwext (panchor ([] <: pstore fv fcl)) ([] <: pworld));
+      assert (pnconverges xboundary.b_lk xboundary.b_apply
+                ({ st = PStep xlhs ([] <: pstack fv fcl);
+                   store = ([] <: pstore fv fcl); next = 0 })
+                [] (PCtxKey 1) xsl);
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply xcf_r ([] <: list string) x2 s2' /\
+           pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+           pval_rel w (PCtxKey 1) x2 /\ padm_srel fcl_rel w xsl s2')
+      with lemma_ce_no_world_adm xcf_r xsl xsr 1 0 w x2 s2'
+    end;
+    introduce pnobs_tr_eq_adm_at xboundary ([] <: pworld) xlhs xrhs ==> False
+    with (pnobs_tr_eq_adm_at_unfold xboundary ([] <: pworld) xlhs xrhs ())
+
+(* ================================================================== *)
+(*  THE OTHER DIRECTION IS STILL REFUSED, AND THAT IS THE MEASUREMENT  *)
+(*  THIS GATE OWES                                                    *)
+(* ================================================================== *)
+
+(**
+ * **A `PVar` HEAD ON THE LEFT AGAINST A `POp` HEAD ON THE RIGHT IS REFUSED.**
+ * PROVED, at index 1 and at every world.
+ *
+ * `padm_pcomp`'s strip disjunct matches on `c1` and fires only when `c1` is a
+ * `POp`; and `pcomp_rel` joins `PVar` to `POp` NOWHERE. So the relation cannot
+ * absorb a unit that sits on the RIGHT. This is the mirror of
+ * `lemma_padm_pcrel_op_strip` and it says the directionality is real.
+ *)
+let lemma_padm_pcrel_var_op_refused (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                    (y1: pval v) (a2: pcomp v cl)
+                                    (f2: pval v -> pcomp v cl)
+  : Lemma (ensures ~(padm_pcrel r w (PVar #v #cl y1) (POp a2 f2)))
+  = introduce padm_pcrel r w (PVar #v #cl y1) (POp a2 f2) ==> False
+    with begin
+      assert (~(pcomp_rel r 1 w (PVar #v #cl y1) (POp a2 f2)));
+      assert (padm_pcomp r 1 w (PVar #v #cl y1) (POp a2 f2))
+    end
+
+(**
+ * **THE SPECIMEN IS NOT RELATED THE OTHER WAY ROUND.** PROVED, at every
+ * well-formed world.
+ *
+ * `padm_xrel fcl_rel w qext qprod` HOLDS (`guard_padm_relates_the_context`) and
+ * `padm_xrel fcl_rel w qprod qext` does NOT. The two statements are about the
+ * same two contexts, and the difference is the whole content of the word
+ * "directional" in `padm_pcomp`'s comment: only the LEFT may carry the
+ * administrative unit.
+ *)
+let guard_padm_refuses_the_reverse_specimen (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures ~(padm_xrel fcl_rel w qprod qext))
+  = lemma_pwext_refl w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    assert_norm (qext == PCtxRequests fone qresid0
+                           (fun (z: pval fv) -> pbind (PVar z) (PVar #fv #fcl)));
+    introduce padm_xrel fcl_rel w qprod qext ==> False
+    with begin
+      introduce forall (n: nat).
+          padm_pcomp fcl_rel n w (PVar fone) (pbind (PVar fone) (PVar #fv #fcl))
+      with assert (padm_pctx fcl_rel n w qprod qext);
+      lemma_padm_pcrel_var_op_refused fcl_rel w fone (PVar fone) (PVar #fv #fcl)
+    end
+
+(** **AND SO THE TWO STORES ARE NOT RELATED THE OTHER WAY ROUND EITHER.**
+    PROVED, at every well-formed world, with the key pair and the two stores as
+    PROOF-FUNCTION ARGUMENTS -- the mirror of `guard_ri_id_stores_no_world`,
+    with `psrel` replaced by `padm_srel` and the two entries swapped. *)
+let guard_ri_id_reverse_stores_no_world (w: pworld) (i j: nat)
+                                        (sl sr: pstore fv fcl)
+  : Lemma (requires pwf_world w /\ pval_rel #fv w (PCtxKey i) (PCtxKey j) /\
+                    pstore_lookup i sl == Some qprod /\
+                    pstore_lookup j sr == Some qext)
+          (ensures ~(padm_srel fcl_rel w sl sr))
+  = pval_rel_key_unfold #fv w i j ();
+    guard_padm_refuses_the_reverse_specimen w;
+    introduce padm_srel fcl_rel w sl sr ==> False
+    with begin
+      padm_srel_unfold fcl_rel w sl sr ();
+      assert (psget i sl == qprod);
+      assert (psget j sr == qext);
+      assert (padm_xrel fcl_rel w (psget i sl) (psget j sr))
+    end
+
+(**
+ * **THE ADMINISTRATIVE OBSERVATION IS FALSE IN THE OTHER DIRECTION, AT THE SAME
+ * CONFIGURATION -- AND SO THE TWO-DIRECTIONAL FORM IS FALSE.** PROVED.
+ *
+ * Take `rirhs` on the left and `rilhs` on the right. The left answers `PCtxKey
+ * 0` with final store `qmid_sr`; uniqueness pins the right to `PCtxKey 1` and
+ * `qmid_sl`; `pval_rel` then forces the world to send 0 to 1, and
+ * `padm_srel fcl_rel w qmid_sr qmid_sl` asks for `padm_xrel fcl_rel w qprod
+ * qext`, which `guard_padm_refuses_the_reverse_specimen` refuses.
+ *
+ * **This is the measurement, and it is negative for the symmetrised form.** The
+ * final-store clause of a two-directional observation is asked in BOTH
+ * directions, and `padm_srel` is a one-directional relation on purpose. So
+ * `pnobs_tr_eq_adm_at` does NOT relate the specimen, and an administrative
+ * analogue of `law_right_identity_ext_at` stated over `pnobs_tr_eq_adm_at` is
+ * refuted at `ricons` exactly as the nominal one is. Only the ORDERED form
+ * `pnobs_tr_le_adm_at` at `(rilhs, rirhs)` has the obstruction removed.
+ *)
+let guard_ri_id_adm_reverse_refuted ()
+  : Lemma (~(pnobs_tr_le_adm_at xboundary ([] <: pworld) rirhs rilhs) /\
+           ~(pnobs_tr_eq_adm_at xboundary ([] <: pworld) rilhs rirhs))
+  = guard_ri_id_antecedent_met ();
+    guard_ri_id_store_worlds_exist ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+    assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+    introduce pnobs_tr_le_adm_at xboundary ([] <: pworld) rirhs rilhs ==> False
+    with begin
+      pnobs_tr_le_adm_at_unfold xboundary ([] <: pworld) rirhs rilhs ();
+      assert (pwext (panchor ([] <: pstore fv fcl)) ([] <: pworld));
+      assert (pnconverges xboundary.b_lk xboundary.b_apply
+                ({ st = PStep rirhs ([] <: pstack fv fcl);
+                   store = ([] <: pstore fv fcl); next = 0 })
+                [] (PCtxKey 0) qmid_sr);
+      eliminate exists (x2: pval fv) (s2': pstore fv fcl) (w: pworld).
+          (pnconverges flook xapply ricf_l ([] <: list string) x2 s2' /\
+           pwf_world w /\ pwext w (panchor ([] <: pstore fv fcl)) /\
+           pval_rel w (PCtxKey 0) x2 /\ padm_srel fcl_rel w qmid_sr s2')
+      with begin
+        lemma_pnconverges_unique flook xapply ricf_l [] [] x2 (PCtxKey 1) s2' qmid_sl;
+        guard_ri_id_reverse_stores_no_world w 0 1 qmid_sr qmid_sl
+      end
+    end;
+    introduce pnobs_tr_eq_adm_at xboundary ([] <: pworld) rilhs rirhs ==> False
+    with (pnobs_tr_eq_adm_at_unfold xboundary ([] <: pworld) rilhs rirhs ())
+
+(* ================================================================== *)
+(*  THE LAW-LEVEL CONSEQUENCE                                          *)
+(* ================================================================== *)
+
+(** **THE ADMINISTRATIVE ANALOGUE OF THE SIGNATURE, ORDERED.**
+    `law_right_identity_ext_at`'s body with `pnobs_tr_eq_wf_at` replaced by
+    `pnobs_tr_le_adm_at`, LEFT-TO-RIGHT -- the direction in which the two sides
+    differ by an administrative unit, and the direction B2b.13's counterexample
+    was taken in. Nothing else is changed: the same premise, the same two sides,
+    the same anchor. *)
+let law_right_identity_ext_adm_le_at
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl) : GTot prop
+  = pequivariant_fn_at b.b_rel w0 f ==>
+    pnobs_tr_le_adm_at b w0
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f)
+
+(** **AND THE SYMMETRISED ONE**, over `pnobs_tr_eq_adm_at`, kept beside it so
+    that the two verdicts below can be read side by side and neither read
+    without the other. *)
+let law_right_identity_ext_adm_at
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl) : GTot prop
+  = pequivariant_fn_at b.b_rel w0 f ==>
+    pnobs_tr_eq_adm_at b w0
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+      (pbind (ops.o_enter_ctx pl c) f)
+
+let law_ri_ext_adm_at_unfold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (law_right_identity_ext_adm_at b w0 ops pl c f))
+  : squash (pequivariant_fn_at b.b_rel w0 f ==>
+            pnobs_tr_eq_adm_at b w0
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+              (pbind (ops.o_enter_ctx pl c) f))
+  = h
+
+let law_ri_ext_adm_at_fold
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+    (h: squash (pequivariant_fn_at b.b_rel w0 f ==>
+                pnobs_tr_eq_adm_at b w0
+                  (pbind (ops.o_enter_ctx pl c)
+                         (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f))
+                  (pbind (ops.o_enter_ctx pl c) f)))
+  : squash (law_right_identity_ext_adm_at b w0 ops pl c f)
+  = h
+
+(** **THE NOMINAL LAW IMPLIES BOTH ADMINISTRATIVE ONES.** PROVED, from the
+    containment. So neither administrative law is a different claim standing
+    apart from the nominal one: each is WEAKER, and refuting one refutes the
+    nominal. *)
+let lemma_law_ri_ext_adm_at_of_at
+    (#v #cl: Type) (b: pboundary v cl) (w0: pworld) (ops: ctx_ops v cl)
+    (pl: plan v cl) (c: pcomp v cl) (f: pval v -> pcomp v cl)
+  : Lemma (requires law_right_identity_ext_at b w0 ops pl c f)
+          (ensures law_right_identity_ext_adm_at b w0 ops pl c f /\
+                   law_right_identity_ext_adm_le_at b w0 ops pl c f)
+  = law_ri_ext_at_unfold b w0 ops pl c f ();
+    let l : pcomp v cl =
+      pbind (ops.o_enter_ctx pl c)
+            (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl)) f) in
+    let r : pcomp v cl = pbind (ops.o_enter_ctx pl c) f in
+    introduce pequivariant_fn_at b.b_rel w0 f ==> pnobs_tr_eq_adm_at b w0 l r
+    with (assert (pnobs_tr_eq_wf_at b w0 l r);
+          lemma_pnobs_tr_eq_adm_at_of_wf_at b w0 l r);
+    introduce pequivariant_fn_at b.b_rel w0 f ==> pnobs_tr_le_adm_at b w0 l r
+    with (assert (pnobs_tr_eq_wf_at b w0 l r);
+          pnobs_tr_eq_wf_at_unfold b w0 l r ();
+          lemma_pnobs_tr_le_adm_at_of_wf_at b w0 l r)
+
+(**
+ * **THE SYMMETRISED ADMINISTRATIVE LAW IS REFUTED AT `ricons`, NON-VACUOUSLY.**
+ * PROVED, and the two conjuncts must be read in this order:
+ *
+ *   - the premise HOLDS (`guard_ri_id_consumer_equivariant`), so the law IS its
+ *     conclusion and nothing weaker;
+ *   - and the conclusion is FALSE (`guard_ri_id_adm_reverse_refuted`).
+ *
+ * So substituting `padm_srel` for `psrel` does NOT repair the law as stated over
+ * a two-directional observation. What it repairs is the ORDERED direction, and
+ * that is the next guard.
+ *)
+let guard_ri_id_adm_law_refuted ()
+  : Lemma (pequivariant_fn_at fcl_rel ([] <: pworld) ricons /\
+           ~(law_right_identity_ext_adm_at xboundary ([] <: pworld)
+                                           ref_ops xpl qc ricons))
+  = guard_ri_id_consumer_equivariant ([] <: pworld);
+    guard_ri_id_sides_are_the_signature_s ();
+    guard_ri_id_adm_reverse_refuted ();
+    introduce law_right_identity_ext_adm_at xboundary ([] <: pworld)
+                                            ref_ops xpl qc ricons ==> False
+    with begin
+      law_ri_ext_adm_at_unfold xboundary ([] <: pworld) ref_ops xpl qc ricons ();
+      assert (pnobs_tr_eq_adm_at xboundary ([] <: pworld) rilhs rirhs)
+    end
+
+(**
+ * **AND THE ORDERED ADMINISTRATIVE LAW IS NOT REFUTED BY THIS CONFIGURATION.**
+ * PROVED, in the only form available without a general theorem: at the
+ * configuration where the nominal law dies, the ordered administrative law's
+ * consequent HOLDS.
+ *
+ * Read the five conjuncts in order. The premise is discharged, at the anchor the
+ * verdict is taken at, so nothing here is vacuous. The nominal law is refuted at
+ * that anchor -- B2b.13's verdict, cited not re-proved. The antecedent of the
+ * observation is MET at the configuration, all four of its conjuncts. And there
+ * the nominal consequent is FALSE while the administrative one is TRUE.
+ *
+ * **What is NOT claimed.** `law_right_identity_ext_adm_le_at` is not proved. Its
+ * conclusion quantifies over EVERY ambient stack, EVERY store whose anchor
+ * extends `w0` and EVERY counter, and this block exhibits ONE. What is proved is
+ * that the configuration which refutes the nominal law does not refute the
+ * ordered administrative one -- that the specific obstruction B2b.13 identified
+ * is gone. Whether another configuration refutes it is open.
+ *)
+let guard_ri_id_adm_le_obstruction_removed ()
+  : Lemma (
+      // 1: THE PREMISE IS DISCHARGED, at the anchor the verdict is taken at.
+      pequivariant_fn_at fcl_rel ([] <: pworld) ricons /\
+      // 2: the NOMINAL law is refuted there -- B2b.13's verdict.
+      ~(law_right_identity_ext_at xboundary ([] <: pworld) ref_ops xpl qc ricons) /\
+      // 3: the observation's ANTECEDENT is met at the configuration.
+      pwext (panchor ([] <: pstore fv fcl)) ([] <: pworld) /\
+      pnobs_dom xboundary rilhs ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+      pnobs_dom xboundary rirhs ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+      pnconverges flook xapply ricf_l ([] <: list string) (PCtxKey 1) qmid_sl /\
+      // 4: and there the NOMINAL consequent is FALSE ...
+      ~(pnobs_conseq_wf xboundary rirhs ([] <: pstack fv fcl)
+                        ([] <: pstore fv fcl) 0
+                        ([] <: list string) (PCtxKey 1) qmid_sl) /\
+      // 5: ... while the ADMINISTRATIVE consequent is TRUE.
+      pnobs_conseq_adm xboundary rirhs ([] <: pstack fv fcl)
+                       ([] <: pstore fv fcl) 0
+                       ([] <: list string) (PCtxKey 1) qmid_sl /\
+      // 6: the two sides are the signature's own, at this consumer.
+      rilhs == pbind (ref_ops.o_enter_ctx xpl qc)
+                     (fun cx -> pbind (ref_ops.o_extend_ctx xpl cx (PVar #fv #fcl))
+                                      ricons) /\
+      rirhs == pbind (ref_ops.o_enter_ctx xpl qc) ricons)
+  = guard_ri_id_consumer_equivariant ([] <: pworld);
+    guard_ri_id_law_refuted ();
+    guard_ri_id_antecedent_met ();
+    guard_ri_id_nom_conseq_fails ();
+    guard_ri_id_adm_conseq_holds ();
+    guard_ri_id_sides_are_the_signature_s ()
+
+(* ================================================================== *)
+(*  REQUIREMENT 5 -- THE FOUR REFUSALS, AT THE CLAUSE THE OBSERVATION  *)
+(*  READS                                                             *)
+(* ================================================================== *)
+
+(** Single-entry stores holding the four B2b.12 fixtures, so that the refusals
+    can be read at `padm_srel` -- the clause the new observation's consequent
+    actually contains -- and not only at `padm_xrel`. *)
+let qstoP : pstore fv fcl = [(0, qprod)]
+let qstoE : pstore fv fcl = [(0, qext)]
+let qstoW : pstore fv fcl = [(0, qwork)]
+let qstoB : pstore fv fcl = [(0, qbad)]
+
+(**
+ * **THE STORE CLAUSE STILL REFUSES ALL FOUR NEGATIVE SPECIMENS, AND STILL
+ * RELATES THE POSITIVE ONE.** PROVED, at the world `qw00` that pins key 0 to
+ * key 0 and speaks for nothing else.
+ *
+ * The first conjunct is the positive: `qext` against `qprod` -- one
+ * `post >>= pure` -- is related, so the refusals are not the clause refusing
+ * this shape. Then:
+ *
+ *   - a PERFORMING `post` (`qwork`) is refused;
+ *   - an ARGUMENT-DISCARDING `post` (`qbad`) is refused against the production
+ *     AND against the extension;
+ *   - and B2b.14's two residual pairs, `L`/`R` and `L`/`V`, are refused, which
+ *     `guard_padm_srel_refuses_a_changed_residual` already carried to this
+ *     lift and which is cited here rather than re-proved.
+ *
+ * Each refusal travels through `padm_xrel` at the one key `qw00` speaks for, by
+ * the guard that owns it. Nothing is re-proved; the point of collecting them is
+ * that the clause the NEW OBSERVATION reads is the one all four verdicts are
+ * about.
+ *)
+let guard_adm_store_clause_refusals ()
+  : Lemma (pwf_world qw00 /\
+           padm_srel fcl_rel qw00 qstoE qstoP /\
+           ~(padm_srel fcl_rel qw00 qstoW qstoP) /\
+           ~(padm_srel fcl_rel qw00 qstoP qstoB) /\
+           ~(padm_srel fcl_rel qw00 qstoE qstoB) /\
+           padm_srel fcl_rel qw00 qstoreL qstoreL /\
+           ~(padm_srel fcl_rel qw00 qstoreL qstoreR) /\
+           ~(padm_srel fcl_rel qw00 qstoreL qstoreV))
+  = lemma_pwextend_wf 0 0 [];
+    guard_padm_srel_refuses_a_changed_residual ();
+    guard_padm_relates_the_context qw00;
+    assert_norm (pwlookup_l 0 qw00 == Some 0);
+    assert_norm (psget 0 qstoP == qprod);
+    assert_norm (psget 0 qstoE == qext);
+    assert_norm (psget 0 qstoW == qwork);
+    assert_norm (psget 0 qstoB == qbad);
+    assert_norm (Some? (pstore_lookup 0 qstoP));
+    assert_norm (Some? (pstore_lookup 0 qstoE));
+    assert_norm (Some? (pstore_lookup 0 qstoW));
+    assert_norm (Some? (pstore_lookup 0 qstoB));
+    introduce forall (i j: nat).
+        (pwlookup_l i qw00 == Some j ==>
+         (Some? (pstore_lookup i qstoE) /\ Some? (pstore_lookup j qstoP) /\
+          padm_xrel fcl_rel qw00 (psget i qstoE) (psget j qstoP)))
+    with (introduce _ ==> _ with assert (i == 0 /\ j == 0));
+    introduce padm_srel fcl_rel qw00 qstoW qstoP ==> False
+    with begin
+      padm_srel_unfold fcl_rel qw00 qstoW qstoP ();
+      assert (padm_xrel fcl_rel qw00 (psget 0 qstoW) (psget 0 qstoP));
+      guard_padm_refuses_a_working_post qw00
+    end;
+    introduce padm_srel fcl_rel qw00 qstoP qstoB ==> False
+    with begin
+      padm_srel_unfold fcl_rel qw00 qstoP qstoB ();
+      assert (padm_xrel fcl_rel qw00 (psget 0 qstoP) (psget 0 qstoB));
+      guard_padm_refuses_a_changed_post qw00
+    end;
+    introduce padm_srel fcl_rel qw00 qstoE qstoB ==> False
+    with begin
+      padm_srel_unfold fcl_rel qw00 qstoE qstoB ();
+      assert (padm_xrel fcl_rel qw00 (psget 0 qstoE) (psget 0 qstoB));
+      guard_padm_refuses_a_changed_post qw00
+    end
+
+(* ================================================================== *)
+(*  B2b.15, IN ONE STATEMENT                                          *)
+(* ================================================================== *)
+
+(**
+ * **CONTAINMENT, AS ONE QUANTIFIED FACT.** PROVED, at `xboundary`, from
+ * `lemma_pnobs_tr_le_adm_at_of_wf_at` and its two-directional form. Split off
+ * from the summary below so that each stays ONE query and no verification
+ * condition has to be split to succeed.
+ *)
+let guard_adm_contains_nominal ()
+  : Lemma ((forall (w0: pworld) (c1 c2: pcomp fv fcl).
+              pnobs_tr_le_wf_at xboundary w0 c1 c2 ==>
+              pnobs_tr_le_adm_at xboundary w0 c1 c2) /\
+           (forall (w0: pworld) (c1 c2: pcomp fv fcl).
+              pnobs_tr_eq_wf_at xboundary w0 c1 c2 ==>
+              pnobs_tr_eq_adm_at xboundary w0 c1 c2))
+  = introduce forall (w0: pworld) (c1 c2: pcomp fv fcl).
+        (pnobs_tr_le_wf_at xboundary w0 c1 c2 ==>
+         pnobs_tr_le_adm_at xboundary w0 c1 c2)
+    with (introduce _ ==> _
+          with lemma_pnobs_tr_le_adm_at_of_wf_at xboundary w0 c1 c2);
+    introduce forall (w0: pworld) (c1 c2: pcomp fv fcl).
+        (pnobs_tr_eq_wf_at xboundary w0 c1 c2 ==>
+         pnobs_tr_eq_adm_at xboundary w0 c1 c2)
+    with (introduce _ ==> _
+          with lemma_pnobs_tr_eq_adm_at_of_wf_at xboundary w0 c1 c2)
+
+(** **THE TRACE, AS ONE QUANTIFIED FACT AT `xboundary`.** PROVED, from
+    `guard_adm_trace_not_weakened`. Split off for the same reason. *)
+let guard_adm_trace_matched ()
+  : Lemma (forall (c1 c2: pcomp fv fcl) (k: pstack fv fcl) (sto: pstore fv fcl)
+                  (n0: nat) (tr1 tr2: list string) (x1 x2: pval fv)
+                  (s1' s2': pstore fv fcl).
+             (pnobs_tr_le_adm_at xboundary ([] <: pworld) c1 c2 /\
+              pwext (panchor sto) ([] <: pworld) /\
+              pnobs_dom xboundary c1 k sto n0 /\
+              pnobs_dom xboundary c2 k sto n0 /\
+              pnconverges flook xapply
+                          ({ st = PStep c1 k; store = sto; next = n0 })
+                          tr1 x1 s1' /\
+              pnconverges flook xapply
+                          ({ st = PStep c2 k; store = sto; next = n0 })
+                          tr2 x2 s2')
+             ==> tr1 == tr2)
+  = introduce forall (c1 c2: pcomp fv fcl) (k: pstack fv fcl) (sto: pstore fv fcl)
+                     (n0: nat) (tr1 tr2: list string) (x1 x2: pval fv)
+                     (s1' s2': pstore fv fcl).
+        ((pnobs_tr_le_adm_at xboundary ([] <: pworld) c1 c2 /\
+          pwext (panchor sto) ([] <: pworld) /\
+          pnobs_dom xboundary c1 k sto n0 /\ pnobs_dom xboundary c2 k sto n0 /\
+          pnconverges flook xapply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr1 x1 s1' /\
+          pnconverges flook xapply
+                      ({ st = PStep c2 k; store = sto; next = n0 }) tr2 x2 s2')
+         ==> tr1 == tr2)
+    with (introduce _ ==> _
+          with guard_adm_trace_not_weakened xboundary ([] <: pworld) c1 c2 k sto n0
+                 tr1 tr2 x1 x2 s1' s2')
+
+(**
+ * **THE MEASUREMENT, IN ONE CHECKED STATEMENT.** PROVED, so that no part of it
+ * can be read apart from the others -- in particular so that the positive at
+ * the specimen (item 2) cannot be read apart from the refusal in the other
+ * direction (item 3) or from the negative that keeps the relation off the
+ * universal one (item 4).
+ *
+ * NONE of this is the law. `law_right_identity_ext_adm_le_at` is not proved,
+ * here or anywhere; no simulation and no preservation is claimed; no existing
+ * definition was changed.
+ *)
+let guard_b2b15_summary ()
+  : Lemma (
+      // 1: CONTAINMENT.  The nominal observation is inside the administrative
+      //    one, at every provenance and every pair.
+      (forall (w0: pworld) (c1 c2: pcomp fv fcl).
+         pnobs_tr_le_wf_at xboundary w0 c1 c2 ==>
+         pnobs_tr_le_adm_at xboundary w0 c1 c2) /\
+      (forall (w0: pworld) (c1 c2: pcomp fv fcl).
+         pnobs_tr_eq_wf_at xboundary w0 c1 c2 ==>
+         pnobs_tr_eq_adm_at xboundary w0 c1 c2) /\
+      // 2: THE COUNTEREXAMPLE IS POSITIVE, at the very same configuration, in
+      //    the direction it was taken in.
+      ~(pnobs_conseq_wf xboundary rirhs ([] <: pstack fv fcl)
+                        ([] <: pstore fv fcl) 0
+                        ([] <: list string) (PCtxKey 1) qmid_sl) /\
+      pnobs_conseq_adm xboundary rirhs ([] <: pstack fv fcl)
+                       ([] <: pstore fv fcl) 0
+                       ([] <: list string) (PCtxKey 1) qmid_sl /\
+      pnconverges flook xapply ricf_l ([] <: list string) (PCtxKey 1) qmid_sl /\
+      pnobs_dom xboundary rilhs ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+      pnobs_dom xboundary rirhs ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+      // 3: AND THE OTHER DIRECTION IS STILL REFUSED, so the symmetrised
+      //    observation does NOT relate the specimen and the symmetrised law is
+      //    refuted at `ricons` with its premise discharged.
+      ~(pnobs_tr_le_adm_at xboundary ([] <: pworld) rirhs rilhs) /\
+      ~(pnobs_tr_eq_adm_at xboundary ([] <: pworld) rilhs rirhs) /\
+      pequivariant_fn_at fcl_rel ([] <: pworld) ricons /\
+      ~(law_right_identity_ext_adm_at xboundary ([] <: pworld)
+                                      ref_ops xpl qc ricons) /\
+      // 4: NOT THE UNIVERSAL RELATION.  An independent negative: two answers
+      //    whose contexts hold residuals of different lengths.
+      ~(pnobs_tr_le_adm_at xboundary ([] <: pworld) xlhs xrhs) /\
+      ~(pnobs_tr_eq_adm_at xboundary ([] <: pworld) xlhs xrhs) /\
+      length (presid_of (psget 1 xsl)) == 4 /\
+      length (presid_of (psget 0 xsr)) == 2 /\
+      // 5: THE FOUR REFUSALS SURVIVE AT THE CLAUSE THE OBSERVATION READS.
+      padm_srel fcl_rel qw00 qstoE qstoP /\
+      ~(padm_srel fcl_rel qw00 qstoW qstoP) /\
+      ~(padm_srel fcl_rel qw00 qstoP qstoB) /\
+      ~(padm_srel fcl_rel qw00 qstoE qstoB) /\
+      ~(padm_srel fcl_rel qw00 qstoreL qstoreR) /\
+      ~(padm_srel fcl_rel qw00 qstoreL qstoreV) /\
+      // 6: AND THE TRACE IS STILL MATCHED EXACTLY.
+      (forall (c1 c2: pcomp fv fcl) (k: pstack fv fcl) (sto: pstore fv fcl)
+              (n0: nat) (tr1 tr2: list string) (x1 x2: pval fv)
+              (s1' s2': pstore fv fcl).
+         (pnobs_tr_le_adm_at xboundary ([] <: pworld) c1 c2 /\
+          pwext (panchor sto) ([] <: pworld) /\
+          pnobs_dom xboundary c1 k sto n0 /\ pnobs_dom xboundary c2 k sto n0 /\
+          pnconverges flook xapply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr1 x1 s1' /\
+          pnconverges flook xapply
+                      ({ st = PStep c2 k; store = sto; next = n0 }) tr2 x2 s2')
+         ==> tr1 == tr2))
+  = guard_adm_contains_nominal ();
+    guard_ri_id_nom_conseq_fails ();
+    guard_ri_id_adm_conseq_holds ();
+    guard_ri_id_antecedent_met ();
+    guard_ri_id_adm_reverse_refuted ();
+    guard_ri_id_adm_law_refuted ();
+    guard_adm_not_universal ();
+    guard_xce_residuals ();
+    guard_adm_store_clause_refusals ();
+    guard_adm_trace_matched ()
+
+(* ================================================================== *)
+(*  B2b.15 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED                                                     *)
+(*                                                                     *)
+(*   1. THE ADMINISTRATIVE OBSERVATION EXISTS, BESIDE THE NOMINAL      *)
+(*      ONE.  `pnobs_tr_le_adm_at` and `pnobs_tr_eq_adm_at` are        *)
+(*      APPENDED; `pnobs_tr_le_wf_at`, `pnobs_tr_eq_wf_at`,            *)
+(*      `pnobs_dom`, `psrel`, `padm_srel` and every other definition   *)
+(*      in this file are UNTOUCHED.  The only difference from the      *)
+(*      nominal form is that the consequent's last conjunct reads      *)
+(*      `padm_srel b.b_rel w s1' s2'` where the nominal one reads      *)
+(*      `psrel b.b_rel w s1' s2'`.                                    *)
+(*                                                                     *)
+(*      AND THAT CLAIM IS CHECKED, not eyeballed:                     *)
+(*      `guard_adm_differs_only_in_the_store_clause` proves the two    *)
+(*      observations BICONDITIONAL under the single hypothesis that    *)
+(*      `padm_srel` and `psrel` agree -- so no other clause can be     *)
+(*      carrying any difference.  (The hypothesis is FALSE, by         *)
+(*      `guard_padm_srel_strictly_weaker`; the lemma is a statement    *)
+(*      about the two definitions, not about the observations.)         *)
+(*                                                                     *)
+(*   2. THE TRACE IS STILL MATCHED EXACTLY, and the same variable is   *)
+(*      used on both runs in the same order and multiplicity           *)
+(*      (`guard_adm_trace_not_weakened`, `guard_adm_trace_matched`).   *)
+(*      The provenance side condition, `pwf_world`, `pwext w (panchor  *)
+(*      sto)`, the value relation on the answers and `pnobs_dom` at    *)
+(*      BOTH computations are copied unchanged, and the observation is *)
+(*      antitone in the provenance by the nominal form's own argument  *)
+(*      (`lemma_pnobs_tr_le_adm_at_mono`).                             *)
+(*                                                                     *)
+(*   3. CONTAINMENT.  `lemma_pnobs_tr_le_adm_at_of_wf_at` and          *)
+(*      `lemma_pnobs_tr_eq_adm_at_of_wf_at` prove the nominal          *)
+(*      observation is INSIDE the administrative one, at every         *)
+(*      provenance and every pair; `guard_adm_contains_nominal` states *)
+(*      it as one quantified fact at `xboundary`.  So the two are      *)
+(*      comparable and the administrative form is the WEAKENING.       *)
+(*                                                                     *)
+(*   4. THE COUNTEREXAMPLE BECOMES POSITIVE, AT THE VERY SAME          *)
+(*      CONFIGURATION, IN THE DIRECTION IT WAS TAKEN IN.  At the       *)
+(*      empty ambient stack, the empty store and counter zero, with    *)
+(*      the premise `pequivariant_fn_at fcl_rel [] ricons` DISCHARGED  *)
+(*      and the antecedent MET in all four of its conjuncts           *)
+(*      (`guard_ri_id_antecedent_met`):                                *)
+(*        - `guard_ri_id_nom_conseq_fails` proves the NOMINAL          *)
+(*          consequent FALSE there;                                    *)
+(*        - `guard_ri_id_adm_conseq_holds` proves the ADMINISTRATIVE   *)
+(*          consequent TRUE there, with the witnesses uniqueness of    *)
+(*          convergence forces -- `PCtxKey 0`, `qmid_sr`, `qmid_w`.    *)
+(*      `guard_ri_id_adm_le_obstruction_removed` states the two beside *)
+(*      B2b.13's verdict, so the contrast cannot be read apart from    *)
+(*      it.                                                            *)
+(*                                                                     *)
+(*   5. AND THE OTHER DIRECTION IS STILL REFUSED.  This is the         *)
+(*      measurement's negative half and it is PROVED, not conjectured. *)
+(*      `padm_pcomp` is DIRECTIONAL: only the LEFT may carry the       *)
+(*      administrative unit.  `lemma_padm_pcrel_var_op_refused` and    *)
+(*      `guard_padm_refuses_the_reverse_specimen` prove               *)
+(*      `~(padm_xrel fcl_rel w qprod qext)` at every well-formed       *)
+(*      world -- the mirror image of                                   *)
+(*      `guard_padm_relates_the_context`, which proves the pair the    *)
+(*      other way round IS related.  Hence                             *)
+(*      `guard_ri_id_adm_reverse_refuted` proves                       *)
+(*      `~(pnobs_tr_le_adm_at xboundary [] rirhs rilhs)` and so        *)
+(*      `~(pnobs_tr_eq_adm_at xboundary [] rilhs rirhs)`, and          *)
+(*      `guard_ri_id_adm_law_refuted` proves                           *)
+(*      `~(law_right_identity_ext_adm_at xboundary [] ref_ops xpl qc   *)
+(*      ricons)` with its premise discharged.                          *)
+(*                                                                     *)
+(*      SO: retargeting the law at the ORDERED administrative          *)
+(*      observation removes the obstruction B2b.13 identified;         *)
+(*      retargeting it at the SYMMETRISED one does not.                *)
+(*                                                                     *)
+(*   6. THE FOUR REFUSALS SURVIVE, AT THE CLAUSE THE OBSERVATION       *)
+(*      READS.  `guard_adm_store_clause_refusals` proves, at `qw00`,   *)
+(*      that `padm_srel` relates `qext` against `qprod` and REFUSES a  *)
+(*      performing `post` (`qwork`), an argument-discarding `post`     *)
+(*      (`qbad`) against BOTH the production and the extension, and    *)
+(*      B2b.14's two residual pairs `L`/`R` and `L`/`V`.  These are    *)
+(*      B2b.12's and B2b.14's verdicts carried to the store lift; none *)
+(*      is re-proved and none is displaced.                            *)
+(*                                                                     *)
+(*   7. THE OBSERVATION IS NOT THE UNIVERSAL RELATION.                 *)
+(*      `guard_adm_not_universal` proves                               *)
+(*      `~(pnobs_tr_le_adm_at xboundary [] xlhs xrhs)` and             *)
+(*      `~(pnobs_tr_eq_adm_at xboundary [] xlhs xrhs)` -- B2b.2's      *)
+(*      LEFT-IDENTITY counterexample, whose two answers name contexts  *)
+(*      holding residuals of length FOUR and TWO                       *)
+(*      (`guard_xce_residuals`).  The argument is                      *)
+(*      `lemma_padm_xrel_resid_length` and `lemma_ce_no_world_adm`:    *)
+(*      `padm_pctx` reads the residual with `pframes_rel`, exactly as  *)
+(*      `pctx_rel` does.  THE NEGATIVE IS INDEPENDENT of the           *)
+(*      mid-point specimen: it is about a stack LENGTH, mentions no    *)
+(*      stored `post`, and would stand however the strip disjunct     *)
+(*      were written.                                                  *)
+(*                                                                     *)
+(*  NOT PROVED, AND NOT CLAIMED                                        *)
+(*                                                                     *)
+(*   - NO SOUNDNESS.  Nothing relates the administrative observation   *)
+(*     to public observation, in either direction.                     *)
+(*   - NO SIMULATION, NO PRESERVATION.  Nothing here propagates any    *)
+(*     correspondence through `pstep` or `prun`.  B2b.3b is untouched. *)
+(*   - `law_right_identity_ext_adm_le_at` IS NOT PROVED.  Its          *)
+(*     conclusion quantifies over EVERY ambient stack, EVERY store     *)
+(*     whose anchor extends `w0` and EVERY counter; this block         *)
+(*     exhibits ONE configuration and shows the nominal law's          *)
+(*     refuting configuration does not refute the ordered              *)
+(*     administrative law.  Whether some OTHER configuration refutes   *)
+(*     it is OPEN.                                                     *)
+(*   - NO OTHER LAW is touched.  B2b.11 and B2b.13 stand exactly as    *)
+(*     they were, and `law_right_identity_ext_at` remains REFUTED.     *)
+(*   - THE POSITIVE AT `qw_pin3` IS NOT TAKEN.  B2b.13 refutes the     *)
+(*     nominal law at `qw_pin3` as well, from `gsto`; the              *)
+(*     administrative consequent is exhibited only at the EMPTY store. *)
+(*     Establishing it from `gsto` needs a world extending             *)
+(*     `panchor gsto` as well as pinning `(5, 4)`, and that world is   *)
+(*     not built here.                                                 *)
+(*   - NO `rlimit`, NO `#push-options`, NO `admit`, NO `assume`, NO    *)
+(*     `val` without a body, NO axiom, NO `expect_failure`, NO         *)
+(*     warning.                                                       *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  GUARDS FIRED, AND WHERE EACH LANDED                                *)
+(*                                                                     *)
+(*  Each was applied to a SCRATCH COPY of this file and the            *)
+(*  repository file was never left mutated.  Line numbers are this     *)
+(*  file's.  F* stops at the first rejected definition, so each entry  *)
+(*  records ONE landing.                                              *)
+(*                                                                     *)
+(*   - `pnobs_conseq_adm`'s store clause and its fold cast changed     *)
+(*     from `padm_srel` to `psrel`:  REJECTED at line 24897, inside    *)
+(*     `lemma_pnobs_conseq_adm_of_le_adm_at` -- "Assertion failed".    *)
+(*     So the consequent the administrative observation demands IS the *)
+(*     `padm_srel` one.                                                *)
+(*   - `guard_ri_id_adm_conseq_holds`'s OWN store clause changed to    *)
+(*     `psrel`, leaving everything else alone:  REJECTED at line       *)
+(*     25009, in that guard -- "Subtyping check failed / Expected type *)
+(*     Prims.squash (... psrel xboundary.b_rel qmid_w qmid_sl          *)
+(*     qmid_sr)".  THE PAYOFF, isolated: the positive at the           *)
+(*     counterexample configuration is exactly the pair `psrel`        *)
+(*     refuses, and it is refused AT THE GUARD.                        *)
+(*   - `guard_ri_id_adm_conseq_holds`'s world witness `qmid_w`         *)
+(*     replaced by `[]`:  REJECTED at line 25009, same guard --        *)
+(*     `pval_rel [] (PCtxKey 1) (PCtxKey 0)` is not provable.  So the  *)
+(*     positive is not free: the world must identify the two answers.  *)
+(*   - `guard_ri_id_nom_conseq_fails` asked to prove the POSITIVE of   *)
+(*     the nominal consequent:  REJECTED at lines 24955-24974 --       *)
+(*     "Could not prove post-condition".  So the context is not        *)
+(*     contradictory and the nominal refusal is not free.              *)
+(*   - `guard_adm_not_universal` asked to prove the POSITIVE:          *)
+(*     REJECTED at lines 25070-25096.  So requirement 7's negative is  *)
+(*     not vacuous either.                                             *)
+(*   - `lemma_padm_xrel_resid_length`'s call deleted from              *)
+(*     `lemma_ce_no_world_adm`:  REJECTED at lines 25046-25049.  So    *)
+(*     the residual-length step is what carries requirement 7's        *)
+(*     negative through `padm_srel`.                                   *)
+(*   - `lemma_adm_conseq_of_nom_conseq`'s body replaced by `()`:       *)
+(*     REJECTED at line 24783 -- "Could not prove post-condition".  So *)
+(*     the containment really travels through                          *)
+(*     `lemma_padm_srel_of_psrel` and is not free.                     *)
+(*   - `guard_adm_store_clause_refusals` asked to prove the POSITIVE   *)
+(*     `padm_srel fcl_rel qw00 qstoW qstoP`:  REJECTED at lines        *)
+(*     25409-25443.  So the performing `post` really is refused at the *)
+(*     store clause.                                                   *)
+(*   - `guard_ri_id_adm_reverse_refuted` asked to prove the POSITIVE:  *)
+(*     REJECTED at lines 25189-25212.  So the reverse refusal is a     *)
+(*     refusal and not an empty hypothesis.                            *)
+(*   - THE TRACE CLAUSE WEAKENED -- the consequent of                  *)
+(*     `pnobs_tr_le_adm_at` and both its casts given an INDEPENDENT    *)
+(*     trace `tr2` instead of reusing `tr`:  REJECTED at lines         *)
+(*     24715-24723, inside `guard_adm_trace_not_weakened`.  So the     *)
+(*     trace is matched EXACTLY and the same variable is used on both  *)
+(*     runs.                                                           *)
+(*   - `guard_adm_differs_only_in_the_store_clause`'s hypothesis       *)
+(*     weakened to `True`:  REJECTED at line 24917, in that guard,     *)
+(*     pointing at `lemma_nom_conseq_of_adm_conseq_under`'s            *)
+(*     precondition.  So the store-relation agreement is what closes   *)
+(*     the biconditional and no other clause is doing it.              *)
+(*                                                                     *)
+(*  Line numbers above were read on the scratch copies, which are      *)
+(*  this file WITHOUT this ledger appended; the ledger is comments     *)
+(*  only and follows every definition it mentions.                     *)
+(* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.17 -- JOINABILITY BY A COMMON REDUCT: THE SYMMETRIC            *)
+(*            CANDIDATE, DEFINED AND TESTED FOR DISCRIMINATION         *)
+(* ================================================================== *)
+
+(** **JOINABILITY, AT CONTEXTS.** `cx1` and `cx2` are joined when SOME context
+    is a common administrative reduct of both. Nothing is expanded: both sides
+    reduce, and `padm_xrel` is used in the direction it was built for. *)
+let padm_join (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (cx1 cx2: pctx v cl)
+  : GTot prop
+  = exists (cz: pctx v cl). padm_xrel r w cx1 cz /\ padm_xrel r w cx2 cz
+
+(** The casts, because a `GTot prop` in HYPOTHESIS position is atomic and the
+    existential inside it is invisible without one. *)
+let padm_join_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (cx1 cx2: pctx v cl)
+                     (h: squash (padm_join r w cx1 cx2))
+  : squash (exists (cz: pctx v cl). padm_xrel r w cx1 cz /\ padm_xrel r w cx2 cz)
+  = h
+
+let padm_join_fold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                   (cx1 cx2: pctx v cl)
+                   (h: squash (exists (cz: pctx v cl).
+                                 padm_xrel r w cx1 cz /\ padm_xrel r w cx2 cz))
+  : squash (padm_join r w cx1 cx2)
+  = h
+
+(** Introduction with the witness supplied as a PROOF-FUNCTION ARGUMENT, so that
+    no proof below depends on an existential being guessed. *)
+let lemma_padm_join_intro (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (cx1 cx2 cz: pctx v cl)
+  : Lemma (requires padm_xrel r w cx1 cz /\ padm_xrel r w cx2 cz)
+          (ensures padm_join r w cx1 cx2)
+  = introduce exists (cz0: pctx v cl).
+        (padm_xrel r w cx1 cz0 /\ padm_xrel r w cx2 cz0)
+    with cz and ();
+    padm_join_fold r w cx1 cx2 ()
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 6, FIRST HALF: SYMMETRY                                   *)
+(* ------------------------------------------------------------------ *)
+
+(** **SYMMETRIC, UNCONDITIONALLY.** PROVED. The witness is the same context on
+    both readings; nothing is expanded and no side condition is used. *)
+let lemma_padm_join_sym (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                        (cx1 cx2: pctx v cl)
+  : Lemma (requires padm_join r w cx1 cx2) (ensures padm_join r w cx2 cx1)
+  = padm_join_unfold r w cx1 cx2 ();
+    eliminate exists (cz: pctx v cl).
+        (padm_xrel r w cx1 cz /\ padm_xrel r w cx2 cz)
+    with lemma_padm_join_intro r w cx2 cx1 cz
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 6, SECOND HALF: REFLEXIVITY                               *)
+(* ------------------------------------------------------------------ *)
+
+(** **REFLEXIVE ON THE DIAGONAL OF THE ORIENTED RELATION.** PROVED. *)
+let lemma_padm_join_refl_on_diagonal (#v #cl: Type) (r: pcl_rel_t cl)
+                                     (w: pworld) (cx: pctx v cl)
+  : Lemma (requires padm_xrel r w cx cx) (ensures padm_join r w cx cx)
+  = lemma_padm_join_intro r w cx cx cx
+
+(** A context holding a handle no world speaks for. *)
+let qdangling : pctx fv fcl = PCtxDone (PCtxKey 5)
+
+(**
+ * **AND NOT REFLEXIVE UNCONDITIONALLY.** PROVED, by a counterexample.
+ *
+ * At the empty world the handle `PCtxKey 5` is related to NOTHING, so no
+ * context is a reduct of `qdangling` at all and the existential has no witness.
+ * This is not a defect the joinability construction introduces: `pxrel` and
+ * `padm_xrel` fail reflexivity at the same place and for the same reason -- a
+ * Kripke logical relation is reflexive exactly on the WELL-SCOPED diagonal.
+ *)
+let guard_padm_join_not_reflexive ()
+  : Lemma (~(padm_join fcl_rel ([] <: pworld) qdangling qdangling))
+  = assert_norm (pwlookup_l 5 ([] <: pworld) == None);
+    introduce padm_join fcl_rel ([] <: pworld) qdangling qdangling ==> False
+    with begin
+      padm_join_unfold fcl_rel ([] <: pworld) qdangling qdangling ();
+      eliminate exists (cz: pctx fv fcl).
+          (padm_xrel fcl_rel ([] <: pworld) qdangling cz /\
+           padm_xrel fcl_rel ([] <: pworld) qdangling cz)
+      with begin
+        assert (padm_pctx fcl_rel 1 ([] <: pworld) qdangling cz);
+        match cz with
+        | PCtxDone y2 ->
+          assert (pval_rel #fv ([] <: pworld) (PCtxKey 5) y2)
+        | PCtxRequests _ _ _ -> ()
+      end
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 2: THE SPECIMEN IS JOINED, BY `qprod`                     *)
+(* ------------------------------------------------------------------ *)
+
+(** `qprod` is related to itself -- by the LOCKSTEP congruence, with no
+    administrative unit anywhere. Built exactly as
+    `guard_padm_relates_the_matched_residual` builds `qctxL`'s. *)
+let lemma_qprod_selfrel (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures pxrel fcl_rel w qprod qprod /\ padm_xrel fcl_rel w qprod qprod)
+  = lemma_qresid0_pkrel w;
+    lemma_pvar_fn_rel_at #fv #fcl fcl_rel w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    lemma_pxrel_requests fcl_rel w fone fone qresid0 qresid0
+      (PVar #fv #fcl) (PVar #fv #fcl);
+    lemma_padm_xrel_of_pxrel fcl_rel w qprod qprod
+
+(**
+ * **THE SPECIMEN IS JOINED, IN BOTH DIRECTIONS, AT EVERY WELL-FORMED WORLD.**
+ * PROVED, with `qprod` as the common reduct.
+ *
+ * `qext` reduces to `qprod` (`guard_padm_relates_the_context`) and `qprod`
+ * reduces to itself. Nothing re-inserts a redex, and the third conjunct records
+ * that the ORIENTED relation still refuses the reverse -- so the symmetry is
+ * bought by joinability and not by weakening `padm_xrel`.
+ *)
+let guard_padm_join_relates_the_specimen (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures padm_join fcl_rel w qext qprod /\
+                   padm_join fcl_rel w qprod qext /\
+                   ~(padm_xrel fcl_rel w qprod qext))
+  = guard_padm_relates_the_context w;
+    lemma_qprod_selfrel w;
+    guard_padm_refuses_the_reverse_specimen w;
+    lemma_padm_join_intro fcl_rel w qext qprod qprod;
+    lemma_padm_join_intro fcl_rel w qprod qext qprod
+(* ------------------------------------------------------------------ *)
+(*  INVERSIONS THE REFUSALS BELOW ARE MADE OF                          *)
+(* ------------------------------------------------------------------ *)
+
+(** Related contexts are the SAME NODE, read off index 1 -- the administrative
+    relation keeps `PCtxDone` and `PCtxRequests` apart exactly as `pctx_rel`
+    does, because the strip clause lives inside the `post` and nowhere else. *)
+let lemma_padm_pctx_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                          (cx1 cx2: pctx v cl)
+  : Lemma (requires padm_xrel r w cx1 cx2) (ensures padm_pctx r 1 w cx1 cx2)
+  = ()
+
+(** The `post` clause, at ONE supplied pair of related values -- supplied as
+    PROOF-FUNCTION ARGUMENTS, so nothing depends on a pattern firing. *)
+let lemma_padm_pctx_post_at (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+      (x1 x2: pval v) (rs1 rs2: pstack v cl)
+      (p1 p2: pval v -> pcomp v cl) (y1 y2: pval v)
+  : Lemma (requires pwf_world w /\ pval_rel w y1 y2 /\
+                    padm_xrel r w (PCtxRequests x1 rs1 p1)
+                                  (PCtxRequests x2 rs2 p2))
+          (ensures padm_pcrel r w (p1 y1) (p2 y2))
+  = lemma_pwext_refl w;
+    introduce forall (n: nat). padm_pcomp r n w (p1 y1) (p2 y2)
+    with (if n = 0 then ()
+          else assert (padm_pctx r n w (PCtxRequests x1 rs1 p1)
+                                       (PCtxRequests x2 rs2 p2)))
+
+(** The residual clause, which the administrative relation carries UNWEAKENED
+    from `pctx_rel`. *)
+let lemma_padm_pctx_resid (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+      (x1 x2: pval v) (rs1 rs2: pstack v cl)
+      (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires padm_xrel r w (PCtxRequests x1 rs1 p1)
+                                  (PCtxRequests x2 rs2 p2))
+          (ensures pkrel r w rs1 rs2)
+  = introduce forall (n: nat). pframes_rel r n w rs1 rs2
+    with (if n = 0 then ()
+          else assert (padm_pctx r n w (PCtxRequests x1 rs1 p1)
+                                       (PCtxRequests x2 rs2 p2)))
+
+(** A `PVar` on the LEFT cannot be matched by anything but a `PVar`: the strip
+    clause's `match c1` sends every non-`POp` left-hand side to `False`, so at a
+    `PVar` left the administrative relation IS `pcomp_rel`. *)
+let lemma_pcomp_rel_var_left_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                   (yb: pval v) (c: pcomp v cl)
+  : Lemma (requires pcomp_rel r 1 w (PVar #v #cl yb) c) (ensures PVar? c)
+  = ()
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 3: `qwork` AND `qbad` HAVE NO COMMON REDUCT               *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE TWO SIDES CANNOT MEET.** PROVED, and this is the whole of question 3.
+ *
+ * A `PVar` on the left forces the common reduct to be a `PVar` too
+ * (`lemma_pcomp_rel_var_left_shape`); and a `POp` whose continuation PERFORMS
+ * is refused against every `PVar` (`lemma_padm_pcrel_strip_needs_pure`). So the
+ * one shape the first side permits is the one the second side refuses, and the
+ * existential has nowhere to land -- there is no `z` at all, not merely no
+ * obvious one.
+ *)
+let lemma_padm_no_common_reduct_pure_vs_working
+    (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+    (yb: pval v) (a1: pcomp v cl) (f1: pval v -> pcomp v cl) (y: pval v)
+    (c: pcomp v cl)
+  : Lemma (requires pwf_world w /\ pval_rel w y y /\ ~(PVar? (f1 y)) /\
+                    padm_pcrel r w (PVar #v #cl yb) c /\
+                    padm_pcrel r w (POp a1 f1) c)
+          (ensures False)
+  = assert (padm_pcomp r 1 w (PVar #v #cl yb) c);
+    lemma_pcomp_rel_var_left_shape r w yb c;
+    match c with
+    | PVar y2 -> lemma_padm_pcrel_strip_needs_pure r w a1 f1 y2 y
+    | _ -> ()
+
+(** `qwork` is a reduct of itself -- the working closure is related to itself by
+    the lockstep congruence, `lemma_qb_xg_selfrel` doing the work at `xg`. So
+    the refusal below is not "`qwork` reduces to nothing". *)
+let lemma_qwork_selfrel (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures padm_xrel fcl_rel w qwork qwork)
+  = lemma_qresid0_pkrel w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qwork == PCtxRequests fone qresid0
+                            (fun (z: pval fv) -> pbind (PVar z) xg));
+    introduce forall (w': pworld) (y1 y2: pval fv).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+         pcrel fcl_rel w' (pbind (PVar y1) xg) (pbind (PVar y2) xg))
+    with (introduce _ ==> _
+          with begin
+            lemma_pcrel_var #fv #fcl fcl_rel w' y1 y2;
+            lemma_qb_xg_selfrel w';
+            lemma_pcrel_pbind fcl_rel w' (PVar y1) (PVar y2) xg xg
+          end);
+    lemma_pxrel_requests fcl_rel w fone fone qresid0 qresid0
+      (fun (z: pval fv) -> pbind (PVar z) xg)
+      (fun (z: pval fv) -> pbind (PVar z) xg);
+    lemma_padm_xrel_of_pxrel fcl_rel w qwork qwork
+
+(** And so is `qbad`. *)
+let lemma_qbad_selfrel (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures padm_xrel fcl_rel w qbad qbad)
+  = lemma_qresid0_pkrel w;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qbad == PCtxRequests fone qresid0 qbadpost);
+    introduce forall (w': pworld) (y1 y2: pval fv).
+        (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+         pcrel fcl_rel w' (qbadpost y1) (qbadpost y2))
+    with (introduce _ ==> _
+          with lemma_pcrel_var #fv #fcl fcl_rel w' (fpv FU) (fpv FU));
+    lemma_pxrel_requests fcl_rel w fone fone qresid0 qresid0 qbadpost qbadpost;
+    lemma_padm_xrel_of_pxrel fcl_rel w qbad qbad
+
+(**
+ * **`qwork` AND `qbad` ARE NOT JOINED, AT EVERY WELL-FORMED WORLD.** PROVED.
+ *
+ * The two positives are stated beside the refusal on purpose: each context IS
+ * joined with itself, so the existential is not empty for want of any reduct at
+ * all. What fails is the COMMON one.
+ *)
+let guard_padm_join_refuses_the_working_post (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures padm_join fcl_rel w qwork qwork /\
+                   padm_join fcl_rel w qbad qbad /\
+                   ~(padm_join fcl_rel w qwork qbad))
+  = lemma_pwext_refl w;
+    lemma_qwork_selfrel w;
+    lemma_qbad_selfrel w;
+    lemma_padm_join_refl_on_diagonal fcl_rel w qwork;
+    lemma_padm_join_refl_on_diagonal fcl_rel w qbad;
+    assert_norm (pval_rel #fv w fone fone);
+    assert_norm (qwork == PCtxRequests fone qresid0
+                            (fun (z: pval fv) -> pbind (PVar z) xg));
+    assert_norm (qbad == PCtxRequests fone qresid0 qbadpost);
+    assert_norm (qbadpost fone == PVar (fpv FU));
+    assert_norm ((fun (z: pval fv) -> pbind (PVar z) xg) fone
+                   == POp (PVar fone) xg);
+    assert_norm (~(PVar? (xg fone)));
+    introduce padm_join fcl_rel w qwork qbad ==> False
+    with begin
+      padm_join_unfold fcl_rel w qwork qbad ();
+      eliminate exists (cz: pctx fv fcl).
+          (padm_xrel fcl_rel w qwork cz /\ padm_xrel fcl_rel w qbad cz)
+      with begin
+        lemma_padm_pctx_shape fcl_rel w qwork cz;
+        match cz with
+        | PCtxDone _ -> ()
+        | PCtxRequests x2 rs2 p2 ->
+          lemma_padm_pctx_post_at fcl_rel w fone x2 qresid0 rs2
+            (fun (z: pval fv) -> pbind (PVar z) xg) p2 fone fone;
+          lemma_padm_pctx_post_at fcl_rel w fone x2 qresid0 rs2
+            qbadpost p2 fone fone;
+          lemma_padm_no_common_reduct_pure_vs_working fcl_rel w
+            (fpv FU) (PVar fone) xg fone (p2 fone)
+      end
+    end
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 4: THE THREE RESIDUAL SPECIMENS HAVE NO COMMON REDUCT     *)
+(* ------------------------------------------------------------------ *)
+
+(** A cons on the left forces a cons on the right, read off index 1. *)
+let lemma_pkrel_cons_left_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                (f1: pframe v cl) (k1 kz: pstack v cl)
+  : Lemma (requires pkrel r w (f1 :: k1) kz) (ensures Cons? kz)
+  = assert (pframes_rel r 1 w (f1 :: k1) kz)
+
+(** A site frame on the left forces a site frame on the right. *)
+let lemma_pfrel_site_left_shape (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                                (g1: pval v -> pcomp v cl) (f2: pframe v cl)
+  : Lemma (requires pfrel r w (PSiteF g1) f2) (ensures PSiteF? f2)
+  = assert (pframe_rel r 1 w (PSiteF g1) f2)
+
+(** Two DIFFERENT events cannot both be matched by one computation: the `PEmit`
+    clause demands the labels agree, so a common reduct would have to carry both
+    labels at once. Read off index 1. *)
+let lemma_pcrel_emit_no_common_reduct (#v #cl: Type) (r: pcl_rel_t cl)
+    (w: pworld) (e1 e2: string) (b1 b2: pcomp v cl) (c: pcomp v cl)
+  : Lemma (requires ~(e1 == e2) /\
+                    pcrel r w (PEmit e1 b1) c /\ pcrel r w (PEmit e2 b2) c)
+          (ensures False)
+  = assert (pcomp_rel r 1 w (PEmit e1 b1) c);
+    assert (pcomp_rel r 1 w (PEmit e2 b2) c)
+
+(** The SAME event and two different payloads: the labels agree, so the
+    contradiction is read one level down, at index 2, where the returned values
+    must both be the common reduct's. `pval_rel` on payloads is EQUALITY. *)
+let lemma_pcrel_emit_pv_no_common_reduct (#v #cl: Type) (r: pcl_rel_t cl)
+    (w: pworld) (e: string) (a1 a2: v) (c: pcomp v cl)
+  : Lemma (requires ~(a1 == a2) /\
+                    pcrel r w (PEmit e (PVar (PV a1))) c /\
+                    pcrel r w (PEmit e (PVar (PV a2))) c)
+          (ensures False)
+  = assert (pcomp_rel r 2 w (PEmit e (PVar (PV a1))) c);
+    assert (pcomp_rel r 2 w (PEmit e (PVar (PV a2))) c)
+
+(**
+ * **THE RESIDUAL CLAUSE DOES THE REFUSING, AND IT DOES IT AGAINST EVERY
+ * CANDIDATE REDUCT AT ONCE.** PROVED.
+ *
+ * The separating fact is supplied as a PROOF-FUNCTION ARGUMENT -- the quantified
+ * hypothesis "no computation is a common reduct of the two site bodies at
+ * `fone`" -- so the lemma is about the residual clause and nothing else, and no
+ * proof here depends on a pattern firing.
+ *
+ * The descent is: the candidate is a `PCtxRequests`; its residual is a cons; its
+ * head is matched against `PBoundaryF`; its second frame is a `PSiteF`; and the
+ * two site bodies are then both related to that one frame's body. The hypothesis
+ * closes it.
+ *)
+let lemma_padm_no_common_reduct_sites
+    (w: pworld) (g1 g2: pval fv -> pcomp fv fcl) (t: pstack fv fcl)
+    (cz: pctx fv fcl)
+  : Lemma (requires
+             pwf_world w /\
+             (forall (c: pcomp fv fcl).
+                ~(pcrel fcl_rel w (g1 fone) c /\ pcrel fcl_rel w (g2 fone) c)) /\
+             padm_xrel fcl_rel w
+               (PCtxRequests fone (PBoundaryF :: PSiteF g1 :: t) (PVar #fv #fcl))
+               cz /\
+             padm_xrel fcl_rel w
+               (PCtxRequests fone (PBoundaryF :: PSiteF g2 :: t) (PVar #fv #fcl))
+               cz)
+          (ensures False)
+  = lemma_pwext_refl w;
+    assert_norm (pval_rel #fv w fone fone);
+    lemma_padm_pctx_shape fcl_rel w
+      (PCtxRequests fone (PBoundaryF :: PSiteF g1 :: t) (PVar #fv #fcl)) cz;
+    match cz with
+    | PCtxDone _ -> ()
+    | PCtxRequests x2 rs2 p2 ->
+      lemma_padm_pctx_resid fcl_rel w fone x2
+        (PBoundaryF :: PSiteF g1 :: t) rs2 (PVar #fv #fcl) p2;
+      lemma_padm_pctx_resid fcl_rel w fone x2
+        (PBoundaryF :: PSiteF g2 :: t) rs2 (PVar #fv #fcl) p2;
+      lemma_pkrel_cons_left_shape fcl_rel w
+        (PBoundaryF #fv #fcl) (PSiteF g1 :: t) rs2;
+      match rs2 with
+      | [] -> ()
+      | a :: rest ->
+        lemma_pkrel_cons_inv fcl_rel w (PBoundaryF #fv #fcl) a
+          (PSiteF g1 :: t) rest;
+        lemma_pkrel_cons_inv fcl_rel w (PBoundaryF #fv #fcl) a
+          (PSiteF g2 :: t) rest;
+        lemma_pkrel_cons_left_shape fcl_rel w (PSiteF g1) t rest;
+        match rest with
+        | [] -> ()
+        | b :: rest2 ->
+          lemma_pkrel_cons_inv fcl_rel w (PSiteF g1) b t rest2;
+          lemma_pkrel_cons_inv fcl_rel w (PSiteF g2) b t rest2;
+          lemma_pfrel_site_left_shape fcl_rel w g1 b;
+          match b with
+          | PSiteF h ->
+            lemma_pfrel_site_inv fcl_rel w g1 h;
+            lemma_pfrel_site_inv fcl_rel w g2 h;
+            lemma_pfn_apply fcl_rel w w g1 h fone fone;
+            lemma_pfn_apply fcl_rel w w g2 h fone fone
+          | _ -> ()
+
+(**
+ * **`qctxL` IS JOINED WITH ITSELF AND WITH NEITHER OF THE OTHER TWO.** PROVED,
+ * at every well-formed world.
+ *
+ * `qctxL`/`qctxR` are separated by the EVENT, at index 1; `qctxL`/`qctxV` emit
+ * the same event and are separated by the ANSWER, at index 2. Both are refused
+ * against every candidate reduct, not merely against each other.
+ *)
+let guard_padm_join_refuses_a_changed_residual (w: pworld)
+  : Lemma (requires pwf_world w)
+          (ensures padm_join fcl_rel w qctxL qctxL /\
+                   ~(padm_join fcl_rel w qctxL qctxR) /\
+                   ~(padm_join fcl_rel w qctxL qctxV))
+  = guard_padm_relates_the_matched_residual w;
+    lemma_padm_join_refl_on_diagonal fcl_rel w qctxL;
+    assert_norm (qctxL == PCtxRequests fone
+                            (PBoundaryF :: PSiteF qsiteL :: qshared)
+                            (PVar #fv #fcl));
+    assert_norm (qctxR == PCtxRequests fone
+                            (PBoundaryF :: PSiteF qsiteR :: qshared)
+                            (PVar #fv #fcl));
+    assert_norm (qctxV == PCtxRequests fone
+                            (PBoundaryF :: PSiteF qsiteV :: qshared)
+                            (PVar #fv #fcl));
+    assert_norm (qsiteL fone == PEmit "left"  (PVar (PV (FI 7))));
+    assert_norm (qsiteR fone == PEmit "right" (PVar (PV (FI 8))));
+    assert_norm (qsiteV fone == PEmit "left"  (PVar (PV (FI 8))));
+    assert_norm (~("left" == "right"));
+    assert_norm (~(FI 7 == FI 8));
+    introduce forall (c: pcomp fv fcl).
+        ~(pcrel fcl_rel w (qsiteL fone) c /\ pcrel fcl_rel w (qsiteR fone) c)
+    with (introduce
+            (pcrel fcl_rel w (qsiteL fone) c /\
+             pcrel fcl_rel w (qsiteR fone) c) ==> False
+          with lemma_pcrel_emit_no_common_reduct fcl_rel w "left" "right"
+                 (PVar (PV (FI 7))) (PVar (PV (FI 8))) c);
+    introduce forall (c: pcomp fv fcl).
+        ~(pcrel fcl_rel w (qsiteL fone) c /\ pcrel fcl_rel w (qsiteV fone) c)
+    with (introduce
+            (pcrel fcl_rel w (qsiteL fone) c /\
+             pcrel fcl_rel w (qsiteV fone) c) ==> False
+          with lemma_pcrel_emit_pv_no_common_reduct fcl_rel w "left"
+                 (FI 7) (FI 8) c);
+    introduce padm_join fcl_rel w qctxL qctxR ==> False
+    with begin
+      padm_join_unfold fcl_rel w qctxL qctxR ();
+      eliminate exists (cz: pctx fv fcl).
+          (padm_xrel fcl_rel w qctxL cz /\ padm_xrel fcl_rel w qctxR cz)
+      with lemma_padm_no_common_reduct_sites w qsiteL qsiteR qshared cz
+    end;
+    introduce padm_join fcl_rel w qctxL qctxV ==> False
+    with begin
+      padm_join_unfold fcl_rel w qctxL qctxV ();
+      eliminate exists (cz: pctx fv fcl).
+          (padm_xrel fcl_rel w qctxL cz /\ padm_xrel fcl_rel w qctxV cz)
+      with lemma_padm_no_common_reduct_sites w qsiteL qsiteV qshared cz
+    end
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 1, SECOND HALF: THE STORE LEVEL                           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **THE NAIVE STORE-LEVEL JOIN**, written down only so that it can be refuted:
+ * one store `sz` which BOTH sides reduce to, with both sides read as LEFT
+ * arguments of `padm_srel`.
+ *)
+let padm_sjoin_naive (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                     (s1 s2: pstore v cl) : GTot prop
+  = exists (sz: pstore v cl). padm_srel r w s1 sz /\ padm_srel r w s2 sz
+
+let padm_sjoin_naive_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                            (s1 s2: pstore v cl)
+                            (h: squash (padm_sjoin_naive r w s1 s2))
+  : squash (exists (sz: pstore v cl).
+              padm_srel r w s1 sz /\ padm_srel r w s2 sz)
+  = h
+
+(**
+ * **AND IT IS ALREADY FALSE AT THE SPECIMEN.** PROVED, and the reason has
+ * nothing to do with administrative units.
+ *
+ * `psrel` and `padm_srel` are WORLD-DIRECTED: the index `i` is read in the LEFT
+ * store and `j` in the RIGHT, and `qmid_w` sends 1 to 0. Reading `qmid_sr` as a
+ * left argument therefore asks for key 1, which `qmid_sr` does not have -- the
+ * right run allocated one context and the left two. So the naive form fails for
+ * a bookkeeping reason and would fail equally for `psrel`.
+ *
+ * This is what forces the store-level join to be the POINTWISE lift below,
+ * exactly as `padm_srel` is `psrel`'s pointwise lift and not an existential.
+ *)
+(**
+ * **THE STORE RELATION, READ AT ONE KEY SUPPLIED AS AN ARGUMENT.**
+ *
+ * `padm_srel`'s `{:pattern}` is a MULTI-pattern and it fires only when BOTH
+ * lookups are ground terms of the ASSUMPTION context -- having them in the goal
+ * alone is not enough, which is why every existing store proof in this file
+ * plants them with an `assert_norm` first. Here one side is an abstract store,
+ * so the two excluded-middle assertions are what plant them; they are trivially
+ * true and their only job is to put the trigger terms where E-matching can see
+ * them.
+ *)
+let lemma_padm_srel_at_key (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+      (s1 s2: pstore v cl) (i j: nat)
+  : Lemma (requires padm_srel r w s1 s2 /\ pwlookup_l i w == Some j)
+          (ensures Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+                   padm_xrel r w (psget i s1) (psget j s2))
+  = padm_srel_unfold r w s1 s2 ();
+    assert (Some? (pstore_lookup i s1) \/ None? (pstore_lookup i s1));
+    assert (Some? (pstore_lookup j s2) \/ None? (pstore_lookup j s2));
+    assert (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2))
+
+let guard_padm_sjoin_naive_refuses_the_specimen ()
+  : Lemma (~(padm_sjoin_naive fcl_rel qmid_w qmid_sl qmid_sr))
+  = assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (pstore_lookup 1 qmid_sr == None);
+    introduce padm_sjoin_naive fcl_rel qmid_w qmid_sl qmid_sr ==> False
+    with begin
+      padm_sjoin_naive_unfold fcl_rel qmid_w qmid_sl qmid_sr ();
+      eliminate exists (sz: pstore fv fcl).
+          (padm_srel fcl_rel qmid_w qmid_sl sz /\
+           padm_srel fcl_rel qmid_w qmid_sr sz)
+      with lemma_padm_srel_at_key fcl_rel qmid_w qmid_sr sz 1 0
+    end
+
+(**
+ * **JOINABILITY, AT STORES.** `psrel` with `pxrel` replaced by `padm_join`, and
+ * the `{:pattern}` carried across for the reason `psrel`'s comment gives: every
+ * store proof goes from the world's domain to the two lookups.
+ *)
+let padm_sjoin (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+               (s1 s2: pstore v cl) : GTot prop
+  = forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+      pwlookup_l i w == Some j ==>
+      (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+       padm_join r w (psget i s1) (psget j s2))
+
+let padm_sjoin_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                      (s1 s2: pstore v cl) (h: squash (padm_sjoin r w s1 s2))
+  : squash (forall (i j: nat).
+              {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+              pwlookup_l i w == Some j ==>
+              (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+               padm_join r w (psget i s1) (psget j s2)))
+  = h
+
+(**
+ * **`padm_sjoin` CONTAINS `padm_srel` ON THE WELL-SCOPED DIAGONAL, AND THE
+ * SIDE CONDITION IS NOT REMOVABLE.** PROVED, with the side condition passed as
+ * a PROOF-FUNCTION ARGUMENT rather than hidden in a definition.
+ *
+ * Joining `s1` to `s2` by the witness `s2` itself needs `s2`'s entries to be
+ * reducts OF THEMSELVES, and that is the reflexivity `guard_padm_join_not_
+ * reflexive` refutes in general. So the containment is exactly as wide as the
+ * diagonal of `padm_xrel` and no wider -- the same restriction `pxrel` has
+ * lived under since B2b.1, inherited and not introduced here.
+ *)
+let lemma_padm_sjoin_of_padm_srel_on_diagonal
+      (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (s1 s2: pstore v cl)
+  : Lemma (requires padm_srel r w s1 s2 /\
+                    (forall (i j: nat).
+                       pwlookup_l i w == Some j ==>
+                       padm_xrel r w (psget j s2) (psget j s2)))
+          (ensures padm_sjoin r w s1 s2)
+  = introduce forall (i j: nat).
+        (pwlookup_l i w == Some j ==>
+         (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+          padm_join r w (psget i s1) (psget j s2)))
+    with (introduce _ ==> _
+          with begin
+            lemma_padm_srel_at_key r w s1 s2 i j;
+            lemma_padm_join_intro r w (psget i s1) (psget j s2) (psget j s2)
+          end)
+
+(* ------------------------------------------------------------------ *)
+(*  THE SPECIMEN, AT THE STORE, IN BOTH DIRECTIONS                     *)
+(* ------------------------------------------------------------------ *)
+
+(** The mid-point world read the other way round: key 0 on the left, key 1 on
+    the right. This is the only place a world is built here, and it is built by
+    `pwextend`, the one operator that builds worlds anywhere in this file. *)
+let qmid_w_flip : pworld = pwextend 0 1 []
+
+(**
+ * **THE STORE-LEVEL SPECIMEN IS JOINED, AND IN BOTH DIRECTIONS.** PROVED.
+ *
+ * Forwards, at `qmid_w`, the matched entries are `qext` and `qprod`; backwards,
+ * at the flipped world, they are `qprod` and `qext`. The last conjunct is the
+ * point: at the flipped world the ORIENTED store relation refuses the pair
+ * (`guard_ri_id_reverse_stores_no_world`), and the join does not.
+ *)
+let guard_padm_sjoin_relates_the_specimen ()
+  : Lemma (pwf_world qmid_w /\ pwf_world qmid_w_flip /\
+           padm_sjoin fcl_rel qmid_w qmid_sl qmid_sr /\
+           padm_sjoin fcl_rel qmid_w_flip qmid_sr qmid_sl /\
+           ~(padm_srel fcl_rel qmid_w_flip qmid_sr qmid_sl))
+  = guard_padm_relates_the_specimen ();
+    lemma_pwl_cons 1 0 [];
+    assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+    assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+    assert_norm (Some? (pstore_lookup 1 qmid_sl));
+    assert_norm (Some? (pstore_lookup 0 qmid_sr));
+    assert_norm (psget 1 qmid_sl == qext);
+    assert_norm (psget 0 qmid_sr == qprod);
+    guard_padm_join_relates_the_specimen qmid_w;
+    introduce forall (i j: nat).
+        (pwlookup_l i qmid_w == Some j ==>
+         (Some? (pstore_lookup i qmid_sl) /\ Some? (pstore_lookup j qmid_sr) /\
+          padm_join fcl_rel qmid_w (psget i qmid_sl) (psget j qmid_sr)))
+    with (introduce _ ==> _ with assert (i == 1 /\ j == 0));
+    lemma_pwextend_wf 0 1 [];
+    assert_norm (pwlookup_l 0 ([] <: pworld) == None);
+    assert_norm (pwlookup_r 1 ([] <: pworld) == None);
+    assert_norm (pwlookup_l 0 qmid_w_flip == Some 1);
+    assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+    assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+    assert_norm (psget 0 qmid_sr == qprod);
+    assert_norm (psget 1 qmid_sl == qext);
+    assert_norm (Some? (pstore_lookup 0 qmid_sr));
+    assert_norm (Some? (pstore_lookup 1 qmid_sl));
+    pval_rel_key_unfold #fv qmid_w_flip 0 1 ();
+    guard_ri_id_reverse_stores_no_world qmid_w_flip 0 1 qmid_sr qmid_sl;
+    guard_padm_join_relates_the_specimen qmid_w_flip;
+    introduce forall (i j: nat).
+        (pwlookup_l i qmid_w_flip == Some j ==>
+         (Some? (pstore_lookup i qmid_sr) /\ Some? (pstore_lookup j qmid_sl) /\
+          padm_join fcl_rel qmid_w_flip (psget i qmid_sr) (psget j qmid_sl)))
+    with (introduce _ ==> _ with assert (i == 0 /\ j == 1))
+
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 5: THE DIFFERING RESIDUALS, AT THE STORE                  *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **AND THE STORE LIFT INHERITS THE REFUSALS.** PROVED.
+ *
+ * At the one key `qw00` speaks for, the two entries are B2b.14's contexts, and
+ * question 4's verdicts carry over unchanged. The positive is stated beside them
+ * so that the refusals are a contrast and not a blanket denial.
+ *)
+let guard_padm_sjoin_refuses_a_changed_residual ()
+  : Lemma (pwf_world qw00 /\
+           padm_sjoin fcl_rel qw00 qstoreL qstoreL /\
+           ~(padm_sjoin fcl_rel qw00 qstoreL qstoreR) /\
+           ~(padm_sjoin fcl_rel qw00 qstoreL qstoreV))
+  = lemma_pwextend_wf 0 0 [];
+    assert_norm (pwlookup_l 0 qw00 == Some 0);
+    assert_norm (pstore_lookup 0 qstoreL == Some qctxL);
+    assert_norm (pstore_lookup 0 qstoreR == Some qctxR);
+    assert_norm (pstore_lookup 0 qstoreV == Some qctxV);
+    assert_norm (psget 0 qstoreL == qctxL);
+    assert_norm (psget 0 qstoreR == qctxR);
+    assert_norm (psget 0 qstoreV == qctxV);
+    assert_norm (Some? (pstore_lookup 0 qstoreL));
+    assert_norm (Some? (pstore_lookup 0 qstoreR));
+    assert_norm (Some? (pstore_lookup 0 qstoreV));
+    guard_padm_join_refuses_a_changed_residual qw00;
+    introduce forall (i j: nat).
+        (pwlookup_l i qw00 == Some j ==>
+         (Some? (pstore_lookup i qstoreL) /\ Some? (pstore_lookup j qstoreL) /\
+          padm_join fcl_rel qw00 (psget i qstoreL) (psget j qstoreL)))
+    with (introduce _ ==> _ with assert (i == 0 /\ j == 0));
+    introduce padm_sjoin fcl_rel qw00 qstoreL qstoreR ==> False
+    with begin
+      padm_sjoin_unfold fcl_rel qw00 qstoreL qstoreR ();
+      assert (padm_join fcl_rel qw00 (psget 0 qstoreL) (psget 0 qstoreR))
+    end;
+    introduce padm_sjoin fcl_rel qw00 qstoreL qstoreV ==> False
+    with begin
+      padm_sjoin_unfold fcl_rel qw00 qstoreL qstoreV ();
+      assert (padm_join fcl_rel qw00 (psget 0 qstoreL) (psget 0 qstoreV))
+    end
+(* ------------------------------------------------------------------ *)
+(*  QUESTION 7: TRANSITIVITY, AND WHAT IT COSTS                        *)
+(* ------------------------------------------------------------------ *)
+
+(** A world that chains: 0 on the left names 1 on the right, and 1 on the left
+    names 2 on the right. Built by `pwextend`, twice, and WELL-FORMED -- a world
+    is a partial bijection between TWO name spaces, and nothing forbids the two
+    spaces from overlapping numerically. *)
+let qw012 : pworld = pwextend 0 1 (pwextend 1 2 [])
+
+let qdA : pctx fv fcl = PCtxDone (PCtxKey 0)
+let qdB : pctx fv fcl = PCtxDone (PCtxKey 1)
+let qdC : pctx fv fcl = PCtxDone (PCtxKey 2)
+
+(**
+ * **THE ORIENTED RELATION IS NOT TRANSITIVE AT A FIXED WORLD.** PROVED, by
+ * counterexample, and this is not a fact about administrative units at all.
+ *
+ * `pval_rel` reads the world as a partial bijection from LEFT names to RIGHT
+ * names. Chaining two instances of it at ONE world would need the world composed
+ * with itself, which is a different world; at `qw012` the composite would have to
+ * send 0 to 2 and it sends 0 to 1. `padm_xrel` inherits this through the
+ * `PCtxDone` clause, where it is `pval_rel` and nothing else.
+ *
+ * So the transitivity hypothesis of `lemma_padm_join_trans_under` below is a
+ * REAL restriction and not a formality: it is false at this world.
+ *)
+let guard_padm_xrel_not_transitive ()
+  : Lemma (pwf_world qw012 /\
+           padm_xrel fcl_rel qw012 qdA qdB /\
+           padm_xrel fcl_rel qw012 qdB qdC /\
+           ~(padm_xrel fcl_rel qw012 qdA qdC))
+  = lemma_pwextend_wf 1 2 [];
+    assert_norm (pwlookup_l 1 ([] <: pworld) == None);
+    assert_norm (pwlookup_r 2 ([] <: pworld) == None);
+    assert_norm (pwlookup_l 0 (pwextend 1 2 []) == None);
+    assert_norm (pwlookup_r 1 (pwextend 1 2 []) == None);
+    lemma_pwextend_wf 0 1 (pwextend 1 2 []);
+    assert_norm (pwlookup_l 0 qw012 == Some 1);
+    assert_norm (pwlookup_l 1 qw012 == Some 2);
+    assert_norm (~(pwlookup_l 0 qw012 == Some 2));
+    assert (pval_rel #fv qw012 (PCtxKey 0) (PCtxKey 1));
+    assert (pval_rel #fv qw012 (PCtxKey 1) (PCtxKey 2));
+    lemma_pxrel_done #fv #fcl fcl_rel qw012 (PCtxKey 0) (PCtxKey 1);
+    lemma_pxrel_done #fv #fcl fcl_rel qw012 (PCtxKey 1) (PCtxKey 2);
+    lemma_padm_xrel_of_pxrel fcl_rel qw012 qdA qdB;
+    lemma_padm_xrel_of_pxrel fcl_rel qw012 qdB qdC;
+    introduce padm_xrel fcl_rel qw012 qdA qdC ==> False
+    with begin
+      assert (padm_pctx fcl_rel 1 qw012 qdA qdC);
+      pval_rel_key_unfold #fv qw012 0 2 ()
+    end
+
+(**
+ * **TRANSITIVITY, AND EXACTLY WHAT IT NEEDS.** PROVED -- as an IMPLICATION, and
+ * that is the honest form of the answer to question 7.
+ *
+ * Two hypotheses, both passed as PROOF-FUNCTION ARGUMENTS -- as FUNCTIONS, not
+ * as quantified formulas, so that every use is an application and no proof here
+ * depends on a quantifier being instantiated by the solver:
+ *
+ *   - CONFLUENCE at the middle term: two reducts of one context have a common
+ *     reduct. This is the diamond the standard joinability argument turns on and
+ *     it is NOT proved anywhere in this file.
+ *
+ *   - TRANSITIVITY of the oriented relation itself, needed to compose `a -> z1`
+ *     with `z1 -> z3`. `guard_padm_xrel_not_transitive` shows it is FALSE at a
+ *     world that chains, so this hypothesis restricts the worlds the law could
+ *     be stated at.
+ *
+ * NEITHER hypothesis is discharged here. No administrative normaliser is built,
+ * no normal form is defined, and no law is stated over `padm_join`.
+ *)
+(** The last step: with the meeting point `z3` in hand and the two compositions
+    already performed, joinability is introduced at `z3`. Factored out so that
+    the transitivity applications and the introduction are separate queries. *)
+let lemma_padm_join_trans_meet
+    (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (a c z3: pctx v cl)
+  : Lemma (requires padm_xrel r w a z3 /\ padm_xrel r w c z3)
+          (ensures padm_join r w a c)
+  = lemma_padm_join_intro r w a c z3
+
+let lemma_padm_join_trans_under
+    (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (a b c: pctx v cl)
+    (confl: (u: pctx v cl) -> (y1: pctx v cl) -> (y2: pctx v cl) ->
+            Lemma (requires padm_xrel r w u y1 /\ padm_xrel r w u y2)
+                  (ensures exists (y3: pctx v cl).
+                             padm_xrel r w y1 y3 /\ padm_xrel r w y2 y3))
+    (trans: (u1: pctx v cl) -> (u2: pctx v cl) -> (u3: pctx v cl) ->
+            Lemma (requires padm_xrel r w u1 u2 /\ padm_xrel r w u2 u3)
+                  (ensures padm_xrel r w u1 u3))
+  : Lemma (requires padm_join r w a b /\ padm_join r w b c)
+          (ensures padm_join r w a c)
+  = padm_join_unfold r w a b ();
+    padm_join_unfold r w b c ();
+    eliminate exists (z1: pctx v cl).
+        (padm_xrel r w a z1 /\ padm_xrel r w b z1)
+    with (eliminate exists (z2: pctx v cl).
+              (padm_xrel r w b z2 /\ padm_xrel r w c z2)
+          with begin
+            confl b z1 z2;
+            eliminate exists (z3: pctx v cl).
+                (padm_xrel r w z1 z3 /\ padm_xrel r w z2 z3)
+            with begin
+              trans a z1 z3;
+              trans c z2 z3;
+              lemma_padm_join_trans_meet r w a c z3
+            end
+          end)
+(* ================================================================== *)
+(*  B2b.17 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT WAS ASKED.  Whether the symmetric relation the right-identity *)
+(*  repair needs can be built as JOINABILITY BY A COMMON REDUCT --     *)
+(*  definable at contexts and at stores, and DISCRIMINATING.  Nothing  *)
+(*  else: no normaliser, no observation on top of it, no law, no       *)
+(*  soundness, no preservation, no simulation.  NO EXISTING           *)
+(*  DEFINITION IS CHANGED; the whole block is additive.               *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  QUESTION 2 -- THE SPECIMEN IS JOINED.  YES.                        *)
+(*                                                                     *)
+(*    `guard_padm_join_relates_the_specimen` proves                    *)
+(*    `padm_join fcl_rel w qext qprod` AND                             *)
+(*    `padm_join fcl_rel w qprod qext` at EVERY well-formed world,     *)
+(*    with `qprod` as the common reduct on both readings, while the    *)
+(*    same guard carries `~(padm_xrel fcl_rel w qprod qext)`.  So the  *)
+(*    symmetry is bought by joinability and NOT by weakening the       *)
+(*    oriented relation: nothing is expanded anywhere, `qext -> qprod` *)
+(*    is `guard_padm_relates_the_context`'s and `qprod -> qprod` is    *)
+(*    `lemma_qprod_selfrel`'s, which goes through `pxrel` and never    *)
+(*    touches the strip clause.                                        *)
+(*                                                                     *)
+(*  QUESTION 3 -- `qwork` AND `qbad`.  NO COMMON REDUCT.               *)
+(*                                                                     *)
+(*    `guard_padm_join_refuses_the_working_post` proves                *)
+(*    `~(padm_join fcl_rel w qwork qbad)` at every well-formed world,  *)
+(*    and proves BESIDE IT that each of the two IS joined with itself  *)
+(*    -- so the refusal is not "neither reduces to anything".  The     *)
+(*    argument is against EVERY candidate `z`, not against a chosen    *)
+(*    one: `qbad`'s `post` is a `PVar`, which forces the candidate's   *)
+(*    `post` to be a `PVar` too (`lemma_pcomp_rel_var_left_shape`);    *)
+(*    and `qwork`'s `post` is a `POp` whose continuation PERFORMS,     *)
+(*    which is refused against every `PVar`                            *)
+(*    (`lemma_padm_pcrel_strip_needs_pure`, B2b.12's).                 *)
+(*                                                                     *)
+(*  QUESTION 4 -- `qctxL`/`qctxR` AND `qctxL`/`qctxV`.  NO COMMON      *)
+(*  REDUCT, EITHER PAIR.                                               *)
+(*                                                                     *)
+(*    `guard_padm_join_refuses_a_changed_residual` proves both, at     *)
+(*    every well-formed world, and carries the positive                *)
+(*    `padm_join fcl_rel w qctxL qctxL` beside them.  All three        *)
+(*    contexts carry the same payload `fone` and the same `post` --    *)
+(*    the term `PVar` -- so the refusals come from the RESIDUAL        *)
+(*    clause, exactly as B2b.14's do.  `L`/`R` is separated at index 1 *)
+(*    by the EVENT; `L`/`V` emit the same event and are separated at   *)
+(*    index 2 by the ANSWER, `pval_rel` on payloads being equality.    *)
+(*                                                                     *)
+(*  QUESTION 5 -- THE DIFFERING RESIDUALS, AT THE STORE.  NO COMMON    *)
+(*  REDUCT.                                                            *)
+(*                                                                     *)
+(*    `guard_padm_sjoin_refuses_a_changed_residual` proves             *)
+(*    `~(padm_sjoin fcl_rel qw00 qstoreL qstoreR)` and                 *)
+(*    `~(padm_sjoin fcl_rel qw00 qstoreL qstoreV)`, with               *)
+(*    `padm_sjoin fcl_rel qw00 qstoreL qstoreL` beside them.  The lift *)
+(*    inherits question 4's verdicts at the one key the world speaks   *)
+(*    for.  So joinability does NOT join everything: three separate    *)
+(*    pairs are refused at contexts and two of them again at stores.   *)
+(*                                                                     *)
+(*  QUESTION 1 -- DEFINABLE AT BOTH LEVELS.  YES, WITH ONE CORRECTION  *)
+(*  THE STORE LEVEL FORCES.                                            *)
+(*                                                                     *)
+(*    At CONTEXTS, `padm_join` is the plain existential.                *)
+(*                                                                     *)
+(*    At STORES the plain existential is WRONG, and this is PROVED     *)
+(*    rather than argued: `guard_padm_sjoin_naive_refuses_the_specimen`*)
+(*    shows `padm_sjoin_naive` is already FALSE of the specimen        *)
+(*    `(qmid_sl, qmid_sr)` at `qmid_w`.  `psrel` and `padm_srel` are   *)
+(*    WORLD-DIRECTED -- the index is read in the LEFT store and its    *)
+(*    partner in the RIGHT -- so reading `qmid_sr` as a left argument  *)
+(*    asks for a key the right run never allocated.  The failure is    *)
+(*    bookkeeping and would hit `psrel` identically.                   *)
+(*                                                                     *)
+(*    `padm_sjoin` is therefore the POINTWISE lift: `psrel` with       *)
+(*    `pxrel` replaced by `padm_join`, `{:pattern}` and all, exactly   *)
+(*    as `padm_srel` is `psrel` with `pxrel` replaced by `padm_xrel`.  *)
+(*    `guard_padm_sjoin_relates_the_specimen` proves it holds at       *)
+(*    `qmid_w` forwards and at the flipped world backwards, and that   *)
+(*    at the flipped world the ORIENTED `padm_srel` refuses the pair.  *)
+(*                                                                     *)
+(*  QUESTION 6 -- REFLEXIVITY AND SYMMETRY.  SYMMETRY YES,             *)
+(*  REFLEXIVITY ONLY ON THE WELL-SCOPED DIAGONAL.                      *)
+(*                                                                     *)
+(*    `lemma_padm_join_sym` proves symmetry UNCONDITIONALLY, at every  *)
+(*    world and for every pair.  It is the definition read the other   *)
+(*    way round and it costs nothing.                                  *)
+(*                                                                     *)
+(*    Reflexivity is NOT unconditional, and                            *)
+(*    `guard_padm_join_not_reflexive` REFUTES it: at the empty world   *)
+(*    `PCtxDone (PCtxKey 5)` is not joined with itself, because a      *)
+(*    handle no world speaks for is related to nothing and there is no *)
+(*    reduct at all.  `lemma_padm_join_refl_on_diagonal` gives the     *)
+(*    conditional form.  This is INHERITED, not introduced: `pxrel`    *)
+(*    and `padm_xrel` fail reflexivity at the same place, a Kripke     *)
+(*    logical relation being reflexive exactly on well-scoped terms.   *)
+(*                                                                     *)
+(*    The same gap has one visible consequence, and it is recorded     *)
+(*    rather than hidden: `padm_join` does NOT contain `padm_xrel`     *)
+(*    outright, because joining `a` to `b` by the witness `b` needs    *)
+(*    `b -> b`.  `lemma_padm_sjoin_of_padm_srel_on_diagonal` states    *)
+(*    the containment with exactly that side condition, passed as a    *)
+(*    proof-function argument.  So `padm_join` is a PARTIAL            *)
+(*    equivalence candidate -- symmetric everywhere, reflexive on the  *)
+(*    diagonal `padm_xrel` already lives on.                           *)
+(*                                                                     *)
+(*  QUESTION 7 -- TRANSITIVITY.  IT DOES NOT GO THROUGH.  IT NEEDS     *)
+(*  CONFLUENCE, AND IT ALSO NEEDS SOMETHING THE FILE REFUTES.          *)
+(*                                                                     *)
+(*    This is the answer, stated plainly: transitivity is NOT proved   *)
+(*    here and cannot be, on this definition, without two further      *)
+(*    facts.  `lemma_padm_join_trans_under` proves the IMPLICATION and *)
+(*    names them, both as PROOF-FUNCTION ARGUMENTS -- as functions,    *)
+(*    so that every use is an application:                             *)
+(*                                                                     *)
+(*      - CONFLUENCE at the middle term: two reducts of one context    *)
+(*        have a common reduct.  Not proved anywhere in this file.     *)
+(*        Establishing it means either a confluence argument for the   *)
+(*        strip clause or an administrative NORMAL FORM, and neither   *)
+(*        is built here.                                               *)
+(*                                                                     *)
+(*      - TRANSITIVITY OF THE ORIENTED RELATION, to compose `a -> z1`  *)
+(*        with `z1 -> z3`.  And this one is FALSE:                     *)
+(*        `guard_padm_xrel_not_transitive` exhibits a well-formed      *)
+(*        world `qw012` and three contexts with `A -> B`, `B -> C` and *)
+(*        `~(A -> C)`.  The reason is not administrative at all -- a   *)
+(*        world is a partial bijection from LEFT names to RIGHT names, *)
+(*        and chaining two of its instances at ONE world would need    *)
+(*        the world composed with itself, which is a different world.  *)
+(*                                                                     *)
+(*    So the real choice the gate wanted made visible is made visible: *)
+(*    an administrative normaliser, or the equivalence closure, or a   *)
+(*    refinement preorder -- and, independently of which, a decision   *)
+(*    about worlds, because at a FIXED world the oriented relation is  *)
+(*    not transitive and no amount of confluence repairs that.         *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  STOP CONDITION.  ONE FIRED: question 7.  Transitivity needs        *)
+(*  confluence or a normal form, and the report says so.  None of the  *)
+(*  other five fired -- the specimen IS joined, none of 3, 4, 5 is     *)
+(*  joined, `padm_join` IS definable at both levels, and question 6    *)
+(*  is answered with symmetry proved and reflexivity refuted rather    *)
+(*  than assumed.  No normaliser was built, no law was stated, no      *)
+(*  observation was defined on top of `padm_join`.                     *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  WHAT IS ASSUMED HERE.  NOTHING.  No `admit`, no `assume`, no       *)
+(*  `--admit_smt_queries`, no `--lax`, no `val` without a body, no     *)
+(*  axiom, no `expect_failure`, no `z3rlimit`, no warning.             *)
+(*                                                                     *)
+(*  WHAT IS STATED RATHER THAN PROVED.  Two things, both named above   *)
+(*  and both isolated as arguments of `lemma_padm_join_trans_under`:   *)
+(*  CONFLUENCE of `padm_xrel`, and TRANSITIVITY of `padm_xrel` (which  *)
+(*  is moreover refuted at a fixed world).  Nothing else is stated     *)
+(*  without proof: every other claim in this block is a `Lemma` with   *)
+(*  a body.                                                            *)
+(*                                                                     *)
+(*  ---------------------------------------------------------------   *)
+(*  GUARDS FIRED, AND WHERE EACH LANDED                                *)
+(*                                                                     *)
+(*  Each was applied to a SCRATCH COPY of this file and the            *)
+(*  repository file was never left mutated.  F* halts at the first     *)
+(*  rejected definition, so each entry records ONE landing.  Line      *)
+(*  numbers were read on the scratch copies, which are this file       *)
+(*  WITHOUT this ledger appended; the ledger is comments only and      *)
+(*  follows every definition it mentions.                              *)
+(*                                                                     *)
+(*   - `padm_join`'s conjunction weakened to a DISJUNCTION -- the      *)
+(*     definition, both casts and the introduction rule changed        *)
+(*     together, so the mutation is a coherent coarser relation and    *)
+(*     not a type error:  REJECTED at lines 26127-26141, inside        *)
+(*     `guard_padm_join_refuses_the_working_post` -- "Assertion        *)
+(*     failed".  So the CONJUNCTION is what makes the relation         *)
+(*     discriminating, and question 3's refusal is what notices.       *)
+(*   - `guard_padm_join_relates_the_specimen`'s SECOND witness         *)
+(*     changed from `qprod` to `qext`:  REJECTED at line 25984, in     *)
+(*     that guard.  So the common reduct must be the REDUCT: joining   *)
+(*     `qprod` to `qext` at `qext` would be administrative EXPANSION   *)
+(*     and it is not available.                                        *)
+(*   - `guard_padm_join_refuses_the_working_post` asked to prove the   *)
+(*     POSITIVE `padm_join fcl_rel w qwork qbad`:  REJECTED at lines   *)
+(*     26112-26142.  So question 3's negative is not vacuous.          *)
+(*   - `guard_padm_join_refuses_a_changed_residual` asked to prove the *)
+(*     POSITIVE `padm_join fcl_rel w qctxL qctxV`:  REJECTED at lines  *)
+(*     26258-26301.  So question 4's negative is not vacuous either.   *)
+(*   - `lemma_padm_no_common_reduct_sites`'s separating hypothesis --  *)
+(*     "no computation is a common reduct of the two site bodies at    *)
+(*     `fone`" -- weakened to `True`:  REJECTED at lines 26210-26243,  *)
+(*     in that lemma's body.  So the refusal really comes from the     *)
+(*     site bodies and not from the shape of the descent.              *)
+(*   - `lemma_pcrel_emit_pv_no_common_reduct` read at INDEX 1 instead  *)
+(*     of index 2:  REJECTED at line 26180, in that lemma.  So the     *)
+(*     changed-answer separation is read one level down, index 1 being *)
+(*     satisfied when the events agree -- B2b.14's observation,        *)
+(*     re-checked here against a candidate reduct rather than against  *)
+(*     a chosen partner.                                               *)
+(*   - `guard_padm_join_not_reflexive` asked to prove the POSITIVE:    *)
+(*     REJECTED at lines 25932-25946.  So the reflexivity refutation   *)
+(*     is a refutation and not an empty hypothesis.                    *)
+(*   - `guard_padm_sjoin_naive_refuses_the_specimen` asked to prove    *)
+(*     the POSITIVE:  REJECTED at lines 26358-26367.  So the naive     *)
+(*     store-level join really is false at the specimen.               *)
+(*   - `guard_padm_sjoin_refuses_a_changed_residual` asked to prove    *)
+(*     the POSITIVE `padm_sjoin fcl_rel qw00 qstoreL qstoreV`:         *)
+(*     REJECTED at lines 26490-26516.  So question 5's negative is not *)
+(*     vacuous.                                                        *)
+(*   - `guard_padm_xrel_not_transitive` asked to prove the POSITIVE    *)
+(*     `padm_xrel fcl_rel qw012 qdA qdC`:  REJECTED at lines           *)
+(*     26549-26568.  So the counterexample to transitivity of the      *)
+(*     ORIENTED relation is a counterexample.                          *)
+(*   - `qmid_w_flip` replaced by the UNFLIPPED `pwextend 1 0 []`:      *)
+(*     REJECTED at line 26458, in                                      *)
+(*     `guard_padm_sjoin_relates_the_specimen`.  So the backwards      *)
+(*     reading really needs the world read the other way round, and    *)
+(*     the store-level join is world-directed exactly as `psrel` is.   *)
+(*   - `lemma_padm_sjoin_of_padm_srel_on_diagonal`'s diagonal side     *)
+(*     condition weakened to `True`:  REJECTED at line 26415, at the   *)
+(*     `lemma_padm_join_intro` call inside it.  So the containment of  *)
+(*     `padm_srel` in `padm_sjoin` really does need reflexivity of the *)
+(*     right-hand entries, which is question 6's gap and not a         *)
+(*     bookkeeping step.                                               *)
+(*   - the CONFLUENCE argument's use deleted from                      *)
+(*     `lemma_padm_join_trans_under`:  REJECTED at lines 26610-26625.  *)
+(*     So confluence is load-bearing in the conditional transitivity   *)
+(*     and the implication is not proved by other means.               *)
+(*   - the TRANSITIVITY argument's two uses deleted from the same      *)
+(*     lemma:  REJECTED at line 26623.  So the second hypothesis is    *)
+(*     load-bearing too, and question 7 needs BOTH.                    *)
+(*                                                                     *)
+(*  TWO MUTATIONS DID NOT ISOLATE, AND THAT IS RECORDED RATHER THAN    *)
+(*  QUIETLY DROPPED:                                                   *)
+(*                                                                     *)
+(*   - the SECOND `lemma_padm_pctx_resid` call deleted from            *)
+(*     `lemma_padm_no_common_reduct_sites`:  ACCEPTED -- the file      *)
+(*     still verifies.                                                 *)
+(*   - `lemma_pfrel_site_inv` and `lemma_pfn_apply` for the SECOND     *)
+(*     site body deleted from the same lemma:  ACCEPTED.               *)
+(*                                                                     *)
+(*  In both cases the deleted step is REDUNDANT, not absent: the       *)
+(*  hypothesis `padm_xrel r w (PCtxRequests _ (_ :: PSiteF g2 :: _) _) *)
+(*  cz` is a `forall (n: nat)` with no `{:pattern}` restricting it, so *)
+(*  the solver reaches the residual clause without being walked there. *)
+(*  The calls are kept because the descent should be readable as a     *)
+(*  descent; the mutation that DOES isolate the residual clause is the *)
+(*  separating-hypothesis one above, which lands inside the same       *)
+(*  lemma.                                                             *)
+(* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.18 -- THE WORLD ALGEBRA: A WORLD IS A MORPHISM, NOT AN INDEX   *)
+(*                                                                     *)
+(*  WHAT THE PRECEDING GATE ACTUALLY REFUTED.                          *)
+(*  `guard_padm_xrel_not_transitive` exhibits a well-formed world       *)
+(*  `qw012` sending 0 to 1 and 1 to 2, three contexts with             *)
+(*  `A R[qw012] B` and `B R[qw012] C`, and NO `A R[qw012] C`.  Read as  *)
+(*  a fact about the relation that is a defect.  Read as a fact about   *)
+(*  the INDEX it is a TYPE ERROR in the question: `pwlookup_l` is a     *)
+(*  partial map from the LEFT run's names to the RIGHT run's, so the    *)
+(*  two hypotheses do not even speak about the same pair of name        *)
+(*  spaces -- `B`'s names are the right space of the first and the      *)
+(*  LEFT space of the second.  Chaining them cannot land at `qw012`;    *)
+(*  it lands at `qw012` COMPOSED WITH `qw012`, and that composite is    *)
+(*  exactly the world that sends 0 to 2.                               *)
+(*                                                                     *)
+(*  So the three laws to expect are the laws of a GROUPOID and not of   *)
+(*  an equivalence relation at a fixed index:                          *)
+(*                                                                     *)
+(*      identity      pval_rel (pwidentity (pvsupport x)) x x          *)
+(*      symmetry      pval_rel w x y      ==> pval_rel (pwinverse w) y x *)
+(*      composition   pval_rel w12 x y /\ pval_rel w23 y z             *)
+(*                        ==> pval_rel (pwcompose w12 w23) x z         *)
+(*                                                                     *)
+(*  and reflexivity was never a statement about the EMPTY world: it is  *)
+(*  a statement about the identity world ON THE VALUE'S SUPPORT, which  *)
+(*  is empty only for a payload.  `guard_padm_join_not_reflexive`       *)
+(*  above takes `[] <: pworld` and a dangling key, and the empty world  *)
+(*  is the identity on NO support at all.                              *)
+(*                                                                     *)
+(*  THIS GATE BUILDS THE ALGEBRA AND NOTHING ELSE.  No observation is   *)
+(*  defined, `padm_join` is not rebuilt on it, no law is stated, no     *)
+(*  normal form and no confluence.  Every definition below is NEW; not  *)
+(*  one existing definition is touched.  Lifting the relation onto the  *)
+(*  algebra -- `pxrel`, `padm_xrel`, the store relations -- is the next *)
+(*  gate, and the last statement of this section is the check that      *)
+(*  makes that gate worth attempting: the REFUTED COUNTEREXAMPLE,       *)
+(*  RECOVERED, at `pwcompose qw012 qw012`.                             *)
+(* ================================================================== *)
+
+(* ---- 1. THE IDENTITY WORLD, OVER A SUPPORT ----------------------- *)
+
+(**
+ * **The identity world on a support.** `pwidentity s` pins every name in `s` to
+ * itself and speaks about nothing else. It is `panchor` with the store's
+ * payloads forgotten -- and it is stated over a LIST OF NAMES rather than over
+ * a store because the identity law below is about a VALUE's support, and a
+ * value carries names, not contexts.
+ *)
+let rec pwidentity (s: list nat) : Tot pworld (decreases s)
+  = match s with
+    | [] -> []
+    | i :: r -> (i, i) :: pwidentity r
+
+let rec lemma_pwidentity_l (i: nat) (s: list nat)
+  : Lemma (ensures pwlookup_l i (pwidentity s) == (if mem i s then Some i else None))
+          (decreases s)
+  = match s with
+    | [] -> ()
+    | a :: r -> lemma_pwidentity_l i r
+
+let rec lemma_pwidentity_r (j: nat) (s: list nat)
+  : Lemma (ensures pwlookup_r j (pwidentity s) == (if mem j s then Some j else None))
+          (decreases s)
+  = match s with
+    | [] -> ()
+    | a :: r -> lemma_pwidentity_r j r
+
+(** **ITEM 4, FIRST THIRD: THE IDENTITY IS A WORLD.** PROVED. *)
+let lemma_pwidentity_wf (s: list nat) : Lemma (pwf_world (pwidentity s))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (pwidentity s) == Some j <==>
+         pwlookup_r j (pwidentity s) == Some i)
+    with (lemma_pwidentity_l i s; lemma_pwidentity_r j s)
+
+(* ---- 2. THE INVERSE ---------------------------------------------- *)
+
+(**
+ * **The inverse world.** The two name spaces exchanged, pair by pair. A world
+ * is a partial BIJECTION -- that is the whole content of `pwf_world` -- so the
+ * inverse is total on worlds and needs no side condition to EXIST; it needs
+ * `pwf_world` only to be a world again, and that is the next lemma.
+ *)
+let rec pwinverse (w: pworld) : Tot pworld (decreases w)
+  = match w with
+    | [] -> []
+    | (i, j) :: r -> (j, i) :: pwinverse r
+
+let rec lemma_pwinverse_l (j: nat) (w: pworld)
+  : Lemma (ensures pwlookup_l j (pwinverse w) == pwlookup_r j w) (decreases w)
+  = match w with
+    | [] -> ()
+    | (a, b) :: r -> lemma_pwinverse_l j r
+
+let rec lemma_pwinverse_r (i: nat) (w: pworld)
+  : Lemma (ensures pwlookup_r i (pwinverse w) == pwlookup_l i w) (decreases w)
+  = match w with
+    | [] -> ()
+    | (a, b) :: r -> lemma_pwinverse_r i r
+
+(** **ITEM 4, SECOND THIRD: THE INVERSE IS A WORLD.** PROVED, and the proof is
+    the biconditional read backwards -- which is to say `pwf_world` is exactly
+    the statement that the inverse exists. *)
+let lemma_pwinverse_wf (w: pworld)
+  : Lemma (requires pwf_world w) (ensures pwf_world (pwinverse w))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (pwinverse w) == Some j <==>
+         pwlookup_r j (pwinverse w) == Some i)
+    with (lemma_pwinverse_l i w; lemma_pwinverse_r j w)
+
+(* ---- 3. COMPOSITION ---------------------------------------------- *)
+
+(**
+ * **What the composite SAYS**, before what it IS: follow `w12` from the left
+ * name to the middle name, then `w23` from the middle name to the right name,
+ * and be silent whenever either step is.
+ *)
+let pwimg (w12 w23: pworld) (i: nat) : option nat
+  = match pwlookup_l i w12 with
+    | None -> None
+    | Some j -> pwlookup_l j w23
+
+(**
+ * **Composition, in diagrammatic order**: `pwcompose w12 w23` is "`w12` and
+ * THEN `w23`".
+ *
+ * THE ONE SUBTLETY, and the reason for the auxiliary parameter. The obvious
+ * recursion walks `w12` and, at each pair `(i, j)`, emits `(i, k)` when
+ * `pwlookup_l j w23 == Some k`. That is WRONG on a list whose left keys repeat:
+ * a shadowed later pair `(i, j')` whose `j'` IS in `w23`'s domain would supply
+ * an image for `i` that `w12` itself does not give it, and the composite would
+ * then say something neither world says. So the walk decides by
+ * `pwlookup_l i w12` -- the world's OWN answer at that key -- and the pair
+ * being walked over contributes only its left key. Every occurrence of `i`
+ * therefore yields the SAME image, shadowing is harmless, and the
+ * characterisation below holds with NO well-formedness hypothesis at all.
+ *
+ * NOTHING IS DROPPED AND NOTHING IS MERGED. A pair is omitted exactly when
+ * `w23` is silent about its middle name -- which is the composite being a
+ * partial map, not a repair -- and no two pairs are ever combined into one.
+ * `lemma_pwcompose_no_loss`, `lemma_pwcompose_no_conflict` and
+ * `guard_pwcompose_conflict_is_visible` are that read out three ways.
+ *)
+let rec pwcompose_from (w12 w23 rest: pworld) : Tot pworld (decreases rest)
+  = match rest with
+    | [] -> []
+    | (i, _) :: r ->
+      (match pwlookup_l i w12 with
+       | None -> pwcompose_from w12 w23 r
+       | Some j ->
+         (match pwlookup_l j w23 with
+          | None -> pwcompose_from w12 w23 r
+          | Some k -> (i, k) :: pwcompose_from w12 w23 r))
+
+let pwcompose (w12 w23: pworld) : pworld = pwcompose_from w12 w23 w12
+
+let rec lemma_pwcompose_from_l (w12 w23 rest: pworld) (i: nat)
+  : Lemma (ensures pwlookup_l i (pwcompose_from w12 w23 rest) ==
+                     (if Some? (pwlookup_l i rest) then pwimg w12 w23 i else None))
+          (decreases rest)
+  = match rest with
+    | [] -> ()
+    | (a, b) :: r -> lemma_pwcompose_from_l w12 w23 r i
+
+(** **THE COMPOSITE SAYS EXACTLY `pwimg`.** PROVED, unconditionally -- neither
+    world need be well formed for this. Every statement below about the
+    composite goes through this one lemma and never through the recursion. *)
+let lemma_pwcompose_l (w12 w23: pworld) (i: nat)
+  : Lemma (pwlookup_l i (pwcompose w12 w23) == pwimg w12 w23 i)
+  = lemma_pwcompose_from_l w12 w23 w12 i
+
+(** Two left names with the same composite image are the same name -- the
+    injectivity of the composite, and the place where BOTH worlds' bijectivity
+    is spent. This is the lemma `pwf_world` of the composite turns on. *)
+let lemma_pwimg_inj (w12 w23: pworld) (i1 i2 k: nat)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23 /\
+                    pwimg w12 w23 i1 == Some k /\ pwimg w12 w23 i2 == Some k)
+          (ensures i1 == i2)
+  = match pwlookup_l i1 w12, pwlookup_l i2 w12 with
+    | Some j1, Some j2 ->
+      assert (pwlookup_l j1 w23 == Some k);
+      assert (pwlookup_l j2 w23 == Some k);
+      assert (pwlookup_r k w23 == Some j1);
+      assert (pwlookup_r k w23 == Some j2);
+      assert (pwlookup_r j1 w12 == Some i1);
+      assert (pwlookup_r j2 w12 == Some i2)
+    | _, _ -> ()
+
+let rec lemma_pwcompose_from_wf (w12 w23 rest: pworld)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23)
+          (ensures pwf_world (pwcompose_from w12 w23 rest))
+          (decreases rest)
+  = match rest with
+    | [] -> ()
+    | (a, b) :: r ->
+      lemma_pwcompose_from_wf w12 w23 r;
+      let cp = pwcompose_from w12 w23 r in
+      (match pwlookup_l a w12 with
+       | None -> ()
+       | Some j0 ->
+         (match pwlookup_l j0 w23 with
+          | None -> ()
+          | Some k0 ->
+            assert (pwimg w12 w23 a == Some k0);
+            lemma_pwl_cons a k0 cp;
+            lemma_pwr_cons a k0 cp;
+            introduce forall (i k: nat).
+                (pwlookup_l i ((a, k0) :: cp) == Some k <==>
+                 pwlookup_r k ((a, k0) :: cp) == Some i)
+            with begin
+              lemma_pwcompose_from_l w12 w23 r i;
+              introduce pwlookup_l i ((a, k0) :: cp) == Some k ==>
+                        pwlookup_r k ((a, k0) :: cp) == Some i
+              with begin
+                if a = i then ()
+                else begin
+                  assert (pwlookup_l i cp == Some k);
+                  assert (pwlookup_r k cp == Some i);
+                  if k0 = k then
+                    (assert (pwimg w12 w23 i == Some k);
+                     lemma_pwimg_inj w12 w23 i a k)
+                  else ()
+                end
+              end;
+              introduce pwlookup_r k ((a, k0) :: cp) == Some i ==>
+                        pwlookup_l i ((a, k0) :: cp) == Some k
+              with begin
+                if k0 = k then ()
+                else begin
+                  assert (pwlookup_r k cp == Some i);
+                  assert (pwlookup_l i cp == Some k);
+                  if a = i then
+                    (assert (pwimg w12 w23 i == Some k);
+                     assert (pwimg w12 w23 a == Some k0))
+                  else ()
+                end
+              end
+            end))
+
+(**
+ * **ITEM 4, LAST THIRD: THE COMPOSITE IS A WORLD.** PROVED, and with NO SIDE
+ * CONDITION beyond the two arguments being worlds.
+ *
+ * This is worth saying plainly because the union `pwunion` needed one --
+ * `pwcompat`, and `lemma_pwcompat_necessary` shows that side condition was not
+ * a convenience. Composition needs none, and the reason is structural: a union
+ * asks two worlds to agree ABOUT THE SAME PAIR OF NAME SPACES, which they may
+ * refuse to do, whereas a composite asks the first world's RIGHT space to be
+ * the second world's LEFT space, and each world is already a bijection on its
+ * own spaces. The conflicting aliasing a union can hit -- one right name
+ * claimed by two left names -- is refused by `pwf_world w23` itself before
+ * composition is ever reached; `lemma_pwcompose_no_conflict` states that.
+ *)
+let lemma_pwcompose_wf (w12 w23: pworld)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23)
+          (ensures pwf_world (pwcompose w12 w23))
+  = lemma_pwcompose_from_wf w12 w23 w12
+
+(** **COMPOSITION IS ASSOCIATIVE**, up to what worlds SAY -- which is the only
+    equality this file has ever used on worlds (`pwext`, never `==`). PROVED,
+    and unconditionally: this is a fact about `pwimg`, not about bijections. *)
+let lemma_pwcompose_assoc (w1 w2 w3: pworld)
+  : Lemma (pwext (pwcompose (pwcompose w1 w2) w3) (pwcompose w1 (pwcompose w2 w3)) /\
+           pwext (pwcompose w1 (pwcompose w2 w3)) (pwcompose (pwcompose w1 w2) w3))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (pwcompose (pwcompose w1 w2) w3) == Some j <==>
+         pwlookup_l i (pwcompose w1 (pwcompose w2 w3)) == Some j)
+    with begin
+      lemma_pwcompose_l (pwcompose w1 w2) w3 i;
+      lemma_pwcompose_l w1 w2 i;
+      lemma_pwcompose_l w1 (pwcompose w2 w3) i;
+      (match pwlookup_l i w1 with
+       | None -> ()
+       | Some a -> lemma_pwcompose_l w2 w3 a)
+    end
+
+(** **THE IDENTITY IS A UNIT**, on both sides, for every world the support
+    covers. PROVED. Stated as mutual `pwext` for the reason above: two worlds
+    are the same when they SAY the same thing. *)
+let lemma_pwcompose_identity_left (s: list nat) (w: pworld)
+  : Lemma (requires (forall (i j: nat). pwlookup_l i w == Some j ==> mem i s))
+          (ensures pwext (pwcompose (pwidentity s) w) w /\
+                   pwext w (pwcompose (pwidentity s) w))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (pwcompose (pwidentity s) w) == Some j <==>
+         pwlookup_l i w == Some j)
+    with (lemma_pwcompose_l (pwidentity s) w i; lemma_pwidentity_l i s)
+
+let lemma_pwcompose_identity_right (w: pworld) (s: list nat)
+  : Lemma (requires (forall (i j: nat). pwlookup_l i w == Some j ==> mem j s))
+          (ensures pwext (pwcompose w (pwidentity s)) w /\
+                   pwext w (pwcompose w (pwidentity s)))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (pwcompose w (pwidentity s)) == Some j <==>
+         pwlookup_l i w == Some j)
+    with begin
+      lemma_pwcompose_l w (pwidentity s) i;
+      (match pwlookup_l i w with
+       | None -> ()
+       | Some j' -> lemma_pwidentity_l j' s)
+    end
+
+(** **AND THE INVERSE CANCELS**, on both sides, at every name the world speaks
+    for. PROVED. This is what makes the section a GROUPOID rather than merely a
+    category, and it is the non-vacuity check on `pwinverse`: the inverse is not
+    some world that happens to be well formed, it undoes the original. *)
+let lemma_pwinverse_cancels (w: pworld) (i j: nat)
+  : Lemma (requires pwf_world w /\ pwlookup_l i w == Some j)
+          (ensures pwlookup_l i (pwcompose w (pwinverse w)) == Some i /\
+                   pwlookup_l j (pwcompose (pwinverse w) w) == Some j)
+  = lemma_pwcompose_l w (pwinverse w) i;
+    lemma_pwcompose_l (pwinverse w) w j;
+    lemma_pwinverse_l j w;
+    lemma_pwinverse_l i w
+
+(* ---- 5/6/7. THE THREE LAWS, AT THE VALUE LEVEL ------------------- *)
+
+(**
+ * **The support of a value**: the names it actually carries. A payload carries
+ * none -- which is why reflexivity of `pval_rel` at a payload holds at EVERY
+ * world including the empty one, and why the counterexamples that refute
+ * reflexivity all carry a handle.
+ *)
+let pvsupport (#v: Type) (x: pval v) : list nat
+  = match x with
+    | PV _ -> []
+    | PCtxKey i -> [i]
+
+(**
+ * **ITEM 5 -- THE IDENTITY LAW.** PROVED, and stated at any support that COVERS
+ * the value, because that is the form a lift will need: a store's anchor covers
+ * every value the store's contexts hold.
+ *)
+let lemma_pval_rel_identity_on (#v: Type) (s: list nat) (x: pval v)
+  : Lemma (requires (forall (i: nat). mem i (pvsupport x) ==> mem i s))
+          (ensures pval_rel (pwidentity s) x x)
+  = match x with
+    | PV _ -> ()
+    | PCtxKey i -> lemma_pwidentity_l i s
+
+(** The law in the exact shape the gate asked for: `R (identity_on (support x))
+    x x`. PROVED. Note what it is NOT: reflexivity at the EMPTY world, which is
+    false at a handle and was never the statement to ask for. *)
+let lemma_pval_rel_identity (#v: Type) (x: pval v)
+  : Lemma (pval_rel (pwidentity (pvsupport x)) x x)
+  = lemma_pval_rel_identity_on (pvsupport x) x
+
+(**
+ * **ITEM 6 -- SYMMETRY.** PROVED. The hypothesis `pwf_world w` is not
+ * decoration: `pval_rel` reads `pwlookup_l` only, so turning the pair around
+ * needs the RIGHT lookup to agree with it, and that agreement IS `pwf_world`.
+ *)
+let lemma_pval_rel_inverse (#v: Type) (w: pworld) (x1 x2: pval v)
+  : Lemma (requires pwf_world w /\ pval_rel w x1 x2)
+          (ensures pval_rel (pwinverse w) x2 x1)
+  = match x1, x2 with
+    | PCtxKey i, PCtxKey j -> lemma_pwinverse_l j w
+    | _, _ -> ()
+
+(**
+ * **ITEM 7 -- COMPOSITIONAL TRANSITIVITY.** PROVED, and with NO hypothesis at
+ * all -- not even well-formedness. This is the repair of the refuted law: the
+ * conclusion is at `pwcompose w12 w23` and not at either argument, and once it
+ * is stated at the right world it is immediate.
+ *)
+let lemma_pval_rel_compose (#v: Type) (w12 w23: pworld) (x1 x2 x3: pval v)
+  : Lemma (requires pval_rel w12 x1 x2 /\ pval_rel w23 x2 x3)
+          (ensures pval_rel (pwcompose w12 w23) x1 x3)
+  = match x1, x2, x3 with
+    | PCtxKey i, PCtxKey j, PCtxKey k -> lemma_pwcompose_l w12 w23 i
+    | _, _, _ -> ()
+
+(* ---- 8. COMPOSITION REFUSES CONFLICTING ALIASING ----------------- *)
+
+(**
+ * **NOTHING IS LOST.** PROVED, unconditionally. If `w12` speaks at `i` and
+ * `w23` speaks at that answer, the composite speaks at `i`, and says the
+ * composite thing. So the omissions in `pwcompose_from` are omissions of pairs
+ * `w23` is SILENT about and of nothing else.
+ *)
+let lemma_pwcompose_no_loss (w12 w23: pworld) (i j k: nat)
+  : Lemma (requires pwlookup_l i w12 == Some j /\ pwlookup_l j w23 == Some k)
+          (ensures pwlookup_l i (pwcompose w12 w23) == Some k)
+  = lemma_pwcompose_l w12 w23 i
+
+(**
+ * **AND CONFLICTING ALIASING CANNOT ARISE FROM WORLDS.** PROVED. This is the
+ * scenario item 8 names, refuted at the source: if `w12` sends `i1` to `j1` and
+ * `i2` to `j2`, and `w23` sends BOTH `j1` and `j2` to the same `k`, then
+ * `j1 == j2` and `i1 == i2` already. `w23` being a partial bijection is what
+ * forbids `j1 =!= j2`; `w12` being one is what forbids `i1 =!= i2` after that.
+ * So `pwcompose` never faces a conflict it would have to resolve, and therefore
+ * never resolves one by dropping or by merging.
+ *)
+let lemma_pwcompose_no_conflict (w12 w23: pworld) (i1 i2 j1 j2 k: nat)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23 /\
+                    pwlookup_l i1 w12 == Some j1 /\ pwlookup_l j1 w23 == Some k /\
+                    pwlookup_l i2 w12 == Some j2 /\ pwlookup_l j2 w23 == Some k)
+          (ensures i1 == i2 /\ j1 == j2)
+  = assert (pwlookup_r k w23 == Some j1);
+    assert (pwlookup_r k w23 == Some j2);
+    assert (pwlookup_r j1 w12 == Some i1);
+    assert (pwlookup_r j2 w12 == Some i2)
+
+(** A well-formed `w12` and an ILL-formed second argument that does exactly what
+    item 8 describes: `1` and `2` are distinct middle names, and `wconf_23`
+    sends both of them to the right-hand name `5`. *)
+let wconf_12 : pworld = [(0, 1); (3, 2)]
+let wconf_23 : pworld = [(1, 5); (2, 5)]
+
+(**
+ * **AND WHEN THE CONFLICT IS HANDED TO IT ANYWAY, IT IS REPORTED AND NOT
+ * REPAIRED.** PROVED, by computation.
+ *
+ * `wconf_23` is not a world -- it aliases two middle names onto one right
+ * name -- and `pwcompose wconf_12 wconf_23` is the LIST `[(0, 5); (3, 5)]`:
+ * BOTH pairs, neither dropped, neither merged, and the result is visibly NOT
+ * `pwf_world`. That is the point. A composition that silently kept one pair to
+ * preserve well-formedness would be convenient and would LIE about its input;
+ * this one carries the conflict out where `pwf_world` refuses it, so the
+ * ill-formedness is attributable to the argument that had it.
+ *)
+let guard_pwcompose_conflict_is_visible ()
+  : Lemma (pwf_world wconf_12 /\ ~(pwf_world wconf_23) /\
+           pwcompose wconf_12 wconf_23 == [(0, 5); (3, 5)] /\
+           pwlookup_l 0 (pwcompose wconf_12 wconf_23) == Some 5 /\
+           pwlookup_l 3 (pwcompose wconf_12 wconf_23) == Some 5 /\
+           ~(pwf_world (pwcompose wconf_12 wconf_23)))
+  = assert_norm (pwcompose wconf_12 wconf_23 == [(0, 5); (3, 5)]);
+    assert_norm (pwlookup_l 1 wconf_23 == Some 5);
+    assert_norm (pwlookup_l 2 wconf_23 == Some 5);
+    assert_norm (pwlookup_r 5 wconf_23 == Some 1);
+    assert_norm (pwlookup_l 0 (pwcompose wconf_12 wconf_23) == Some 5);
+    assert_norm (pwlookup_l 3 (pwcompose wconf_12 wconf_23) == Some 5);
+    assert_norm (pwlookup_r 5 (pwcompose wconf_12 wconf_23) == Some 0)
+
+(* ---- 9. COMPOSITION AND THE PROVENANCE ANCHOR -------------------- *)
+
+(**
+ * **THE ANCHOR IS A LEFT UNIT**, for every world whose left names the store
+ * holds. PROVED. Composing with the anchor RESTRICTS to the store's names and
+ * changes nothing else -- it does not re-anchor, and `guard_nom_no_reanchoring`
+ * says what re-anchoring would have cost.
+ *)
+let lemma_pwcompose_anchor_left (#v #cl: Type) (w: pworld) (sto: pstore v cl)
+  : Lemma (requires (forall (i j: nat). pwlookup_l i w == Some j ==>
+                                        Some? (pstore_lookup i sto)))
+          (ensures pwext (pwcompose (panchor sto) w) w /\
+                   pwext w (pwcompose (panchor sto) w))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (pwcompose (panchor sto) w) == Some j <==>
+         pwlookup_l i w == Some j)
+    with (lemma_pwcompose_l (panchor sto) w i; lemma_panchor_l i sto)
+
+(** **AND A RIGHT UNIT**, for every world whose right names the store holds.
+    PROVED. *)
+let lemma_pwcompose_anchor_right (#v #cl: Type) (w: pworld) (sto: pstore v cl)
+  : Lemma (requires (forall (i j: nat). pwlookup_l i w == Some j ==>
+                                        Some? (pstore_lookup j sto)))
+          (ensures pwext (pwcompose w (panchor sto)) w /\
+                   pwext w (pwcompose w (panchor sto)))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (pwcompose w (panchor sto)) == Some j <==>
+         pwlookup_l i w == Some j)
+    with begin
+      lemma_pwcompose_l w (panchor sto) i;
+      (match pwlookup_l i w with
+       | None -> ()
+       | Some j' -> lemma_panchor_l j' sto)
+    end
+
+(**
+ * **AND PROVENANCE SURVIVES COMPOSITION.** PROVED, and this is the statement
+ * that matters for the next gate.
+ *
+ * If both worlds extend a store's anchor -- i.e. neither has revised what was
+ * already public when the comparison began -- then so does their composite.
+ * Composing two admissible worlds cannot smuggle in a re-anchoring: a name the
+ * anchor pins to itself is sent to itself by `w12`, and that name is sent to
+ * itself again by `w23`, so the composite pins it too.
+ *)
+let lemma_pwcompose_preserves_anchor (#v #cl: Type) (w12 w23: pworld)
+                                     (sto: pstore v cl)
+  : Lemma (requires pwext w12 (panchor sto) /\ pwext w23 (panchor sto))
+          (ensures pwext (pwcompose w12 w23) (panchor sto))
+  = introduce forall (i j: nat).
+        (pwlookup_l i (panchor sto) == Some j ==>
+         pwlookup_l i (pwcompose w12 w23) == Some j)
+    with (introduce _ ==> _
+          with (lemma_panchor_l i sto; lemma_pwcompose_l w12 w23 i))
+
+(* ---- 10. ALLOCATION AND COMPOSITION COMMUTE ---------------------- *)
+
+(** A name the second world's right side has never mentioned is a name the
+    composite's right side has never mentioned either. PROVED -- the freshness
+    half of the square below. *)
+let lemma_pwcompose_fresh_r (w12 w23: pworld) (k: nat)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23 /\ pwlookup_r k w23 == None)
+          (ensures pwlookup_r k (pwcompose w12 w23) == None)
+  = lemma_pwcompose_wf w12 w23;
+    match pwlookup_r k (pwcompose w12 w23) with
+    | None -> ()
+    | Some a0 ->
+      assert (pwlookup_l a0 (pwcompose w12 w23) == Some k);
+      lemma_pwcompose_l w12 w23 a0;
+      (match pwlookup_l a0 w12 with
+       | None -> ()
+       | Some j' -> assert (pwlookup_l j' w23 == Some k))
+
+(**
+ * **ITEM 10 -- THE SQUARE COMMUTES.** PROVED.
+ *
+ * One allocation on the left run (`i`), one on the middle (`j`), one on the
+ * right (`k`), each fresh for the world that must accept it. Extending both
+ * worlds and THEN composing says exactly what composing and THEN extending by
+ * the end-to-end pair `(i, k)` says -- and both are worlds.
+ *
+ * This is the fact a lifted relation will need at every `palloc`: the world a
+ * run CARRIES grows by one pair per allocation (`pwextend`, and nothing else --
+ * see `guard_nom_no_reanchoring`), and this says that discipline is stable
+ * under the composition the repaired transitivity introduces. The middle name
+ * `j` is fresh on both sides of the middle space, which is what a genuine
+ * allocation in a middle run means.
+ *)
+let lemma_pwextend_pwcompose (i j k: nat) (w12 w23: pworld)
+  : Lemma (requires pwf_world w12 /\ pwf_world w23 /\
+                    pwlookup_l i w12 == None /\ pwlookup_r j w12 == None /\
+                    pwlookup_l j w23 == None /\ pwlookup_r k w23 == None)
+          (ensures (let a = pwcompose (pwextend i j w12) (pwextend j k w23) in
+                    let b = pwextend i k (pwcompose w12 w23) in
+                    pwf_world a /\ pwf_world b /\ pwext a b /\ pwext b a /\
+                    pwlookup_l i a == Some k))
+  = lemma_pwextend_wf i j w12;
+    lemma_pwextend_wf j k w23;
+    let e12 = pwextend i j w12 in
+    let e23 = pwextend j k w23 in
+    lemma_pwcompose_wf e12 e23;
+    lemma_pwcompose_wf w12 w23;
+    let c0 = pwcompose w12 w23 in
+    lemma_pwcompose_l w12 w23 i;
+    lemma_pwcompose_fresh_r w12 w23 k;
+    lemma_pwextend_wf i k c0;
+    lemma_pwl_cons i j w12;
+    lemma_pwl_cons j k w23;
+    lemma_pwl_cons i k c0;
+    introduce forall (x y: nat).
+        (pwlookup_l x (pwcompose e12 e23) == Some y <==>
+         pwlookup_l x (pwextend i k c0) == Some y)
+    with begin
+      lemma_pwcompose_l e12 e23 x;
+      lemma_pwcompose_l w12 w23 x;
+      (match pwlookup_l x w12 with
+       | None -> ()
+       | Some b0 -> assert (pwlookup_r b0 w12 == Some x))
+    end
+
+(* ---- THE DECISIVE GUARD ------------------------------------------ *)
+
+(**
+ * **THE REFUTED COUNTEREXAMPLE, RECOVERED AT THE COMPOSED WORLD.** PROVED.
+ *
+ * The very terms `guard_padm_xrel_not_transitive` uses -- `qw012`, `qdA`,
+ * `qdB`, `qdC` -- and the very two hypotheses it establishes, with the
+ * conclusion moved to the world the chain actually lands at. `qw012` sends 0 to
+ * 1 and 1 to 2; `pwcompose qw012 qw012` sends 0 to 2, which is precisely the
+ * pair the fixed-world statement lacked, and `padm_xrel` at THAT world relates
+ * `qdA` to `qdC`.
+ *
+ * So the previous gate's refutation is confirmed as a TYPE ERROR IN THE
+ * QUESTION and not as an obstruction in the relation: nothing about `padm_xrel`
+ * had to be weakened, no clause was relaxed, and the two hypotheses are
+ * unchanged. Only the index moved.
+ *
+ * THE NON-VACUITY CHECK IS PART OF THE STATEMENT, and it is the last
+ * conjunct: the composite is NOT some world that relates everything. It is
+ * silent at 1 -- `qw012` sends 1 to 2 and is silent at 2, so the chain through
+ * 1 does not close -- and it is well formed. A composite that had been made
+ * total, or made to include its arguments, would relate `qdB` to something and
+ * would prove nothing.
+ *)
+let guard_padm_xrel_transitive_at_the_composed_world ()
+  : Lemma (pwf_world qw012 /\
+           padm_xrel fcl_rel qw012 qdA qdB /\
+           padm_xrel fcl_rel qw012 qdB qdC /\
+           pwf_world (pwcompose qw012 qw012) /\
+           padm_xrel fcl_rel (pwcompose qw012 qw012) qdA qdC /\
+           pwlookup_l 1 (pwcompose qw012 qw012) == None)
+  = guard_padm_xrel_not_transitive ();
+    assert_norm (pwlookup_l 0 qw012 == Some 1);
+    assert_norm (pwlookup_l 1 qw012 == Some 2);
+    assert_norm (pwlookup_l 2 qw012 == None);
+    assert (pval_rel #fv qw012 (PCtxKey 0) (PCtxKey 1));
+    assert (pval_rel #fv qw012 (PCtxKey 1) (PCtxKey 2));
+    lemma_pwcompose_wf qw012 qw012;
+    lemma_pval_rel_compose #fv qw012 qw012 (PCtxKey 0) (PCtxKey 1) (PCtxKey 2);
+    lemma_pxrel_done #fv #fcl fcl_rel (pwcompose qw012 qw012) (PCtxKey 0) (PCtxKey 2);
+    lemma_padm_xrel_of_pxrel fcl_rel (pwcompose qw012 qw012) qdA qdC;
+    lemma_pwcompose_l qw012 qw012 1
+
+(* ================================================================== *)
+(*  B2b.18 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  THE DECISIVE GUARD PASSES.  `guard_padm_xrel_transitive_at_the_    *)
+(*  composed_world` proves, at the same `qw012`, `qdA`, `qdB`, `qdC`   *)
+(*  the previous gate refuted transitivity with:                       *)
+(*                                                                     *)
+(*      padm_xrel fcl_rel qw012 qdA qdB                                *)
+(*      padm_xrel fcl_rel qw012 qdB qdC                                *)
+(*      padm_xrel fcl_rel (pwcompose qw012 qw012) qdA qdC              *)
+(*                                                                     *)
+(*  The obstruction was the SHAPE OF THE INDEX and not the relation.   *)
+(*  `guard_padm_xrel_not_transitive` remains true and remains proved;  *)
+(*  the two statements are about different worlds and do not compete.  *)
+(*                                                                     *)
+(*  WHAT IS PROVED HERE, ITEM BY ITEM.                                 *)
+(*   1. `pwidentity` -- identity over a list of names.                 *)
+(*   2. `pwinverse` -- pairs exchanged.                                *)
+(*   3. `pwcompose` -- diagrammatic order, via `pwcompose_from`, whose *)
+(*      head decision reads `pwlookup_l i w12` and not the pair walked *)
+(*      over, so that shadowing cannot invent an image.                *)
+(*   4. `lemma_pwidentity_wf`, `lemma_pwinverse_wf`,                   *)
+(*      `lemma_pwcompose_wf` -- all three preserve `pwf_world`.        *)
+(*      COMPOSITION NEEDS NO SIDE CONDITION; `pwunion` needed          *)
+(*      `pwcompat` and that asymmetry is explained at                  *)
+(*      `lemma_pwcompose_wf`.                                          *)
+(*   5. `lemma_pval_rel_identity` / `..._identity_on`.                 *)
+(*   6. `lemma_pval_rel_inverse` -- needs `pwf_world`, and why.        *)
+(*   7. `lemma_pval_rel_compose` -- needs nothing.                     *)
+(*   8. `lemma_pwcompose_no_loss`, `lemma_pwcompose_no_conflict`,      *)
+(*      `guard_pwcompose_conflict_is_visible`.                         *)
+(*   9. `lemma_pwcompose_anchor_left`, `..._anchor_right`,             *)
+(*      `lemma_pwcompose_preserves_anchor`.                            *)
+(*  10. `lemma_pwextend_pwcompose`, with `lemma_pwcompose_fresh_r`.    *)
+(*  Beyond the ten: `lemma_pwcompose_assoc`,                           *)
+(*  `lemma_pwcompose_identity_left` / `_right`,                        *)
+(*  `lemma_pwinverse_cancels` -- so "groupoid" is a proved claim and   *)
+(*  not a label.                                                       *)
+(*                                                                     *)
+(*  WHAT IS NOT DONE, DELIBERATELY.  No observation; `padm_join` is    *)
+(*  not rebuilt; no law is stated over the algebra; `padm_pcomp`,      *)
+(*  `padm_pctx`, `padm_srel` and the `pnobs_*` family are untouched.   *)
+(*  The relation is lifted onto the algebra in the NEXT gate: what is  *)
+(*  proved here is at the WORLD and VALUE level only, and              *)
+(*  `guard_padm_xrel_transitive_at_the_composed_world` reaches         *)
+(*  `padm_xrel` only through the existing `lemma_pxrel_done` and       *)
+(*  `lemma_padm_xrel_of_pxrel` at a `PCtxDone`, where `padm_xrel` IS   *)
+(*  `pval_rel`.  Nothing here says anything about a `PCtxRequests`     *)
+(*  pair, whose `post` clause quantifies over FUTURE worlds and whose  *)
+(*  composition is the next gate's real work.                          *)
+(* ================================================================== *)

@@ -5049,6 +5049,314 @@ What this stage establishes is only that **a candidate observation has the
 expected discriminating power**. Soundness against public observation comes
 after one-step and finite-run preservation, as planned.
 
+#### The administrative observation: oriented, naive symmetrisation fails
+
+All seven requirements met. 1,321 lines appended, `z3rlimit` still zero, and no
+weak guard this gate — every mutation isolated.
+
+*The payoff, at the very configuration that killed the nominal law.* The
+antecedent is met in all four conjuncts with nothing assumed; the **nominal**
+consequent is false; the **administrative** consequent is true, with the
+witnesses uniqueness of convergence forces. Both consequents are proved to *be*
+the respective observations' bodies there, so they are not lookalikes.
+
+*Requirement 2 is proved elegantly.* The two observations are **biconditional
+under the single hypothesis that the two store relations agree** — so no
+clause other than the store clause can carry any difference. The hypothesis is
+false, so this is a statement about the two *definitions*, which is exactly what
+was wanted.
+
+*Requirement 7's negative is genuinely independent.* It reuses the left-identity
+counterexample and turns on residual **length**, 4 against 2 — it mentions no
+stored `post` and would stand however the strip disjunct were written.
+
+**But the symmetrised form is refuted**, at `ricons`, premise discharged.
+`padm_pcomp` is directional by construction — only the left may carry the
+administrative unit — and `~(padm_xrel w qprod qext)` holds at **every**
+well-formed world, the exact mirror of the pair it relates the other way. The
+nominal law is proved to imply both analogues, so this is not an artefact of
+comparing different statements.
+
+#### Oriented reduction is not the same as one-directional equivalence
+
+My first reading of that — "right identity is essentially an ordered law" —
+was wrong, and the correction is worth keeping: it is a standard confusion.
+
+`qext` is `post >>= pure` and `qprod` is `post`, so **`qext →adm qprod` and
+not the reverse** is exactly right as a *reduction*. But the absence of a
+reverse reduction does not make the two unequal. β-reduction is
+one-directional; β-equivalence is symmetric, and proving two terms β-equal
+never requires the right-hand side to re-insert a redex.
+
+What was refuted is the **naive** symmetrisation — `adm_le x y /\ adm_le y x`
+— which demands administrative *expansion* right-to-left. Symmetric relations
+can be built otherwise: joinability by a common reduct, the equivalence closure
+of the oriented relation, or agreement of administrative normal forms. At the
+specimen, joinability is immediate: `qext →adm qprod` and `qprod = qprod`, so
+`qprod` is the common reduct and nothing has to be expanded.
+
+So the claim is recorded at this strength:
+
+> `padm_srel` is suitable as an **oriented administrative reduction**. The naive
+> observation obtained by requiring this oriented relation in both directions is
+> too strong. Whether its equivalence closure, joinability relation, or
+> common-normal-form relation yields a sound symmetric observation **remains
+> open**.
+
+The intended division of labour, then, is to keep the oriented relation with a
+narrowed role and build the laws' equivalence on top of it:
+
+```text
+padm_srel   administrative reduction / simulation preorder
+    ↓
+padm_eq     common administrative reduct, or equal normal form
+```
+
+Right identity then has `lhs ⊑adm rhs` immediately as an oriented lemma, with
+`lhs ≈adm rhs` as the monad-law goal. This also looks better for
+associativity, whose two sides need not reduce to each other but may well reduce
+to a common normal form.
+
+#### The feasibility gate before B2b.3b
+
+| # | question |
+|---|---|
+| 1 | can `padm_join` be defined at the context and store levels? |
+| 2 | are `qext` and `qprod` joined, by the common reduct `qprod`? |
+| 3 | do `qwork` and `qbad` have **no** common reduct? |
+| 4 | do `qctxL`/`qctxR` and `qctxL`/`qctxV` have none? |
+| 5 | do differing residuals have none? |
+| 6 | are reflexivity and symmetry provable? |
+| 7 | does transitivity need confluence, or a canonical normal form? |
+
+**7 may stop it**, and only then is there a real choice to make between defining
+an administrative normaliser, using the equivalence closure, or restricting the
+law to a refinement preorder.
+
+One debt to clear before final adoption: **the `qw_pin3` positive is not
+delivered** — only the empty-store half of requirement 4. Whether a relation
+that works at the empty provenance also works at a configuration owning handles
+is a separate obligation, and B2b.13 refutes the nominal law there too.
+
+Requirement 5's four refusals are at the clause the observation reads, not at
+whole runs; no closed program is exhibited whose run stores those contexts. Same
+division of labour as before.
+
+#### Joinability: definable, discriminating, and stopped at transitivity
+
+The specimen is joined, with `qprod` as the common reduct on **both** readings
+and nothing expanded; `~(padm_xrel w qprod qext)` is carried in the same guard
+so the symmetry cannot be misread as a weakening of the oriented relation. The
+performing `post`, the argument-discarding `post`, and both residual pairs are
+**not** joined, each with its diagonal positive beside it so the refusal is not
+"neither reduces to anything", and all quantified over every well-formed world.
+
+*The store level forced a correction, proved rather than argued.* The naive
+existential `∃ sz. padm_srel s1 sz /\ padm_srel s2 sz` is **false** at the
+specimen: `psrel` and `padm_srel` are world-**directed** — an index is read in
+the left store and its partner in the right — so reading `qmid_sr` as a left
+argument demands a key the right run never allocated. The store-level join must
+therefore be the **pointwise lift**, and the naive form is kept so the
+correction stays checkable.
+
+Symmetry holds unconditionally. **Reflexivity is refuted**: at the empty world a
+handle no world speaks for relates to nothing. That is inherited from `pxrel`
+and `padm_xrel`, not introduced here.
+
+#### What Q7 actually refuted — a type error, not a defect
+
+Transitivity needs confluence (unproved) **and** transitivity of the oriented
+relation, and the second is refuted. But the refutation is narrower than it
+first looks, and the correction matters:
+
+> The gate refutes **fiberwise** transitivity at a fixed world. It does **not**
+> refute compositional transitivity of the nominal relation, whose conclusion
+> must be indexed by the **composite** world.
+
+A world is a partial bijection from left names to right names — a *morphism*,
+not an index. From `R w12 x1 x2` and `R w23 x2 x3` the conclusion to expect is
+`R (w23 ∘ w12) x1 x3`, not `R w12 x1 x3`. The counterexample uses one `w`
+sending `0 ↦ 1` and `1 ↦ 2`; `A R[w] B` and `B R[w] C` hold while `A R[w] C`
+would need `0 ↦ 2` — which is exactly what `w ∘ w` supplies. So requiring
+the ordinary shape of transitivity of a world-indexed relation was a **type
+error on our side**, not a defect in the relation.
+
+The same reading fixes the other two laws. The natural shape is
+
+```text
+identity     R (identity_on (support x)) x x
+symmetry     R w x y            ==>  R (inverse w) y x
+composition  R w12 x y /\ R w23 y z  ==>  R (w23 ∘ w12) x z
+```
+
+so reflexivity should never have been asked at the **empty** world: a public
+handle is unrelated to itself there because the world does not own its identity.
+Stated at an identity world over the handle's support — or over the existing
+provenance anchor — it is the right law. This is better described as a
+**groupoid-indexed** (world-indexed heterogeneous) relation than as a PER.
+
+#### Joinability needs the same correction
+
+`∃ z. padm x z /\ padm y z` demands a **syntactically identical** reduct,
+name-spaces included. The nominal shape is two-layered:
+
+```text
+∃ nx ny w.  x →*adm nx  /\  y →*adm ny  /\  nominal_rel w nx ny
+```
+
+— reduce on each side, then compare the reducts **through a world** rather
+than requiring the same raw keys. That is the same diagnosis as the store-level
+naive join's failure: a store holds *named* resources, so "nominally related
+reducts" is the right notion and syntactic join is not.
+
+Confluence remains a separate problem: introducing world composition does not
+give it for free.
+
+#### The order this settles
+
+1. build the world algebra as a category/groupoid — identity, inverse,
+   composition;
+2. recover the fixed-world counterexample at the composed world;
+3. separate administrative *reduction* from nominal *comparison*;
+4. decide administrative normal form or confluence;
+5. only then construct the symmetric administrative observation.
+
+**So Q7's stop was productive.** Before the three-way choice — normaliser,
+equivalence closure, or refinement preorder — there was a missing layer, and
+it is the world algebra.
+
+#### Verification hygiene: `Verified module:` means nothing
+
+F\* prints `Verified module: M` **even when the module failed**. Confirmed
+directly on a two-line scratch file: the output ends
+
+```text
+Verified module: Hyg
+1 error was reported (see above)
+```
+
+Success is: **exit code 0**, *and* `All verification conditions discharged
+successfully` present, *and* no `error(s) was reported`. Any script that pipes
+F\*'s output also needs `pipefail`, or the exit code is lost. Earlier verdicts
+in this note were read off the success line and stand; nothing is withdrawn.
+
+#### The world algebra: the type error confirmed as a type error
+
+The decisive guard goes through, **on the very terms the refutation used**:
+
+```fstar
+guard_padm_xrel_transitive_at_the_composed_world ()
+  : Lemma (pwf_world qw012 /\
+           padm_xrel fcl_rel qw012 qdA qdB /\
+           padm_xrel fcl_rel qw012 qdB qdC /\
+           pwf_world (pwcompose qw012 qw012) /\
+           padm_xrel fcl_rel (pwcompose qw012 qw012) qdA qdC /\
+           pwlookup_l 1 (pwcompose qw012 qw012) == None)
+```
+
+`guard_padm_xrel_not_transitive` stays true and proved — the two are
+statements about different worlds and do not compete. **Nothing was weakened;
+only the index moved.** The last conjunct is the non-vacuity check: the
+composite is silent at `1`, so it is not a world that relates everything.
+
+All ten items proved, and beyond them associativity, both identity laws and
+inverse cancellation — so the structure is demonstrated, not asserted.
+
+*Composition needs no side condition*, and the reason is structural: `pwunion`
+required `pwcompat` because a union asks two worlds to agree about **the same
+namespace pair**, whereas composition only plugs the first world's right space
+into the second's left space, and each is already a bijection on its own space.
+
+*One subtlety, caught.* Recursing naively over `w12` is **wrong** when left keys
+repeat: a shadowed later pair whose right component lies in `w23`'s domain would
+make the composite claim an image `w12` itself does not give. The walk decides
+by `pwlookup_l i w12` — the world's own answer — and takes only the left key
+from the pair being walked. That is what lets the characterisation hold with no
+well-formedness hypothesis, and a mutation isolates it.
+
+*Conflicting input is surfaced, not repaired.* Composition drops no pair
+(unconditional); conflict is **impossible** between well-formed worlds (refuted
+at the source); and given ill-formed input the composite keeps both pairs and is
+visibly not well formed. Silently discarding one to preserve well-formedness
+would be convenient and would lie about the input, so ill-formedness is left
+attributed to the argument that introduced it.
+
+*The naming, limited.* "Groupoid" is right only relative to supports:
+
+> The proved identity, inverse and composition laws give the worlds a groupoid
+> structure **relative to their finite supports**. Since composition is also
+> defined for arbitrary partial bijections, the underlying untyped algebra may
+> equivalently be viewed as an algebra of partial bijections; only the
+> support-matched fragment is used as the nominal groupoid.
+
+The result is the law, not the name:
+
+```text
+R[w12] x y      R[w23] y z
+──────────────────────────
+     R[w23 ∘ w12] x z
+```
+
+#### The next gate's real difficulty: future-world factorisation
+
+Lifting the relation onto the algebra is **not** a recursive re-application of
+the existing lemmas. The `PCtxRequests` clause quantifies over future worlds:
+
+```text
+forall w' ⊒ w.  related inputs at w'  ==>  related post results at w'
+```
+
+Having composed `w12` and `w23` into `w13`, the conclusion must answer for an
+**arbitrary** future `w13' ⊒ w23 ∘ w12`. To use the two hypotheses that
+`w13'` has to be factored as
+
+```text
+w12' ⊒ w12,   w23' ⊒ w23,   w13' = w23' ∘ w12'
+```
+
+and for each newly added `i ↦ k` a **fresh middle name** `j` must be chosen,
+so that `w12' = w12 + (i ↦ j)` and `w23' = w23 + (j ↦ k)`. That is a
+future-world **interpolation** problem. Names are `nat` and worlds are finite so
+a fresh `j` exists, but what has to be proved is that
+
+- `j` collides with neither world's middle support;
+- distinct new correspondences get **distinct** `j`s;
+- both extensions are `pwf_world`;
+- both `pwext` the worlds they extend;
+- the composite of the two agrees with `w13'` by mutual `pwext`;
+- the provenance anchor and allocator freshness are preserved.
+
+**This is the next stop-condition candidate.** If factorisation does not go
+through, do not push the proof: the choice is then between the post relation's
+future-world quantification being too strong, worlds needing a fresh-name
+supply, and the relation being restated over *compatible pairs* of future
+worlds.
+
+Acceptance order for that gate:
+
+1. re-confirm `PCtxDone` composition as a general lemma;
+2. payload `pval_rel` composition;
+3. residual/frame relation composition;
+4. future-world factorisation for a **single** new pair;
+5. lift to arbitrary finite world extension;
+6. post-closure composition, using the factorisation;
+7. compositional transitivity of `PCtxRequests` as a whole;
+8. lift to the store relation;
+9. a guard at a real `PCtxRequests` triple;
+10. a wrong implementation that **reuses** a middle name is caught by the
+    aliasing guard.
+
+#### Verification convention, promoted
+
+A run counts as successful only when **all three** hold:
+
+- process exit status `0`;
+- the line `All verification conditions discharged successfully` is present;
+- no `error(s) was reported` line is present.
+
+`Verified module: M` alone is **not** evidence — F\* prints it on failing runs
+too. Scripts that pipe F\*'s output need `pipefail` or the exit status is lost.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
