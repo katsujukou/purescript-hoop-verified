@@ -6115,6 +6115,132 @@ The boundary record's `apply` coherence conditions are stated against the
 will need either a boundary discipline for the new family or a bridge from the
 old conditions to the new.
 
+#### The monotonicity gate: the new index behaves as a Kripke index
+
+The gate closed, and none of its four stop conditions fired.
+
+> Every recursive member of the allocation-indexed relation family is
+> Kripke-monotone along `paext`, under no side condition beyond the direct
+> allocation-aware counterparts of the original family's premises. The proof
+> requires an explicit future-shrinking lemma because allocator-respecting
+> accessibility is propositional rather than definitional.
+
+The premises line up exactly:
+
+```fstar
+old: requires pcomp_rel  r n w c1 c2 /\ pwext w' w /\ pcl_mono r
+new: requires pacomp_rel r n s c1 c2 /\ paext s1 s /\ pcl_mono r
+(both at measure %[n;0;0])
+```
+
+Same number of premises, same roles, same measure; nothing added — no `pawf`,
+no `pbounded_world`, no closure-specific condition. But `paext` is semantically
+narrower than `pwext`, so this is not "the same logical premises". It is
+
+> the same premise schema, with the accessibility relation replaced by its
+> allocation-aware counterpart.
+
+The asymmetry the gate was told to look for does not exist at the level of the
+statement. It exists at the level of the proof, and precisely once per layer:
+`pwext`'s transitivity is definitional and the solver finds it unaided, while
+`pwalloc_ext`'s is a case-splitting lemma that has to be handed over. That is
+what `lemma_paext_future_shrinks` — the `{:pattern}`-carrying quantified form of
+`lemma_paext_trans` — is for, and removing a single call to it makes the
+induction fail.
+
+#### Bare `pwext` is refuted as the accessibility relation
+
+`guard_pa_mono_fails_along_bare_pwext` states the negation of the
+`pwext`-shaped monotonicity principle outright. Its witness is a pair of
+functions that agree on every key at or above 5 and disagree at key 0: related
+at `pa_low` (empty world, frontiers `(5,5)`, so every accessible state's new
+names are at or above 5), unrelated at `pa_revive` (world `[(0,0)]`, frontiers
+`(0,0)`), which plain `pwext` reaches.
+
+At the strength the in-file guard establishes:
+
+> The guard refutes bare `pwext` as the accessibility relation for
+> frontier-indexed states. Its witness includes both a below-frontier identity
+> revival and a frontier rollback; isolating revival under nondecreasing
+> frontiers would require a stronger guard.
+
+That stronger guard was written and checked in a **scratch module** — not
+appended, so not part of the verified prototype: the same world step
+`[] -> [(0,0)]` with frontiers held at `(5,5)`, hence nondecreasing, still fails
+both `paext` and the monotonicity conclusion. It should be added to the file in
+the next gate so the isolation is on the record where the rest of the
+development is.
+
+Separately and already in the file, `guard_bw_revival_under_plain_pwext`
+quantifies over **all** final frontiers, so the accessibility half of the
+isolation is settled there. Reading the two together suggests the cause is the
+revival alone; that reading is a **diagnosis from two proved facts**, not a
+theorem, until the isolating guard is in the file.
+
+#### Captured closures cross an allocation without re-proof
+
+Each guard's body is three lines — an old fact, `lemma_paext_of_alloc`, one
+application of monotonicity — and the `post` clause's future quantification is
+never re-unfolded. `PCtxRequests.post` agrees with pushing the frontiers
+forward.
+
+`nboundary` is reused verbatim, and the `pcl_mono` the transport needed came
+from the record's own `b_mono` field. So:
+
+> no new boundary premise was needed for monotonicity
+
+is established. This is **not** the same as saying the old boundary record
+suffices for an allocation-aware fundamental theorem — `b_apply_eq`,
+`b_apply_wb` and `b_lookup` are still stated against the **old** relation, and
+whether they carry over is undetermined.
+
+#### Store realization is not monotone, and is not meant to be
+
+`pasrel` is not Kripke-monotone, and this is a separation of roles rather than a
+hole. It is not a semantic clause of the relation family; it is a **world
+satisfaction / store realization** statement: for every key pair the world
+relates, both concrete stores must have an entry, and those entries must be
+related. Extending the world therefore *creates* obligations. Advancing the
+world without extending the stores naturally breaks satisfaction.
+
+> The recursive semantic relations are Kripke-monotone. Store realization is
+> not, and is not expected to be: extending the world creates new store
+> obligations. Its preservation belongs to transition compatibility, where world
+> growth is coupled with the corresponding allocations.
+
+The original `psrel` behaves identically — checked directly: it holds vacuously
+at the empty world, fails at `[(0,0)]` against empty stores, and its
+monotonicity principle is false. There is no monotonicity lemma for it anywhere
+in the development. So this is inherited from the design being copied, not
+introduced by the new index.
+
+#### Position
+
+> The allocation-indexed semantic relations are now genuine Kripke relations.
+> What remains is to prove that the machine realizes their future worlds by
+> extending the concrete stores in lockstep; store realization cannot be
+> obtained from monotonicity alone.
+
+#### The next gate decides the boundary's shape first
+
+One-step transition compatibility, but the boundary question comes at the front
+of it, not as an afterthought:
+
+1. formulate allocation-aware `apply` / `lookup` compatibility;
+2. decide whether it follows from the existing boundary or needs a parallel
+   `paboundary`;
+3. instantiate at `nboundary` concretely, to check non-vacuity;
+4. the non-allocating rules preserve the same `pastate` and the same `pasrel`;
+5. the three allocating rules construct the successor `pasrel` using the actual
+   `palloc`, `pwextend` and frontier increment together;
+6. the allocation-aware step theorem for the whole dispatcher;
+7. keep the old step theorem as a corollary, or juxtapose both;
+8. only then lift to finite runs.
+
+`pasrel`'s non-monotonicity is not an obstacle there — it is the load-bearing
+point that tests whether the three allocating rules really grow world and store
+in step.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

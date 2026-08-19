@@ -31697,3 +31697,658 @@ let guard_pa_access_is_not_symmetric (s: pastate)
 (*  mentioned -- is not settled here, and should not be relied on by   *)
 (*  whatever re-proves the fundamental theorem.                        *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.22 -- KRIPKE MONOTONICITY OF THE ALLOCATION-INDEXED FAMILY     *)
+(*                                                                     *)
+(*  THE QUESTION.  For a standard Kripke relation monotonicity is a    *)
+(*  corollary of transitivity: whatever is reachable from a future     *)
+(*  state was reachable from the original.  Here that reasoning is not *)
+(*  available for free.  `paext s' s` mentions `s` TWICE OVER -- its   *)
+(*  world AND its two frontiers -- so advancing the state moves the    *)
+(*  value relation at the current world and the DOMAIN of the clause's *)
+(*  own future quantifier AT THE SAME TIME.  Whether the two motions   *)
+(*  agree has to be proved across the whole mutual recursion.          *)
+(*                                                                     *)
+(*  THE ANSWER, AND THE GATE'S MAIN FINDING.  They agree, and the new  *)
+(*  family's monotonicity carries EXACTLY the hypotheses the old       *)
+(*  family's carried: `paext s1 s` where the old had `pwext w' w`, and *)
+(*  `pcl_mono r`, and NOTHING ELSE.  No `pawf`, no boundedness, no     *)
+(*  admissibility side condition at any closure --                     *)
+(*  `guard_pa_mono_needs_no_admissibility` fires the induction at two  *)
+(*  states NEITHER of which is `pawf`.  The two indices are equally    *)
+(*  clean on this point; the asymmetry the gate was told to look for   *)
+(*  is not there.                                                      *)
+(*                                                                     *)
+(*  WHAT IS STILL OUT OF SCOPE, AND NOT STARTED.  Transition           *)
+(*  compatibility, the fundamental theorem at the new relation,        *)
+(*  lifting to runs, any new observation relation, any comparison with *)
+(*  the old family, and the boundary record's `b_apply_eq` /           *)
+(*  `b_apply_wb` / `b_lookup` coherence -- which are stated against    *)
+(*  the OLD relation and are the next gate's business, not this one's. *)
+(* ================================================================== *)
+
+
+(* ---- 1. ADMISSIBILITY, NAMED ------------------------------------- *)
+
+(**
+ * **THE ADMISSIBILITY CONDITION ON A STATE, GIVEN A NAME SO THAT ITS ABSENCE
+ * FROM THE MONOTONICITY STATEMENTS IS VISIBLE.** A `pastate` is admissible when
+ * its world really lives under its frontiers -- which is `pawf`, and nothing
+ * more. The name exists so that the two facts below can be stated -- it is
+ * closed under accessibility, and it is a preorder domain on which `paext` is
+ * reflexive -- and so that `guard_pa_mono_needs_no_admissibility` can say
+ * precisely what it is that monotonicity does NOT need.
+ *)
+let paadm (s: pastate) : prop = pawf s
+
+let lemma_paadm_intro (s: pastate)
+  : Lemma (requires pawf s) (ensures paadm s /\ paext s s)
+  = lemma_paext_refl_wf s
+
+(** Admissibility is CLOSED under accessibility, so `paext` restricted to the
+    admissible states is a genuine preorder: reflexive there, transitive
+    everywhere, and never leaving the domain. This is the fact a Kripke
+    development would install once; it is NOT what makes monotonicity work
+    below, and the guard at the end of this section is the proof that it is
+    not. *)
+let lemma_paadm_closed (s' s: pastate)
+  : Lemma (requires paadm s /\ paext s' s) (ensures paadm s' /\ paext s' s')
+  = lemma_paext_wf s' s; lemma_paext_refl_wf s'
+
+
+(* ---- 2. THE PREORDER, IN THE FORM THE INDUCTION CONSUMES ---------- *)
+
+(**
+ * **THE ONE FACT THE WHOLE INDUCTION RUNS ON: ADVANCING THE STATE SHRINKS THE
+ * DOMAIN OF ITS OWN FUTURE QUANTIFIER.** PROVED, by `lemma_paext_trans` and by
+ * nothing else.
+ *
+ * `lemma_paext_trans` is stated on three named states; what every clause of the
+ * family needs is the same fact QUANTIFIED, because the clause's `forall s'`
+ * skolemises `s'` and the hypothesis about it arrives as `paext s' s1`. The
+ * `{:pattern}` is therefore not decoration: it is what lets the skolem trigger
+ * the instance. `pwext`'s transitivity was definitional and Z3 found it
+ * unaided; `pwalloc_ext`'s is a lemma with a case analysis in it, so here it
+ * has to be handed over. `guard_pa_mono_shrink_is_load_bearing`'s note records
+ * the ablation that confirms it.
+ *)
+let lemma_paext_future_shrinks (s1 s: pastate)
+  : Lemma (requires paext s1 s)
+          (ensures forall (s': pastate). {:pattern (paext s' s1)}
+                     paext s' s1 ==> paext s' s)
+  = introduce forall (s': pastate). paext s' s1 ==> paext s' s
+    with (introduce _ ==> _ with lemma_paext_trans s' s1 s)
+
+
+(* ---- 3. VALUES, VALUE LISTS AND TABLES ALONG GROWTH OF `s.aw` ----- *)
+
+(**
+ * The three relations the new family REUSES from the old one, read at the new
+ * index. Each is a one-line composition: `lemma_paext_is_pwext` forgets the
+ * frontiers, and what is left is the old monotonicity lemma. Nothing is
+ * re-proved -- which is the point, and the reason the new family was built to
+ * reuse `pval_rel`, `pvals_rel` and `ptable_rel` verbatim.
+ *)
+let lemma_paval_rel_mono (#v: Type) (s1 s: pastate) (x1 x2: pval v)
+  : Lemma (requires pval_rel s.aw x1 x2 /\ paext s1 s)
+          (ensures pval_rel s1.aw x1 x2)
+  = lemma_paext_is_pwext s1 s; lemma_pval_rel_mono s1.aw s.aw x1 x2
+
+let lemma_pavals_rel_mono (#v: Type) (s1 s: pastate) (xs1 xs2: list (pval v))
+  : Lemma (requires pvals_rel s.aw xs1 xs2 /\ paext s1 s)
+          (ensures pvals_rel s1.aw xs1 xs2)
+  = lemma_paext_is_pwext s1 s; lemma_pvals_rel_mono s1.aw s.aw xs1 xs2
+
+let lemma_patable_rel_mono (#cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                           (t1 t2: ptable cl)
+  : Lemma (requires ptable_rel r n s.aw t1 t2 /\ paext s1 s /\ pcl_mono r)
+          (ensures ptable_rel r n s1.aw t1 t2)
+  = lemma_paext_is_pwext s1 s; lemma_ptable_rel_mono r n s1.aw s.aw t1 t2
+
+
+(* ---- 4. THE MUTUAL INDUCTION -------------------------------------- *)
+
+(**
+ * **MONOTONICITY, THE WHOLE SEVEN-WAY RECURSION.** PROVED. This mirrors
+ * `lemma_pcomp_rel_mono` and its `and`-chain clause for clause, at the SAME
+ * lexicographic measures, with `pwext w' w` replaced by `paext s1 s` and with
+ * one extra call per level -- `lemma_paext_future_shrinks` -- which is where
+ * the two developments differ and the only place they do.
+ *
+ * The hypotheses are `paext s1 s` and `pcl_mono r`. There is no `pawf`, no
+ * `pbounded_world`, and no per-closure side condition: the clause
+ *
+ *     forall s'. paext s' s /\ pval_rel s'.aw y1 y2 ==> ...
+ *
+ * moves forward because `paext s' s1` implies `paext s' s`, and the value
+ * relation at `s.aw` moves forward because `paext s1 s` implies
+ * `pwext s1.aw s.aw`. The two motions are in the SAME direction: the domain of
+ * the future quantifier shrinks exactly as far as the current world grows.
+ *
+ * The two list levels do NOT call `lemma_paext_future_shrinks`: `paframes_rel`
+ * and `paitems_rel` have no quantifier of their own, they only conjoin their
+ * elements' relations.
+ *)
+let rec lemma_pacomp_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                              (c1 c2: pcomp v cl)
+  : Lemma (requires pacomp_rel r n s c1 c2 /\ paext s1 s /\ pcl_mono r)
+          (ensures pacomp_rel r n s1 c1 c2)
+          (decreases %[n; 0; 0])
+  = if n = 0 then ()
+    else
+      (lemma_paext_future_shrinks s1 s;
+       match c1, c2 with
+       | PVar x1, PVar x2 -> lemma_paval_rel_mono s1 s x1 x2
+       | POp a1 _, POp a2 _ -> lemma_pacomp_rel_mono r (n - 1) s1 s a1 a2
+       | PPerform _ _ p1, PPerform _ _ p2 -> lemma_pavals_rel_mono s1 s p1 p2
+       | PHandle t1 _ _ b1, PHandle t2 _ _ b2 ->
+         lemma_patable_rel_mono r (n - 1) s1 s t1 t2;
+         lemma_pacomp_rel_mono r (n - 1) s1 s b1 b2
+       | PSplice fs1 b1, PSplice fs2 b2 ->
+         lemma_paframes_rel_mono r (n - 1) s1 s fs1 fs2;
+         lemma_pacomp_rel_mono r (n - 1) s1 s b1 b2
+       | PEmit _ b1, PEmit _ b2 -> lemma_pacomp_rel_mono r (n - 1) s1 s b1 b2
+       | PWeave _ _ is1 ow1 b1, PWeave _ _ is2 ow2 b2 ->
+         lemma_paframes_rel_mono r (n - 1) s1 s is1 is2;
+         lemma_paowner_rel_mono r (n - 1) s1 s ow1 ow2;
+         lemma_pacomp_rel_mono r (n - 1) s1 s b1 b2
+       | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+         lemma_paplan_rel_mono r (n - 1) s1 s pl1 pl2;
+         lemma_pacomp_rel_mono r (n - 1) s1 s b1 b2
+       | PExtendC pl1 h1 _, PExtendC pl2 h2 _ ->
+         lemma_paplan_rel_mono r (n - 1) s1 s pl1 pl2;
+         lemma_paval_rel_mono s1 s h1 h2
+       | PExtendCtxC pl1 h1 _, PExtendCtxC pl2 h2 _ ->
+         lemma_paplan_rel_mono r (n - 1) s1 s pl1 pl2;
+         lemma_paval_rel_mono s1 s h1 h2
+       | PResumeC pl1 h1 _, PResumeC pl2 h2 _ ->
+         lemma_paplan_rel_mono r (n - 1) s1 s pl1 pl2;
+         lemma_paval_rel_mono s1 s h1 h2
+       | PNewP _ i1 b1, PNewP _ i2 b2 ->
+         lemma_paval_rel_mono s1 s i1 i2;
+         lemma_pacomp_rel_mono r (n - 1) s1 s b1 b2
+       | PWriteP _ x1, PWriteP _ x2 -> lemma_paval_rel_mono s1 s x1 x2
+       | _, _ -> ())
+
+and lemma_paowner_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                           (o1 o2: powner v cl)
+  : Lemma (requires paowner_rel r n s o1 o2 /\ paext s1 s /\ pcl_mono r)
+          (ensures paowner_rel r n s1 o1 o2)
+          (decreases %[n; 1; 0])
+  = if n = 0 then ()
+    else
+      (lemma_paext_future_shrinks s1 s;
+       match o1, o2 with
+       | POwner t1 _ _, POwner t2 _ _ -> lemma_patable_rel_mono r n s1 s t1 t2)
+
+and lemma_paframe_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                           (f1 f2: pframe v cl)
+  : Lemma (requires paframe_rel r n s f1 f2 /\ paext s1 s /\ pcl_mono r)
+          (ensures paframe_rel r n s1 f1 f2)
+          (decreases %[n; 2; 0])
+  = if n = 0 then ()
+    else
+      (lemma_paext_future_shrinks s1 s;
+       match f1, f2 with
+       | PParamF _ x1, PParamF _ x2 -> lemma_paval_rel_mono s1 s x1 x2
+       | PPromptF t1 _ _, PPromptF t2 _ _ -> lemma_patable_rel_mono r n s1 s t1 t2
+       | _, _ -> ())
+
+and lemma_paitem_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                          (i1 i2: plan_item v cl)
+  : Lemma (requires paitem_rel r n s i1 i2 /\ paext s1 s /\ pcl_mono r)
+          (ensures paitem_rel r n s1 i1 i2)
+          (decreases %[n; 2; 1])
+  = if n = 0 then ()
+    else
+      (lemma_paext_future_shrinks s1 s;
+       match i1, i2 with
+       | PICell _ x1, PICell _ x2 -> lemma_paval_rel_mono s1 s x1 x2
+       | PITransparent t1, PITransparent t2 -> lemma_patable_rel_mono r n s1 s t1 t2
+       | PIReenter t1 _, PIReenter t2 _ -> lemma_patable_rel_mono r n s1 s t1 t2
+       | _, _ -> ())
+
+and lemma_paframes_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                            (fs1 fs2: list (pframe v cl))
+  : Lemma (requires paframes_rel r n s fs1 fs2 /\ paext s1 s /\ pcl_mono r)
+          (ensures paframes_rel r n s1 fs1 fs2)
+          (decreases %[n; 3; length fs1])
+  = if n = 0 then ()
+    else
+      match fs1, fs2 with
+      | a1 :: t1, a2 :: t2 ->
+        lemma_paframe_rel_mono r n s1 s a1 a2;
+        lemma_paframes_rel_mono r n s1 s t1 t2
+      | _, _ -> ()
+
+and lemma_paitems_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                           (is1 is2: list (plan_item v cl))
+  : Lemma (requires paitems_rel r n s is1 is2 /\ paext s1 s /\ pcl_mono r)
+          (ensures paitems_rel r n s1 is1 is2)
+          (decreases %[n; 3; length is1])
+  = if n = 0 then ()
+    else
+      match is1, is2 with
+      | a1 :: t1, a2 :: t2 ->
+        lemma_paitem_rel_mono r n s1 s a1 a2;
+        lemma_paitems_rel_mono r n s1 s t1 t2
+      | _, _ -> ()
+
+and lemma_paplan_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                          (pl1 pl2: plan v cl)
+  : Lemma (requires paplan_rel r n s pl1 pl2 /\ paext s1 s /\ pcl_mono r)
+          (ensures paplan_rel r n s1 pl1 pl2)
+          (decreases %[n; 4; 0])
+  = if n = 0 then ()
+    else
+      match pl1, pl2 with
+      | Plan ls1 ow1, Plan ls2 ow2 ->
+        lemma_paitems_rel_mono r n s1 s ls1 ls2;
+        lemma_paowner_rel_mono r n s1 s ow1 ow2
+
+
+(* ---- 4b. THE TOP OF THE FAMILY ------------------------------------ *)
+
+(** Contexts. `PCtxRequests`'s `post` is the clause the gate cares about: its
+    future quantification is discharged by `lemma_paext_future_shrinks` and by
+    nothing else, which is why the call is at the head of the body and not
+    inside a branch. *)
+let lemma_pactx_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                         (cx1 cx2: pctx v cl)
+  : Lemma (requires pactx_rel r n s cx1 cx2 /\ paext s1 s /\ pcl_mono r)
+          (ensures pactx_rel r n s1 cx1 cx2)
+  = if n = 0 then ()
+    else
+      (lemma_paext_future_shrinks s1 s;
+       match cx1, cx2 with
+       | PCtxDone y1, PCtxDone y2 -> lemma_paval_rel_mono s1 s y1 y2
+       | PCtxRequests x1 rs1 _, PCtxRequests x2 rs2 _ ->
+         lemma_paval_rel_mono s1 s x1 x2;
+         lemma_paframes_rel_mono r n s1 s rs1 rs2
+       | _, _ -> ())
+
+(** The intersections of the approximants: monotone index by index, hence
+    monotone. Exactly `lemma_pcrel_mono`, `lemma_pxrel_mono`,
+    `lemma_pkrel_mono` at the new index. *)
+let lemma_pacrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                      (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2 /\ paext s1 s /\ pcl_mono r)
+          (ensures pacrel r s1 c1 c2)
+  = introduce forall (n: nat). pacomp_rel r n s1 c1 c2
+    with lemma_pacomp_rel_mono r n s1 s c1 c2
+
+let lemma_paxrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                      (cx1 cx2: pctx v cl)
+  : Lemma (requires paxrel r s cx1 cx2 /\ paext s1 s /\ pcl_mono r)
+          (ensures paxrel r s1 cx1 cx2)
+  = introduce forall (n: nat). pactx_rel r n s1 cx1 cx2
+    with lemma_pactx_rel_mono r n s1 s cx1 cx2
+
+let lemma_pakrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                      (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2 /\ paext s1 s /\ pcl_mono r)
+          (ensures pakrel r s1 k1 k2)
+  = introduce forall (n: nat). paframes_rel r n s1 k1 k2
+    with lemma_paframes_rel_mono r n s1 s k1 k2
+
+(**
+ * **A CAPTURED CLOSURE'S EQUIVARIANCE IS NEVER RE-ESTABLISHED.** PROVED --
+ * `lemma_pfn_rel_at_mono` at the new index, and with an even shorter proof: the
+ * statement is ITSELF a future quantification, so shifting its base state is
+ * transitivity applied once, and it needs neither `pcl_mono` nor the family's
+ * induction. This is the lemma step 5 below runs on.
+ *)
+let lemma_pafn_rel_at_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s0: pastate)
+                           (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pafn_rel_at r s0 f1 f2 /\ paext s1 s0)
+          (ensures pafn_rel_at r s1 f1 f2)
+  = introduce forall (s: pastate) (y1 y2: pval v).
+        (paext s s1 /\ pval_rel s.aw y1 y2 ==> pacrel r s (f1 y1) (f2 y2))
+    with (introduce _ ==> _ with lemma_paext_trans s s1 s0)
+
+
+(* ---- 5. THE FIXTURES SURVIVE AN ALLOCATION, WITHOUT RE-PROOF ------ *)
+
+(**
+ * **A CAPTURED CONSUMER CROSSES AN ALLOCATION AND ITS PROOF IS NOT REBUILT.**
+ * PROVED, and the proof body is the evidence: three calls, none of which
+ * re-derives the capture. `guard_pa_two_captures_related` supplies the fact AT
+ * THE OLD STATE, `lemma_paext_of_alloc` says the allocation is one access, and
+ * `lemma_pafn_rel_at_mono` moves the fact. The clause's own future
+ * quantification is never re-entered.
+ *
+ * The last two conjuncts are what makes this non-vacuous: the allocation really
+ * moved the state -- the new world pins `s0.an1`, and the old world did not
+ * speak about it at all.
+ *)
+let guard_pa_mono_capture_survives_allocation (#v #cl: Type) (r: pcl_rel_t cl)
+      (i j: nat) (s0: pastate)
+  : Lemma (requires pawf s0 /\ pwlookup_l i s0.aw == Some j)
+          (ensures paext (paalloc s0) s0 /\ pawf (paalloc s0) /\
+                   pafn_rel_at r (paalloc s0) (pkcap #v #cl i) (pkcap #v #cl j) /\
+                   pwlookup_l s0.an1 (paalloc s0).aw == Some s0.an2 /\
+                   pwlookup_l s0.an1 s0.aw == None)
+  = guard_pa_two_captures_related #v #cl r i j s0;
+    lemma_paext_of_alloc s0;
+    lemma_pbounded_world_fresh s0.an1 s0.an2 s0.aw;
+    lemma_pafn_rel_at_mono r (paalloc s0) s0 (pkcap #v #cl i) (pkcap #v #cl j)
+
+(** **AND SO DOES THE SAME CONSUMER UNDER A `POp`.** PROVED, the same way:
+    `guard_pa_op_consumer_related` at the old state, then the induction. The
+    `POp` node is the shape whose second component is exactly the narrowed
+    quantifier, so this is the family's monotonicity being used at the clause
+    the narrowing touched. *)
+let guard_pa_mono_op_consumer_survives_allocation (#v #cl: Type) (r: pcl_rel_t cl)
+      (i j: nat) (s0: pastate) (e o: string)
+  : Lemma (requires pawf s0 /\ pwlookup_l i s0.aw == Some j /\ pcl_mono r)
+          (ensures paext (paalloc s0) s0 /\
+                   pwlookup_l s0.an1 (paalloc s0).aw == Some s0.an2 /\
+                   pwlookup_l s0.an1 s0.aw == None /\
+                   pacomp_rel r 2 (paalloc s0)
+                     (POp (PPerform e o []) (pkcap #v #cl i))
+                     (POp (PPerform e o []) (pkcap #v #cl j)))
+  = guard_pa_op_consumer_related #v #cl r i j s0 e o;
+    lemma_paext_of_alloc s0;
+    lemma_pbounded_world_fresh s0.an1 s0.an2 s0.aw;
+    lemma_pacomp_rel_mono r 2 (paalloc s0) s0
+      (POp (PPerform e o []) (pkcap #v #cl i))
+      (POp (PPerform e o []) (pkcap #v #cl j))
+
+(**
+ * **THE SHIPPED BOUNDARY RECORD'S CAPTURING PAIR CROSSES AN ALLOCATION.**
+ * PROVED. `nboundary` is reused verbatim -- `b_mono` is the record's OWN field,
+ * so the `pcl_mono` hypothesis the induction wants is the one the boundary
+ * already carries and not a new demand. `guard_pa_nboundary_survives` is called
+ * once, for the facts at `nas`; everything at the allocated state comes from
+ * monotonicity.
+ *)
+let guard_pa_mono_nboundary_survives_allocation ()
+  : Lemma (paext (paalloc nas) nas /\ pawf (paalloc nas) /\
+           (paalloc nas).an1 == 8 /\ (paalloc nas).an2 == 8 /\
+           pwlookup_l 7 (paalloc nas).aw == Some 7 /\
+           pwlookup_l 7 nas.aw == None /\
+           pafn_rel_at #fv #ncl nboundary.b_rel (paalloc nas) (pkcap 5) (pkcap 6) /\
+           (forall (n: nat).
+              pacomp_rel #fv #ncl nboundary.b_rel n (paalloc nas)
+                (PVar (PCtxKey 5)) (PVar (PCtxKey 6))))
+  = guard_pa_nboundary_survives ();
+    let _ : squash (pcl_mono nboundary.b_rel) = nboundary.b_mono in
+    lemma_paext_of_alloc nas;
+    lemma_pbounded_world_fresh nas.an1 nas.an2 nas.aw;
+    lemma_pafn_rel_at_mono #fv #ncl nboundary.b_rel (paalloc nas) nas
+      (pkcap 5) (pkcap 6);
+    introduce forall (n: nat).
+        pacomp_rel #fv #ncl nboundary.b_rel n (paalloc nas)
+          (PVar (PCtxKey 5)) (PVar (PCtxKey 6))
+    with lemma_pacomp_rel_mono #fv #ncl nboundary.b_rel n (paalloc nas) nas
+           (PVar (PCtxKey 5)) (PVar (PCtxKey 6))
+
+(**
+ * **`PCtxRequests.post` SURVIVES AN ALLOCATION.** PROVED, and this is the one
+ * step 5 was told matters most. The entry is the machine-shaped store's entry
+ * 1, the one that carries a `post`; its relation is READ OUT of the already
+ * proved `pasrel` at `pa_sto2` and then MOVED by `lemma_paxrel_mono`. The
+ * `post`'s own future quantifier -- `forall s'. paext s' s ==> ...` -- is never
+ * re-discharged: the frontiers advance from `(2, 2)` to `(3, 3)` and the
+ * quantifier's domain narrows with them, in the direction that makes the
+ * hypothesis weaker and the clause easier, which is what
+ * `lemma_paext_future_shrinks` says.
+ *)
+let guard_pa_mono_ctx_requests_post_survives_allocation ()
+  : Lemma (paext (paalloc pa_sto2) pa_sto2 /\ pawf (paalloc pa_sto2) /\
+           (paalloc pa_sto2).an1 == 3 /\ (paalloc pa_sto2).an2 == 3 /\
+           pwlookup_l 2 (paalloc pa_sto2).aw == Some 2 /\
+           pwlookup_l 2 pa_sto2.aw == None /\
+           paxrel fcl_rel (paalloc pa_sto2)
+             (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl))
+             (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl)))
+  = guard_pa_machine_store_stays_in_domain ();
+    lemma_fcl_rel_mono ();
+    lemma_paext_of_alloc pa_sto2;
+    lemma_pbounded_world_fresh pa_sto2.an1 pa_sto2.an2 pa_sto2.aw;
+    assert_norm (pwlookup_l 1 pa_sto2.aw == Some 1);
+    assert_norm (psget 1 pa_store ==
+                   PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl));
+    assert_norm (pstore_lookup 1 pa_store ==
+                   Some (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl)));
+    pasrel_unfold fcl_rel pa_sto2 pa_store pa_store ();
+    assert (paxrel fcl_rel pa_sto2 (psget 1 pa_store) (psget 1 pa_store));
+    lemma_paxrel_mono fcl_rel (paalloc pa_sto2) pa_sto2
+      (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl))
+      (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl))
+
+
+(* ---- 5b. THE ONE MEMBER THAT IS NOT MONOTONE, AND WHY ------------- *)
+
+(**
+ * **`pasrel` IS NOT MONOTONE, AND IT IS THE ONLY THING HERE THAT IS NOT.**
+ * REFUTED, at the fixture the previous gate built. Both verdicts are proved at
+ * once: the two-entry store IS `pasrel`-related to itself at `pa_sto2`, the
+ * allocation from `pa_sto2` IS an access, and at the resulting state the SAME
+ * store is NOT related to itself.
+ *
+ * This is not a defect and not a gap in the induction above. `pasrel` is not a
+ * clause of the family: it is a TOTALITY statement -- every pair the world
+ * speaks for has entries on both sides -- so growing the world adds an
+ * obligation rather than discharging one. The allocation pins name 2, and the
+ * store has no entry 2 because nothing has yet been WRITTEN there. Every
+ * relation that is a clause of `pacomp_rel`'s family moves forward; the
+ * statement that the store is FULL for the world does not, and must be
+ * re-established by whatever performs the allocation -- which is transition
+ * compatibility, and is the next gate.
+ *)
+let guard_pa_mono_store_relation_is_not_monotone ()
+  : Lemma (pasrel fcl_rel pa_sto2 pa_store pa_store /\
+           paext (paalloc pa_sto2) pa_sto2 /\
+           ~(pasrel fcl_rel (paalloc pa_sto2) pa_store pa_store))
+  = guard_pa_machine_store_stays_in_domain ();
+    lemma_paext_of_alloc pa_sto2;
+    assert_norm (pwlookup_l 2 (paalloc pa_sto2).aw == Some 2);
+    assert_norm (pstore_lookup 2 pa_store == None);
+    introduce pasrel fcl_rel (paalloc pa_sto2) pa_store pa_store ==> False
+    with pasrel_unfold fcl_rel (paalloc pa_sto2) pa_store pa_store ()
+
+
+(* ---- 5c. MONOTONICITY IS A STRICT GAIN ---------------------------- *)
+
+(**
+ * **AND IT IS NOT AN EQUIVALENCE.** REFUTED in one direction. `pkcap 0` paired
+ * with itself is NOT `pafn_rel_at`-related at the empty state -- that is
+ * `guard_pa_capture_not_single_sided` -- and IS related one allocation later,
+ * because the allocation is what pins name 0 on both sides. So monotonicity
+ * genuinely adds pairs as the state advances, and the direction of the
+ * hypothesis in every lemma above is doing work.
+ *)
+let guard_pa_mono_is_a_strict_gain (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (~(pafn_rel_at r pa_sto0 (pkcap #v #cl 0) (pkcap #v #cl 0)) /\
+           paext (paalloc pa_sto0) pa_sto0 /\
+           pafn_rel_at r (paalloc pa_sto0) (pkcap #v #cl 0) (pkcap #v #cl 0))
+  = guard_pa_capture_not_single_sided #v #cl r 0 0 0;
+    lemma_paext_of_alloc pa_sto0;
+    guard_pa_two_captures_related #v #cl r 0 0 (paalloc pa_sto0)
+
+
+(* ---- 6. THE CONTRAST: MONOTONICITY IS NOT BOUGHT BY ADMITTING ----- *)
+(*         EVERYTHING                                                  *)
+
+(**
+ * **MONOTONICITY WOULD BE FALSE ALONG BARE `pwext`.** REFUTED, and this is the
+ * answer to the worry that a narrowed domain makes every `forall`-shaped clause
+ * so easy that monotonicity is free.
+ *
+ * `guard_pa_domain_is_strictly_narrower` exhibited the extension: at `pa_low`,
+ * frontiers `(5, 5)` over the empty world, the world `[(0, 0)]` is a
+ * well-formed `pwext` extension and is NOT an access for ANY end counters,
+ * because it revives the name 0, which is BELOW the frontier the allocators
+ * started from. `pa_revive` is that world with counters attached.
+ *
+ * Here is what that costs. `pahi` and `palo` are two consumers that agree on
+ * every payload and on every handle NAMED AT OR ABOVE 5, and disagree on a
+ * handle named below it. At `pa_low` they are `pafn_rel_at`-related, and the
+ * reason is precisely the narrowing: every accessible state's new pairs are in
+ * the window `[5, _)`, so the disagreeing case never arises. At `pa_revive`
+ * they are NOT related, because `pa_revive` reaches itself and its world pins
+ * 0 to 0.
+ *
+ * The last conjunct states the consequence outright: the `pwext`-shaped
+ * monotonicity principle is FALSE for this family. `paext` in the hypothesis of
+ * every lemma in section 4 is therefore load-bearing, and the identity revival
+ * below a frontier is exactly the extension it is there to exclude.
+ *)
+let pahi (#v #cl: Type) (y: pval v) : pcomp v cl
+  = match y with
+    | PCtxKey i -> if i >= 5 then PPerform "hi" "hi" [] else PPerform "lo" "lo" []
+    | PV _ -> PPerform "hi" "hi" []
+
+let palo (#v #cl: Type) (y: pval v) : pcomp v cl = PPerform "hi" "hi" []
+
+let pa_revive : pastate = { aw = pwextend 0 0 ([] <: pworld); an1 = 0; an2 = 0 }
+
+let guard_pa_mono_fails_along_bare_pwext (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (pafn_rel_at r pa_low (pahi #v #cl) (palo #v #cl) /\
+           pwf_world pa_revive.aw /\ pwext pa_revive.aw pa_low.aw /\
+           ~(pafn_rel_at r pa_revive (pahi #v #cl) (palo #v #cl)) /\
+           ~(forall (s1 s: pastate) (f1 f2: pval v -> pcomp v cl).
+               pafn_rel_at r s f1 f2 /\ pwf_world s1.aw /\ pwext s1.aw s.aw ==>
+               pafn_rel_at r s1 f1 f2))
+  = lemma_pwextend_wf 0 0 ([] <: pworld);
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' pa_low /\ pval_rel s'.aw y1 y2 ==>
+         pacrel r s' (pahi #v #cl y1) (palo #v #cl y2))
+    with (introduce _ ==> _
+          with begin
+            paext_unfold s' pa_low ();
+            (match y1, y2 with
+             | PCtxKey i, PCtxKey k ->
+               pval_rel_key_unfold #v s'.aw i k ();
+               assert (pwlookup_l i pa_low.aw == None);
+               assert (i >= 5)
+             | _, _ -> ());
+            introduce forall (n: nat).
+                pacomp_rel r n s' (pahi #v #cl y1) (palo #v #cl y2)
+            with ()
+          end);
+    lemma_paext_refl pa_revive;
+    assert (pval_rel #v pa_revive.aw (PCtxKey 0) (PCtxKey 0));
+    introduce pafn_rel_at r pa_revive (pahi #v #cl) (palo #v #cl) ==> False
+    with begin
+      pafn_rel_at_unfold r pa_revive (pahi #v #cl) (palo #v #cl) ();
+      assert (pacrel r pa_revive (pahi #v #cl (PCtxKey 0)) (palo #v #cl (PCtxKey 0)));
+      pacrel_unfold r pa_revive
+        (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" []) ();
+      assert (pacomp_rel r 1 pa_revive
+                (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" []))
+    end
+
+(**
+ * **AND MONOTONICITY NEEDS NO ADMISSIBILITY, DEMONSTRATED BY FIRING IT WHERE
+ * ADMISSIBILITY FAILS.** PROVED. `paadm` is stated above and is used by NONE of
+ * section 4's lemmas; this is the check that the omission is real rather than
+ * an unexercised convenience.
+ *
+ * `pa_unb0` is the world `[(3, 3)]` under frontiers `(0, 0)` -- it speaks about
+ * a name at 3, which is far above its own frontier, so it is NOT `pawf`.
+ * `pa_unb1` allocates asymmetrically into it, `0 |-> 1`, reaching frontiers
+ * `(1, 2)`; it is not `pawf` either. The two are related by `paext` all the
+ * same -- the window condition constrains only the pairs that are NEW -- and
+ * `lemma_pacomp_rel_mono` transports a `POp` node whose consumer captures the
+ * handle 3 from the one to the other.
+ *
+ * The transport is not the identity: `pa_unb1`'s world pins 0 and `pa_unb0`'s
+ * does not say anything about it. So the old family's hypothesis shape --
+ * accessibility ALONE, with no well-formedness of the index -- carries over
+ * unchanged, and the asymmetry between the two indices that this gate went
+ * looking for is not present in monotonicity.
+ *)
+let pa_unb0 : pastate = { aw = [(3, 3)]; an1 = 0; an2 = 0 }
+let pa_unb1 : pastate = { aw = (0, 1) :: [(3, 3)]; an1 = 1; an2 = 2 }
+
+let guard_pa_mono_needs_no_admissibility (#v #cl: Type) (r: pcl_rel_t cl)
+      (e o: string)
+  : Lemma (requires pcl_mono r)
+          (ensures ~(paadm pa_unb0) /\ ~(paadm pa_unb1) /\
+                   paext pa_unb1 pa_unb0 /\
+                   pwlookup_l 0 pa_unb0.aw == None /\
+                   pwlookup_l 0 pa_unb1.aw == Some 1 /\
+                   pacomp_rel r 2 pa_unb0
+                     (POp (PPerform e o []) (pkcap #v #cl 3))
+                     (POp (PPerform e o []) (pkcap #v #cl 3)) /\
+                   pacomp_rel r 2 pa_unb1
+                     (POp (PPerform e o []) (pkcap #v #cl 3))
+                     (POp (PPerform e o []) (pkcap #v #cl 3)))
+  = assert_norm (pwlookup_l 3 pa_unb0.aw == Some 3);
+    assert_norm (pwlookup_l 0 pa_unb0.aw == None);
+    assert_norm (pwlookup_r 1 pa_unb0.aw == None);
+    assert_norm (pwf_world ([(3, 3)] <: pworld));
+    lemma_pwextend_wf 0 1 ([(3, 3)] <: pworld);
+    lemma_pwl_cons 0 1 ([(3, 3)] <: pworld);
+    assert (paext pa_unb1 pa_unb0);
+    guard_pa_op_consumer_related #v #cl r 3 3 pa_unb0 e o;
+    lemma_pacomp_rel_mono r 2 pa_unb1 pa_unb0
+      (POp (PPerform e o []) (pkcap #v #cl 3))
+      (POp (PPerform e o []) (pkcap #v #cl 3))
+
+(* ================================================================== *)
+(*  B2b.22 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED.                                                    *)
+(*   1. `paadm` -- admissibility of a state, named, closed under       *)
+(*      accessibility (`lemma_paadm_closed`), and a domain on which    *)
+(*      `paext` is reflexive (`lemma_paadm_intro`).                    *)
+(*   2. `lemma_paext_future_shrinks` -- transitivity of `paext`, in    *)
+(*      the quantified, pattern-carrying form each clause of the       *)
+(*      family consumes.  Ablating this single call breaks             *)
+(*      `lemma_pacomp_rel_mono`, so it is the fact the induction runs  *)
+(*      on.                                                            *)
+(*   3. `lemma_paval_rel_mono`, `lemma_pavals_rel_mono`,               *)
+(*      `lemma_patable_rel_mono` -- the three reused relations move    *)
+(*      along growth of `s.aw`, each by `lemma_paext_is_pwext`         *)
+(*      composed with the corresponding OLD lemma.  Nothing reproved.  *)
+(*   4. `lemma_pacomp_rel_mono` and its `and`-chain --                 *)
+(*      `lemma_paowner_rel_mono`, `lemma_paframe_rel_mono`,            *)
+(*      `lemma_paitem_rel_mono`, `lemma_paframes_rel_mono`,            *)
+(*      `lemma_paitems_rel_mono`, `lemma_paplan_rel_mono` -- the whole *)
+(*      seven-way mutual recursion, at the SAME measures as the old    *)
+(*      family, under `paext s1 s /\ pcl_mono r` AND NOTHING ELSE.     *)
+(*      Then `lemma_pactx_rel_mono`, `lemma_pacrel_mono`,              *)
+(*      `lemma_paxrel_mono`, `lemma_pakrel_mono`,                      *)
+(*      `lemma_pafn_rel_at_mono`.                                      *)
+(*   5. STEP 5 -- the fixtures cross an allocation with no proof       *)
+(*      rebuilt: `guard_pa_mono_capture_survives_allocation`,          *)
+(*      `guard_pa_mono_op_consumer_survives_allocation`,               *)
+(*      `guard_pa_mono_nboundary_survives_allocation`,                 *)
+(*      `guard_pa_mono_ctx_requests_post_survives_allocation`.  Each   *)
+(*      body is the old fact plus `lemma_paext_of_alloc` plus one      *)
+(*      monotonicity call, and each states that the allocation really  *)
+(*      moved the state.                                               *)
+(*   6. THE SEPARATIONS.                                               *)
+(*      `guard_pa_mono_store_relation_is_not_monotone` -- `pasrel` is  *)
+(*      NOT monotone, both verdicts proved at one fixture; it is a     *)
+(*      totality statement, not a clause of the family.                *)
+(*      `guard_pa_mono_is_a_strict_gain` -- monotonicity adds pairs.   *)
+(*      `guard_pa_mono_fails_along_bare_pwext` -- the `pwext`-shaped   *)
+(*      monotonicity principle is FALSE, refuted at the identity       *)
+(*      revival `guard_pa_domain_is_strictly_narrower` exhibited, so   *)
+(*      `paext` in every hypothesis above is load-bearing.             *)
+(*      `guard_pa_mono_needs_no_admissibility` -- the induction fires  *)
+(*      at two states neither of which is `paadm`.                     *)
+(*                                                                     *)
+(*  THE ASYMMETRY THE GATE WENT LOOKING FOR IS NOT THERE.  The old     *)
+(*  monotonicity family carries `pwext w' w /\ pcl_mono r`; the new    *)
+(*  one carries `paext s1 s /\ pcl_mono r`.  No well-formedness, no    *)
+(*  boundedness, no per-closure premise.  The reason is that the two   *)
+(*  motions the state makes when it advances -- the current world      *)
+(*  grows, the future quantifier's domain shrinks -- are in the same   *)
+(*  direction, and `lemma_paext_trans` is exactly the statement that   *)
+(*  they are.                                                          *)
+(*                                                                     *)
+(*  WHAT IS NOT CLAIMED.  Transition compatibility is NOT started.     *)
+(*  The fundamental theorem is not re-proved at the new relation,      *)
+(*  nothing is lifted to runs, no new observation relation exists,     *)
+(*  the two relation families are not compared, no law is             *)
+(*  reconnected, and no bridge is built between the new family and    *)
+(*  `nboundary`'s `b_apply_eq` / `b_apply_wb` / `b_lookup`, which      *)
+(*  remain stated against the OLD relation.                            *)
+(* ================================================================== *)
