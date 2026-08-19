@@ -30792,3 +30792,908 @@ let guard_run_pwext_admits_a_stale_key () : Lemma
            ~(pwalloc_ext 1 0 2 1 [(0,7)] ([] <: pworld)))
   = assert_norm (pwlookup_l 0 [(0,7)] == Some 7);
     assert_norm (pwlookup_r 7 [(0,7)] == Some 0)
+
+(* ================================================================== *)
+(*  B2b.21 -- THE ALLOCATION-AWARE LOGICAL RELATION, BUILT BESIDE THE  *)
+(*  OLD ONE                                                            *)
+(*                                                                     *)
+(*  The section above built `pwalloc_ext` and proved, IN ISOLATION,    *)
+(*  that the machine's own allocation satisfies it and that the        *)
+(*  composition refutation does not.  It did not INSTALL it:           *)
+(*  `pcomp_rel` and its family are still quantified over every         *)
+(*  `pwext` extension, and `lemma_prun_prov_compat` still speaks only  *)
+(*  about runs.                                                       *)
+(*                                                                     *)
+(*  Installing it is not a textual swap.  `pwalloc_ext n1 n2 m1 m2 w'  *)
+(*  w` needs the STARTING and the FINISHING counters as well as the    *)
+(*  two worlds, while the relation family is indexed BY A WORLD ALONE. *)
+(*  How the two allocation frontiers travel with the world is the      *)
+(*  design decision this section makes, and the answer is `pastate`:   *)
+(*  the Kripke state is a world and the two frontiers, as a record.    *)
+(*                                                                     *)
+(*  NOTHING ABOVE IS TOUCHED.  `pcomp_rel`, `powner_rel`,              *)
+(*  `pframe_rel`, `pitem_rel`, `pframes_rel`, `pitems_rel`,            *)
+(*  `pplan_rel`, `pctx_rel`, `pcrel`, `pxrel`, `pkrel`, `psrel` and    *)
+(*  `pfn_rel_at` are exactly as they were; the new family is defined   *)
+(*  BESIDE them, and every name below is new and carries a `pa`        *)
+(*  prefix.                                                           *)
+(*                                                                     *)
+(*  WHAT IS DELIBERATELY ABSENT.  The fundamental theorem is not       *)
+(*  re-proved at the new relation, nothing is lifted to finite runs,   *)
+(*  no new observation relation is defined, the old relation is not    *)
+(*  related to the new one, and no law is reconnected.                 *)
+(* ================================================================== *)
+
+
+(* ---- 1. THE KRIPKE STATE ------------------------------------------ *)
+
+(**
+ * **The Kripke state: a world TOGETHER WITH the two allocation frontiers it
+ * lives under.** `pbounded_world` was already that pair; this gives the pair a
+ * name, so it can index a relation.
+ *
+ * `an1` and `an2` are the LEFT and the RIGHT run's next-name counters, in the
+ * order `pwbound`, `pwalloc_ext` and `pconf.next` already use.
+ *
+ * A RECORD, and not three separate parameters: a seven-way mutual recursion
+ * would grow by two arguments at every clause and every `forall w'` by two
+ * binders, and the juxtaposition with the old family -- the whole reason the
+ * new one is written BESIDE it -- would stop being readable. And not a tuple:
+ * `fst`/`snd` chains inside a `prop` are the projector noise that `psget`
+ * exists to keep out of `psrel`. A record gives named projections the encoding
+ * treats as constructor applications.
+ *)
+type pastate = { aw: pworld; an1: nat; an2: nat }
+
+(** Well-formedness of a state is well-formedness of its world TOGETHER WITH
+    the claim that the world has never spoken about a name at or above either
+    frontier. It is `pbounded_world`, read at the record. *)
+let pawf (s: pastate) : prop = pbounded_world s.an1 s.an2 s.aw
+
+(**
+ * **ACCESSIBILITY, AND THE WHOLE OF THE NARROWING.** `s'` is reachable from `s`
+ * exactly when its world is an ALLOCATOR-RESPECTING extension of `s`'s, run
+ * from `s`'s frontiers to `s'`'s. Every
+ *
+ *     pwf_world w' /\ pwext w' w
+ *
+ * below becomes `paext s' s`, and the two counters `pwalloc_ext` needed -- which
+ * a world-only index could not supply -- are read off the two states.
+ *
+ * `pwf_world s'.aw` is a CONJUNCT of `pwalloc_ext`, so the side condition the
+ * old clauses carried separately is subsumed, not dropped.
+ *)
+let paext (s' s: pastate) : prop
+  = pwalloc_ext s.an1 s.an2 s'.an1 s'.an2 s'.aw s.aw
+
+
+(* ---- 2. ACCESSIBILITY IS A PREORDER ------------------------------- *)
+
+(** Every access is still a world extension, so nothing that was available
+    inside an old clause has become unavailable inside a new one. *)
+let lemma_paext_is_pwext (s' s: pastate)
+  : Lemma (requires paext s' s) (ensures pwf_world s'.aw /\ pwext s'.aw s.aw)
+  = lemma_pwalloc_ext_is_pwext s.an1 s.an2 s'.an1 s'.an2 s'.aw s.aw
+
+(** **REFLEXIVE.** It reduces to `lemma_pwalloc_ext_refl` and to nothing else:
+    at equal counters the allocation window is empty, so the condition on new
+    pairs is vacuous because there are none. *)
+let lemma_paext_refl (s: pastate)
+  : Lemma (requires pwf_world s.aw) (ensures paext s s)
+  = lemma_pwalloc_ext_refl s.an1 s.an2 s.aw
+
+let lemma_paext_refl_wf (s: pastate)
+  : Lemma (requires pawf s) (ensures paext s s)
+  = lemma_pwalloc_ext_refl s.an1 s.an2 s.aw
+
+(** **TRANSITIVE.** It reduces to `lemma_pwalloc_ext_trans`, and it reduces
+    cleanly precisely because the middle state SUPPLIES THE MIDDLE COUNTERS --
+    which is what a world-only index could not do, and the reason the frontiers
+    had to be carried in the first place. *)
+let lemma_paext_trans (s'' s' s: pastate)
+  : Lemma (requires paext s' s /\ paext s'' s') (ensures paext s'' s)
+  = lemma_pwalloc_ext_trans s.an1 s.an2 s'.an1 s'.an2 s''.an1 s''.an2 s''.aw s'.aw s.aw
+
+(** Well-formedness travels along accessibility, so a state reached from a
+    well-formed one never has to be re-checked. *)
+let lemma_paext_wf (s' s: pastate)
+  : Lemma (requires pawf s /\ paext s' s) (ensures pawf s')
+  = lemma_pwalloc_ext_bound s.an1 s.an2 s'.an1 s'.an2 s'.aw s.aw
+
+
+(* ---- 3. THE FAMILY, WITH THE FUTURE QUANTIFICATION NARROWED ------- *)
+
+(**
+ * **A FAITHFUL COPY OF `pcomp_rel` AND ITS FAMILY, CHANGED IN EXACTLY ONE
+ * PLACE.** Every
+ *
+ *     forall (w': pworld) (y1 y2: pval v).
+ *       pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> ...
+ *
+ * has become
+ *
+ *     forall (s': pastate) (y1 y2: pval v).
+ *       paext s' s /\ pval_rel s'.aw y1 y2 ==> ...
+ *
+ * and NOTHING ELSE has moved. Any incidental change would have made the
+ * comparison with the old family meaningless, which is the whole reason for
+ * writing the two side by side.
+ *
+ * `pval_rel`, `pvals_rel` and `ptable_rel` are REUSED, unchanged, at `s.aw`.
+ * That is not laziness: none of the three contains a future-world
+ * quantification, so the narrowing has nothing to do to them, and reusing them
+ * keeps the juxtaposition exact -- a clause of the new family differs from the
+ * corresponding clause of the old ONLY where a `forall w'` stood.
+ *
+ * The clause relation `r` is still a `pcl_rel_t cl`, world-indexed, applied at
+ * `s.aw`. Re-typing it would have invalidated `nboundary`, the one inhabited
+ * boundary record this file ships; `guard_pa_nboundary_survives` below is the
+ * check that it did not have to be.
+ *
+ * **THE TERMINATION MEASURE IS UNCHANGED.** The state is a PARAMETER and no
+ * recursive call inspects it, so the measures are still `%[n; 0; 0]`,
+ * `%[n; 1; 0]`, `%[n; 2; 0]`, `%[n; 2; 1]`, `%[n; 3; length fs1]`,
+ * `%[n; 3; length is1]` and `%[n; 4; 0]` -- decreasing on the STEP INDEX at
+ * every clause that changes level, and on the LIST LENGTH at the two list
+ * clauses. Adding frontiers cannot disturb a measure that does not mention
+ * them.
+ *)
+let rec pacomp_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                   (c1 c2: pcomp v cl)
+  : GTot prop (decreases %[n; 0; 0])
+  = if n = 0 then True
+    else
+      match c1, c2 with
+      | PVar x1, PVar x2 -> pval_rel s.aw x1 x2
+      | POp a1 f1, POp a2 f2 ->
+        pacomp_rel r (n - 1) s a1 a2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r (n - 1) s' (f1 y1) (f2 y2))
+      | PPerform e1 o1 p1, PPerform e2 o2 p2 ->
+        e1 == e2 /\ o1 == o2 /\ pvals_rel s.aw p1 p2
+      | PHandle t1 ret1 pv1 b1, PHandle t2 ret2 pv2 b2 ->
+        ptable_rel r (n - 1) s.aw t1 t2 /\ pv1 == pv2 /\
+        pacomp_rel r (n - 1) s b1 b2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (s': pastate) (y1 y2: pval v).
+              paext s' s /\ pval_rel s'.aw y1 y2 ==>
+              pacomp_rel r (n - 1) s' (g1 y1) (g2 y2))
+         | _, _ -> False)
+      | PSplice fs1 b1, PSplice fs2 b2 ->
+        paframes_rel r (n - 1) s fs1 fs2 /\ pacomp_rel r (n - 1) s b1 b2
+      | PEmit e1 b1, PEmit e2 b2 ->
+        e1 == e2 /\ pacomp_rel r (n - 1) s b1 b2
+      | PWeave oe1 oo1 is1 ow1 b1, PWeave oe2 oo2 is2 ow2 b2 ->
+        oe1 == oe2 /\ oo1 == oo2 /\ paframes_rel r (n - 1) s is1 is2 /\
+        paowner_rel r (n - 1) s ow1 ow2 /\ pacomp_rel r (n - 1) s b1 b2
+      | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+        paplan_rel r (n - 1) s pl1 pl2 /\ pacomp_rel r (n - 1) s b1 b2
+      | PExtendC pl1 h1 g1, PExtendC pl2 h2 g2 ->
+        paplan_rel r (n - 1) s pl1 pl2 /\ pval_rel s.aw h1 h2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r (n - 1) s' (g1 y1) (g2 y2))
+      | PExtendCtxC pl1 h1 g1, PExtendCtxC pl2 h2 g2 ->
+        paplan_rel r (n - 1) s pl1 pl2 /\ pval_rel s.aw h1 h2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r (n - 1) s' (g1 y1) (g2 y2))
+      | PResumeC pl1 h1 k1, PResumeC pl2 h2 k2 ->
+        paplan_rel r (n - 1) s pl1 pl2 /\ pval_rel s.aw h1 h2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r (n - 1) s' (k1 y1) (k2 y2))
+      | PNewP l1 i1 b1, PNewP l2 i2 b2 ->
+        l1 == l2 /\ pval_rel s.aw i1 i2 /\ pacomp_rel r (n - 1) s b1 b2
+      | PReadP l1, PReadP l2 -> l1 == l2
+      | PWriteP l1 x1, PWriteP l2 x2 -> l1 == l2 /\ pval_rel s.aw x1 x2
+      | _, _ -> False
+
+and paowner_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                (o1 o2: powner v cl)
+  : GTot prop (decreases %[n; 1; 0])
+  = if n = 0 then True
+    else
+      match o1, o2 with
+      | POwner t1 ret1 pv1, POwner t2 ret2 pv2 ->
+        ptable_rel r n s.aw t1 t2 /\ pv1 == pv2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (s': pastate) (y1 y2: pval v).
+              paext s' s /\ pval_rel s'.aw y1 y2 ==>
+              pacomp_rel r n s' (g1 y1) (g2 y2))
+         | _, _ -> False)
+
+and paframe_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                (f1 f2: pframe v cl)
+  : GTot prop (decreases %[n; 2; 0])
+  = if n = 0 then True
+    else
+      match f1, f2 with
+      | PBindF g1, PBindF g2 ->
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r n s' (g1 y1) (g2 y2))
+      | PParamF l1 x1, PParamF l2 x2 -> l1 == l2 /\ pval_rel s.aw x1 x2
+      | PPromptF t1 ret1 pv1, PPromptF t2 ret2 pv2 ->
+        ptable_rel r n s.aw t1 t2 /\ pv1 == pv2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (s': pastate) (y1 y2: pval v).
+              paext s' s /\ pval_rel s'.aw y1 y2 ==>
+              pacomp_rel r n s' (g1 y1) (g2 y2))
+         | _, _ -> False)
+      | PBoundaryF, PBoundaryF -> True
+      | PSiteF g1, PSiteF g2 ->
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r n s' (g1 y1) (g2 y2))
+      | PModeF m1 g1, PModeF m2 g2 ->
+        m1 == m2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r n s' (g1 y1) (g2 y2))
+      | PScopeF, PScopeF -> True
+      | _, _ -> False
+
+and paitem_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+               (i1 i2: plan_item v cl)
+  : GTot prop (decreases %[n; 2; 1])
+  = if n = 0 then True
+    else
+      match i1, i2 with
+      | PIBind g1, PIBind g2 ->
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r n s' (g1 y1) (g2 y2))
+      | PICell l1 x1, PICell l2 x2 -> l1 == l2 /\ pval_rel s.aw x1 x2
+      | PITransparent t1, PITransparent t2 -> ptable_rel r n s.aw t1 t2
+      | PIReenter t1 ret1, PIReenter t2 ret2 ->
+        ptable_rel r n s.aw t1 t2 /\
+        (match ret1, ret2 with
+         | None, None -> True
+         | Some g1, Some g2 ->
+           (forall (s': pastate) (y1 y2: pval v).
+              paext s' s /\ pval_rel s'.aw y1 y2 ==>
+              pacomp_rel r n s' (g1 y1) (g2 y2))
+         | _, _ -> False)
+      | _, _ -> False
+
+and paframes_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                 (fs1 fs2: list (pframe v cl))
+  : GTot prop (decreases %[n; 3; length fs1])
+  = if n = 0 then True
+    else
+      match fs1, fs2 with
+      | [], [] -> True
+      | a1 :: t1, a2 :: t2 -> paframe_rel r n s a1 a2 /\ paframes_rel r n s t1 t2
+      | _, _ -> False
+
+and paitems_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                (is1 is2: list (plan_item v cl))
+  : GTot prop (decreases %[n; 3; length is1])
+  = if n = 0 then True
+    else
+      match is1, is2 with
+      | [], [] -> True
+      | a1 :: t1, a2 :: t2 -> paitem_rel r n s a1 a2 /\ paitems_rel r n s t1 t2
+      | _, _ -> False
+
+and paplan_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+               (pl1 pl2: plan v cl)
+  : GTot prop (decreases %[n; 4; 0])
+  = if n = 0 then True
+    else
+      match pl1, pl2 with
+      | Plan ls1 ow1, Plan ls2 ow2 ->
+        paitems_rel r n s ls1 ls2 /\ paowner_rel r n s ow1 ow2
+
+let pactx_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+              (cx1 cx2: pctx v cl)
+  : GTot prop
+  = if n = 0 then True
+    else
+      match cx1, cx2 with
+      | PCtxDone y1, PCtxDone y2 -> pval_rel s.aw y1 y2
+      | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+        pval_rel s.aw x1 x2 /\ paframes_rel r n s rs1 rs2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r n s' (p1 y1) (p2 y2))
+      | _, _ -> False
+
+let pacrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (n: nat). pacomp_rel r n s c1 c2
+
+let paxrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cx1 cx2: pctx v cl)
+  : GTot prop
+  = forall (n: nat). pactx_rel r n s cx1 cx2
+
+let pakrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : GTot prop
+  = forall (n: nat). paframes_rel r n s k1 k2
+
+let pasrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (s1 s2: pstore v cl)
+  : GTot prop
+  = forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+      pwlookup_l i s.aw == Some j ==>
+      (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+       paxrel r s (psget i s1) (psget j s2))
+
+let pafn_rel_at (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+                (f1 f2: pval v -> pcomp v cl) : GTot prop
+  = forall (s: pastate) (y1 y2: pval v).
+      paext s s0 /\ pval_rel s.aw y1 y2 ==> pacrel r s (f1 y1) (f2 y2)
+
+(* ---- 4. UNFOLDING THE NEW ATOMS ----------------------------------- *)
+
+(**
+ * Each of `paext`, `pacrel`, `paxrel`, `pakrel`, `pasrel` and `pafn_rel_at` is
+ * an ATOM in hypothesis position, for the reason `pcfrel_unfold` records: a
+ * goal unfolds a `GTot prop` definition, a hypothesis does not, and the
+ * quantifiers inside it are invisible. Each gets the same `squash`-to-`squash`
+ * cast, accepted BY CONVERSION with no proof obligation. Without them the
+ * refutations below cannot instantiate the quantifier they have to instantiate.
+ *)
+let paext_unfold (s' s: pastate) (h: squash (paext s' s))
+  : squash (pwf_world s'.aw /\ pwext s'.aw s.aw /\
+            s.an1 <= s'.an1 /\ s.an2 <= s'.an2 /\
+            (forall (i k: nat).
+               pwlookup_l i s'.aw == Some k /\ pwlookup_l i s.aw == None ==>
+               s.an1 <= i /\ i < s'.an1 /\ s.an2 <= k /\ k < s'.an2))
+  = h
+
+let pacrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+                  (h: squash (pacrel r s c1 c2))
+  : squash (forall (n: nat). pacomp_rel r n s c1 c2)
+  = h
+
+let paxrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cx1 cx2: pctx v cl)
+                  (h: squash (paxrel r s cx1 cx2))
+  : squash (forall (n: nat). pactx_rel r n s cx1 cx2)
+  = h
+
+let pakrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+                  (h: squash (pakrel r s k1 k2))
+  : squash (forall (n: nat). paframes_rel r n s k1 k2)
+  = h
+
+let pasrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (s1 s2: pstore v cl)
+                  (h: squash (pasrel r s s1 s2))
+  : squash (forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+              pwlookup_l i s.aw == Some j ==>
+              (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+               paxrel r s (psget i s1) (psget j s2)))
+  = h
+
+let pafn_rel_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+                       (f1 f2: pval v -> pcomp v cl)
+                       (h: squash (pafn_rel_at r s0 f1 f2))
+  : squash (forall (s: pastate) (y1 y2: pval v).
+              paext s s0 /\ pval_rel s.aw y1 y2 ==> pacrel r s (f1 y1) (f2 y2))
+  = h
+
+
+(* ================================================================== *)
+(*  5. STEP 4 -- DOES ANYTHING THE DEVELOPMENT ALREADY BUILT FALL      *)
+(*     OUTSIDE THE NARROWED DOMAIN?                                    *)
+(*                                                                     *)
+(*  Narrowing a quantification domain makes every `forall`-shaped      *)
+(*  clause EASIER, so the danger is not failure -- it is SUCCESS FOR   *)
+(*  THE WRONG REASON.  Two obligations, both discharged by machine.    *)
+(*                                                                     *)
+(*   (a) the new relation still SEPARATES -- there are concrete pairs  *)
+(*       it refuses, and the refusals go THROUGH the clause that was   *)
+(*       weakened;                                                     *)
+(*   (b) the positive fixtures the development already built --        *)
+(*       `nboundary` at `nw56`, an anchor of a machine store, the      *)
+(*       counterless probe worlds -- are still inside the domain.      *)
+(* ================================================================== *)
+
+(**
+ * **A WORLD WITH NO COUNTERS ATTACHED IS NOT EXCLUDED: IT CARRIES A CANONICAL
+ * FRONTIER.** PROVED. This is the first thing step 4 has to settle, because
+ * `qw00`, `qmid_w_flip`, `qw012` and `ganchor` are worlds and nothing more --
+ * they were built long before there were counters to attach to them.
+ *
+ * A world is a FINITE list, so one past the largest name it mentions on either
+ * side bounds it on both, and `lemma_pbounded_world_weaken` raises that
+ * frontier to any larger pair. The choice therefore costs nothing, and no
+ * counterless object is refused for want of counters.
+ *)
+let rec pafrontier (w: pworld) : Tot nat (decreases w)
+  = match w with
+    | [] -> 0
+    | (a, b) :: rest ->
+      let m = pafrontier rest in
+      let m1 = if a + 1 > m then a + 1 else m in
+      if b + 1 > m1 then b + 1 else m1
+
+let rec lemma_pafrontier_bound (w: pworld)
+  : Lemma (ensures pwbound w (pafrontier w) (pafrontier w)) (decreases w)
+  = match w with
+    | [] -> ()
+    | (a, b) :: rest ->
+      lemma_pafrontier_bound rest;
+      lemma_pwl_cons a b rest
+
+let pastate_of (w: pworld) : pastate
+  = { aw = w; an1 = pafrontier w; an2 = pafrontier w }
+
+let lemma_pastate_of_wf (w: pworld)
+  : Lemma (requires pwf_world w) (ensures pawf (pastate_of w))
+  = lemma_pafrontier_bound w
+
+
+(**
+ * **AND HERE ARE THE FIVE OF THEM, WITH THEIR FRONTIERS READ OFF.** PROVED.
+ * `qw00` at 1, `qmid_w_flip` at 2 -- its right name is 1, so one past that --
+ * `qw012` at 3, `ganchor` at 4, and the machine boundary's `nw56` at 7. Not one
+ * of the fixed guard fixtures or probe worlds is excluded.
+ *)
+let guard_pa_probe_worlds_have_frontiers ()
+  : Lemma (pawf (pastate_of qw00) /\ (pastate_of qw00).an1 == 1 /\
+           pawf (pastate_of qmid_w_flip) /\ (pastate_of qmid_w_flip).an1 == 2 /\
+           pawf (pastate_of qw012) /\ (pastate_of qw012).an1 == 3 /\
+           pawf (pastate_of ganchor) /\ (pastate_of ganchor).an1 == 4 /\
+           pawf (pastate_of nw56) /\ (pastate_of nw56).an1 == 7)
+  = assert_norm (pafrontier qw00 == 1);
+    assert_norm (pafrontier qmid_w_flip == 2);
+    assert_norm (pafrontier qw012 == 3);
+    assert_norm (pafrontier ganchor == 4);
+    assert_norm (pafrontier nw56 == 7);
+    assert (pwf_world qw00);
+    assert (pwf_world qmid_w_flip);
+    assert (pwf_world qw012);
+    assert (pwf_world ganchor);
+    assert (pwf_world nw56);
+    lemma_pastate_of_wf qw00;
+    lemma_pastate_of_wf qmid_w_flip;
+    lemma_pastate_of_wf qw012;
+    lemma_pastate_of_wf ganchor;
+    lemma_pastate_of_wf nw56
+
+
+(* ---- STEP 4: CAPTURED CONSUMERS ----------------------------------- *)
+
+(**
+ * **CAPTURED CONSUMERS ARE STILL RELATED.** PROVED --
+ * `guard_nom_two_captures_related` transplanted to the frontier-indexed
+ * relation, with the same proof shape. Narrowing helps a positive, but it does
+ * not change what has to be shown: `pwext` is still available inside the clause
+ * (`lemma_paext_is_pwext`), so the future world still decides that the two keys
+ * correspond.
+ *)
+let guard_pa_two_captures_related (#v #cl: Type) (r: pcl_rel_t cl)
+      (i j: nat) (s0: pastate)
+  : Lemma (requires pwlookup_l i s0.aw == Some j)
+          (ensures pafn_rel_at r s0 (pkcap #v #cl i) (pkcap #v #cl j))
+  = introduce forall (s: pastate) (y1 y2: pval v).
+        (paext s s0 /\ pval_rel s.aw y1 y2 ==>
+         pacrel r s (pkcap #v #cl i y1) (pkcap #v #cl j y2))
+    with (introduce _ ==> _
+          with (paext_unfold s s0 ();
+                assert (pwlookup_l i s.aw == Some j);
+                assert (pval_rel #v s.aw (PCtxKey i) (PCtxKey j));
+                introduce forall (n: nat).
+                    pacomp_rel r n s (PVar (PCtxKey #v i)) (PVar (PCtxKey #v j))
+                with ()))
+
+(**
+ * **AND THE ANCHOR STILL REFUSES TO PIN A FUTURE NAME.** PROVED, and this is
+ * the guard the gate turns on.
+ *
+ * `guard_nom_anchor_never_pins_a_future_name` refutes a `forall w'`-shaped
+ * clause BY EXHIBITING A WITNESS -- `pwextend i (i + 1) (panchor sto)`.
+ * Narrowing the domain could have deleted that witness and made the refutation
+ * unavailable, and then every downstream use of it would have been vacuous.
+ *
+ * It does not, and the reason is the hypothesis the original guard already
+ * carried: `i >= n0`. The name the closure guesses is AT OR ABOVE the frontier,
+ * so the world that pins it to `i + 1` is one THE ALLOCATOR COULD HAVE
+ * PRODUCED -- one step on the left and one on the right, from `(n0, n0)` to
+ * `(i + 1, i + 2)`. The witness is not merely still legal; it is an allocation.
+ *
+ * The state is `(panchor sto, n0, n0)`: the anchor at ITS OWN frontier, which
+ * is the counter `pconf.next` holds, by `lemma_panchor_bound`.
+ *)
+let guard_pa_anchor_never_pins_a_future_name
+      (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl) (n0: nat) (i: nat)
+  : Lemma (requires psfresh sto n0 /\ i >= n0)
+          (ensures ~(pafn_rel_at r ({ aw = panchor sto; an1 = n0; an2 = n0 })
+                                 (pkcap #v #cl i) (pkcap #v #cl i)))
+  = let s0 : pastate = { aw = panchor sto; an1 = n0; an2 = n0 } in
+    lemma_panchor_l i sto;
+    lemma_panchor_r (i + 1) sto;
+    lemma_panchor_wf sto;
+    lemma_panchor_bound sto n0;
+    lemma_pwextend_wf i (i + 1) (panchor sto);
+    lemma_pwl_cons i (i + 1) (panchor sto);
+    let w : pworld = pwextend i (i + 1) (panchor sto) in
+    let s : pastate = { aw = w; an1 = i + 1; an2 = i + 2 } in
+    assert (paext s s0);
+    assert (pval_rel #v w (PCtxKey i) (PCtxKey (i + 1)));
+    introduce pafn_rel_at r s0 (pkcap #v #cl i) (pkcap #v #cl i) ==> False
+    with begin
+      pafn_rel_at_unfold r s0 (pkcap #v #cl i) (pkcap #v #cl i) ();
+      assert (pacrel r s (pkcap #v #cl i (PCtxKey i))
+                         (pkcap #v #cl i (PCtxKey (i + 1))));
+      pacrel_unfold r s (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i)) ();
+      assert (pacomp_rel r 1 s (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i)))
+    end
+
+(**
+ * **A GUESS IS REFUSED WHETHER IT LIES ABOVE THE FRONTIER OR BELOW IT.**
+ * PROVED, for EVERY `i` and EVERY pair of starting counters --
+ * `guard_nom_capture_not_single_sided` at the frontier-indexed relation.
+ *
+ * The guard above needed `i >= n0`. This one does not, and the witness is why:
+ * the allocator's own next pair, taken ASYMMETRICALLY, `n1 |-> n2 + i + 1`.
+ * `pwalloc_ext` constrains each new name to its own window and says nothing
+ * relating the two, so an asymmetric allocation is legal; the right name is
+ * chosen past `i` so that the extension cannot accidentally pin `i` to itself.
+ * At that state the two runs hold related handles while the closure hands back
+ * a key the world does not pin, and the relation refuses it.
+ *)
+let guard_pa_capture_not_single_sided (#v #cl: Type) (r: pcl_rel_t cl)
+      (i n1 n2: nat)
+  : Lemma (~(pafn_rel_at r ({ aw = ([] <: pworld); an1 = n1; an2 = n2 })
+                         (pkcap #v #cl i) (pkcap #v #cl i)))
+  = let s0 : pastate = { aw = ([] <: pworld); an1 = n1; an2 = n2 } in
+    let j : nat = n2 + i + 1 in
+    let w : pworld = pwextend n1 j [] in
+    let s : pastate = { aw = w; an1 = n1 + 1; an2 = j + 1 } in
+    lemma_pwextend_wf n1 j [];
+    lemma_pwl_cons n1 j [];
+    assert (paext s s0);
+    assert (pval_rel #v w (PCtxKey n1) (PCtxKey j));
+    introduce pafn_rel_at r s0 (pkcap #v #cl i) (pkcap #v #cl i) ==> False
+    with begin
+      pafn_rel_at_unfold r s0 (pkcap #v #cl i) (pkcap #v #cl i) ();
+      assert (pacrel r s (pkcap #v #cl i (PCtxKey n1)) (pkcap #v #cl i (PCtxKey j)));
+      pacrel_unfold r s (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i)) ();
+      assert (pacomp_rel r 1 s (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i)))
+    end
+
+
+(* ---- STEP 4: THE CONCRETE MACHINE-BUILT BOUNDARY ------------------ *)
+
+(**
+ * **THE SHIPPED BOUNDARY RECORD SURVIVES, REUSED VERBATIM.** PROVED.
+ * `nboundary.b_rel` is a `pcl_rel_t ncl` -- world-indexed -- and the new family
+ * applies it at `s.aw`, so `nboundary.b_rel n nas.aw` is literally
+ * `ncl_rel n nw56`. The capturing pair of `guard_nom_capturing_clauses_related`
+ * is still related, the two capturing consumers are `pafn_rel_at`-related at
+ * `nw56` with its canonical frontier 7, and the two handles the two runs hold
+ * are `pacomp_rel`-related at every index.
+ *)
+let nas : pastate = pastate_of nw56
+
+let guard_pa_nboundary_survives ()
+  : Lemma (pawf nas /\ nas.aw == nw56 /\ nas.an1 == 7 /\ nas.an2 == 7 /\
+           (forall (n: nat).
+              nboundary.b_rel n nas.aw (NRet (PCtxKey 5)) (NRet (PCtxKey 6)) /\
+              nboundary.b_rel n nas.aw (NResume (PCtxKey 5)) (NResume (PCtxKey 6))) /\
+           pafn_rel_at #fv #ncl nboundary.b_rel nas (pkcap 5) (pkcap 6) /\
+           (forall (n: nat).
+              pacomp_rel #fv #ncl nboundary.b_rel n nas
+                (PVar (PCtxKey 5)) (PVar (PCtxKey 6))))
+  = guard_pa_probe_worlds_have_frontiers ();
+    assert_norm (pwlookup_l 5 nw56 == Some 6);
+    assert (pval_rel #fv nw56 (PCtxKey 5) (PCtxKey 6));
+    introduce forall (n: nat).
+        (nboundary.b_rel n nas.aw (NRet (PCtxKey 5)) (NRet (PCtxKey 6)) /\
+         nboundary.b_rel n nas.aw (NResume (PCtxKey 5)) (NResume (PCtxKey 6)))
+    with ();
+    guard_pa_two_captures_related #fv #ncl nboundary.b_rel 5 6 nas;
+    introduce forall (n: nat).
+        pacomp_rel #fv #ncl nboundary.b_rel n nas (PVar (PCtxKey 5)) (PVar (PCtxKey 6))
+    with ()
+
+
+(* ---- STEP 4: A MACHINE-BUILT STORE, ALONG AN ALLOCATION CHAIN ----- *)
+
+(**
+ * **A MACHINE-SHAPED STORE, BUILT ALONG A CHAIN OF ALLOCATIONS, IS INSIDE THE
+ * DOMAIN.** PROVED. Two paired allocations from the empty state, each an access
+ * by `lemma_pwalloc_ext_of_alloc`, composed by `lemma_paext_trans`; and at the
+ * end state the two-entry store is `pasrel`-related to itself.
+ *
+ * The store is not a toy. Entry 0 HOLDS THE HANDLE of entry 1 and entry 1 holds
+ * the handle of entry 0, so neither entry is world-independent; and entry 1 is a
+ * `PCtxRequests`, so it carries a `post` whose future-state clause has to be
+ * discharged INSIDE the narrowed domain -- which is exactly where a captured
+ * consumer would fail if the narrowing had broken anything.
+ *)
+let pa_sto0 : pastate = { aw = ([] <: pworld); an1 = 0; an2 = 0 }
+let pa_sto1 : pastate = { aw = pwextend 0 0 ([] <: pworld); an1 = 1; an2 = 1 }
+let pa_sto2 : pastate = { aw = pwextend 1 1 (pwextend 0 0 ([] <: pworld));
+                          an1 = 2; an2 = 2 }
+
+let pa_store : pstore fv fcl =
+  [ (1, PCtxRequests (PCtxKey 0) [] (ppost_id #fv #fcl));
+    (0, PCtxDone (PCtxKey 1)) ]
+
+let guard_pa_machine_store_stays_in_domain ()
+  : Lemma (pawf pa_sto0 /\ pawf pa_sto1 /\ pawf pa_sto2 /\
+           paext pa_sto1 pa_sto0 /\ paext pa_sto2 pa_sto1 /\
+           paext pa_sto2 pa_sto0 /\
+           pasrel fcl_rel pa_sto2 pa_store pa_store)
+  = lemma_pwalloc_ext_of_alloc 0 0 ([] <: pworld);
+    lemma_pbounded_world_alloc 0 0 ([] <: pworld);
+    lemma_pwalloc_ext_of_alloc 1 1 (pwextend 0 0 ([] <: pworld));
+    lemma_pbounded_world_alloc 1 1 (pwextend 0 0 ([] <: pworld));
+    lemma_paext_trans pa_sto2 pa_sto1 pa_sto0;
+    assert_norm (pwlookup_l 0 pa_sto2.aw == Some 0);
+    assert_norm (pwlookup_l 1 pa_sto2.aw == Some 1);
+    assert_norm (pstore_lookup 0 pa_store == Some (PCtxDone (PCtxKey #fv 1)));
+    assert_norm (pstore_lookup 1 pa_store ==
+                   Some (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl)));
+    assert_norm (psget 0 pa_store == PCtxDone (PCtxKey #fv 1));
+    assert_norm (psget 1 pa_store ==
+                   PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl));
+    introduce forall (n: nat).
+        pactx_rel fcl_rel n pa_sto2 (PCtxDone (PCtxKey #fv 1)) (PCtxDone (PCtxKey #fv 1))
+    with ();
+    introduce forall (n: nat).
+        pactx_rel fcl_rel n pa_sto2
+          (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl))
+          (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl))
+    with begin
+      introduce forall (s': pastate) (y1 y2: pval fv).
+          (paext s' pa_sto2 /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel fcl_rel n s' (ppost_id #fv #fcl y1) (ppost_id #fv #fcl y2))
+      with (introduce _ ==> _ with ())
+    end;
+    introduce forall (i j: nat).
+        (pwlookup_l i pa_sto2.aw == Some j ==>
+         (Some? (pstore_lookup i pa_store) /\ Some? (pstore_lookup j pa_store) /\
+          paxrel fcl_rel pa_sto2 (psget i pa_store) (psget j pa_store)))
+    with (introduce _ ==> _ with ())
+
+
+(* ---- STEP 4(a): THE NEW RELATION STILL SEPARATES ------------------ *)
+
+(**
+ * **THE STORE RELATION IS NOT TRUE OF EVERYTHING.** PROVED. The same two-entry
+ * store against one whose entry 1 is a `PCtxDone` where the other has a
+ * `PCtxRequests`: NOT related, at the very state where the honest pair is.
+ *)
+let pa_store_bad : pstore fv fcl =
+  [ (1, PCtxDone (PCtxKey 0));
+    (0, PCtxDone (PCtxKey 1)) ]
+
+let guard_pa_store_discriminates ()
+  : Lemma (~(pasrel fcl_rel pa_sto2 pa_store pa_store_bad))
+  = assert_norm (pwlookup_l 1 pa_sto2.aw == Some 1);
+    assert_norm (psget 1 pa_store ==
+                   PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl));
+    assert_norm (psget 1 pa_store_bad == PCtxDone (PCtxKey #fv 0));
+    introduce pasrel fcl_rel pa_sto2 pa_store pa_store_bad ==> False
+    with begin
+      pasrel_unfold fcl_rel pa_sto2 pa_store pa_store_bad ();
+      assert (paxrel fcl_rel pa_sto2 (psget 1 pa_store) (psget 1 pa_store_bad));
+      paxrel_unfold fcl_rel pa_sto2
+        (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl))
+        (PCtxDone (PCtxKey #fv 0)) ();
+      assert (pactx_rel fcl_rel 1 pa_sto2
+                (PCtxRequests (PCtxKey #fv 0) [] (ppost_id #fv #fcl))
+                (PCtxDone (PCtxKey #fv 0)))
+    end
+
+(**
+ * **THE RESIDUAL SEPARATES, AS A CONTROL.** PROVED --
+ * `guard_static_residual_composes`'s non-vacuity conjunct transplanted. At
+ * `qw012` with its canonical frontier, `qares0` relates to `qares1` and `qares1`
+ * to `qares2`, but `qares0` DOES NOT relate to `qares2`.
+ *
+ * `PParamF`'s clause has no `forall w'` in it, so this separation is INDEPENDENT
+ * of the narrowing -- which is what makes it a control rather than a result: it
+ * says the copy did not break the parts the narrowing was not supposed to touch.
+ *)
+let qares0 : list (pframe fv fcl) = [PParamF "p" (PCtxKey 0)]
+let qares1 : list (pframe fv fcl) = [PParamF "p" (PCtxKey 1)]
+let qares2 : list (pframe fv fcl) = [PParamF "p" (PCtxKey 2)]
+
+let guard_pa_residual_discriminates (n: nat)
+  : Lemma (requires n > 0)
+          (ensures paframes_rel fcl_rel n (pastate_of qw012) qares0 qares1 /\
+                   paframes_rel fcl_rel n (pastate_of qw012) qares1 qares2 /\
+                   ~(paframes_rel fcl_rel n (pastate_of qw012) qares0 qares2))
+  = assert_norm (pwlookup_l 0 qw012 == Some 1);
+    assert_norm (pwlookup_l 1 qw012 == Some 2);
+    assert_norm (~(pwlookup_l 0 qw012 == Some 2));
+    assert ((pastate_of qw012).aw == qw012);
+    assert (pval_rel #fv qw012 (PCtxKey 0) (PCtxKey 1));
+    assert (pval_rel #fv qw012 (PCtxKey 1) (PCtxKey 2));
+    assert (paframe_rel fcl_rel n (pastate_of qw012)
+              (PParamF #fv #fcl "p" (PCtxKey 0)) (PParamF #fv #fcl "p" (PCtxKey 1)));
+    assert (paframe_rel fcl_rel n (pastate_of qw012)
+              (PParamF #fv #fcl "p" (PCtxKey 1)) (PParamF #fv #fcl "p" (PCtxKey 2)));
+    introduce paframes_rel fcl_rel n (pastate_of qw012) qares0 qares2 ==> False
+    with begin
+      assert (paframe_rel fcl_rel n (pastate_of qw012)
+                (PParamF #fv #fcl "p" (PCtxKey 0)) (PParamF #fv #fcl "p" (PCtxKey 2)));
+      pval_rel_key_unfold #fv qw012 0 2 ()
+    end
+
+(**
+ * **AND THE ONE THAT MATTERS -- SEPARATION THROUGH THE NARROWED CLAUSE
+ * ITSELF.** PROVED. A `POp` node whose consumer is `pkcap i`, at the empty world
+ * with ARBITRARY frontiers: not related to itself. The refutation runs through
+ * the very quantifier the narrowing shrank, so this is the separation that could
+ * have been lost, and it is the answer to (a): the new relation is not true
+ * everywhere, and it is not true everywhere for a reason the narrowing had every
+ * opportunity to destroy.
+ *
+ * The paired positive is directly below: the SAME `POp` node, with the two
+ * consumers capturing the two CORRESPONDING keys, IS related. Same shape,
+ * opposite verdicts, decided by the state.
+ *)
+let guard_pa_op_consumer_discriminates (#v #cl: Type) (r: pcl_rel_t cl)
+      (i n1 n2: nat) (e o: string)
+  : Lemma (~(pacomp_rel r 2 ({ aw = ([] <: pworld); an1 = n1; an2 = n2 })
+               (POp (PPerform e o []) (pkcap #v #cl i))
+               (POp (PPerform e o []) (pkcap #v #cl i))))
+  = let s0 : pastate = { aw = ([] <: pworld); an1 = n1; an2 = n2 } in
+    let j : nat = n2 + i + 1 in
+    let w : pworld = pwextend n1 j [] in
+    let s : pastate = { aw = w; an1 = n1 + 1; an2 = j + 1 } in
+    lemma_pwextend_wf n1 j [];
+    lemma_pwl_cons n1 j [];
+    assert (paext s s0);
+    assert (pval_rel #v w (PCtxKey n1) (PCtxKey j));
+    introduce pacomp_rel r 2 s0
+                (POp (PPerform e o []) (pkcap #v #cl i))
+                (POp (PPerform e o []) (pkcap #v #cl i)) ==> False
+    with assert (pacomp_rel r 1 s (PVar (PCtxKey #v i)) (PVar (PCtxKey #v i)))
+
+let guard_pa_op_consumer_related (#v #cl: Type) (r: pcl_rel_t cl)
+      (i j: nat) (s0: pastate) (e o: string)
+  : Lemma (requires pwlookup_l i s0.aw == Some j)
+          (ensures pacomp_rel r 2 s0
+                     (POp (PPerform e o []) (pkcap #v #cl i))
+                     (POp (PPerform e o []) (pkcap #v #cl j)))
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s0 /\ pval_rel s'.aw y1 y2 ==>
+         pacomp_rel r 1 s' (pkcap #v #cl i y1) (pkcap #v #cl j y2))
+    with (introduce _ ==> _
+          with (paext_unfold s' s0 ();
+                assert (pwlookup_l i s'.aw == Some j)))
+
+
+(* ---- STEP 4: AND THE NARROWING IS NOT A NO-OP --------------------- *)
+
+(**
+ * **THE NEW DOMAIN IS STRICTLY SMALLER THAN `pwext`.** PROVED. Without this,
+ * everything above could hold because `paext` and `pwext` agree, and the gate
+ * would have proved nothing. They do not agree: at frontiers `(5, 5)` over the
+ * empty world, `[(0, 0)]` is a perfectly good well-formed `pwext` extension and
+ * is NOT an access -- FOR ANY choice of end counters -- because the pair it adds
+ * names 0 on both sides, and 0 is below the frontier the two allocators started
+ * from. A future world may not speak about a name that the current world does
+ * not already speak about and the allocators have already handed out.
+ *)
+let pa_low : pastate = { aw = ([] <: pworld); an1 = 5; an2 = 5 }
+
+let guard_pa_domain_is_strictly_narrower ()
+  : Lemma (pawf pa_low /\
+           pwf_world (pwextend 0 0 ([] <: pworld)) /\
+           pwext (pwextend 0 0 ([] <: pworld)) pa_low.aw /\
+           (forall (m1 m2: nat).
+              ~(paext ({ aw = pwextend 0 0 ([] <: pworld); an1 = m1; an2 = m2 })
+                      pa_low)))
+  = lemma_pwextend_wf 0 0 ([] <: pworld);
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    introduce forall (m1 m2: nat).
+        ~(paext ({ aw = pwextend 0 0 ([] <: pworld); an1 = m1; an2 = m2 }) pa_low)
+    with (introduce paext ({ aw = pwextend 0 0 ([] <: pworld); an1 = m1; an2 = m2 })
+                         pa_low ==> False
+          with (paext_unfold ({ aw = pwextend 0 0 ([] <: pworld); an1 = m1; an2 = m2 })
+                             pa_low ()))
+
+
+(* ---- 6. ONE PAIRED ALLOCATION IS ONE ACCESS ----------------------- *)
+
+(**
+ * The machine's only way of growing a world, packaged at the state: the two
+ * frontiers advance BY THE SAME AMOUNT, which is the shape
+ * `lemma_prun_prov_compat` delivers for a whole related run. It is placed here
+ * rather than beside the other accessibility laws only because its guard needs
+ * `paext_unfold`.
+ *)
+let paalloc (s: pastate) : pastate
+  = { aw = pwextend s.an1 s.an2 s.aw; an1 = s.an1 + 1; an2 = s.an2 + 1 }
+
+let lemma_paext_of_alloc (s: pastate)
+  : Lemma (requires pawf s)
+          (ensures paext (paalloc s) s /\ pawf (paalloc s) /\
+                   pwlookup_l s.an1 (paalloc s).aw == Some s.an2 /\
+                   (paalloc s).an1 - s.an1 == (paalloc s).an2 - s.an2)
+  = lemma_pwalloc_ext_of_alloc s.an1 s.an2 s.aw;
+    lemma_pbounded_world_alloc s.an1 s.an2 s.aw
+
+(** **ACCESSIBILITY IS NOT THE TOTAL RELATION**, and the cheapest witness is
+    that it is not symmetric: no state reaches BACKWARDS across an allocation,
+    because the frontiers would have to decrease. *)
+let guard_pa_access_is_not_symmetric (s: pastate)
+  : Lemma (~(paext s (paalloc s)))
+  = introduce paext s (paalloc s) ==> False
+    with paext_unfold s (paalloc s) ()
+
+(* ================================================================== *)
+(*  B2b.21 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED.                                                    *)
+(*   1. `pastate` -- the Kripke state is a world and the two           *)
+(*      allocation frontiers, as a record.  The seven-way mutual       *)
+(*      recursion typechecks at the SAME lexicographic measures as the *)
+(*      old family: the state is a parameter and no recursive call     *)
+(*      inspects it.                                                   *)
+(*   2. `lemma_paext_is_pwext`, `lemma_paext_refl`,                    *)
+(*      `lemma_paext_trans`, `lemma_paext_wf`, `lemma_paext_of_alloc`  *)
+(*      -- accessibility implies `pwext`, is reflexive and transitive  *)
+(*      by reduction to `lemma_pwalloc_ext_refl` and                   *)
+(*      `lemma_pwalloc_ext_trans` AND TO NOTHING ELSE, preserves       *)
+(*      well-formedness, and is produced by one paired allocation with *)
+(*      the two frontiers advancing equally.                           *)
+(*   3. `pacomp_rel` and its family, `pactx_rel`, `pacrel`, `paxrel`,  *)
+(*      `pakrel`, `pasrel`, `pafn_rel_at` -- the whole relation, with  *)
+(*      the future quantification narrowed and nothing else changed.   *)
+(*   4. STEP 4, THE POSITIVE HALF.                                     *)
+(*      `guard_pa_probe_worlds_have_frontiers` -- `qw00`,              *)
+(*      `qmid_w_flip`, `qw012`, `ganchor` and `nw56` all carry a       *)
+(*      canonical frontier, so no counterless fixture is excluded;     *)
+(*      `guard_pa_nboundary_survives` -- the shipped boundary record   *)
+(*      is reused verbatim and its capturing pair is still related;    *)
+(*      `guard_pa_machine_store_stays_in_domain` -- a two-entry,       *)
+(*      cross-referencing, `PCtxRequests`-carrying store built by two  *)
+(*      allocations is related to itself at the end state;             *)
+(*      `guard_pa_two_captures_related` and                            *)
+(*      `guard_pa_op_consumer_related` -- captured consumers are still *)
+(*      related, alone and under a `POp`.                              *)
+(*   5. STEP 4, THE SEPARATING HALF.                                   *)
+(*      `guard_pa_op_consumer_discriminates` -- a `POp` node is        *)
+(*      refused, through the narrowed clause itself;                   *)
+(*      `guard_pa_anchor_never_pins_a_future_name` and                 *)
+(*      `guard_pa_capture_not_single_sided` -- the two nominal         *)
+(*      refutations survive, above the frontier and below it;          *)
+(*      `guard_pa_store_discriminates`,                                *)
+(*      `guard_pa_residual_discriminates` -- the store and the         *)
+(*      residual still separate;                                       *)
+(*      `guard_pa_domain_is_strictly_narrower` and                     *)
+(*      `guard_pa_access_is_not_symmetric` -- and the narrowing is     *)
+(*      real: `pwext` extensions exist that are not accesses, for any  *)
+(*      end counters, and accessibility is not symmetric.              *)
+(*                                                                     *)
+(*  WHAT IS NOT CLAIMED.                                               *)
+(*   - The two relations are NOT compared.  Neither                    *)
+(*     `pcomp_rel ==> pacomp_rel` nor its converse is proved here;     *)
+(*     that is a later step and stating it would prejudge it.          *)
+(*   - Kripke MONOTONICITY of the new family in the state is NOT       *)
+(*     proved.  The old family's `pwext`-monotonicity does not         *)
+(*     transfer for free: `paext` mentions the frontiers on BOTH       *)
+(*     sides, so moving a relation forward along an access moves the   *)
+(*     domain of its own future quantification too.  Nothing above     *)
+(*     uses it and nothing above claims it.                            *)
+(*   - The fundamental theorem is NOT re-proved at the new relation,   *)
+(*     nothing is lifted to finite runs, no new observation relation   *)
+(*     exists, and no law is reconnected.                              *)
+(*                                                                     *)
+(*  THE OPEN QUESTION THIS SECTION HANDS ON.  Every refutation the     *)
+(*  file already owned survived, and each survived for the same        *)
+(*  reason: its witness world was one an allocator could have          *)
+(*  produced -- above the frontier for the anchor guard, and the       *)
+(*  allocator's own next pair taken ASYMMETRICALLY for the             *)
+(*  guessed-name guard.  Whether that is a fact about allocation or    *)
+(*  an accident of THIS term language -- which has no way to compare   *)
+(*  two handles, and so no way to notice a name that is merely never   *)
+(*  mentioned -- is not settled here, and should not be relied on by   *)
+(*  whatever re-proves the fundamental theorem.                        *)
+(* ================================================================== *)

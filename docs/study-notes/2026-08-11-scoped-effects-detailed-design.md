@@ -5958,6 +5958,163 @@ fixture vacuous.
 The gap is now one thing: moving a closed finite-run provenance into the index
 design of a recursive Kripke relation.
 
+#### The indexing gate: an allocation-indexed Kripke family, juxtaposed
+
+Steps 1–4 of the nine-step plan landed. None of the five stop conditions was
+hit. Stated at the strength established:
+
+> An allocation-indexed Kripke family can be defined alongside the original
+> world-indexed family. Its accessibility relation is allocator-respecting
+> future extension between states carrying the world and both allocation
+> frontiers. The family is well-founded and non-vacuous on all tested fixture
+> classes; no transition compatibility or comparison with the original family is
+> established yet.
+
+Four things are worth recording.
+
+**The narrowing does not exclude base-world carriers; it restricts only future
+accessibility.** This is the structural fact that saves the existing fixtures,
+and it is easy to mistake for a triviality. It is not one: the restriction bites
+on extensions, and that it bites is proved.
+
+**Any finite probe world can be given a large enough frontier.** So the fixed
+counter-less worlds the development already built fit into a `pastate`:
+`qw00` at 1, `qmid_w_flip` at 2, `qw012` at 3, `ganchor` at 4, `nw56` at 7. The
+lemma behind this says exactly:
+
+> Every finite probe world can be embedded into some frontier-indexed state.
+
+and no more. It does **not** say that frontier is the actual counter of any
+particular execution configuration. Machine-built fixtures carry that additional
+obligation separately, through guards using the real counters and the store
+anchor. The two kinds of non-vacuity are different and are kept apart here.
+
+**Whether a stale pair is admitted depends on the starting frontier, not on the
+pair.** At frontiers `(5,5)` the pair `(0,0)` is a perfectly legal `pwext`
+extension of the empty world and is accessible for *no* final frontiers; at
+frontiers `(0,0)` the same pair is accessible with final `(1,1)`. Both halves
+are machine-checked, independently of the gate.
+
+**The new family is a faithful copy, not a copy with incidental edits.** The two
+families were diffed directly. Every difference is one of exactly three kinds:
+the name prefix; `w` becoming `s.aw`; and the future-world quantifier
+
+```text
+(forall (w': pworld) (y1 y2: pval v).
+   pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> …)
+```
+
+becoming
+
+```text
+(forall (s': pastate) (y1 y2: pval v).
+   paext s' s /\ pval_rel s'.aw y1 y2 ==> …)
+```
+
+Every clause with no future-world quantifier — `PVar`, `PPerform`, `PParamF`,
+`PICell`, `PITransparent`, `PWriteP`, the list cases, `pplan_rel` — is
+structurally identical modulo the rename. `pwf_world w'` was not dropped: it is
+a conjunct of `pwalloc_ext`, so `paext` subsumes it. Juxtaposition therefore
+still permits the comparison it exists for.
+
+#### The carrier and the accessibility
+
+```fstar
+type pastate = { aw: pworld; an1: nat; an2: nat }
+let pawf (s: pastate) : prop = pbounded_world s.an1 s.an2 s.aw
+let paext (s' s: pastate) : prop
+  = pwalloc_ext s.an1 s.an2 s'.an1 s'.an2 s'.aw s.aw
+```
+
+A record rather than three parameters, because seven mutually recursive
+relations would each gain two arguments and every quantifier two binders,
+destroying the readability that juxtaposition depends on; and rather than a
+tuple, because `fst`/`snd` chains inside a `prop` are exactly the projection
+noise the development already avoids.
+
+The termination measure is unchanged — the state is a parameter no recursive
+call inspects, so the existing lexicographic measures carry over untouched, and
+type-checking is the proof.
+
+Reflexivity and transitivity reduce to `lemma_pwalloc_ext_refl` and
+`lemma_pwalloc_ext_trans` and to nothing else. Transitivity reduces cleanly
+**because the intermediate state supplies the middle counters** — which is
+precisely what a world-only index could not do. Stated with its premises:
+
+> `paext` forms a preorder on admissible allocation states.
+
+Not on raw `pastate`s: the lemmas carry the well-formedness and boundedness
+premises, and `pwalloc_ext` itself contains at least the successor world's
+`pwf_world`.
+
+#### Non-vacuity
+
+Seven negative guards survive the narrowing, and for each one the reverse claim
+was checked to be unprovable — so every discrimination has all three of a proved
+positive, a proved negative, and an unprovable converse. Among them, one guard
+refutes through the narrowed clause itself, using an **asymmetric** allocation
+witness: `pwalloc_ext` confines new names to their own windows without tying the
+two sides together, so taking the right name past the guessed one keeps a
+captured handle from accidentally pinning itself.
+
+Notably, the `PParamF` residual discrimination has no `forall w'` in its clause
+at all, so it is untouched by the narrowing — it serves as the control that the
+copy did not damage the parts it should not have touched.
+
+#### What is not established
+
+- No compatibility with the machine's transitions, and no comparison in either
+  direction with the original family.
+- **Kripke monotonicity for the new family is not attempted.** The old family's
+  `pwext` monotonicity does not transfer as it stands: `paext` mentions the
+  frontiers on both sides, so pushing a relation forward along an access also
+  moves the domain of its own future quantification.
+- One conjecture is recorded and explicitly fenced: that because the term
+  language has no way to compare handles, the narrowing can never make a *new*
+  pair related. That is step 8 territory, it is unproved, and the next stage
+  must not rely on it.
+
+#### Position
+
+> The new Kripke carrier and accessibility relation are now inhabited and
+> discriminating. The next question is whether the recursive relations are
+> monotone under that accessibility; only after that may transition
+> compatibility be attempted.
+
+#### Monotonicity comes before step 5, as its own gate
+
+This is not auxiliary polish. It is the test of whether the new index really
+behaves as a Kripke index.
+
+1. state the admissibility condition on a `pastate` explicitly;
+2. collect reflexivity and transitivity of `paext` on that domain;
+3. prove `pval_rel` preserved along growth of `s.aw`;
+4. prove, for every layer of the `pa*_rel` family, that `paext s' s` lets a
+   current relation be pushed forward to the future state;
+5. check that captured consumers, capturing clauses and `PCtxRequests.post`
+   survive an allocation without being re-proved;
+6. contrast: an extension admitting identity revival below a frontier falls
+   outside accessibility.
+
+For a standard Kripke relation this would follow from transitivity alone —
+anything reachable from a future state is reachable from the original. Here the
+value relation at the current world and the domain of the future quantifier move
+*together*, so it must be proved across the whole mutual recursion rather than
+assumed.
+
+Stop conditions: monotonicity does not close under `paext` transitivity alone
+and needs an extra hypothesis per closure; an existing captured closure's proof
+has to be rebuilt after an allocation; the machine-built `nboundary`'s clause or
+application cannot be preserved for the new family; or `PCtxRequests.post`'s
+future quantification does not agree with pushing the frontiers forward.
+
+On that last point, what is confirmed today is only that `nboundary`'s `b_rel`
+applies at `s.aw` and that its concrete capturing pair inhabits the new family.
+The boundary record's `apply` coherence conditions are stated against the
+**old** relation, so they cannot yet be reused for a new fundamental theorem. Step 5
+will need either a boundary discipline for the new family or a bridge from the
+old conditions to the new.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
