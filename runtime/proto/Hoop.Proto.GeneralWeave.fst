@@ -33580,3 +33580,1900 @@ let guard_pa_alloc_couples_at_the_residual_shape ()
 (*  interpreter satisfying the old condition and failing the new one   *)
 (*  is not exhibited here.                                            *)
 (* ================================================================== *)
+
+
+(* ================================================================== *)
+(*  B2b.24 -- THE ONE-STEP THEOREM AT THE ALLOCATION-INDEXED FAMILY    *)
+(*                                                                     *)
+(*  B2b.23 left two halves of a transition's obligation stated and     *)
+(*  discharged SEPARATELY: `lemma_pasrel_nonalloc`, for a rule that    *)
+(*  leaves the state alone, and `lemma_pasrel_alloc`, for one paired   *)
+(*  allocation.  Neither said anything about `pstep`.  This section    *)
+(*  composes them into a statement about `pstep`, rule by rule, and    *)
+(*  the composition is a DISPATCHER over the transition's own case     *)
+(*  analysis -- so every arm has to supply one of the two shapes and   *)
+(*  none can decline.                                                  *)
+(*                                                                     *)
+(*  WHAT HAD TO BE BUILT FIRST.  The allocation-indexed family ships   *)
+(*  `pacomp_rel` and its `and`-chain, `pactx_rel`, `pacrel`, `paxrel`, *)
+(*  `pakrel`, `pasrel` and `pafn_rel_at` -- and NO STATE RELATION AND  *)
+(*  NO CONFIGURATION RELATION.  The theorem cannot be stated without   *)
+(*  them, so `pastrel` and `pacfrel` are defined below as faithful     *)
+(*  transpositions of `pstrel` and `pcfrel`, with the same             *)
+(*  `squash`-to-`squash` companions, together with the six wrapper     *)
+(*  relations (`pafrel`, `pairel`, `palsrel`, `paorel`, `paplrel`,     *)
+(*  `paretrel`) the old development had beside `pcrel`.                *)
+(*                                                                     *)
+(*  THE ONE DESIGN DECISION, AND IT IS CHECKED AND NOT ASSUMED.        *)
+(*  `pcfrel` ties the two counters to the world by a BOUND:            *)
+(*  `pwbound w cf1.next cf2.next`.  A `pastate` already carries the    *)
+(*  two frontiers, so the state-indexed form ties them by IDENTITY:    *)
+(*                                                                     *)
+(*      cf1.next == s.an1 /\ cf2.next == s.an2                         *)
+(*                                                                     *)
+(*  That is strictly more informative -- `pawf s` supplies the         *)
+(*  boundedness `pwbound` used to state, and                           *)
+(*  `guard_pa_cfrel_identity_is_strictly_more_than_a_bound` exhibits   *)
+(*  a configuration the BOUND accepts and the IDENTITY refuses -- and  *)
+(*  it is exactly the premise `lemma_pasrel_alloc` already asks for.   *)
+(*  EVERY ARM OF THE DISPATCHER CLOSED UNDER IT; no arm forced a       *)
+(*  fallback to the bound.                                             *)
+(*                                                                     *)
+(*  THE HYPOTHESES.  `pcl_mono r`, `pcl_down r`,                       *)
+(*  `plookup_equivariant r lk` -- the last UNCHANGED, because it       *)
+(*  transferred as an equivalence -- and `paapply_equivariant r apply` *)
+(*  in place of `papply_equivariant r apply`.  That is `paboundary`'s  *)
+(*  field list and nothing beside it.                                  *)
+(* ================================================================== *)
+
+(* ---- the six wrappers the old development had beside `pcrel` ------ *)
+
+
+let pafrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (f1 f2: pframe v cl) : GTot prop
+  = forall (n: nat). paframe_rel r n s f1 f2
+
+let pairel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (i1 i2: plan_item v cl) : GTot prop
+  = forall (n: nat). paitem_rel r n s i1 i2
+
+let palsrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+            (is1 is2: list (plan_item v cl)) : GTot prop
+  = forall (n: nat). paitems_rel r n s is1 is2
+
+let paorel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (o1 o2: powner v cl) : GTot prop
+  = forall (n: nat). paowner_rel r n s o1 o2
+
+let paplrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (pl1 pl2: plan v cl) : GTot prop
+  = forall (n: nat). paplan_rel r n s pl1 pl2
+
+let paretrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+             (ret1 ret2: option (pval v -> pcomp v cl)) : GTot prop
+  = match ret1, ret2 with
+    | None, None -> True
+    | Some g1, Some g2 -> pafn_rel_at r s g1 g2
+    | _, _ -> False
+
+
+(* ================================================================== *)
+(*  THE DERIVED LAWS OF THE FAMILY, TRANSPOSED                         *)
+(*                                                                     *)
+(*  Every lemma below is its `pcomp_rel`-family counterpart with the   *)
+(*  world index replaced by the state index and nothing else moved:    *)
+(*  `pval_rel`, `pvals_rel`, `ptable_rel`, `ptrel` and `pclrel` are    *)
+(*  REUSED, unchanged, at `s.aw`, because none of them contains a      *)
+(*  future-world quantification; every                                 *)
+(*                                                                     *)
+(*      forall (w': pworld). pwf_world w' /\ pwext w' w /\ ...         *)
+(*                                                                     *)
+(*  has become                                                         *)
+(*                                                                     *)
+(*      forall (s': pastate). paext s' s /\ ...                        *)
+(*                                                                     *)
+(*  and the proofs are the old proofs.  Narrowing the domain of a      *)
+(*  `forall`-shaped clause makes it EASIER, so this transposition is   *)
+(*  not where the gate could fail; it is the scaffolding the           *)
+(*  dispatcher needs, and it verifies at DEFAULT FUEL throughout --    *)
+(*  no fuel or rlimit option is pushed anywhere in this section.       *)
+(*                                                                     *)
+(*  Three lemmas are NOT transposed because they never mentioned a     *)
+(*  world index that moved: `lemma_ptable_rel_down`,                   *)
+(*  `lemma_blocking_effects_agree` and `lemma_borrowable_agree` are    *)
+(*  called at `s.aw` verbatim, as is `lemma_lk_rel`, which is where    *)
+(*  `plookup_equivariant` is spent.  That is the shape of the claim    *)
+(*  `lemma_palookup_of_plookup` already made: the lookup condition did *)
+(*  not have to be re-indexed.                                         *)
+(* ================================================================== *)
+
+let lemma_pakrel_nil (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (pakrel r s ([] <: pstack v cl) ([] <: pstack v cl))
+  = introduce forall (n: nat). paframes_rel r n s ([] <: pstack v cl) ([] <: pstack v cl)
+    with ()
+
+let lemma_pakrel_cons (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (f1 f2: pframe v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pafrel r s f1 f2 /\ pakrel r s k1 k2)
+          (ensures pakrel r s (f1 :: k1) (f2 :: k2))
+  = introduce forall (n: nat). paframes_rel r n s (f1 :: k1) (f2 :: k2)
+    with (if n = 0 then () else (assert (paframe_rel r n s f1 f2);
+                                 assert (paframes_rel r n s k1 k2)))
+
+let lemma_pakrel_cons_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (f1 f2: pframe v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s (f1 :: k1) (f2 :: k2))
+          (ensures pafrel r s f1 f2 /\ pakrel r s k1 k2)
+  = introduce forall (n: nat). paframe_rel r n s f1 f2
+    with (if n = 0 then () else assert (paframes_rel r n s (f1 :: k1) (f2 :: k2)));
+    introduce forall (n: nat). paframes_rel r n s k1 k2
+    with (if n = 0 then () else assert (paframes_rel r n s (f1 :: k1) (f2 :: k2)))
+
+let lemma_pakrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2)
+          (ensures Nil? k1 == Nil? k2)
+  = assert (paframes_rel r 1 s k1 k2)
+
+let rec lemma_pakrel_append (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (a1 a2 b1 b2: pstack v cl)
+  : Lemma (requires pakrel r s a1 a2 /\ pakrel r s b1 b2)
+          (ensures pakrel r s (a1 @ b1) (a2 @ b2))
+          (decreases a1)
+  = match a1, a2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      lemma_pakrel_append r s t1 t2 b1 b2;
+      lemma_pakrel_cons r s f1 f2 (t1 @ b1) (t2 @ b2)
+    | _, _ -> lemma_pakrel_shape r s a1 a2
+
+let lemma_pafrel_bind (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pafn_rel_at r s g1 g2)
+          (ensures pafrel r s (PBindF g1) (PBindF g2))
+  = introduce forall (n: nat). paframe_rel r n s (PBindF g1) (PBindF g2)
+    with (if n = 0 then ()
+          else introduce forall (s': pastate) (y1 y2: pval v).
+                   (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                    pacomp_rel r n s' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pacrel r s' (g1 y1) (g2 y2))))
+
+let lemma_pafrel_bind_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pafrel r s (PBindF g1) (PBindF g2))
+          (ensures pafn_rel_at r s g1 g2)
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (paframe_rel r n s (PBindF g1) (PBindF g2))))
+
+let lemma_pafrel_site (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pafn_rel_at r s g1 g2)
+          (ensures pafrel r s (PSiteF g1) (PSiteF g2))
+  = introduce forall (n: nat). paframe_rel r n s (PSiteF g1) (PSiteF g2)
+    with (if n = 0 then ()
+          else introduce forall (s': pastate) (y1 y2: pval v).
+                   (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                    pacomp_rel r n s' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pacrel r s' (g1 y1) (g2 y2))))
+
+let lemma_pafrel_site_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pafrel r s (PSiteF g1) (PSiteF g2))
+          (ensures pafn_rel_at r s g1 g2)
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (paframe_rel r n s (PSiteF g1) (PSiteF g2))))
+
+let lemma_pafrel_mode (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (m: weave_mode) (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pafn_rel_at r s g1 g2)
+          (ensures pafrel r s (PModeF m g1) (PModeF m g2))
+  = introduce forall (n: nat). paframe_rel r n s (PModeF m g1) (PModeF m g2)
+    with (if n = 0 then ()
+          else introduce forall (s': pastate) (y1 y2: pval v).
+                   (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                    pacomp_rel r n s' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pacrel r s' (g1 y1) (g2 y2))))
+
+let lemma_pafrel_mode_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (m1 m2: weave_mode) (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pafrel r s (PModeF m1 g1) (PModeF m2 g2))
+          (ensures m1 == m2 /\ pafn_rel_at r s g1 g2)
+  = assert (paframe_rel r 1 s (PModeF m1 g1) (PModeF m2 g2));
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (paframe_rel r n s (PModeF m1 g1) (PModeF m2 g2))))
+
+let lemma_pafrel_param (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (l: string) (x1 x2: pval v)
+  : Lemma (requires pval_rel s.aw x1 x2)
+          (ensures pafrel #v #cl r s (PParamF l x1) (PParamF l x2))
+  = introduce forall (n: nat). paframe_rel #v #cl r n s (PParamF l x1) (PParamF l x2)
+    with ()
+
+let lemma_pafrel_param_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (l1 l2: string) (x1 x2: pval v)
+  : Lemma (requires pafrel #v #cl r s (PParamF l1 x1) (PParamF l2 x2))
+          (ensures l1 == l2 /\ pval_rel s.aw x1 x2)
+  = assert (paframe_rel #v #cl r 1 s (PParamF l1 x1) (PParamF l2 x2))
+
+let lemma_pafrel_prompt (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                       (pv: prompt_provenance)
+  : Lemma (requires ptrel r s.aw t1 t2 /\ paretrel r s ret1 ret2)
+          (ensures pafrel r s (PPromptF t1 ret1 pv) (PPromptF t2 ret2 pv))
+  = introduce forall (n: nat). paframe_rel r n s (PPromptF t1 ret1 pv) (PPromptF t2 ret2 pv)
+    with (if n = 0 then ()
+          else begin
+            assert (ptable_rel r n s.aw t1 t2);
+            match ret1, ret2 with
+            | Some g1, Some g2 ->
+              introduce forall (s': pastate) (y1 y2: pval v).
+                  (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                   pacomp_rel r n s' (g1 y1) (g2 y2))
+              with (introduce _ ==> _ with assert (pacrel r s' (g1 y1) (g2 y2)))
+            | _, _ -> ()
+          end)
+
+let lemma_pafrel_prompt_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                           (pv1 pv2: prompt_provenance)
+  : Lemma (requires pafrel r s (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2) /\ pcl_down r)
+          (ensures ptrel r s.aw t1 t2 /\ paretrel r s ret1 ret2 /\ pv1 == pv2)
+  = assert (paframe_rel r 1 s (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2));
+    assert (ptable_rel r 1 s.aw t1 t2);
+    introduce forall (n: nat). ptable_rel r n s.aw t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 s.aw t1 t2
+          else assert (paframe_rel r n s (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2)));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+                 with (if n = 0 then ()
+                       else assert (paframe_rel r n s (PPromptF t1 ret1 pv1)
+                                                     (PPromptF t2 ret2 pv2))))
+    | _, _ -> ()
+
+let lemma_pafrel_boundary (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (pafrel #v #cl r s PBoundaryF PBoundaryF)
+  = introduce forall (n: nat). paframe_rel #v #cl r n s PBoundaryF PBoundaryF with ()
+
+let lemma_pafrel_scope (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (pafrel #v #cl r s PScopeF PScopeF)
+  = introduce forall (n: nat). paframe_rel #v #cl r n s PScopeF PScopeF with ()
+
+let lemma_pacrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2) (ensures pacomp_rel r 1 s c1 c2)
+  = ()
+
+let lemma_pacrel_var (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (x1 x2: pval v)
+  : Lemma (requires pval_rel s.aw x1 x2)
+          (ensures pacrel #v #cl r s (PVar x1) (PVar x2))
+  = introduce forall (n: nat). pacomp_rel #v #cl r n s (PVar x1) (PVar x2) with ()
+
+let lemma_pacrel_var_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (x1 x2: pval v)
+  : Lemma (requires pacrel #v #cl r s (PVar x1) (PVar x2))
+          (ensures pval_rel s.aw x1 x2)
+  = assert (pacomp_rel #v #cl r 1 s (PVar x1) (PVar x2))
+
+let lemma_pacrel_op_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pacrel r s (POp a1 f1) (POp a2 f2))
+          (ensures pacrel r s a1 a2 /\ pafn_rel_at r s f1 f2)
+  = introduce forall (n: nat). pacomp_rel r n s a1 a2
+    with assert (pacomp_rel r (n + 1) s (POp a1 f1) (POp a2 f2));
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (f1 y1) (f2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (f1 y1) (f2 y2)
+               with assert (pacomp_rel r (n + 1) s (POp a1 f1) (POp a2 f2)))
+
+let lemma_pacrel_perform_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                            (e1 o1 e2 o2: string) (p1 p2: list (pval v))
+  : Lemma (requires pacrel #v #cl r s (PPerform e1 o1 p1) (PPerform e2 o2 p2))
+          (ensures e1 == e2 /\ o1 == o2 /\ pvals_rel s.aw p1 p2)
+  = assert (pacomp_rel #v #cl r 1 s (PPerform e1 o1 p1) (PPerform e2 o2 p2))
+
+let lemma_pacrel_handle_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                           (pv1 pv2: prompt_provenance) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2))
+          (ensures ptrel r s.aw t1 t2 /\ pv1 == pv2 /\ pacrel r s b1 b2 /\
+                   paretrel r s ret1 ret2)
+  = assert (pacomp_rel r 1 s (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2));
+    introduce forall (n: nat). ptable_rel r n s.aw t1 t2
+    with assert (pacomp_rel r (n + 1) s (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2));
+    introduce forall (n: nat). pacomp_rel r n s b1 b2
+    with assert (pacomp_rel r (n + 1) s (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+                 with assert (pacomp_rel r (n + 1) s
+                                (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2)))
+    | _, _ -> ()
+
+let lemma_pacrel_splice (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pakrel r s fs1 fs2 /\ pacrel r s b1 b2)
+          (ensures pacrel r s (PSplice fs1 b1) (PSplice fs2 b2))
+  = introduce forall (n: nat). pacomp_rel r n s (PSplice fs1 b1) (PSplice fs2 b2)
+    with (if n = 0 then ()
+          else (assert (paframes_rel r (n - 1) s fs1 fs2);
+                assert (pacomp_rel r (n - 1) s b1 b2)))
+
+let lemma_pacrel_splice_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s (PSplice fs1 b1) (PSplice fs2 b2))
+          (ensures pakrel r s fs1 fs2 /\ pacrel r s b1 b2)
+  = introduce forall (n: nat). paframes_rel r n s fs1 fs2
+    with assert (pacomp_rel r (n + 1) s (PSplice fs1 b1) (PSplice fs2 b2));
+    introduce forall (n: nat). pacomp_rel r n s b1 b2
+    with assert (pacomp_rel r (n + 1) s (PSplice fs1 b1) (PSplice fs2 b2))
+
+let lemma_pacrel_emit_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (e1 e2: string) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s (PEmit e1 b1) (PEmit e2 b2))
+          (ensures e1 == e2 /\ pacrel r s b1 b2)
+  = assert (pacomp_rel r 1 s (PEmit e1 b1) (PEmit e2 b2));
+    introduce forall (n: nat). pacomp_rel r n s b1 b2
+    with assert (pacomp_rel r (n + 1) s (PEmit e1 b1) (PEmit e2 b2))
+
+let lemma_pacrel_weave_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (e1 o1 e2 o2: string) (is1 is2: pstack v cl)
+                          (ow1 ow2: powner v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2))
+          (ensures e1 == e2 /\ o1 == o2 /\ pakrel r s is1 is2 /\ paorel r s ow1 ow2 /\
+                   pacrel r s b1 b2)
+  = assert (pacomp_rel r 1 s (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2));
+    introduce forall (n: nat). paframes_rel r n s is1 is2
+    with assert (pacomp_rel r (n + 1) s (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2));
+    introduce forall (n: nat). paowner_rel r n s ow1 ow2
+    with assert (pacomp_rel r (n + 1) s (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2));
+    introduce forall (n: nat). pacomp_rel r n s b1 b2
+    with assert (pacomp_rel r (n + 1) s (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2))
+
+let lemma_pacrel_enterctx_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                             (pl1 pl2: plan v cl) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s (PEnterCtx pl1 b1) (PEnterCtx pl2 b2))
+          (ensures paplrel r s pl1 pl2 /\ pacrel r s b1 b2)
+  = introduce forall (n: nat). paplan_rel r n s pl1 pl2
+    with assert (pacomp_rel r (n + 1) s (PEnterCtx pl1 b1) (PEnterCtx pl2 b2));
+    introduce forall (n: nat). pacomp_rel r n s b1 b2
+    with assert (pacomp_rel r (n + 1) s (PEnterCtx pl1 b1) (PEnterCtx pl2 b2))
+
+let lemma_pacrel_extendc_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                            (pl1 pl2: plan v cl) (h1 h2: pval v)
+                            (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pacrel r s (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2))
+          (ensures paplrel r s pl1 pl2 /\ pval_rel s.aw h1 h2 /\ pafn_rel_at r s g1 g2)
+  = assert (pacomp_rel r 1 s (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2));
+    introduce forall (n: nat). paplan_rel r n s pl1 pl2
+    with assert (pacomp_rel r (n + 1) s (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2));
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+               with assert (pacomp_rel r (n + 1) s (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2)))
+
+let lemma_pacrel_extendctxc_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                               (pl1 pl2: plan v cl) (h1 h2: pval v)
+                               (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pacrel r s (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2))
+          (ensures paplrel r s pl1 pl2 /\ pval_rel s.aw h1 h2 /\ pafn_rel_at r s g1 g2)
+  = assert (pacomp_rel r 1 s (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2));
+    introduce forall (n: nat). paplan_rel r n s pl1 pl2
+    with assert (pacomp_rel r (n + 1) s (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2));
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+               with assert (pacomp_rel r (n + 1) s
+                              (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2)))
+
+let lemma_pacrel_resumec_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                            (pl1 pl2: plan v cl) (h1 h2: pval v)
+                            (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pacrel r s (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2))
+          (ensures paplrel r s pl1 pl2 /\ pval_rel s.aw h1 h2 /\ pafn_rel_at r s g1 g2)
+  = assert (pacomp_rel r 1 s (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2));
+    introduce forall (n: nat). paplan_rel r n s pl1 pl2
+    with assert (pacomp_rel r (n + 1) s (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2));
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+               with assert (pacomp_rel r (n + 1) s (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2)))
+
+let lemma_pacrel_newp_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (l1 l2: string) (i1 i2: pval v) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s (PNewP l1 i1 b1) (PNewP l2 i2 b2))
+          (ensures l1 == l2 /\ pval_rel s.aw i1 i2 /\ pacrel r s b1 b2)
+  = assert (pacomp_rel r 1 s (PNewP l1 i1 b1) (PNewP l2 i2 b2));
+    introduce forall (n: nat). pacomp_rel r n s b1 b2
+    with assert (pacomp_rel r (n + 1) s (PNewP l1 i1 b1) (PNewP l2 i2 b2))
+
+let lemma_pacrel_readp_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (l1 l2: string)
+  : Lemma (requires pacrel #v #cl r s (PReadP l1) (PReadP l2)) (ensures l1 == l2)
+  = assert (pacomp_rel #v #cl r 1 s (PReadP l1) (PReadP l2))
+
+let lemma_pacrel_writep_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (l1 l2: string) (x1 x2: pval v)
+  : Lemma (requires pacrel #v #cl r s (PWriteP l1 x1) (PWriteP l2 x2))
+          (ensures l1 == l2 /\ pval_rel s.aw x1 x2)
+  = assert (pacomp_rel #v #cl r 1 s (PWriteP l1 x1) (PWriteP l2 x2))
+
+let lemma_paorel_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                    (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                    (pv1 pv2: prompt_provenance)
+  : Lemma (requires paorel r s (POwner t1 ret1 pv1) (POwner t2 ret2 pv2) /\ pcl_down r)
+          (ensures ptrel r s.aw t1 t2 /\ paretrel r s ret1 ret2 /\ pv1 == pv2)
+  = assert (paowner_rel r 1 s (POwner t1 ret1 pv1) (POwner t2 ret2 pv2));
+    assert (ptable_rel r 1 s.aw t1 t2);
+    introduce forall (n: nat). ptable_rel r n s.aw t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 s.aw t1 t2
+          else assert (paowner_rel r n s (POwner t1 ret1 pv1) (POwner t2 ret2 pv2)));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+                 with (if n = 0 then ()
+                       else assert (paowner_rel r n s (POwner t1 ret1 pv1)
+                                                     (POwner t2 ret2 pv2))))
+    | _, _ -> ()
+
+let lemma_paplrel_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (ls1 ls2: list (plan_item v cl)) (ow1 ow2: powner v cl)
+  : Lemma (requires paplrel r s (Plan ls1 ow1) (Plan ls2 ow2))
+          (ensures palsrel r s ls1 ls2 /\ paorel r s ow1 ow2)
+  = introduce forall (n: nat). paitems_rel r n s ls1 ls2
+    with (if n = 0 then () else assert (paplan_rel r n s (Plan ls1 ow1) (Plan ls2 ow2)));
+    introduce forall (n: nat). paowner_rel r n s ow1 ow2
+    with (if n = 0 then () else assert (paplan_rel r n s (Plan ls1 ow1) (Plan ls2 ow2)))
+
+let lemma_palsrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (is1 is2: list (plan_item v cl))
+  : Lemma (requires palsrel r s is1 is2) (ensures Nil? is1 == Nil? is2)
+  = assert (paitems_rel r 1 s is1 is2)
+
+let lemma_palsrel_cons_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (i1 i2: plan_item v cl) (t1 t2: list (plan_item v cl))
+  : Lemma (requires palsrel r s (i1 :: t1) (i2 :: t2))
+          (ensures pairel r s i1 i2 /\ palsrel r s t1 t2)
+  = introduce forall (n: nat). paitem_rel r n s i1 i2
+    with (if n = 0 then () else assert (paitems_rel r n s (i1 :: t1) (i2 :: t2)));
+    introduce forall (n: nat). paitems_rel r n s t1 t2
+    with (if n = 0 then () else assert (paitems_rel r n s (i1 :: t1) (i2 :: t2)))
+
+let lemma_palsrel_cons (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (i1 i2: plan_item v cl) (t1 t2: list (plan_item v cl))
+  : Lemma (requires pairel r s i1 i2 /\ palsrel r s t1 t2)
+          (ensures palsrel r s (i1 :: t1) (i2 :: t2))
+  = introduce forall (n: nat). paitems_rel r n s (i1 :: t1) (i2 :: t2)
+    with (if n = 0 then () else (assert (paitem_rel r n s i1 i2);
+                                 assert (paitems_rel r n s t1 t2)))
+
+let lemma_palsrel_nil (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (palsrel r s ([] <: list (plan_item v cl)) ([] <: list (plan_item v cl)))
+  = introduce forall (n: nat).
+      paitems_rel r n s ([] <: list (plan_item v cl)) ([] <: list (plan_item v cl))
+    with ()
+
+let lemma_pairel_bind (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pafn_rel_at r s g1 g2) (ensures pairel r s (PIBind g1) (PIBind g2))
+  = introduce forall (n: nat). paitem_rel r n s (PIBind g1) (PIBind g2)
+    with (if n = 0 then ()
+          else introduce forall (s': pastate) (y1 y2: pval v).
+                   (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                    pacomp_rel r n s' (g1 y1) (g2 y2))
+               with (introduce _ ==> _ with assert (pacrel r s' (g1 y1) (g2 y2))))
+
+let lemma_pairel_bind_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pairel r s (PIBind g1) (PIBind g2)) (ensures pafn_rel_at r s g1 g2)
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+               with (if n = 0 then ()
+                     else assert (paitem_rel r n s (PIBind g1) (PIBind g2))))
+
+let lemma_pairel_cell (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (l: string) (x1 x2: pval v)
+  : Lemma (requires pval_rel s.aw x1 x2)
+          (ensures pairel #v #cl r s (PICell l x1) (PICell l x2))
+  = introduce forall (n: nat). paitem_rel #v #cl r n s (PICell l x1) (PICell l x2) with ()
+
+let lemma_pairel_cell_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (l1 l2: string) (x1 x2: pval v)
+  : Lemma (requires pairel #v #cl r s (PICell l1 x1) (PICell l2 x2))
+          (ensures l1 == l2 /\ pval_rel s.aw x1 x2)
+  = assert (paitem_rel #v #cl r 1 s (PICell l1 x1) (PICell l2 x2))
+
+let lemma_pairel_transparent (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                            (t1 t2: ptable cl)
+  : Lemma (requires ptrel r s.aw t1 t2)
+          (ensures pairel #v #cl r s (PITransparent t1) (PITransparent t2))
+  = introduce forall (n: nat). paitem_rel #v #cl r n s (PITransparent t1) (PITransparent t2)
+    with (if n = 0 then () else assert (ptable_rel r n s.aw t1 t2))
+
+let lemma_pairel_transparent_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                (t1 t2: ptable cl)
+  : Lemma (requires pairel #v #cl r s (PITransparent t1) (PITransparent t2) /\ pcl_down r)
+          (ensures ptrel r s.aw t1 t2)
+  = assert (paitem_rel #v #cl r 1 s (PITransparent t1) (PITransparent t2));
+    introduce forall (n: nat). ptable_rel r n s.aw t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 s.aw t1 t2
+          else assert (paitem_rel #v #cl r n s (PITransparent t1) (PITransparent t2)))
+
+let lemma_pairel_reenter (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+  : Lemma (requires ptrel r s.aw t1 t2 /\ paretrel r s ret1 ret2)
+          (ensures pairel r s (PIReenter t1 ret1) (PIReenter t2 ret2))
+  = introduce forall (n: nat). paitem_rel r n s (PIReenter t1 ret1) (PIReenter t2 ret2)
+    with (if n = 0 then ()
+          else begin
+            assert (ptable_rel r n s.aw t1 t2);
+            match ret1, ret2 with
+            | Some g1, Some g2 ->
+              introduce forall (s': pastate) (y1 y2: pval v).
+                  (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                   pacomp_rel r n s' (g1 y1) (g2 y2))
+              with (introduce _ ==> _ with assert (pacrel r s' (g1 y1) (g2 y2)))
+            | _, _ -> ()
+          end)
+
+let lemma_pairel_reenter_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                            (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+  : Lemma (requires pairel r s (PIReenter t1 ret1) (PIReenter t2 ret2) /\ pcl_down r)
+          (ensures ptrel r s.aw t1 t2 /\ paretrel r s ret1 ret2)
+  = assert (paitem_rel r 1 s (PIReenter t1 ret1) (PIReenter t2 ret2));
+    introduce forall (n: nat). ptable_rel r n s.aw t1 t2
+    with (if n = 0
+          then lemma_ptable_rel_down r 0 s.aw t1 t2
+          else assert (paitem_rel r n s (PIReenter t1 ret1) (PIReenter t2 ret2)));
+    match ret1, ret2 with
+    | Some g1, Some g2 ->
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (g1 y1) (g2 y2))
+      with (introduce _ ==> _
+            with introduce forall (n: nat). pacomp_rel r n s' (g1 y1) (g2 y2)
+                 with (if n = 0 then ()
+                       else assert (paitem_rel r n s (PIReenter t1 ret1)
+                                                    (PIReenter t2 ret2))))
+    | _, _ -> ()
+
+let lemma_pairel_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (i1 i2: plan_item v cl)
+  : Lemma (requires pairel r s i1 i2) (ensures paitem_rel r 1 s i1 i2)
+  = ()
+
+let lemma_paowner_frame_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (o1 o2: powner v cl)
+  : Lemma (requires paorel r s o1 o2 /\ pcl_down r)
+          (ensures pafrel r s (owner_frame o1) (owner_frame o2))
+  = match o1, o2 with
+    | POwner t1 ret1 pv1, POwner t2 ret2 pv2 ->
+      lemma_paorel_inv r s t1 t2 ret1 ret2 pv1 pv2;
+      lemma_pafrel_prompt r s t1 t2 ret1 ret2 pv1
+
+let rec lemma_paenter_layer_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                     (ls1 ls2: list (plan_item v cl))
+  : Lemma (requires palsrel r s ls1 ls2 /\ pcl_down r)
+          (ensures pakrel r s (enter_layer_frames ls1) (enter_layer_frames ls2))
+          (decreases ls1)
+  = match ls1, ls2 with
+    | [], [] -> lemma_pakrel_nil #v #cl r s
+    | i1 :: t1, i2 :: t2 ->
+      lemma_palsrel_cons_inv r s i1 i2 t1 t2;
+      lemma_pairel_shape r s i1 i2;
+      lemma_paenter_layer_frames_rel r s t1 t2;
+      (match i1, i2 with
+       | PIBind _, PIBind _ -> ()
+       | PICell l x1, PICell l2 x2 ->
+         lemma_pairel_cell_inv r s l l2 x1 x2;
+         lemma_pafrel_param #v #cl r s l x1 x2;
+         lemma_pakrel_cons r s (PParamF l x1) (PParamF l2 x2)
+                              (enter_layer_frames t1) (enter_layer_frames t2)
+       | PITransparent tb1, PITransparent tb2 ->
+         lemma_pairel_transparent_inv #v #cl r s tb1 tb2;
+         lemma_pafrel_prompt #v #cl r s tb1 tb2 None None PMono;
+         lemma_pakrel_cons r s (PPromptF tb1 None PMono) (PPromptF tb2 None PMono)
+                              (enter_layer_frames t1) (enter_layer_frames t2)
+       | PIReenter tb1 rc1, PIReenter tb2 rc2 ->
+         lemma_pairel_reenter_inv r s tb1 tb2 rc1 rc2;
+         lemma_pafrel_prompt r s tb1 tb2 rc1 rc2 PFamily;
+         lemma_pakrel_cons r s (PPromptF tb1 rc1 PFamily) (PPromptF tb2 rc2 PFamily)
+                              (enter_layer_frames t1) (enter_layer_frames t2)
+       | _, _ -> ())
+    | _, _ -> lemma_palsrel_shape r s ls1 ls2
+
+let rec lemma_paresume_layer_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                      (ls1 ls2: list (plan_item v cl))
+  : Lemma (requires palsrel r s ls1 ls2 /\ pcl_down r)
+          (ensures pakrel r s (resume_layer_frames ls1) (resume_layer_frames ls2))
+          (decreases ls1)
+  = match ls1, ls2 with
+    | [], [] -> lemma_pakrel_nil #v #cl r s
+    | i1 :: t1, i2 :: t2 ->
+      lemma_palsrel_cons_inv r s i1 i2 t1 t2;
+      lemma_pairel_shape r s i1 i2;
+      lemma_paresume_layer_frames_rel r s t1 t2;
+      (match i1, i2 with
+       | PIBind g1, PIBind g2 ->
+         lemma_pairel_bind_inv r s g1 g2;
+         lemma_pafrel_bind r s g1 g2;
+         lemma_pakrel_cons r s (PBindF g1) (PBindF g2)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | PICell l x1, PICell l2 x2 ->
+         lemma_pairel_cell_inv r s l l2 x1 x2;
+         lemma_pafrel_param #v #cl r s l x1 x2;
+         lemma_pakrel_cons r s (PParamF l x1) (PParamF l2 x2)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | PITransparent tb1, PITransparent tb2 ->
+         lemma_pairel_transparent_inv #v #cl r s tb1 tb2;
+         lemma_pafrel_prompt #v #cl r s tb1 tb2 None None PMono;
+         lemma_pakrel_cons r s (PPromptF tb1 None PMono) (PPromptF tb2 None PMono)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | PIReenter tb1 rc1, PIReenter tb2 rc2 ->
+         lemma_pairel_reenter_inv r s tb1 tb2 rc1 rc2;
+         lemma_pafrel_prompt r s tb1 tb2 rc1 rc2 PFamily;
+         lemma_pakrel_cons r s (PPromptF tb1 rc1 PFamily) (PPromptF tb2 rc2 PFamily)
+                              (resume_layer_frames t1) (resume_layer_frames t2)
+       | _, _ -> ())
+    | _, _ -> lemma_palsrel_shape r s ls1 ls2
+
+let rec lemma_paprotocol_layer_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                        (ls1 ls2: list (plan_item v cl))
+  : Lemma (requires palsrel r s ls1 ls2 /\ pcl_down r)
+          (ensures pakrel r s (protocol_layer_frames ls1) (protocol_layer_frames ls2))
+          (decreases ls1)
+  = match ls1, ls2 with
+    | [], [] -> lemma_pakrel_nil #v #cl r s
+    | i1 :: t1, i2 :: t2 ->
+      lemma_palsrel_cons_inv r s i1 i2 t1 t2;
+      lemma_pairel_shape r s i1 i2;
+      lemma_paprotocol_layer_frames_rel r s t1 t2;
+      (match i1, i2 with
+       | PIBind g1, PIBind g2 ->
+         lemma_pairel_bind_inv r s g1 g2;
+         lemma_pafrel_site r s g1 g2;
+         lemma_pakrel_cons r s (PSiteF g1) (PSiteF g2)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | PICell l x1, PICell l2 x2 ->
+         lemma_pairel_cell_inv r s l l2 x1 x2;
+         lemma_pafrel_param #v #cl r s l x1 x2;
+         lemma_pakrel_cons r s (PParamF l x1) (PParamF l2 x2)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | PITransparent tb1, PITransparent tb2 ->
+         lemma_pairel_transparent_inv #v #cl r s tb1 tb2;
+         lemma_pafrel_prompt #v #cl r s tb1 tb2 None None PMono;
+         lemma_pakrel_cons r s (PPromptF tb1 None PMono) (PPromptF tb2 None PMono)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | PIReenter tb1 rc1, PIReenter tb2 rc2 ->
+         lemma_pairel_reenter_inv r s tb1 tb2 rc1 rc2;
+         lemma_pafrel_prompt r s tb1 tb2 rc1 rc2 PFamily;
+         lemma_pakrel_cons r s (PPromptF tb1 rc1 PFamily) (PPromptF tb2 rc2 PFamily)
+                              (protocol_layer_frames t1) (protocol_layer_frames t2)
+       | _, _ -> ())
+    | _, _ -> lemma_palsrel_shape r s ls1 ls2
+
+let lemma_paplan_enter_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                (pl1 pl2: plan v cl)
+  : Lemma (requires paplrel r s pl1 pl2 /\ pcl_down r)
+          (ensures pakrel r s (plan_enter_frames pl1) (plan_enter_frames pl2))
+  = match pl1, pl2 with
+    | Plan ls1 ow1, Plan ls2 ow2 ->
+      lemma_paplrel_inv r s ls1 ls2 ow1 ow2;
+      lemma_paenter_layer_frames_rel r s ls1 ls2;
+      lemma_paowner_frame_rel r s ow1 ow2;
+      lemma_pakrel_nil #v #cl r s;
+      lemma_pakrel_cons r s (owner_frame ow1) (owner_frame ow2) [] [];
+      lemma_pakrel_append r s (enter_layer_frames ls1) (enter_layer_frames ls2)
+                             [owner_frame ow1] [owner_frame ow2]
+
+let lemma_paplan_resume_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                 (pl1 pl2: plan v cl)
+  : Lemma (requires paplrel r s pl1 pl2 /\ pcl_down r)
+          (ensures pakrel r s (plan_resume_frames pl1) (plan_resume_frames pl2))
+  = match pl1, pl2 with
+    | Plan ls1 ow1, Plan ls2 ow2 ->
+      lemma_paplrel_inv r s ls1 ls2 ow1 ow2;
+      lemma_paresume_layer_frames_rel r s ls1 ls2;
+      lemma_paowner_frame_rel r s ow1 ow2;
+      lemma_pakrel_nil #v #cl r s;
+      lemma_pakrel_cons r s (owner_frame ow1) (owner_frame ow2) [] [];
+      lemma_pakrel_append r s (resume_layer_frames ls1) (resume_layer_frames ls2)
+                             [owner_frame ow1] [owner_frame ow2]
+
+let lemma_paplan_protocol_frames_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                   (pl1 pl2: plan v cl)
+  : Lemma (requires paplrel r s pl1 pl2 /\ pcl_down r)
+          (ensures pakrel r s (plan_protocol_frames pl1) (plan_protocol_frames pl2))
+  = match pl1, pl2 with
+    | Plan ls1 ow1, Plan ls2 ow2 ->
+      lemma_paplrel_inv r s ls1 ls2 ow1 ow2;
+      lemma_paprotocol_layer_frames_rel r s ls1 ls2;
+      lemma_paowner_frame_rel r s ow1 ow2;
+      lemma_pakrel_nil #v #cl r s;
+      lemma_pakrel_cons r s (owner_frame ow1) (owner_frame ow2) [] [];
+      lemma_pakrel_append r s (protocol_layer_frames ls1) (protocol_layer_frames ls2)
+                             [owner_frame ow1] [owner_frame ow2]
+
+let lemma_paclassify_agree (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                         (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                         (pv: prompt_provenance)
+  : Lemma (requires ptable_rel r n s.aw t1 t2 /\ paretrel r s ret1 ret2)
+          (ensures classify_prompt pv t1 ret1 == classify_prompt pv t2 ret2)
+  = lemma_borrowable_agree r n s.aw t1 t2
+
+let rec lemma_paplan_layers_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                              (is1 is2: pstack v cl)
+  : Lemma (requires pakrel r s is1 is2 /\ pcl_down r)
+          (ensures (match plan_layers is1, plan_layers is2 with
+                    | Inl e1, Inl e2 -> pfailrel e1 e2
+                    | Inr ls1, Inr ls2 -> palsrel r s ls1 ls2
+                    | _, _ -> False))
+          (decreases is1)
+  = match is1, is2 with
+    | [], [] -> lemma_palsrel_nil #v #cl r s
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      lemma_paplan_layers_rel r s t1 t2;
+      (match f1, f2 with
+       | PBindF g1, PBindF g2 ->
+         lemma_pafrel_bind_inv r s g1 g2;
+         lemma_pairel_bind r s g1 g2;
+         (match plan_layers t1, plan_layers t2 with
+          | Inr ls1, Inr ls2 -> lemma_palsrel_cons r s (PIBind g1) (PIBind g2) ls1 ls2
+          | _, _ -> ())
+       | PParamF l x1, PParamF l2 x2 ->
+         lemma_pafrel_param_inv r s l l2 x1 x2;
+         lemma_pairel_cell #v #cl r s l x1 x2;
+         (match plan_layers t1, plan_layers t2 with
+          | Inr ls1, Inr ls2 -> lemma_palsrel_cons r s (PICell l x1) (PICell l2 x2) ls1 ls2
+          | _, _ -> ())
+       | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+         lemma_pafrel_prompt_inv r s tb1 tb2 rc1 rc2 pv1 pv2;
+         assert (ptable_rel r 1 s.aw tb1 tb2);
+         lemma_paclassify_agree r 1 s tb1 tb2 rc1 rc2 pv1;
+         (match classify_prompt pv1 tb1 rc1 with
+          | Monomorphic -> lemma_blocking_effects_agree r 1 s.aw tb1 tb2
+          | ContextTransparent ->
+            lemma_pairel_transparent #v #cl r s tb1 tb2;
+            (match plan_layers t1, plan_layers t2 with
+             | Inr ls1, Inr ls2 ->
+               lemma_palsrel_cons r s (PITransparent tb1) (PITransparent tb2) ls1 ls2
+             | _, _ -> ())
+          | Family ->
+            lemma_pairel_reenter r s tb1 tb2 rc1 rc2;
+            (match plan_layers t1, plan_layers t2 with
+             | Inr ls1, Inr ls2 ->
+               lemma_palsrel_cons r s (PIReenter tb1 rc1) (PIReenter tb2 rc2) ls1 ls2
+             | _, _ -> ()))
+       | _, _ -> ())
+    | _, _ -> lemma_pakrel_shape r s is1 is2
+
+let lemma_paplan_of_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (is1 is2: pstack v cl) (o1 o2: powner v cl)
+  : Lemma (requires pakrel r s is1 is2 /\ paorel r s o1 o2 /\ pcl_down r)
+          (ensures (match plan_of is1 o1, plan_of is2 o2 with
+                    | Inl e1, Inl e2 -> pfailrel e1 e2
+                    | Inr pl1, Inr pl2 -> paplrel r s pl1 pl2
+                    | _, _ -> False))
+  = lemma_paplan_layers_rel r s is1 is2;
+    match plan_layers is1, plan_layers is2 with
+    | Inr ls1, Inr ls2 ->
+      introduce forall (n: nat). paplan_rel r n s (Plan ls1 o1) (Plan ls2 o2)
+      with (if n = 0 then () else (assert (paitems_rel r n s ls1 ls2);
+                                   assert (paowner_rel r n s o1 o2)))
+    | _, _ -> ()
+
+let rec lemma_pafind_prompt_rel (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                               (s: pastate) (eff op: string) (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2 /\ plookup_equivariant r lk /\ pcl_down r)
+          (ensures (match pfind_prompt lk eff op k1, pfind_prompt lk eff op k2 with
+                    | None, None -> True
+                    | Some (cap1, c1, b1), Some (cap2, c2, b2) ->
+                      pakrel r s cap1 cap2 /\ pakrel r s b1 b2 /\
+                      c1.kind == c2.kind /\ pclrel r s.aw c1.body c2.body
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      lemma_pafind_prompt_rel r lk s eff op t1 t2;
+      (match f1, f2 with
+       | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+         lemma_pafrel_prompt_inv r s tb1 tb2 rc1 rc2 pv1 pv2;
+         lemma_lk_rel r lk s.aw tb1 tb2 eff op;
+         (match lk tb1 eff op, lk tb2 eff op with
+          | Some c1, Some c2 ->
+            lemma_pakrel_nil #v #cl r s;
+            lemma_pakrel_cons r s f1 f2 [] []
+          | None, None ->
+            (match pfind_prompt lk eff op t1, pfind_prompt lk eff op t2 with
+             | Some (cap1, _, _), Some (cap2, _, _) -> lemma_pakrel_cons r s f1 f2 cap1 cap2
+             | _, _ -> ())
+          | _, _ -> ())
+       | _, _ ->
+         (match pfind_prompt lk eff op t1, pfind_prompt lk eff op t2 with
+          | Some (cap1, _, _), Some (cap2, _, _) -> lemma_pakrel_cons r s f1 f2 cap1 cap2
+          | _, _ -> ()))
+    | _, _ -> lemma_pakrel_shape r s k1 k2
+
+let rec lemma_pafind_param_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                              (l: string) (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2)
+          (ensures (match pfind_param l k1, pfind_param l k2 with
+                    | None, None -> True
+                    | Some x1, Some x2 -> pval_rel s.aw x1 x2
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      lemma_pafind_param_rel r s l t1 t2;
+      (match f1, f2 with
+       | PParamF l1 x1, PParamF l2 x2 -> lemma_pafrel_param_inv r s l1 l2 x1 x2
+       | _, _ -> ())
+    | _, _ -> lemma_pakrel_shape r s k1 k2
+
+let rec lemma_paset_param_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                             (l: string) (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2 /\ pval_rel s.aw x1 x2)
+          (ensures (match pset_param l x1 k1, pset_param l x2 k2 with
+                    | None, None -> True
+                    | Some k1', Some k2' -> pakrel r s k1' k2'
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      lemma_paset_param_rel r s l x1 x2 t1 t2;
+      (match f1, f2 with
+       | PParamF l1 y1, PParamF l2 y2 ->
+         lemma_pafrel_param_inv r s l1 l2 y1 y2;
+         if l1 = l
+         then (lemma_pafrel_param #v #cl r s l x1 x2;
+               lemma_pakrel_cons r s (PParamF l x1) (PParamF l x2) t1 t2)
+         else (match pset_param l x1 t1, pset_param l x2 t2 with
+               | Some r1, Some r2 -> lemma_pakrel_cons r s f1 f2 r1 r2
+               | _, _ -> ())
+       | _, _ ->
+         (match pset_param l x1 t1, pset_param l x2 t2 with
+          | Some r1, Some r2 -> lemma_pakrel_cons r s f1 f2 r1 r2
+          | _, _ -> ()))
+    | _, _ -> lemma_pakrel_shape r s k1 k2
+
+let rec lemma_pafind_mode_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                             (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2)
+          (ensures (match pfind_mode k1, pfind_mode k2 with
+                    | None, None -> True
+                    | Some (m1, g1), Some (m2, g2) -> m1 == m2 /\ pafn_rel_at r s g1 g2
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      lemma_pafind_mode_rel r s t1 t2;
+      (match f1, f2 with
+       | PModeF m1 g1, PModeF m2 g2 -> lemma_pafrel_mode_inv r s m1 m2 g1 g2
+       | _, _ -> ())
+    | _, _ -> lemma_pakrel_shape r s k1 k2
+
+let rec lemma_pacut_scope_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                             (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2)
+          (ensures (match pcut_scope k1, pcut_scope k2 with
+                    | None, None -> True
+                    | Some (a1, b1), Some (a2, b2) -> pakrel r s a1 a2 /\ pakrel r s b1 b2
+                    | _, _ -> False))
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      lemma_pacut_scope_rel r s t1 t2;
+      (match f1, f2 with
+       | PScopeF, PScopeF -> lemma_pakrel_nil #v #cl r s
+       | _, _ ->
+         (match pcut_scope t1, pcut_scope t2 with
+          | Some (a1, _), Some (a2, _) -> lemma_pakrel_cons r s f1 f2 a1 a2
+          | _, _ -> ()))
+    | _, _ -> lemma_pakrel_shape r s k1 k2
+
+let lemma_pacrel_op (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pacrel r s a1 a2 /\ pafn_rel_at r s f1 f2)
+          (ensures pacrel r s (POp a1 f1) (POp a2 f2))
+  = introduce forall (n: nat). pacomp_rel r n s (POp a1 f1) (POp a2 f2)
+    with (if n = 0 then ()
+          else begin
+            assert (pacomp_rel r (n - 1) s a1 a2);
+            introduce forall (s': pastate) (y1 y2: pval v).
+                (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                 pacomp_rel r (n - 1) s' (f1 y1) (f2 y2))
+            with (introduce _ ==> _ with assert (pacrel r s' (f1 y1) (f2 y2)))
+          end)
+
+let lemma_pacrel_pbind (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pacrel r s a1 a2 /\ pafn_rel_at r s f1 f2)
+          (ensures pacrel r s (pbind a1 f1) (pbind a2 f2))
+  = lemma_pacrel_op r s a1 a2 f1 f2
+
+let lemma_pafn_apply (#v #cl: Type) (r: pcl_rel_t cl) (s0 s: pastate)
+                    (f1 f2: pval v -> pcomp v cl) (y1 y2: pval v)
+  : Lemma (requires pafn_rel_at r s0 f1 f2 /\ paext s s0 /\ pval_rel s.aw y1 y2)
+          (ensures pacrel r s (f1 y1) (f2 y2))
+  = ()
+
+let lemma_paxrel_done (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (y1 y2: pval v)
+  : Lemma (requires pval_rel s.aw y1 y2)
+          (ensures paxrel #v #cl r s (PCtxDone y1) (PCtxDone y2))
+  = introduce forall (n: nat). pactx_rel #v #cl r n s (PCtxDone y1) (PCtxDone y2) with ()
+
+let lemma_paxrel_requests (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (x1 x2: pval v) (rs1 rs2: pstack v cl)
+                         (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel s.aw x1 x2 /\ pakrel r s rs1 rs2 /\ pafn_rel_at r s p1 p2)
+          (ensures paxrel r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2))
+  = introduce forall (n: nat).
+      pactx_rel r n s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2)
+    with (if n = 0 then ()
+          else begin
+            assert (paframes_rel r n s rs1 rs2);
+            introduce forall (s': pastate) (y1 y2: pval v).
+                (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                 pacomp_rel r n s' (p1 y1) (p2 y2))
+            with (introduce _ ==> _ with assert (pacrel r s' (p1 y1) (p2 y2)))
+          end)
+
+let lemma_paxrel_requests_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                             (x1 x2: pval v) (rs1 rs2: pstack v cl)
+                             (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires paxrel r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2))
+          (ensures pval_rel s.aw x1 x2 /\ pakrel r s rs1 rs2 /\ pafn_rel_at r s p1 p2)
+  = assert (pactx_rel r 1 s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2));
+    introduce forall (n: nat). paframes_rel r n s rs1 rs2
+    with (if n = 0 then ()
+          else assert (pactx_rel r n s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2)));
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (p1 y1) (p2 y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel r n s' (p1 y1) (p2 y2)
+               with (if n = 0 then ()
+                     else assert (pactx_rel r n s (PCtxRequests x1 rs1 p1)
+                                                 (PCtxRequests x2 rs2 p2))))
+
+let lemma_paxrel_done_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (y1 y2: pval v)
+  : Lemma (requires paxrel #v #cl r s (PCtxDone y1) (PCtxDone y2))
+          (ensures pval_rel s.aw y1 y2)
+  = assert (pactx_rel #v #cl r 1 s (PCtxDone y1) (PCtxDone y2))
+
+let lemma_paxrel_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cx1 cx2: pctx v cl)
+  : Lemma (requires paxrel r s cx1 cx2) (ensures pactx_rel r 1 s cx1 cx2)
+  = ()
+
+let lemma_paresolve_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (s1 s2: pstore v cl) (h1 h2: pval v)
+  : Lemma (requires pasrel r s s1 s2 /\ pval_rel s.aw h1 h2)
+          (ensures (match presolve s1 h1, presolve s2 h2 with
+                    | None, None -> True
+                    | Some cx1, Some cx2 -> paxrel r s cx1 cx2
+                    | _, _ -> False))
+  = match h1, h2 with
+    | PCtxKey i, PCtxKey j ->
+      assert (pwlookup_l i s.aw == Some j);
+      // `pasrel`'s quantifier answers to the `psget` pair and to nothing else: a
+      // goal that names only the two `Some?`s does not instantiate it. So the
+      // relatedness of the two entries is asked for FIRST, and their presence
+      // comes back with it.
+      assert (paxrel r s (psget i s1) (psget j s2))
+    | _, _ -> ()
+
+let lemma_pakont_of_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (cap1 cap2: pstack v cl)
+  : Lemma (requires pakrel r s cap1 cap2 /\ pcl_mono r)
+          (ensures pafn_rel_at r s (pkont_of cap1) (pkont_of cap2))
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+         pacrel r s' (pkont_of cap1 y1) (pkont_of cap2 y2))
+    with (introduce _ ==> _
+          with (lemma_pakrel_mono r s' s cap1 cap2;
+                lemma_pacrel_var r s' y1 y2;
+                lemma_pacrel_splice r s' cap1 cap2 (PVar y1) (PVar y2)))
+
+let lemma_pactx_drive_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (m: weave_mode)
+                        (cx1 cx2: pctx v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires paxrel r s cx1 cx2 /\ pafn_rel_at r s f1 f2 /\ pcl_mono r)
+          (ensures pacrel r s (ctx_drive m cx1 f1) (ctx_drive m cx2 f2))
+  = lemma_paxrel_shape r s cx1 cx2;
+    match cx1, cx2 with
+    | PCtxDone y1, PCtxDone y2 ->
+      lemma_paxrel_done_inv r s y1 y2;
+      lemma_pacrel_var r s y1 y2
+    | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+      lemma_paxrel_requests_inv r s x1 x2 rs1 rs2 p1 p2;
+      let resp1 = (fun (z: pval v) -> pbind (p1 z) f1) in
+      let resp2 = (fun (z: pval v) -> pbind (p2 z) f2) in
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacrel r s' (resp1 y1) (resp2 y2))
+      with (introduce _ ==> _
+            with (lemma_pafn_apply r s s' p1 p2 y1 y2;
+                  lemma_pafn_rel_at_mono r s' s f1 f2;
+                  lemma_pacrel_pbind r s' (p1 y1) (p2 y2) f1 f2));
+      lemma_pafrel_mode r s m resp1 resp2;
+      lemma_pakrel_nil #v #cl r s;
+      lemma_pakrel_cons r s (PModeF m resp1) (PModeF m resp2) [] [];
+      lemma_pakrel_append r s rs1 rs2 [PModeF m resp1] [PModeF m resp2];
+      lemma_pacrel_var r s x1 x2;
+      lemma_pacrel_splice r s (rs1 @ [PModeF m resp1]) (rs2 @ [PModeF m resp2])
+                             (PVar x1) (PVar x2);
+      // `assert_norm` and not `assert`, for the reason recorded at
+      // `lemma_ctx_drive_answers_head`: `ctx_drive` BUILDS the responder lambda,
+      // and a lambda occurring inside a definition gets an SMT encoding of its
+      // own, so the equality with the same lambda written here is not something
+      // Z3 can see. Normalising both sides makes the two terms identical.
+      assert_norm (ctx_drive m (PCtxRequests x1 rs1 p1) f1
+                   == PSplice (rs1 @ [PModeF m resp1]) (PVar x1));
+      assert_norm (ctx_drive m (PCtxRequests x2 rs2 p2) f2
+                   == PSplice (rs2 @ [PModeF m resp2]) (PVar x2))
+    | _, _ -> ()
+
+let lemma_paextend_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (pl1 pl2: plan v cl) (cx1 cx2: pctx v cl)
+                       (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires paxrel r s cx1 cx2 /\ pafn_rel_at r s g1 g2 /\ pcl_mono r)
+          (ensures pacrel r s (extend_C pl1 cx1 g1) (extend_C pl2 cx2 g2))
+  = lemma_pactx_drive_rel r s MExtend cx1 cx2 g1 g2
+
+let lemma_paresume_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (pl1 pl2: plan v cl) (cx1 cx2: pctx v cl)
+                       (k1 k2: pval v -> pcomp v cl)
+  : Lemma (requires paxrel r s cx1 cx2 /\ pafn_rel_at r s k1 k2 /\ pcl_mono r)
+          (ensures pacrel r s (resume_C pl1 cx1 k1) (resume_C pl2 cx2 k2))
+  = lemma_pactx_drive_rel r s MResume cx1 cx2 k1 k2
+
+let lemma_paextend_ctx_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (pl1 pl2: plan v cl) (cx1 cx2: pctx v cl)
+                           (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires paxrel r s cx1 cx2 /\ pafn_rel_at r s g1 g2 /\ pcl_mono r)
+          (ensures paxrel r s (extend_ctx_C pl1 cx1 g1) (extend_ctx_C pl2 cx2 g2))
+  = lemma_paxrel_shape r s cx1 cx2;
+    match cx1, cx2 with
+    | PCtxDone y1, PCtxDone y2 ->
+      lemma_paxrel_done_inv r s y1 y2;
+      lemma_paxrel_done #v #cl r s y1 y2
+    | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+      lemma_paxrel_requests_inv r s x1 x2 rs1 rs2 p1 p2;
+      let q1 = (fun (z: pval v) -> pbind (p1 z) g1) in
+      let q2 = (fun (z: pval v) -> pbind (p2 z) g2) in
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacrel r s' (q1 y1) (q2 y2))
+      with (introduce _ ==> _
+            with (lemma_pafn_apply r s s' p1 p2 y1 y2;
+                  lemma_pafn_rel_at_mono r s' s g1 g2;
+                  lemma_pacrel_pbind r s' (p1 y1) (p2 y2) g1 g2));
+      lemma_paxrel_requests r s x1 x2 rs1 rs2 q1 q2
+    | _, _ -> ()
+
+let lemma_paenter_C_rel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (pl1 pl2: plan v cl) (c1 c2: pcomp v cl)
+  : Lemma (requires paplrel r s pl1 pl2 /\ pacrel r s c1 c2 /\ pcl_down r)
+          (ensures pacrel r s (enter_C pl1 c1) (enter_C pl2 c2))
+  = lemma_paplan_enter_frames_rel r s pl1 pl2;
+    lemma_pacrel_splice r s (plan_enter_frames pl1) (plan_enter_frames pl2) c1 c2
+
+let lemma_pafn_rel_at_pvar (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (pafn_rel_at #v #cl r s (PVar #v #cl) (PVar #v #cl))
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+         pacrel #v #cl r s' (PVar y1) (PVar y2))
+    with (introduce _ ==> _ with lemma_pacrel_var #v #cl r s' y1 y2)
+
+(* ================================================================== *)
+(*  CONFIGURATIONS, AT THE ALLOCATION-INDEXED FAMILY                   *)
+(* ================================================================== *)
+
+let pastrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (st1 st2: pstate v cl)
+  : GTot prop
+  = match st1, st2 with
+    | PDone x1, PDone x2 -> pval_rel s.aw x1 x2
+    | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ pakrel r s k1 k2
+    | PPaused x1 rs1, PPaused x2 rs2 -> pval_rel s.aw x1 x2 /\ pakrel r s rs1 rs2
+    | PStuck e1 o1, PStuck e2 o2 -> e1 == e2 /\ o1 == o2
+    | PRejected j1, PRejected j2 -> prej_rel j1 j2
+    | _, _ -> False
+
+let pacfrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = pastrel r s cf1.st cf2.st /\ pasrel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+let pacfrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+                   (h: squash (pacfrel r s cf1 cf2))
+  : squash (pastrel r s cf1.st cf2.st /\ pasrel r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+let pastrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (st1 st2: pstate v cl)
+                   (h: squash (pastrel r s st1 st2))
+  : squash (match st1, st2 with
+            | PDone x1, PDone x2 -> pval_rel s.aw x1 x2
+            | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ pakrel r s k1 k2
+            | PPaused x1 rs1, PPaused x2 rs2 -> pval_rel s.aw x1 x2 /\ pakrel r s rs1 rs2
+            | PStuck e1 o1, PStuck e2 o2 -> e1 == e2 /\ o1 == o2
+            | PRejected j1, PRejected j2 -> prej_rel j1 j2
+            | _, _ -> False)
+  = h
+
+(* ---- the two permitted shapes, at the state ----------------------- *)
+
+let paprov_alloc_at (#v #cl: Type) (s' s: pastate) (cf1 cf2 cf1' cf2': pconf v cl)
+  : prop
+  = exists (cx1: pctx v cl) (cx2: pctx v cl).
+      cf1'.store == (snd (palloc cx1 cf1)).store /\
+      cf1'.next == (snd (palloc cx1 cf1)).next /\
+      cf2'.store == (snd (palloc cx2 cf2)).store /\
+      cf2'.next == (snd (palloc cx2 cf2)).next /\
+      s'.aw == pwextend (pkey_id (fst (palloc cx1 cf1)))
+                        (pkey_id (fst (palloc cx2 cf2))) s.aw
+
+let paprov_step_at (#v #cl: Type) (s' s: pastate) (cf1 cf2 cf1' cf2': pconf v cl)
+  : prop
+  = (s' == s /\ cf1'.next == cf1.next /\ cf2'.next == cf2.next) \/
+    (s' == paalloc s /\
+     cf1'.next == cf1.next + 1 /\ cf2'.next == cf2.next + 1 /\
+     paprov_alloc_at s' s cf1 cf2 cf1' cf2')
+
+let lemma_paprov_alloc_intro (#v #cl: Type) (s: pastate) (cf1 cf2 cf1' cf2': pconf v cl)
+                             (cx1 cx2: pctx v cl)
+  : Lemma (requires cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1'.store == (snd (palloc cx1 cf1)).store /\
+                    cf1'.next == (snd (palloc cx1 cf1)).next /\
+                    cf2'.store == (snd (palloc cx2 cf2)).store /\
+                    cf2'.next == (snd (palloc cx2 cf2)).next)
+          (ensures paprov_step_at (paalloc s) s cf1 cf2 cf1' cf2')
+  = lemma_palloc_shape cx1 cf1;
+    lemma_palloc_shape cx2 cf2;
+    introduce exists (d1: pctx v cl) (d2: pctx v cl).
+        (cf1'.store == (snd (palloc d1 cf1)).store /\
+         cf1'.next == (snd (palloc d1 cf1)).next /\
+         cf2'.store == (snd (palloc d2 cf2)).store /\
+         cf2'.next == (snd (palloc d2 cf2)).next /\
+         (paalloc s).aw == pwextend (pkey_id (fst (palloc d1 cf1)))
+                                    (pkey_id (fst (palloc d2 cf2))) s.aw)
+    with cx1 cx2 and ()
+
+(* ---- the conclusion ----------------------------------------------- *)
+
+let pastep_compat_at (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                     (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    (exists (s': pastate).
+       paext s' s /\ pawf s' /\
+       paprov_step_at s' s cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                   (fst (pstep_tr lk apply cf2)) /\
+       pacfrel r s' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+
+let pastep_compat_unfold (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                         (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                         (h: squash (pastep_compat_at r lk apply s cf1 cf2))
+  : squash (snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+            (exists (s': pastate).
+               paext s' s /\ pawf s' /\
+               paprov_step_at s' s cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                           (fst (pstep_tr lk apply cf2)) /\
+               pacfrel r s' (fst (pstep_tr lk apply cf1))
+                            (fst (pstep_tr lk apply cf2))))
+  = h
+
+(* ---- the two shared exits ----------------------------------------- *)
+
+let lemma_pastep_same_state (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                            (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    pacfrel r s (fst (pstep_tr lk apply cf1))
+                                (fst (pstep_tr lk apply cf2)))
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_paext_refl_wf s;
+    pacfrel_unfold r s (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)) ();
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\
+         paprov_step_at s' s cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                     (fst (pstep_tr lk apply cf2)) /\
+         pacfrel r s' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with s and ()
+
+let lemma_pastep_alloc_state (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                             (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                             (cx1 cx2: pctx v cl)
+  : Lemma (requires pawf s /\ cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    (fst (pstep_tr lk apply cf1)).store == (snd (palloc cx1 cf1)).store /\
+                    (fst (pstep_tr lk apply cf1)).next == (snd (palloc cx1 cf1)).next /\
+                    (fst (pstep_tr lk apply cf2)).store == (snd (palloc cx2 cf2)).store /\
+                    (fst (pstep_tr lk apply cf2)).next == (snd (palloc cx2 cf2)).next /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    pacfrel r (paalloc s) (fst (pstep_tr lk apply cf1))
+                                          (fst (pstep_tr lk apply cf2)))
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_paext_of_alloc s;
+    lemma_paprov_alloc_intro s cf1 cf2 (fst (pstep_tr lk apply cf1))
+                             (fst (pstep_tr lk apply cf2)) cx1 cx2;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\
+         paprov_step_at s' s cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                     (fst (pstep_tr lk apply cf2)) /\
+         pacfrel r s' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with (paalloc s) and ()
+
+let lemma_pastep_of_exists (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                           (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    (exists (s': pastate).
+                       paext s' s /\ pawf s' /\
+                       paprov_step_at s' s cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                                   (fst (pstep_tr lk apply cf2)) /\
+                       pacfrel r s' (fst (pstep_tr lk apply cf1))
+                                    (fst (pstep_tr lk apply cf2))))
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = ()
+
+(* ---- the terminal rule -------------------------------------------- *)
+
+let lemma_pastep_terminal (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pacfrel r s cf1 cf2 /\
+                    ~(PStep? cf1.st) /\ ~(PStep? cf2.st))
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = pacfrel_unfold r s cf1 cf2 ();
+    assert (fst (pstep_tr lk apply cf1) == cf1);
+    assert (fst (pstep_tr lk apply cf2) == cf2);
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+(* ================================================================== *)
+(*  THE NON-ALLOCATING RULES                                           *)
+(* ================================================================== *)
+
+let lemma_pastep_op (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                    (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                    (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+                    (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (POp a1 f1) k1 /\ cf2.st == PStep (POp a2 f2) k2 /\
+                    pacrel r s (POp a1 f1) (POp a2 f2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_op_inv r s a1 a2 f1 f2;
+    lemma_pafrel_bind r s f1 f2;
+    lemma_pakrel_cons r s (PBindF f1) (PBindF f2) k1 k2;
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_handle (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                        (t1 t2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+                        (pv1 pv2: prompt_provenance) (b1 b2: pcomp v cl)
+                        (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PHandle t1 ret1 pv1 b1) k1 /\
+                    cf2.st == PStep (PHandle t2 ret2 pv2 b2) k2 /\
+                    pacrel r s (PHandle t1 ret1 pv1 b1) (PHandle t2 ret2 pv2 b2) /\
+                    pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_handle_inv r s t1 t2 ret1 ret2 pv1 pv2 b1 b2;
+    lemma_pafrel_prompt r s t1 t2 ret1 ret2 pv1;
+    lemma_pakrel_cons r s (PPromptF t1 ret1 pv1) (PPromptF t2 ret2 pv2) k1 k2;
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_emit (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                      (e1 e2: string) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PEmit e1 b1) k1 /\ cf2.st == PStep (PEmit e2 b2) k2 /\
+                    pacrel r s (PEmit e1 b1) (PEmit e2 b2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_emit_inv r s e1 e2 b1 b2;
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_splice (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                        (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PSplice fs1 b1) k1 /\
+                    cf2.st == PStep (PSplice fs2 b2) k2 /\
+                    pacrel r s (PSplice fs1 b1) (PSplice fs2 b2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_splice_inv r s fs1 fs2 b1 b2;
+    lemma_pakrel_append r s fs1 fs2 k1 k2;
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_newp (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                      (l1 l2: string) (i1 i2: pval v) (b1 b2: pcomp v cl)
+                      (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PNewP l1 i1 b1) k1 /\
+                    cf2.st == PStep (PNewP l2 i2 b2) k2 /\
+                    pacrel r s (PNewP l1 i1 b1) (PNewP l2 i2 b2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_newp_inv r s l1 l2 i1 i2 b1 b2;
+    lemma_pafrel_param #v #cl r s l1 i1 i2;
+    lemma_pakrel_cons r s (PParamF l1 i1) (PParamF l2 i2) k1 k2;
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_readp (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                       (l1 l2: string) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PReadP l1) k1 /\ cf2.st == PStep (PReadP l2) k2 /\
+                    pacrel #v #cl r s (PReadP l1) (PReadP l2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_readp_inv #v #cl r s l1 l2;
+    lemma_pafind_param_rel r s l1 k1 k2;
+    (match pfind_param l1 k1, pfind_param l2 k2 with
+     | Some x1, Some x2 -> lemma_pacrel_var r s x1 x2
+     | _, _ -> ());
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_writep (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                        (l1 l2: string) (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PWriteP l1 x1) k1 /\
+                    cf2.st == PStep (PWriteP l2 x2) k2 /\
+                    pacrel #v #cl r s (PWriteP l1 x1) (PWriteP l2 x2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_writep_inv #v #cl r s l1 l2 x1 x2;
+    lemma_paset_param_rel r s l1 x1 x2 k1 k2;
+    lemma_pacrel_var r s x1 x2;
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_enterctx (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                          (pl1 pl2: plan v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_down r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PEnterCtx pl1 b1) k1 /\
+                    cf2.st == PStep (PEnterCtx pl2 b2) k2 /\
+                    pacrel r s (PEnterCtx pl1 b1) (PEnterCtx pl2 b2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_enterctx_inv r s pl1 pl2 b1 b2;
+    lemma_paplan_protocol_frames_rel r s pl1 pl2;
+    lemma_pafrel_scope #v #cl r s;
+    lemma_pakrel_cons r s PScopeF PScopeF k1 k2;
+    lemma_pakrel_append r s (plan_protocol_frames pl1) (plan_protocol_frames pl2)
+                            (PScopeF :: k1) (PScopeF :: k2);
+    lemma_pafrel_boundary #v #cl r s;
+    lemma_pakrel_cons r s PBoundaryF PBoundaryF
+                          (plan_protocol_frames pl1 @ (PScopeF :: k1))
+                          (plan_protocol_frames pl2 @ (PScopeF :: k2));
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+(* ---- THE CRUX: PPerform, on `paapply_equivariant` alone ----------- *)
+
+let lemma_pastep_perform (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                         (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                         (e1 o1 e2 o2: string) (p1 p2: list (pval v))
+                         (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ paapply_equivariant r apply /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PPerform e1 o1 p1) k1 /\
+                    cf2.st == PStep (PPerform e2 o2 p2) k2 /\
+                    pacrel #v #cl r s (PPerform e1 o1 p1) (PPerform e2 o2 p2) /\
+                    pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_perform_inv #v #cl r s e1 o1 e2 o2 p1 p2;
+    lemma_pafind_prompt_rel r lk s e1 o1 k1 k2;
+    (match pfind_prompt lk e1 o1 k1, pfind_prompt lk e2 o2 k2 with
+     | Some (cap1, c1, b1), Some (cap2, c2, b2) ->
+       lemma_pakont_of_rel r s cap1 cap2;
+       (match c1.kind with
+        | KScoped -> ()
+        | _ ->
+          lemma_paapply_equivariant_at r apply s c1.body c2.body p1 p2
+                                       (pkont_of cap1) (pkont_of cap2))
+     | _, _ -> ());
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_weave (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                       (e1 o1 e2 o2: string) (is1 is2: pstack v cl)
+                       (ow1 ow2: powner v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_down r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PWeave e1 o1 is1 ow1 b1) k1 /\
+                    cf2.st == PStep (PWeave e2 o2 is2 ow2 b2) k2 /\
+                    pacrel r s (PWeave e1 o1 is1 ow1 b1) (PWeave e2 o2 is2 ow2 b2) /\
+                    pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_weave_inv r s e1 o1 e2 o2 is1 is2 ow1 ow2 b1 b2;
+    lemma_paplan_of_rel r s is1 is2 ow1 ow2;
+    (match plan_of is1 ow1, plan_of is2 ow2 with
+     | Inr pl1, Inr pl2 -> lemma_paenter_C_rel r s pl1 pl2 b1 b2
+     | _, _ -> ());
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_extendc (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                         (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                         (pl1 pl2: plan v cl) (h1 h2: pval v)
+                         (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PExtendC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PExtendC pl2 h2 g2) k2 /\
+                    pacrel r s (PExtendC pl1 h1 g1) (PExtendC pl2 h2 g2) /\
+                    pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_extendc_inv r s pl1 pl2 h1 h2 g1 g2;
+    lemma_paresolve_rel r s cf1.store cf2.store h1 h2;
+    (match presolve cf1.store h1, presolve cf2.store h2 with
+     | Some cx1, Some cx2 -> lemma_paextend_C_rel r s pl1 pl2 cx1 cx2 g1 g2
+     | _, _ -> ());
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_pastep_resumec (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                         (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                         (pl1 pl2: plan v cl) (h1 h2: pval v)
+                         (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PResumeC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PResumeC pl2 h2 g2) k2 /\
+                    pacrel r s (PResumeC pl1 h1 g1) (PResumeC pl2 h2 g2) /\
+                    pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_resumec_inv r s pl1 pl2 h1 h2 g1 g2;
+    lemma_paresolve_rel r s cf1.store cf2.store h1 h2;
+    (match presolve cf1.store h1, presolve cf2.store h2 with
+     | Some cx1, Some cx2 -> lemma_paresume_C_rel r s pl1 pl2 cx1 cx2 g1 g2
+     | _, _ -> ());
+    lemma_pastep_same_state r lk apply s cf1 cf2
+
+(* ================================================================== *)
+(*  THE THREE GROWTH SITES                                             *)
+(* ================================================================== *)
+
+let lemma_pastep_extendctxc (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                            (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                            (pl1 pl2: plan v cl) (h1 h2: pval v)
+                            (g1 g2: pval v -> pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PExtendCtxC pl1 h1 g1) k1 /\
+                    cf2.st == PStep (PExtendCtxC pl2 h2 g2) k2 /\
+                    pacrel r s (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2) /\
+                    pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_extendctxc_inv r s pl1 pl2 h1 h2 g1 g2;
+    lemma_paresolve_rel r s cf1.store cf2.store h1 h2;
+    match presolve cf1.store h1, presolve cf2.store h2 with
+    | Some cx1, Some cx2 ->
+      lemma_paextend_ctx_C_rel r s pl1 pl2 cx1 cx2 g1 g2;
+      let d1 = extend_ctx_C pl1 cx1 g1 in
+      let d2 = extend_ctx_C pl2 cx2 g2 in
+      let s1 = paalloc s in
+      lemma_pasrel_alloc r s cf1 cf2 d1 d2;
+      lemma_pakrel_mono r s1 s k1 k2;
+      lemma_pacrel_var #v #cl r s1 (PCtxKey s.an1) (PCtxKey s.an2);
+      lemma_pastep_alloc_state r lk apply s cf1 cf2 d1 d2
+    | _, _ -> lemma_pastep_same_state r lk apply s cf1 cf2
+
+let lemma_payield_compat (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (x1 x2: pval v) (hd1 hd2: pframe v cl)
+                         (rest1 rest2: pstack v cl) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    pafrel r s hd1 hd2 /\ pakrel r s rest1 rest2 /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2)
+          (ensures (exists (s': pastate).
+                      paext s' s /\ pawf s' /\
+                      paprov_step_at s' s cf1 cf2
+                                     (pyield x1 hd1 rest1 cf1)
+                                     (pyield x2 hd2 rest2 cf2) /\
+                      pacfrel r s' (pyield x1 hd1 rest1 cf1)
+                                   (pyield x2 hd2 rest2 cf2)))
+  = lemma_pacut_scope_rel r s rest1 rest2;
+    lemma_paext_refl_wf s;
+    match pcut_scope rest1, pcut_scope rest2 with
+    | None, None ->
+      lemma_pakrel_cons r s hd1 hd2 rest1 rest2;
+      introduce exists (s': pastate).
+          (paext s' s /\ pawf s' /\
+           paprov_step_at s' s cf1 cf2
+                          (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2) /\
+           pacfrel r s' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with s and ()
+    | Some (a1, b1), Some (a2, b2) ->
+      let d1 = PCtxRequests x1 (hd1 :: a1) (PVar #v #cl) in
+      let d2 = PCtxRequests x2 (hd2 :: a2) (PVar #v #cl) in
+      let s1 = paalloc s in
+      lemma_pakrel_cons r s hd1 hd2 a1 a2;
+      lemma_pafn_rel_at_pvar #v #cl r s;
+      lemma_paxrel_requests r s x1 x2 (hd1 :: a1) (hd2 :: a2) (PVar #v #cl) (PVar #v #cl);
+      lemma_pasrel_alloc r s cf1 cf2 d1 d2;
+      lemma_pakrel_mono r s1 s b1 b2;
+      lemma_pacrel_var #v #cl r s1 (PCtxKey s.an1) (PCtxKey s.an2);
+      lemma_paprov_alloc_intro s cf1 cf2 (pyield x1 hd1 rest1 cf1)
+                               (pyield x2 hd2 rest2 cf2) d1 d2;
+      introduce exists (s': pastate).
+          (paext s' s /\ pawf s' /\
+           paprov_step_at s' s cf1 cf2
+                          (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2) /\
+           pacfrel r s' (pyield x1 hd1 rest1 cf1) (pyield x2 hd2 rest2 cf2))
+      with s1 and ()
+    | _, _ -> ()
+
+let lemma_pastep_scope (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                       (x1 x2: pval v) (t1 t2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PVar x1) (PScopeF :: t1) /\
+                    cf2.st == PStep (PVar x2) (PScopeF :: t2) /\
+                    pval_rel s.aw x1 x2 /\ pakrel r s t1 t2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = let s1 = paalloc s in
+    lemma_paxrel_done #v #cl r s x1 x2;
+    lemma_pasrel_alloc r s cf1 cf2 (PCtxDone x1) (PCtxDone x2);
+    lemma_pakrel_mono r s1 s t1 t2;
+    lemma_pacrel_var #v #cl r s1 (PCtxKey s.an1) (PCtxKey s.an2);
+    lemma_pastep_alloc_state r lk apply s cf1 cf2 (PCtxDone x1) (PCtxDone x2)
+
+(* ---- the two protocol arms ---------------------------------------- *)
+
+let lemma_pastep_var_boundary (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                              (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                              (x1 x2: pval v) (t1 t2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PVar x1) (PBoundaryF :: t1) /\
+                    cf2.st == PStep (PVar x2) (PBoundaryF :: t2) /\
+                    pval_rel s.aw x1 x2 /\ pakrel r s t1 t2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pafind_mode_rel r s t1 t2;
+    match pfind_mode t1, pfind_mode t2 with
+    | None, None ->
+      lemma_pafrel_boundary #v #cl r s;
+      lemma_payield_compat r s x1 x2 PBoundaryF PBoundaryF t1 t2 cf1 cf2;
+      lemma_pastep_of_exists r lk apply s cf1 cf2
+    | Some (m1, g1), Some (m2, g2) ->
+      lemma_paext_refl_wf s;
+      lemma_pafn_apply r s s g1 g2 x1 x2;
+      lemma_pastep_same_state r lk apply s cf1 cf2
+    | _, _ -> ()
+
+let lemma_pastep_var_site (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                          (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                          (x1 x2: pval v) (g1 g2: pval v -> pcomp v cl)
+                          (t1 t2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PVar x1) (PSiteF g1 :: t1) /\
+                    cf2.st == PStep (PVar x2) (PSiteF g2 :: t2) /\
+                    pval_rel s.aw x1 x2 /\ pafn_rel_at r s g1 g2 /\ pakrel r s t1 t2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pafind_mode_rel r s t1 t2;
+    match pfind_mode t1, pfind_mode t2 with
+    | None, None ->
+      lemma_pafrel_site r s g1 g2;
+      lemma_payield_compat r s x1 x2 (PSiteF g1) (PSiteF g2) t1 t2 cf1 cf2;
+      lemma_pastep_of_exists r lk apply s cf1 cf2
+    | Some (m1, _), Some (m2, _) ->
+      lemma_paext_refl_wf s;
+      (match m1 with
+       | MResume -> lemma_pafn_apply r s s g1 g2 x1 x2
+       | MExtend -> lemma_pacrel_var #v #cl r s x1 x2);
+      lemma_pastep_same_state r lk apply s cf1 cf2
+    | _, _ -> ()
+
+(* ---- the value rules, all eight arms ------------------------------ *)
+
+let lemma_pastep_var (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                     (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                     (x1 x2: pval v) (k1 k2: pstack v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PVar x1) k1 /\ cf2.st == PStep (PVar x2) k2 /\
+                    pacrel #v #cl r s (PVar x1) (PVar x2) /\ pakrel r s k1 k2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = lemma_pacrel_var_inv #v #cl r s x1 x2;
+    lemma_pakrel_shape r s k1 k2;
+    lemma_paext_refl_wf s;
+    match k1, k2 with
+    | [], [] -> lemma_pastep_same_state r lk apply s cf1 cf2
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      (match f1, f2 with
+       | PBindF g1, PBindF g2 ->
+         lemma_pafrel_bind_inv r s g1 g2;
+         lemma_pafn_apply r s s g1 g2 x1 x2;
+         lemma_pastep_same_state r lk apply s cf1 cf2
+       | PParamF _ _, PParamF _ _ ->
+         lemma_pacrel_var #v #cl r s x1 x2;
+         lemma_pastep_same_state r lk apply s cf1 cf2
+       | PModeF _ _, PModeF _ _ ->
+         lemma_pacrel_var #v #cl r s x1 x2;
+         lemma_pastep_same_state r lk apply s cf1 cf2
+       | PScopeF, PScopeF ->
+         lemma_pastep_scope r lk apply s cf1 cf2 x1 x2 t1 t2
+       | PBoundaryF, PBoundaryF ->
+         lemma_pastep_var_boundary r lk apply s cf1 cf2 x1 x2 t1 t2
+       | PSiteF g1, PSiteF g2 ->
+         lemma_pafrel_site_inv r s g1 g2;
+         lemma_pastep_var_site r lk apply s cf1 cf2 x1 x2 g1 g2 t1 t2
+       | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+         lemma_pafrel_prompt_inv r s tb1 tb2 rc1 rc2 pv1 pv2;
+         (match rc1, rc2 with
+          | Some g1, Some g2 -> lemma_pafn_apply r s s g1 g2 x1 x2
+          | None, None -> lemma_pacrel_var #v #cl r s x1 x2
+          | _, _ -> ());
+         lemma_pastep_same_state r lk apply s cf1 cf2
+       | _, _ -> ())
+    | _, _ -> ()
+
+(* ================================================================== *)
+(*  THE DISPATCHER                                                     *)
+(* ================================================================== *)
+
+let lemma_pastep_tr_compat (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                           (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ paapply_equivariant r apply /\
+                    pacfrel r s cf1 cf2)
+          (ensures pastep_compat_at r lk apply s cf1 cf2)
+  = pacfrel_unfold r s cf1 cf2 ();
+    pastrel_unfold r s cf1.st cf2.st ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      assert (pacomp_rel r 1 s c1 c2);
+      (match c1, c2 with
+       | PVar x1, PVar x2 -> lemma_pastep_var r lk apply s cf1 cf2 x1 x2 k1 k2
+       | POp a1 f1, POp a2 f2 -> lemma_pastep_op r lk apply s cf1 cf2 a1 a2 f1 f2 k1 k2
+       | PPerform e1 o1 p1, PPerform e2 o2 p2 ->
+         lemma_pastep_perform r lk apply s cf1 cf2 e1 o1 e2 o2 p1 p2 k1 k2
+       | PHandle t1 rc1 pv1 b1, PHandle t2 rc2 pv2 b2 ->
+         lemma_pastep_handle r lk apply s cf1 cf2 t1 t2 rc1 rc2 pv1 pv2 b1 b2 k1 k2
+       | PSplice fs1 b1, PSplice fs2 b2 ->
+         lemma_pastep_splice r lk apply s cf1 cf2 fs1 fs2 b1 b2 k1 k2
+       | PEmit e1 b1, PEmit e2 b2 ->
+         lemma_pastep_emit r lk apply s cf1 cf2 e1 e2 b1 b2 k1 k2
+       | PWeave e1 o1 is1 ow1 b1, PWeave e2 o2 is2 ow2 b2 ->
+         lemma_pastep_weave r lk apply s cf1 cf2 e1 o1 e2 o2 is1 is2 ow1 ow2 b1 b2 k1 k2
+       | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+         lemma_pastep_enterctx r lk apply s cf1 cf2 pl1 pl2 b1 b2 k1 k2
+       | PExtendC pl1 h1 g1, PExtendC pl2 h2 g2 ->
+         lemma_pastep_extendc r lk apply s cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PExtendCtxC pl1 h1 g1, PExtendCtxC pl2 h2 g2 ->
+         lemma_pastep_extendctxc r lk apply s cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PResumeC pl1 h1 g1, PResumeC pl2 h2 g2 ->
+         lemma_pastep_resumec r lk apply s cf1 cf2 pl1 pl2 h1 h2 g1 g2 k1 k2
+       | PNewP l1 i1 b1, PNewP l2 i2 b2 ->
+         lemma_pastep_newp r lk apply s cf1 cf2 l1 l2 i1 i2 b1 b2 k1 k2
+       | PReadP l1, PReadP l2 -> lemma_pastep_readp r lk apply s cf1 cf2 l1 l2 k1 k2
+       | PWriteP l1 y1, PWriteP l2 y2 ->
+         lemma_pastep_writep r lk apply s cf1 cf2 l1 l2 y1 y2 k1 k2
+       | _, _ -> ())
+    | PDone _, PDone _ -> lemma_pastep_terminal r lk apply s cf1 cf2
+    | PPaused _ _, PPaused _ _ -> lemma_pastep_terminal r lk apply s cf1 cf2
+    | PStuck _ _, PStuck _ _ -> lemma_pastep_terminal r lk apply s cf1 cf2
+    | PRejected _, PRejected _ -> lemma_pastep_terminal r lk apply s cf1 cf2
+    | _, _ -> ()
+
+(* ================================================================== *)
+(*  THE DISPATCHER, FIRED                                              *)
+(* ================================================================== *)
+
+let lemma_fapply0_paequivariant () : Lemma (paapply_equivariant fcl_rel fapply0)
+  = introduce forall (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (k1 k2: pval fv -> pcomp fv fcl).
+      (pwf_world s.aw /\ pclrel fcl_rel s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+       pafn_rel_at fcl_rel s k1 k2 ==>
+       pacrel fcl_rel s (fapply0 c1 p1 k1) (fapply0 c2 p2 k2))
+    with (introduce _ ==> _
+          with lemma_pacrel_var #fv #fcl fcl_rel s (fpv FU) (fpv FU))
+
+let lemma_pa_fixture_boundary ()
+  : Lemma (pawf pa_sto2 /\ pcl_mono fcl_rel /\ pcl_down fcl_rel /\
+           plookup_equivariant fcl_rel flook /\
+           paapply_equivariant fcl_rel fapply0 /\
+           pasrel fcl_rel pa_sto2 pa_store pa_store /\
+           pval_rel #fv pa_sto2.aw (PCtxKey 0) (PCtxKey 0))
+  = guard_pa_machine_store_stays_in_domain ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_fapply0_paequivariant ();
+    assert_norm (pwlookup_l 0 pa_sto2.aw == Some 0)
+
+let guard_pa_dispatch_nonalloc_fires ()
+  : Lemma (pacfrel fcl_rel pa_sto2 pa_conf_emit pa_conf_emit /\
+           pastep_compat_at fcl_rel flook fapply0 pa_sto2 pa_conf_emit pa_conf_emit /\
+           snd (pstep_tr flook fapply0 pa_conf_emit) == ["e"] /\
+           (fst (pstep_tr flook fapply0 pa_conf_emit)).next == pa_sto2.an1 /\
+           (fst (pstep_tr flook fapply0 pa_conf_emit)).store == pa_store /\
+           ~(paprov_step_at (paalloc pa_sto2) pa_sto2 pa_conf_emit pa_conf_emit
+                            (fst (pstep_tr flook fapply0 pa_conf_emit))
+                            (fst (pstep_tr flook fapply0 pa_conf_emit))))
+  = lemma_pa_fixture_boundary ();
+    lemma_pacrel_var #fv #fcl fcl_rel pa_sto2 (PCtxKey 0) (PCtxKey 0);
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n pa_sto2
+          (PEmit #fv #fcl "e" (PVar (PCtxKey 0))) (PEmit #fv #fcl "e" (PVar (PCtxKey 0)))
+    with (if n = 0 then () else ());
+    lemma_pakrel_nil #fv #fcl fcl_rel pa_sto2;
+    lemma_pastep_tr_compat fcl_rel flook fapply0 pa_sto2 pa_conf_emit pa_conf_emit;
+    assert_norm (snd (pstep_tr flook fapply0 pa_conf_emit) == ["e"]);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_emit)).next == 2);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_emit)).store == pa_store);
+    assert_norm ((paalloc pa_sto2).an1 == 3)
+
+let guard_pa_dispatch_alloc_fires ()
+  : Lemma (pacfrel fcl_rel pa_sto2 pa_conf_scope pa_conf_scope /\
+           pastep_compat_at fcl_rel flook fapply0 pa_sto2 pa_conf_scope pa_conf_scope /\
+           snd (pstep_tr flook fapply0 pa_conf_scope) == [] /\
+           (fst (pstep_tr flook fapply0 pa_conf_scope)).next == pa_sto2.an1 + 1 /\
+           (fst (pstep_tr flook fapply0 pa_conf_scope)).store
+             == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store /\
+           ~(paprov_step_at pa_sto2 pa_sto2 pa_conf_scope pa_conf_scope
+                            (fst (pstep_tr flook fapply0 pa_conf_scope))
+                            (fst (pstep_tr flook fapply0 pa_conf_scope))))
+  = lemma_pa_fixture_boundary ();
+    lemma_pacrel_var #fv #fcl fcl_rel pa_sto2 (PCtxKey 0) (PCtxKey 0);
+    lemma_pafrel_scope #fv #fcl fcl_rel pa_sto2;
+    lemma_pakrel_nil #fv #fcl fcl_rel pa_sto2;
+    lemma_pakrel_cons fcl_rel pa_sto2 (PScopeF #fv #fcl) PScopeF [] [];
+    lemma_pastep_tr_compat fcl_rel flook fapply0 pa_sto2 pa_conf_scope pa_conf_scope;
+    assert_norm (snd (pstep_tr flook fapply0 pa_conf_scope) == []);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_scope)).next == 3);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_scope)).store
+                   == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store)
+
+(* ---- the PCtxRequests route, on a residual-bearing fixture -------- *)
+
+let pa_conf_prod : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) [PBoundaryF; PScopeF]; store = pa_store; next = 2 }
+
+let guard_pa_dispatch_residual_fires ()
+  : Lemma (pacfrel fcl_rel pa_sto2 pa_conf_prod pa_conf_prod /\
+           pastep_compat_at fcl_rel flook fapply0 pa_sto2 pa_conf_prod pa_conf_prod /\
+           snd (pstep_tr flook fapply0 pa_conf_prod) == [] /\
+           (fst (pstep_tr flook fapply0 pa_conf_prod)).next == pa_sto2.an1 + 1 /\
+           (fst (pstep_tr flook fapply0 pa_conf_prod)).store
+             == (2, PCtxRequests (PCtxKey #fv 0) [PBoundaryF] (PVar #fv #fcl)) :: pa_store /\
+           ~(paprov_step_at pa_sto2 pa_sto2 pa_conf_prod pa_conf_prod
+                            (fst (pstep_tr flook fapply0 pa_conf_prod))
+                            (fst (pstep_tr flook fapply0 pa_conf_prod))))
+  = lemma_pa_fixture_boundary ();
+    lemma_pacrel_var #fv #fcl fcl_rel pa_sto2 (PCtxKey 0) (PCtxKey 0);
+    lemma_pafrel_scope #fv #fcl fcl_rel pa_sto2;
+    lemma_pafrel_boundary #fv #fcl fcl_rel pa_sto2;
+    lemma_pakrel_nil #fv #fcl fcl_rel pa_sto2;
+    lemma_pakrel_cons fcl_rel pa_sto2 (PScopeF #fv #fcl) PScopeF [] [];
+    lemma_pakrel_cons fcl_rel pa_sto2 (PBoundaryF #fv #fcl) PBoundaryF [PScopeF] [PScopeF];
+    lemma_pastep_tr_compat fcl_rel flook fapply0 pa_sto2 pa_conf_prod pa_conf_prod;
+    assert_norm (snd (pstep_tr flook fapply0 pa_conf_prod) == []);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_prod)).next == 3);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_prod)).store
+                   == (2, PCtxRequests (PCtxKey #fv 0) [PBoundaryF] (PVar #fv #fcl))
+                        :: pa_store)
+
+(* ---- the configuration relation SEPARATES ------------------------- *)
+
+let pa_conf_emit_bad : pconf fv fcl =
+  { st = PStep (PEmit "e" (PVar (PCtxKey 0))) []; store = pa_store_bad; next = 2 }
+
+let pa_conf_emit_ahead : pconf fv fcl =
+  { st = PStep (PEmit "e" (PVar (PCtxKey 0))) []; store = pa_store; next = 3 }
+
+let guard_pa_cfrel_discriminates ()
+  : Lemma (pacfrel fcl_rel pa_sto2 pa_conf_emit pa_conf_emit /\
+           ~(pacfrel fcl_rel pa_sto2 pa_conf_emit pa_conf_emit_bad))
+  = guard_pa_dispatch_nonalloc_fires ();
+    guard_pa_store_discriminates ();
+    introduce pacfrel fcl_rel pa_sto2 pa_conf_emit pa_conf_emit_bad ==> False
+    with pacfrel_unfold fcl_rel pa_sto2 pa_conf_emit pa_conf_emit_bad ()
+
+let guard_pa_cfrel_identity_is_strictly_more_than_a_bound ()
+  : Lemma (pwbound pa_sto2.aw pa_conf_emit_ahead.next pa_conf_emit_ahead.next /\
+           pasrel fcl_rel pa_sto2 pa_conf_emit_ahead.store pa_conf_emit_ahead.store /\
+           ~(pacfrel fcl_rel pa_sto2 pa_conf_emit_ahead pa_conf_emit_ahead))
+  = guard_pa_machine_store_stays_in_domain ();
+    assert_norm (pwbound pa_sto2.aw 3 3);
+    introduce pacfrel fcl_rel pa_sto2 pa_conf_emit_ahead pa_conf_emit_ahead ==> False
+    with pacfrel_unfold fcl_rel pa_sto2 pa_conf_emit_ahead pa_conf_emit_ahead ()
+
+(* ---- what the conclusion lets one read off ------------------------ *)
+
+let lemma_paprov_step_recovers_the_pair
+      (#v #cl: Type) (s' s: pastate) (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires pawf s /\ cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    paprov_step_at s' s cf1 cf2 cf1' cf2')
+          (ensures (s' == s /\ cf1'.next == cf1.next /\ cf2'.next == cf2.next) \/
+                   (s'.aw == pwextend s.an1 s.an2 s.aw /\
+                    s'.an1 == s.an1 + 1 /\ s'.an2 == s.an2 + 1 /\
+                    cf1'.next == cf1.next + 1 /\ cf2'.next == cf2.next + 1 /\
+                    pwlookup_l s.an1 s'.aw == Some s.an2 /\
+                    (exists (cx1: pctx v cl) (cx2: pctx v cl).
+                       cf1'.store == (s.an1, cx1) :: cf1.store /\
+                       cf2'.store == (s.an2, cx2) :: cf2.store /\
+                       fst (palloc cx1 cf1) == PCtxKey s.an1 /\
+                       fst (palloc cx2 cf2) == PCtxKey s.an2)))
+  = if s' = s && cf1'.next = cf1.next && cf2'.next = cf2.next
+    then ()
+    else begin
+      lemma_pwl_cons s.an1 s.an2 s.aw;
+      eliminate exists (cx1: pctx v cl) (cx2: pctx v cl).
+          (cf1'.store == (snd (palloc cx1 cf1)).store /\
+           cf1'.next == (snd (palloc cx1 cf1)).next /\
+           cf2'.store == (snd (palloc cx2 cf2)).store /\
+           cf2'.next == (snd (palloc cx2 cf2)).next /\
+           s'.aw == pwextend (pkey_id (fst (palloc cx1 cf1)))
+                             (pkey_id (fst (palloc cx2 cf2))) s.aw)
+      with
+        (lemma_palloc_shape cx1 cf1;
+         lemma_palloc_shape cx2 cf2;
+         introduce exists (d1: pctx v cl) (d2: pctx v cl).
+             (cf1'.store == (s.an1, d1) :: cf1.store /\
+              cf2'.store == (s.an2, d2) :: cf2.store /\
+              fst (palloc d1 cf1) == PCtxKey s.an1 /\
+              fst (palloc d2 cf2) == PCtxKey s.an2)
+         with cx1 cx2 and ())
+    end

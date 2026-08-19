@@ -6398,6 +6398,175 @@ different allocation witnesses; trace compatibility and allocation-state
 compatibility unsatisfiable at the same successor configuration; or `pasrel`
 obtainable only by assuming an unreachable or ill-formed initial store.
 
+#### The dispatcher gate: one-step compatibility for the new relation
+
+> Under the allocation-aware boundary premises, every arm of the traced
+> dispatcher produces a single successor allocation state that simultaneously
+> relates the traces, extends the Kripke state admissibly, records whether
+> allocation occurred and where its identities came from, preserves store
+> realization, and relates the successor configurations.
+
+This is not yet a fundamental theorem. It is
+
+> the one-step transition-compatibility component of the allocation-aware
+> fundamental theorem.
+
+Finite runs, the lift to observations, and application to the laws all remain.
+
+Sixteen computation arms and four terminal arms, all machine-checked. The
+signature came out exactly as predicted, with no additional requirement:
+
+```fstar
+requires pawf s /\ pcl_mono r /\ pcl_down r /\
+         plookup_equivariant r lk /\ paapply_equivariant r apply /\
+         pacfrel r s cf1 cf2
+```
+
+and the conclusion carries, at once: trace equality, an existential `s'` with
+`paext s' s` and `pawf s'`, the two-shape provenance `paprov_step_at`, and
+`pacfrel` at the successor — which itself contains the successor stores'
+`pasrel` and the counter identities.
+
+#### The carriers, and where the hypotheses moved
+
+The family had no state relation and no configuration relation; both had to be
+defined. The design decision was whether the configuration relation should bound
+the frontiers, as the old `pcfrel` did, or identify them with the
+configurations' counters. The identity form was taken and no arm forced a
+fallback:
+
+```fstar
+let pacfrel r s cf1 cf2
+  = pastrel r s cf1.st cf2.st /\ pasrel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+```
+
+Where the information sits has moved. The old form takes world well-formedness
+from outside and the counter bound from inside `pcfrel`; the new form has
+`pawf s` carrying world well-formedness *and* the frontier bound, with
+`pacfrel` pinning the concrete `next`s to `s.an1`/`s.an2`. Stated at the
+strength that is actually established:
+
+> The new signature is designed as a redistribution of the old information into
+> an explicit allocation state. A formal equivalence or implication between the
+> complete old and new theorem statements is not proved here.
+
+What *is* proved is that the counter identity is strictly more than
+`pwbound` together with `pasrel`: a guard exhibits a configuration the old third
+conjunct accepts and the new one rejects. That one could rebuild the new state
+from the old information by choosing the canonical
+`s = { aw = w; an1 = cf1.next; an2 = cf2.next }` is a **reading of the design**,
+not a bridge between the theorems, and the two should not be conflated.
+
+#### `PPerform` confirms the parallel record by use
+
+The arm closed on `paapply_equivariant` alone. Independently of the gate, the
+whole appended region contains the old `papply_equivariant` in a **comment
+only** — no arm falls back to it. Which fields were consumed, and where:
+
+- `pb_lookup` — the old `plookup_equivariant`, unchanged, because the table
+  relation is world-only; called verbatim at `s.aw`;
+- `pb_apply_eq` — the new condition, for the boundary crossing itself;
+- `pb_mono` — Kripke monotonicity of the captured continuation;
+- `pb_down` — inversion at the prompt frame;
+- `pb_apply_wb` — **not consumed**.
+
+So:
+
+> `paboundary` was not merely inhabitable; its changed field is exactly the
+> field consumed by the dispatcher arm whose continuation crosses the semantic
+> boundary.
+
+Two probes — dropping the new condition, and substituting the old one — both
+fail. They are **failed proof attempts observed in scratch, not guards**. What
+they show is that the present proof route needs the new condition, not that no
+semantic derivation from the old to the new could exist anywhere.
+
+That `pb_apply_wb` went unused is worth recording: one-step relational
+compatibility does not touch well-bracketedness preservation. If it stays unused
+downstream the record's shared shape can be revisited; there is no reason to
+call it redundant yet.
+
+#### The two local laws are now one successor state
+
+The previous gate proved them separately. Here they are assembled:
+
+- non-allocating arms: `s' == s`;
+- allocating arms: `s' == paalloc s`;
+- the **same** `s'` satisfies the world extension, the frontier increment, the
+  store extension, `pasrel` and `pacfrel`;
+- trace equality holds for that same transition pair.
+
+The world successor and the store successor need only one allocation witness
+between them. And the `PCtxRequests` fixture goes through, so the coupling is
+not something that holds only for a simple `PCtxDone` value correspondence.
+
+The two fixtures were checked, independently of the gate, to sit on opposite
+sides of the dichotomy as computed by the machine itself: the emitting one keeps
+its counter and emits `["e"]`; the scope-floor one advances its counter and
+emits nothing. Claiming the emitting fixture allocates is rejected.
+
+#### Proof engineering
+
+Seventy-nine transposed derived laws of the family all verify at **default
+fuel and ifuel**. Nothing corresponding to the places where the old side needed
+`--fuel 3 --ifuel 3` reappeared.
+
+#### Not proved
+
+- finite-run compatibility;
+- `pnconverges` and the observation relations;
+- the finite-run form of the allocation-aware fundamental theorem;
+- any implication between the old and new step theorems — **in either
+  direction**; only the remark that `pacfrel` follows from the old `pcfrel`
+  while the converse is blocked by an existing strictness guard, neither of
+  which is proved here;
+- connection to the laws or the administrative observation;
+- a wrapper taking a `paboundary` record directly; the premises are currently
+  passed field by field.
+
+That wrapper is not semantically required, but a thin corollary
+
+```text
+paboundary ⟹ allocation-aware dispatcher premises
+```
+
+is worth proving once before going further, so the finite-run and observation
+theorems cannot silently drop a field. It does not require redoing the one-step
+theorem.
+
+#### Position
+
+> The allocation-aware relation is now compatible with every single traced
+> machine transition. The remaining semantic lift is temporal rather than local:
+> compose those successor states and traces across arbitrary finite runs, then
+> expose the result through convergence and observation.
+
+#### The finite-run gate
+
+1. the thin `paboundary` wrapper for the one-step theorem;
+2. the reflexive case at fuel `0`;
+3. connect the one-step successor `s₁` to the induction hypothesis's successor
+   `s₂` by transitivity of `paext`;
+4. concatenate the step trace with the rest of the run's trace in the same
+   order;
+5. read the concrete final counters and `s₂`'s frontiers off the final
+   `pacfrel`;
+6. fold `paprov_step_at` inductively, preserving equality of the two sides'
+   allocation counts;
+7. allocation-aware compatibility for `prun`;
+8. `psteps` as a corollary of the existing erasure theorem;
+9. non-vacuity on a concrete run containing both shapes.
+
+The conclusion should carry at least: one final allocation state `s'`;
+`paext s' s`; `pawf s'`; the final `pacfrel`; equality of the whole traces; and
+equality of the two sides' frontier increments.
+
+Stop conditions: the intermediate `s₁` cannot be eliminated in favour of a
+final `s₂`; the trace concatenation orders disagree; or `pasrel` can be rebuilt
+at each step but not collected into the single store realization the inductive
+conclusion needs.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
