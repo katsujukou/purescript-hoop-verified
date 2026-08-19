@@ -5835,6 +5835,129 @@ n1' - n1 == n2' - n2
 side. The one-step dichotomy should give it naturally, since each step either
 advances neither frontier or advances both by one.
 
+#### The finite-run gate: provenance closed under arbitrary fuel
+
+The induction closed. The bounded-world repair now holds not for one step but
+for a related run of any finite fuel:
+
+> Under exactly the hypotheses of the original finite-run compatibility theorem,
+> related runs end in a bounded successor world that is an allocator-respecting
+> extension of the initial world, and the two allocation frontiers advance by
+> the same amount.
+
+Four things are worth keeping apart.
+
+**1. The hypotheses are identical to the old `lemma_prun_compat`'s.** Same six
+conjuncts, same order — compared directly, not asserted. `pbounded_world` was
+not added: `pcfrel` already contains `pwbound w cf1.next cf2.next`, and it is
+discharged inside rather than assumed.
+
+**2. What the conclusion gained.** An allocator-respecting extension of the
+initial world for the run's counter window, `pbounded_world` at the final
+counters, and the balanced-frontier equation. It is stated additively —
+
+```text
+(fst (prun lk apply fuel cf1)).next + cf2.next
+  == (fst (prun lk apply fuel cf2)).next + cf1.next
+```
+
+— which expresses `n1' - n1 == n2' - n2` while avoiding F*'s truncating `nat`
+subtraction.
+
+**3. The equation does not come from the extension.** This is the central point:
+
+> The balanced-frontier equation is not recovered from the weak final-world
+> extension. It is carried independently from the exact one-step dichotomy and
+> composed along the run.
+
+`lemma_prov_step_facts` reads extension, successor boundedness and the counter
+difference off `pprov_step_at` at each step — the difference being `0 == 0` in
+the static shape and `1 == 1` in the allocating one. `lemma_prun_alloc_compose`
+then composes them; it is a pure world-and-counter lemma with no `prun` in it at
+all. The route that folds only the `pwalloc_ext` weakening was not taken, and
+could not have been: `guard_run_counter_eq_not_from_alloc_ext` refutes the
+implication **schema**, not merely one instance, so the provenance of the
+information is formally separated rather than a matter of proof style.
+
+**4. The old theorem is a corollary.** `lemma_prun_compat_of_prov` derives it.
+Nothing is replaced; the existing result is refined and stays in use.
+
+#### Two things the guards fix
+
+The concrete run runs both shapes: two non-allocating transitions, then one that
+allocates on both sides in lockstep, then nothing. Its two configurations start
+at **different** frontiers — 1 and 0, the left having already allocated and
+discarded a context — and finish at 2 and 1. So:
+
+> The equation does not hold merely because the two final counters are equal;
+> the runs may start and finish at different absolute frontiers while advancing
+> by the same amount.
+
+Independently of the gate, mis-pairing the operands of the additive equation on
+that run is rejected, and the two final frontiers really are 2 and 1.
+
+The second guard exhibits a world that names a key the left side had already
+discarded before the two met. It satisfies `pwext`; it does not satisfy
+`pwalloc_ext`. Stated at the strength shown:
+
+> the admissible successor-world witnesses have been narrowed.
+
+Not that the new theorem is strictly stronger than the old — no complete
+inequivalence witness separating the two propositions was produced. What was
+proved is the discriminating power of the world-witness condition.
+
+#### `psteps`
+
+Covered as a corollary, not by a second induction: `lemma_prun_erase` already
+says `fst (prun …) == psteps …` at every fuel and configuration, so world,
+boundedness and counter difference transfer. This is **not** two semantics
+proved separately; it is reuse of the erasure theorem for the instrumented
+semantics.
+
+#### Position
+
+> The bounded-world repair is now closed for arbitrary finite related runs. It
+> has not yet been installed into the recursive logical relations, their Kripke
+> quantification, or the observation relations.
+
+#### The next gate is an indexing design, not a substitution
+
+Replacing `pwext` by `pwalloc_ext` in the relations is not a textual swap.
+`pwalloc_ext` needs the starting and finishing counters as well as the world, so
+the first decision is how to carry allocation frontiers into relations that are
+currently indexed by a world alone. The order that keeps the comparison
+available:
+
+1. define the allocation-aware relation **beside** the existing one, changing
+   nothing;
+2. fix the signature that carries a world and the two frontiers as one Kripke
+   state;
+3. prove accessibility reflexive and transitive;
+4. check that concrete `nboundary`s, captured consumers and machine-built stores
+   remain inside the domain once future-world quantification is restricted to
+   `pwalloc_ext`;
+5. re-prove the one-step fundamental theorem from the provenance-strengthened
+   version;
+6. lift to finite runs, actually using `lemma_prun_prov_compat`;
+7. define the new observation relations from the new relation;
+8. state only the direction that is proved about the relationship to the old
+   relation;
+9. only then reconnect the laws and the administrative relation.
+
+Rewriting `pcomp_rel` in place from the start would destroy the ability to tell
+whether a proof went through because allocator provenance really closed or
+because the narrowed domain made it vacuous. Juxtaposition, as before.
+
+The stop conditions are: a concrete machine-built boundary that cannot satisfy
+the frontier-indexed relation; a closure `post` whose required future world
+cannot be built as an allocator-respecting extension; a related step that needs
+an allocation on one side only; a finite extension of a world composition that
+cannot be factored; or a new relation that makes an existing positive nominal
+fixture vacuous.
+
+The gap is now one thing: moving a closed finite-run provenance into the index
+design of a recursive Kripke relation.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

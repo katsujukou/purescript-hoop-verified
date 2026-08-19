@@ -30259,3 +30259,536 @@ let guard_prov_both_shapes_occur () : Lemma
   = assert_norm ((fst (pstep_tr glk gapply gprov_scope_cf)).next == 1);
     assert_norm ((fst (pstep_tr glk gapply gprov_emit_cf)).next == 0);
     assert_norm (snd (pstep_tr glk gapply gprov_emit_cf) == ["e"])
+
+(* ================================================================== *)
+(*  B2b.4 -- THE PROVENANCE STEP THEOREM, CLOSED UNDER FINITE RUNS     *)
+(*                                                                     *)
+(*  The previous gate proved, of every RELATED SINGLE TRANSITION, that  *)
+(*  the successor world is either the world it started from with both   *)
+(*  frontiers standing still, or that world extended by exactly the     *)
+(*  pair of identities the two `palloc` calls returned, with both       *)
+(*  frontiers advanced once (`lemma_pstep_tr_prov_compat`).  This       *)
+(*  section closes that under `prun`.                                   *)
+(*                                                                     *)
+(*  TWO THINGS ARE CARRIED THROUGH THE INDUCTION, NOT ONE, and the      *)
+(*  second is the whole point:                                          *)
+(*                                                                     *)
+(*    - the allocator-respecting extension `pwalloc_ext`, composed by   *)
+(*      `lemma_pwalloc_ext_trans` at the counters the previous step     *)
+(*      left behind;                                                    *)
+(*                                                                     *)
+(*    - THE COUNTER DIFFERENCE.  `pwalloc_ext n1 n2 m1 m2 w' w` says    *)
+(*      only `n1 <= m1 /\ n2 <= m2`; NOTHING in it forces the two sides *)
+(*      to advance by the SAME amount, and no amount of composing it    *)
+(*      recovers that.  `guard_run_counter_eq_not_from_alloc_ext` is    *)
+(*      the closed refutation -- worlds and counters satisfying         *)
+(*      `pwalloc_ext` (and the bound) whose two differences disagree.   *)
+(*      So "related runs allocate the same number of times on each      *)
+(*      side" is obtained STEP BY STEP from the two-shape dichotomy     *)
+(*      `pprov_step_at`, where a transition advances NEITHER frontier   *)
+(*      or BOTH by one, and threaded alongside the extension.  It is    *)
+(*      stated ADDITIVELY -- `m1 + n2 == m2 + n1` -- because `nat`      *)
+(*      subtraction truncates and `m1 - n1 == m2 - n2` would be true    *)
+(*      of runs that disagree.                                          *)
+(*                                                                     *)
+(*  The hypotheses are EXACTLY `lemma_prun_compat`'s, unchanged and     *)
+(*  neither added to nor weakened -- `pbounded_world cf1.next cf2.next  *)
+(*  w` is not assumed, it is READ OFF `pcfrel`, which already carries   *)
+(*  `pwbound w cf1.next cf2.next`.  So this is a STRENGTHENING of the   *)
+(*  fundamental theorem and not a different theorem about a smaller     *)
+(*  domain, and `lemma_prun_compat_of_prov` derives the old conclusion  *)
+(*  from the new one to say so.                                         *)
+(*                                                                     *)
+(*  NOTHING BELOW TOUCHES A LOGICAL RELATION.  `pcfrel`, `pstrel`,      *)
+(*  `pcrel`, `pkrel`, `psrel` and the Kripke quantification domain are  *)
+(*  used exactly as they stand; the world-quantification question is    *)
+(*  the next gate's and is not opened here.                             *)
+(*                                                                     *)
+(*  Every name below is NEW.  Nothing above is touched.                 *)
+(* ================================================================== *)
+
+(* ---- 1. THE ONE STEP, IN THE FORM THE INDUCTION CONSUMES ---------- *)
+
+(** The dichotomy, turned into the three facts a run needs, at one step and with
+    no `pstep_tr` in sight: the extension, the bound at the successor counters,
+    and -- available HERE and nowhere later -- the counter difference, which is
+    `0 == 0` in the standing-still shape and `1 == 1` in the allocating one. *)
+let lemma_prov_step_facts
+      (#v #cl: Type) (w' w: pworld) (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires pbounded_world cf1.next cf2.next w /\
+                    pprov_step_at w' w cf1 cf2 cf1' cf2')
+          (ensures pwalloc_ext cf1.next cf2.next cf1'.next cf2'.next w' w /\
+                   pbounded_world cf1'.next cf2'.next w' /\
+                   cf1'.next + cf2.next == cf2'.next + cf1.next)
+  = lemma_pprov_step_is_alloc_ext w' w cf1 cf2 cf1' cf2'
+
+(**
+ * **THE ONE-STEP BRIDGE.** PROVED, by assembling two results that are already
+ * here: `lemma_pstep_tr_prov_compat` (every related transition satisfies the
+ * two-shape dichotomy) and `lemma_pprov_step_is_alloc_ext` (the dichotomy
+ * implies the allocator-respecting extension, and re-establishes the bound).
+ *
+ * The counter clause is NOT the weakening's -- it is read off the dichotomy
+ * itself, before `pwalloc_ext` forgets it, which is the only place it is
+ * available. `pbounded_world cf1.next cf2.next w`, which
+ * `lemma_pprov_step_is_alloc_ext` needs, is `pcfrel`'s own `pwbound` conjunct
+ * together with `pwf_world w`: no hypothesis is added.
+ *)
+let lemma_pstep_tr_prov_alloc_ext
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                   (exists (w1: pworld).
+                      pwalloc_ext cf1.next cf2.next
+                                  (fst (pstep_tr lk apply cf1)).next
+                                  (fst (pstep_tr lk apply cf2)).next w1 w /\
+                      pbounded_world (fst (pstep_tr lk apply cf1)).next
+                                     (fst (pstep_tr lk apply cf2)).next w1 /\
+                      pcfrel r w1 (fst (pstep_tr lk apply cf1))
+                                  (fst (pstep_tr lk apply cf2))) /\
+                   (fst (pstep_tr lk apply cf1)).next + cf2.next
+                     == (fst (pstep_tr lk apply cf2)).next + cf1.next)
+  = pcfrel_unfold r w cf1 cf2 ();
+    lemma_pstep_tr_prov_compat r lk apply w cf1 cf2;
+    pstep_prov_compat_unfold r lk apply w cf1 cf2 ();
+    eliminate exists (w': pworld).
+        (pprov_step_at w' w cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                    (fst (pstep_tr lk apply cf2)) /\
+         pbounded_world (fst (pstep_tr lk apply cf1)).next
+                        (fst (pstep_tr lk apply cf2)).next w' /\
+         pcfrel r w' (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+    with
+      (lemma_prov_step_facts w' w cf1 cf2
+         (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2));
+       introduce exists (w1: pworld).
+           (pwalloc_ext cf1.next cf2.next
+                        (fst (pstep_tr lk apply cf1)).next
+                        (fst (pstep_tr lk apply cf2)).next w1 w /\
+            pbounded_world (fst (pstep_tr lk apply cf1)).next
+                           (fst (pstep_tr lk apply cf2)).next w1 /\
+            pcfrel r w1 (fst (pstep_tr lk apply cf1))
+                        (fst (pstep_tr lk apply cf2)))
+       with w' and ())
+
+(* ---- 2. THE DRIVER'S TWO EQUATIONS, ISOLATED --------------------- *)
+
+(** The driver stands still: no fuel, or nothing left to do. Isolated so that
+    the induction never has to unfold `prun` inside a goal that also carries the
+    world quantifiers -- which is what made the first attempt at this section
+    exhaust its resource bound. *)
+let lemma_prun_at_rest
+      (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+      (fuel: nat) (cf: pconf v cl)
+  : Lemma (requires fuel = 0 \/ ~(PStep? cf.st))
+          (ensures prun lk apply fuel cf == (cf, []))
+  = ()
+
+(** One unfolding at a stepping configuration: the run is the transition
+    followed by the run of the residue, and the trace is the transition's events
+    in front of the residue's. *)
+let lemma_prun_unfold_at_step
+      (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+      (fuel: nat{fuel > 0}) (cf: pconf v cl)
+  : Lemma (requires PStep? cf.st)
+          (ensures fst (prun lk apply fuel cf)
+                     == fst (prun lk apply (fuel - 1) (fst (pstep_tr lk apply cf))) /\
+                   snd (prun lk apply fuel cf)
+                     == snd (pstep_tr lk apply cf)
+                        @ snd (prun lk apply (fuel - 1) (fst (pstep_tr lk apply cf))))
+  = ()
+
+(* ---- 3. THE COMPOSITION, WITH NO RUN IN IT ----------------------- *)
+
+(**
+ * **ONE STEP IN FRONT OF A RUN.** PROVED. Stated over six configurations and
+ * three worlds with NO `prun` anywhere, so the query that composes the two
+ * extensions never carries the driver's recursion with it.
+ *
+ * BOTH conjuncts compose here, and they compose differently: the extension by
+ * `lemma_pwalloc_ext_trans`, at the middle counters; the counter difference by
+ * addition, which is why it is stated additively.
+ *)
+let lemma_prun_alloc_compose
+      (#v #cl: Type) (w w1 w2: pworld) (cf1 cf2 d1 d2 e1 e2: pconf v cl)
+  : Lemma (requires pwalloc_ext cf1.next cf2.next d1.next d2.next w1 w /\
+                    pwalloc_ext d1.next d2.next e1.next e2.next w2 w1 /\
+                    d1.next + cf2.next == d2.next + cf1.next /\
+                    e1.next + d2.next == e2.next + d1.next)
+          (ensures pwalloc_ext cf1.next cf2.next e1.next e2.next w2 w /\
+                   e1.next + cf2.next == e2.next + cf1.next)
+  = lemma_pwalloc_ext_trans cf1.next cf2.next d1.next d2.next
+                            e1.next e2.next w2 w1 w
+
+(* ---- 4. THE BASE ARMS -------------------------------------------- *)
+
+(**
+ * **NO FUEL, OR NOTHING LEFT TO DO.** PROVED. Both configurations are returned
+ * unchanged, so the world that answers the existential is the world handed in,
+ * the extension is `lemma_pwalloc_ext_refl`, and the counter difference is
+ * `cf1.next + cf2.next == cf2.next + cf1.next`.
+ *
+ * The hypothesis is a DISJUNCTION covering the mismatched shapes as well: if
+ * one side steps and the other does not, `pstrel` is `False` and there is
+ * nothing to prove -- which is exactly what the dispatcher's wildcard arm
+ * hands to this lemma.
+ *)
+let lemma_prun_prov_compat_base
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcfrel r w cf1 cf2 /\
+                    (fuel = 0 \/ ~(PStep? cf1.st) \/ ~(PStep? cf2.st)))
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (w': pworld).
+                      pwalloc_ext cf1.next cf2.next
+                                  (fst (prun lk apply fuel cf1)).next
+                                  (fst (prun lk apply fuel cf2)).next w' w /\
+                      pbounded_world (fst (prun lk apply fuel cf1)).next
+                                     (fst (prun lk apply fuel cf2)).next w' /\
+                      pcfrel r w' (fst (prun lk apply fuel cf1))
+                                  (fst (prun lk apply fuel cf2))) /\
+                   (fst (prun lk apply fuel cf1)).next + cf2.next
+                     == (fst (prun lk apply fuel cf2)).next + cf1.next)
+  = pcfrel_unfold r w cf1 cf2 ();
+    pstrel_unfold r w cf1.st cf2.st ();
+    lemma_pwalloc_ext_refl cf1.next cf2.next w;
+    lemma_prun_at_rest lk apply fuel cf1;
+    lemma_prun_at_rest lk apply fuel cf2;
+    introduce exists (w': pworld).
+        (pwalloc_ext cf1.next cf2.next
+                     (fst (prun lk apply fuel cf1)).next
+                     (fst (prun lk apply fuel cf2)).next w' w /\
+         pbounded_world (fst (prun lk apply fuel cf1)).next
+                        (fst (prun lk apply fuel cf2)).next w' /\
+         pcfrel r w' (fst (prun lk apply fuel cf1))
+                     (fst (prun lk apply fuel cf2)))
+    with w and ()
+
+(* ---- 5. THE RUN, AT PROVENANCE STRENGTH -------------------------- *)
+
+(**
+ * **THE FUNDAMENTAL THEOREM, AT PROVENANCE STRENGTH.** PROVED, by induction on
+ * the fuel, under EXACTLY `lemma_prun_compat`'s hypotheses.
+ *
+ * Related configurations, run for the same fuel, produce the same trace and two
+ * configurations related at a world that is
+ *
+ *   - an ALLOCATOR-RESPECTING extension of the world they started in: every
+ *     pair it has that the starting world did not is a pair of names taken from
+ *     the window the two frontiers opened -- at or above the starting counters,
+ *     strictly below the counters the two runs ended at;
+ *   - BOUNDED at the two final counters, so the invariant the next run needs is
+ *     re-established and not merely implied;
+ *
+ * and the two runs perform THE SAME NUMBER OF ALLOCATIONS, stated additively.
+ *
+ * The last conjunct is not a consequence of the first: see
+ * `guard_run_counter_eq_not_from_alloc_ext`. It survives the induction only
+ * because every step supplies it from the two-shape dichotomy and
+ * `lemma_prun_alloc_compose` adds the two equations rather than composing the
+ * weakening.
+ *
+ * WHAT IS NOT CLAIMED, as in `lemma_prun_compat`: nothing is re-anchored, no
+ * transition counts are related beyond the shared fuel, and termination is not
+ * asserted on either side.
+ *)
+let rec lemma_prun_prov_compat
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (w': pworld).
+                      pwalloc_ext cf1.next cf2.next
+                                  (fst (prun lk apply fuel cf1)).next
+                                  (fst (prun lk apply fuel cf2)).next w' w /\
+                      pbounded_world (fst (prun lk apply fuel cf1)).next
+                                     (fst (prun lk apply fuel cf2)).next w' /\
+                      pcfrel r w' (fst (prun lk apply fuel cf1))
+                                  (fst (prun lk apply fuel cf2))) /\
+                   (fst (prun lk apply fuel cf1)).next + cf2.next
+                     == (fst (prun lk apply fuel cf2)).next + cf1.next)
+          (decreases fuel)
+  = if fuel = 0
+    then lemma_prun_prov_compat_base r lk apply fuel w cf1 cf2
+    else begin
+      let f1r : nat = fuel - 1 in
+      match cf1.st, cf2.st with
+      | PStep c1 k1, PStep c2 k2 ->
+        lemma_prun_unfold_at_step lk apply fuel cf1;
+        lemma_prun_unfold_at_step lk apply fuel cf2;
+        lemma_pstep_tr_prov_alloc_ext r lk apply w cf1 cf2;
+        let d1 = fst (pstep_tr lk apply cf1) in
+        let d2 = fst (pstep_tr lk apply cf2) in
+        eliminate exists (w1: pworld).
+            (pwalloc_ext cf1.next cf2.next d1.next d2.next w1 w /\
+             pbounded_world d1.next d2.next w1 /\
+             pcfrel r w1 d1 d2)
+        with
+          (lemma_prun_prov_compat r lk apply f1r w1 d1 d2;
+           eliminate exists (w2: pworld).
+               (pwalloc_ext d1.next d2.next
+                            (fst (prun lk apply f1r d1)).next
+                            (fst (prun lk apply f1r d2)).next w2 w1 /\
+                pbounded_world (fst (prun lk apply f1r d1)).next
+                               (fst (prun lk apply f1r d2)).next w2 /\
+                pcfrel r w2 (fst (prun lk apply f1r d1))
+                            (fst (prun lk apply f1r d2)))
+           with
+             (lemma_prun_alloc_compose w w1 w2 cf1 cf2 d1 d2
+                (fst (prun lk apply f1r d1)) (fst (prun lk apply f1r d2));
+              introduce exists (w': pworld).
+                  (pwalloc_ext cf1.next cf2.next
+                               (fst (prun lk apply fuel cf1)).next
+                               (fst (prun lk apply fuel cf2)).next w' w /\
+                   pbounded_world (fst (prun lk apply fuel cf1)).next
+                                  (fst (prun lk apply fuel cf2)).next w' /\
+                   pcfrel r w' (fst (prun lk apply fuel cf1))
+                               (fst (prun lk apply fuel cf2)))
+              with w2 and ()))
+      | _, _ -> lemma_prun_prov_compat_base r lk apply fuel w cf1 cf2
+    end
+
+(* ---- 6. THE EXISTING RUN THEOREM, DERIVED ------------------------ *)
+
+(**
+ * **THE STRENGTHENING IS A STRENGTHENING.** PROVED. `lemma_prun_compat`'s
+ * conclusion, from `lemma_prun_prov_compat`'s, under the same hypotheses --
+ * `lemma_pwalloc_ext_is_pwext` forgets the window, and what is left is the
+ * weak existential the observations are built on. So nothing that depended on
+ * the old statement has to change, and the two do not compete.
+ *)
+let lemma_prun_compat_of_prov
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (w': pworld).
+                      pwf_world w' /\ pwext w' w /\
+                      pcfrel r w' (fst (prun lk apply fuel cf1))
+                                  (fst (prun lk apply fuel cf2))))
+  = lemma_prun_prov_compat r lk apply fuel w cf1 cf2;
+    eliminate exists (w': pworld).
+        (pwalloc_ext cf1.next cf2.next
+                     (fst (prun lk apply fuel cf1)).next
+                     (fst (prun lk apply fuel cf2)).next w' w /\
+         pbounded_world (fst (prun lk apply fuel cf1)).next
+                        (fst (prun lk apply fuel cf2)).next w' /\
+         pcfrel r w' (fst (prun lk apply fuel cf1))
+                     (fst (prun lk apply fuel cf2)))
+    with
+      (lemma_pwalloc_ext_is_pwext cf1.next cf2.next
+         (fst (prun lk apply fuel cf1)).next
+         (fst (prun lk apply fuel cf2)).next w' w;
+       introduce exists (w'': pworld).
+           (pwf_world w'' /\ pwext w'' w /\
+            pcfrel r w'' (fst (prun lk apply fuel cf1))
+                         (fst (prun lk apply fuel cf2)))
+       with w' and ())
+
+(**
+ * **THE TRACE-FREE DRIVER, AS A COROLLARY.** PROVED. `psteps` needs no separate
+ * induction: `lemma_prun_erase` already says it IS the first component of
+ * `prun` at every fuel and every configuration, so the world, the bound and the
+ * counter difference transfer verbatim. The observations (`pnconverges`,
+ * `pnobs_tr_le`) are built on `prun`, which is why the induction above is done
+ * there and here nothing is repeated.
+ *)
+let lemma_psteps_prov_compat
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat) (w: pworld) (cf1 cf2: pconf v cl)
+  : Lemma (requires pwf_world w /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ papply_equivariant r apply /\
+                    pcfrel r w cf1 cf2)
+          (ensures (exists (w': pworld).
+                      pwalloc_ext cf1.next cf2.next
+                                  (psteps lk apply fuel cf1).next
+                                  (psteps lk apply fuel cf2).next w' w /\
+                      pbounded_world (psteps lk apply fuel cf1).next
+                                     (psteps lk apply fuel cf2).next w' /\
+                      pcfrel r w' (psteps lk apply fuel cf1)
+                                  (psteps lk apply fuel cf2)) /\
+                   (psteps lk apply fuel cf1).next + cf2.next
+                     == (psteps lk apply fuel cf2).next + cf1.next)
+  = lemma_prun_erase lk apply fuel cf1;
+    lemma_prun_erase lk apply fuel cf2;
+    lemma_prun_prov_compat r lk apply fuel w cf1 cf2;
+    eliminate exists (w': pworld).
+        (pwalloc_ext cf1.next cf2.next
+                     (fst (prun lk apply fuel cf1)).next
+                     (fst (prun lk apply fuel cf2)).next w' w /\
+         pbounded_world (fst (prun lk apply fuel cf1)).next
+                        (fst (prun lk apply fuel cf2)).next w' /\
+         pcfrel r w' (fst (prun lk apply fuel cf1))
+                     (fst (prun lk apply fuel cf2)))
+    with
+      (introduce exists (w'': pworld).
+           (pwalloc_ext cf1.next cf2.next
+                        (psteps lk apply fuel cf1).next
+                        (psteps lk apply fuel cf2).next w'' w /\
+            pbounded_world (psteps lk apply fuel cf1).next
+                           (psteps lk apply fuel cf2).next w'' /\
+            pcfrel r w'' (psteps lk apply fuel cf1) (psteps lk apply fuel cf2))
+       with w' and ())
+
+(* ---- 7. THE GUARDS ------------------------------------------------ *)
+
+(**
+ * **GUARD 1 -- THE COUNTER EQUALITY IS NOT A CONSEQUENCE OF `pwalloc_ext`.**
+ * REFUTED, by a closed instance, and this is the guard that says the extra
+ * conjunct carries weight rather than decorating the statement.
+ *
+ * `[(0,0)]` extends `[]` by ONE pair, and that pair lies in the window both
+ * `0 <= 0 < 1` (left) and `0 <= 0 < 2` (right) describe, so
+ * `pwalloc_ext 0 0 1 2 [(0,0)] []` holds -- with the left counter advanced ONCE
+ * and the right TWICE. The bound holds at the final counters too. Yet
+ * `1 + 0 =!= 2 + 0`. So a run statement that folded only the weakening would
+ * admit two related runs that allocated a different number of times, and the
+ * conjunct could not be recovered afterwards.
+ *)
+let guard_run_counter_eq_not_from_alloc_ext () : Lemma
+  (ensures pwalloc_ext 0 0 1 2 [(0,0)] [] /\ pbounded_world 1 2 [(0,0)] /\
+           ~(forall (n1 n2 m1 m2: nat) (w' w: pworld).
+               pwalloc_ext n1 n2 m1 m2 w' w /\ pbounded_world m1 m2 w' ==>
+               m1 + n2 == m2 + n1))
+  = assert_norm (pwlookup_l 0 [(0,0)] == Some 0);
+    assert_norm (pwlookup_r 0 [(0,0)] == Some 0);
+    introduce (forall (n1 n2 m1 m2: nat) (w' w: pworld).
+                 pwalloc_ext n1 n2 m1 m2 w' w /\ pbounded_world m1 m2 w' ==>
+                 m1 + n2 == m2 + n1) ==> False
+    with begin
+      assert (pwalloc_ext 0 0 1 2 [(0,0)] [] /\ pbounded_world 1 2 [(0,0)] ==>
+              1 + 0 == 2 + 0)
+    end
+
+(** The theorem's hypotheses at the counterexample pair, collected. Every one of
+    them is already proved above; nothing new is assumed. *)
+let lemma_ce_run_hyps ()
+  : Lemma (pwf_world ([] <: pworld) /\ pcl_mono fcl_rel /\ pcl_down fcl_rel /\
+           plookup_equivariant fcl_rel flook /\
+           papply_equivariant fcl_rel fapply0 /\
+           pcfrel fcl_rel ([] <: pworld) ce_cfl ce_cfr)
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_fapply0_equivariant ();
+    guard_nom_ce_common_related ()
+
+(**
+ * **GUARD 2 -- A CONCRETE RELATED RUN CONTAINING BOTH SHAPES.** PROVED, with
+ * every counter READ OUT BY COMPUTATION.
+ *
+ * `ce_cfl` and `ce_cfr` are related at the empty world
+ * (`guard_nom_ce_common_related`) and start at DIFFERENT frontiers -- 1 and 0 --
+ * because the left has already allocated and discarded a context. Running both:
+ *
+ *   - transitions 1 and 2 are NON-ALLOCATING on both sides: the frontiers stay
+ *     at 1 and 0;
+ *   - transition 3 ALLOCATES on both sides, in lockstep: 1 becomes 2, 0
+ *     becomes 1;
+ *   - nothing after it allocates: at fuel 189, where both runs have long since
+ *     answered, the frontiers are still 2 and 1.
+ *
+ * So this is a related run of more than three transitions containing BOTH
+ * shapes of the dichotomy, and the theorem's conclusion is instantiated on it:
+ * the world it hands back is an allocator-respecting extension of `[]` for the
+ * window `1..2` on the left and `0..1` on the right, and the counter equality
+ * is `2 + 0 == 1 + 1` -- with the two final frontiers DIFFERENT, so the
+ * equation is not the trivial one.
+ *)
+let guard_run_prov_both_shapes_in_one_run () : Lemma
+  (ensures ce_cfl.next == 1 /\ ce_cfr.next == 0 /\
+           (fst (prun flook fapply0 2 ce_cfl)).next == 1 /\
+           (fst (prun flook fapply0 3 ce_cfl)).next == 2 /\
+           (fst (prun flook fapply0 2 ce_cfr)).next == 0 /\
+           (fst (prun flook fapply0 3 ce_cfr)).next == 1 /\
+           (fst (prun flook fapply0 189 ce_cfl)).next == 2 /\
+           (fst (prun flook fapply0 189 ce_cfr)).next == 1 /\
+           (fst (prun flook fapply0 189 ce_cfl)).next + ce_cfr.next
+             == (fst (prun flook fapply0 189 ce_cfr)).next + ce_cfl.next /\
+           (exists (w': pworld).
+              pwalloc_ext 1 0 2 1 w' [] /\ pbounded_world 2 1 w' /\
+              pcfrel fcl_rel w' (fst (prun flook fapply0 189 ce_cfl))
+                                (fst (prun flook fapply0 189 ce_cfr))))
+  = assert_norm (ce_cfl.next == 1);
+    assert_norm (ce_cfr.next == 0);
+    assert_norm ((fst (prun flook fapply0 2 ce_cfl)).next == 1);
+    assert_norm ((fst (prun flook fapply0 3 ce_cfl)).next == 2);
+    assert_norm ((fst (prun flook fapply0 2 ce_cfr)).next == 0);
+    assert_norm ((fst (prun flook fapply0 3 ce_cfr)).next == 1);
+    assert_norm ((fst (prun flook fapply0 189 ce_cfl)).next == 2);
+    assert_norm ((fst (prun flook fapply0 189 ce_cfr)).next == 1);
+    lemma_ce_run_hyps ();
+    lemma_prun_prov_compat fcl_rel flook fapply0 189 [] ce_cfl ce_cfr;
+    eliminate exists (w': pworld).
+        (pwalloc_ext ce_cfl.next ce_cfr.next
+                     (fst (prun flook fapply0 189 ce_cfl)).next
+                     (fst (prun flook fapply0 189 ce_cfr)).next w' ([] <: pworld) /\
+         pbounded_world (fst (prun flook fapply0 189 ce_cfl)).next
+                        (fst (prun flook fapply0 189 ce_cfr)).next w' /\
+         pcfrel fcl_rel w' (fst (prun flook fapply0 189 ce_cfl))
+                           (fst (prun flook fapply0 189 ce_cfr)))
+    with
+      (introduce exists (w'': pworld).
+           (pwalloc_ext 1 0 2 1 w'' ([] <: pworld) /\ pbounded_world 2 1 w'' /\
+            pcfrel fcl_rel w'' (fst (prun flook fapply0 189 ce_cfl))
+                               (fst (prun flook fapply0 189 ce_cfr)))
+       with w' and ())
+(**
+ * **GUARD 3 -- THE STRENGTHENED RUN LEMMA IS NOT VACUOUS, AND WHAT IT ADDS IS
+ * READ OFF A CONCRETE RUN.** PROVED.
+ *
+ * On the run of GUARD 2 the window is `1 <= i < 2` on the left and
+ * `0 <= k < 1` on the right, and the starting world is `[]`, which speaks for
+ * nothing. So the world the theorem hands back speaks for AT MOST THE ONE PAIR
+ * `(1, 0)` -- and in particular it does NOT speak for left-key `0`, the context
+ * the left side allocated before the two configurations met and then threw
+ * away. Neither the world nor either bound is written down here: both are
+ * whatever the induction accumulated.
+ *)
+let guard_run_prov_reads_off_the_final_world () : Lemma
+  (ensures exists (w': pworld).
+             pcfrel fcl_rel w' (fst (prun flook fapply0 189 ce_cfl))
+                               (fst (prun flook fapply0 189 ce_cfr)) /\
+             pwlookup_l 0 w' == None /\
+             (forall (i k: nat). pwlookup_l i w' == Some k ==> i == 1 /\ k == 0))
+  = guard_run_prov_both_shapes_in_one_run ();
+    eliminate exists (w': pworld).
+        (pwalloc_ext 1 0 2 1 w' ([] <: pworld) /\ pbounded_world 2 1 w' /\
+         pcfrel fcl_rel w' (fst (prun flook fapply0 189 ce_cfl))
+                           (fst (prun flook fapply0 189 ce_cfr)))
+    with
+      (introduce forall (i k: nat). (pwlookup_l i w' == Some k ==> i == 1 /\ k == 0)
+       with (introduce _ ==> _ with ());
+       (match pwlookup_l 0 w' with | None -> () | Some k -> ());
+       introduce exists (w'': pworld).
+           (pcfrel fcl_rel w'' (fst (prun flook fapply0 189 ce_cfl))
+                               (fst (prun flook fapply0 189 ce_cfr)) /\
+            pwlookup_l 0 w'' == None /\
+            (forall (i k: nat). pwlookup_l i w'' == Some k ==> i == 1 /\ k == 0))
+       with w' and ())
+
+(**
+ * **GUARD 4 -- WHAT THE OLD CONCLUSION COULD NOT EXCLUDE.** REFUTED, by a
+ * closed instance, and this is why GUARD 3 is a strengthening and not a
+ * restatement.
+ *
+ * `[(0,7)]` is a well-formed world that extends `[]`, so `pwext` -- all
+ * `lemma_prun_compat` hands back -- ADMITS a final world that names left-key
+ * `0`, the key the left run allocated before the two configurations met, and
+ * pairs it with a name of its choosing. `pwalloc_ext 1 0 2 1 [(0,7)] []` is
+ * FALSE: `0` is below the left frontier the run started at and `7` is above the
+ * right one it ended at, so neither end of the pair is in the window the two
+ * allocators opened.
+ *)
+let guard_run_pwext_admits_a_stale_key () : Lemma
+  (ensures pwf_world [(0,7)] /\ pwext [(0,7)] ([] <: pworld) /\
+           pwlookup_l 0 [(0,7)] == Some 7 /\
+           ~(pwalloc_ext 1 0 2 1 [(0,7)] ([] <: pworld)))
+  = assert_norm (pwlookup_l 0 [(0,7)] == Some 7);
+    assert_norm (pwlookup_r 7 [(0,7)] == Some 0)
