@@ -32352,3 +32352,1231 @@ let guard_pa_mono_needs_no_admissibility (#v #cl: Type) (r: pcl_rel_t cl)
 (*  `nboundary`'s `b_apply_eq` / `b_apply_wb` / `b_lookup`, which      *)
 (*  remain stated against the OLD relation.                            *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.23 -- WHAT A TRANSITION OWES THE ALLOCATION-INDEXED FAMILY     *)
+(*                                                                     *)
+(*  B2b.22 left the family Kripke-monotone along `paext` and left      *)
+(*  `pasrel` -- deliberately -- NOT monotone: it is a totality         *)
+(*  statement about the store, so growing the world CREATES an         *)
+(*  obligation.  Discharging that obligation is what a transition      *)
+(*  does, and this section works out what a transition needs in hand   *)
+(*  before it can.                                                     *)
+(*                                                                     *)
+(*  FIVE STEPS, AND THE WHOLE-DISPATCHER STEP THEOREM IS NOT ONE OF    *)
+(*  THEM.  Nothing below re-proves `lemma_pstep_compat`, derives the   *)
+(*  old step theorem, or lifts anything to a finite run.  What is      *)
+(*  settled here is:                                                   *)
+(*                                                                     *)
+(*   0. the isolating form of the `pwext` refutation, which            *)
+(*      B2b.22 shipped in a version that also rolled the frontiers     *)
+(*      back;                                                          *)
+(*   1. the allocation-aware `apply` and `lookup` conditions, stated;  *)
+(*   2. WHICH OF THE BOUNDARY RECORD'S THREE COHERENCE CONDITIONS      *)
+(*      CARRY OVER -- decided by proof in each direction, not by       *)
+(*      inspection;                                                    *)
+(*   3. the parallel record inhabited at the shipped `nboundary`'s     *)
+(*      own data, so the new condition is not vacuous;                 *)
+(*   4. the non-allocating rules, which leave the state alone;         *)
+(*   5. the allocating ones, which move the store, the world and the   *)
+(*      two frontiers TOGETHER.                                        *)
+(*                                                                     *)
+(*  Everything below is a NEW name.  Nothing above is touched.         *)
+(* ================================================================== *)
+
+
+(* ---- 0. THE REFUTATION, ISOLATED --------------------------------- *)
+
+(**
+ * **THE `pwext`-SHAPED MONOTONICITY PRINCIPLE IS FALSE FOR THE IDENTITY
+ * REVIVAL ALONE.** REFUTED, and this is `guard_pa_mono_fails_along_bare_pwext`
+ * with its one impurity removed.
+ *
+ * That guard's successor state is `pa_revive`, frontiers `(0, 0)`, reached from
+ * `pa_low`, frontiers `(5, 5)`. Its frontiers are LOWER, so a reader could
+ * fairly ask whether the failure is the revival of the name `0` below the
+ * frontier or merely the rollback of the frontier itself -- two different
+ * defects, and only the first is the one `paext` exists to exclude.
+ *
+ * `pa_revive_hi` is the same world under frontiers `(5, 5)`: NOTHING moves
+ * backwards, `pa_low.an1 <= pa_revive_hi.an1` and `pa_low.an2 <=
+ * pa_revive_hi.an2` are stated as conjuncts so the reading is not left to
+ * trust, and the extension is still not an access and the two consumers are
+ * still not related at it. So the failure is the revival, alone.
+ *)
+let pa_revive_hi : pastate = { aw = pwextend 0 0 ([] <: pworld); an1 = 5; an2 = 5 }
+
+let guard_pa_mono_revival_isolated (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (pwf_world pa_revive_hi.aw /\
+           pwext pa_revive_hi.aw pa_low.aw /\
+           pa_low.an1 <= pa_revive_hi.an1 /\ pa_low.an2 <= pa_revive_hi.an2 /\
+           ~(paext pa_revive_hi pa_low) /\
+           ~(pafn_rel_at r pa_revive_hi (pahi #v #cl) (palo #v #cl)))
+  = lemma_pwextend_wf 0 0 ([] <: pworld);
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    lemma_paext_refl pa_revive_hi;
+    assert (pval_rel #v pa_revive_hi.aw (PCtxKey 0) (PCtxKey 0));
+    introduce pafn_rel_at r pa_revive_hi (pahi #v #cl) (palo #v #cl) ==> False
+    with begin
+      pafn_rel_at_unfold r pa_revive_hi (pahi #v #cl) (palo #v #cl) ();
+      assert (pacrel r pa_revive_hi (pahi #v #cl (PCtxKey 0)) (palo #v #cl (PCtxKey 0)));
+      pacrel_unfold r pa_revive_hi
+        (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" []) ();
+      assert (pacomp_rel r 1 pa_revive_hi
+                (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" []))
+    end
+
+
+(* ================================================================== *)
+(*  1. THE VARIANCE, BOTH DIRECTIONS, BY MACHINE                       *)
+(*                                                                     *)
+(*  Before any condition can be RESTATED at the new index one has to   *)
+(*  know how the two families sit relative to one another, and the     *)
+(*  answer is not the same on the two sides of an implication.  Both   *)
+(*  directions are settled here, and each is settled by a proof or a   *)
+(*  counterexample rather than by the shape of the definitions.        *)
+(* ================================================================== *)
+
+(**
+ * **THE CONCLUSION SIDE: THE OLD RELATION COLLAPSES INTO THE NEW ONE, AT ANY
+ * FRONTIERS WHATEVER.** PROVED, by the seven-way induction at the same
+ * lexicographic measures the two families already carry.
+ *
+ * The reason is that `paext s' s` implies `pwf_world s'.aw /\ pwext s'.aw s.aw`
+ * -- `lemma_paext_is_pwext` -- so every state the NEW clause's `forall s'`
+ * offers is a world the OLD clause's `forall w'` already spoke for. A relation
+ * quantified over MORE futures holds when read over fewer.
+ *
+ * **WHAT THIS INDUCTION DOES NOT NEED, AND THE OMISSION IS THE RESULT.** No
+ * `pcl_mono`, no `pawf`, no boundedness, no per-closure premise: the hypothesis
+ * is `pcomp_rel r n s.aw c1 c2` and NOTHING ELSE, and the frontiers `s.an1` and
+ * `s.an2` are entirely unconstrained. Compare `lemma_pacomp_rel_mono`, which
+ * needs `pcl_mono r` because it has to move `ptable_rel` along a growing world;
+ * here the world does not move at all.
+ *
+ * `pval_rel`, `pvals_rel` and `ptable_rel` are reused verbatim by the new
+ * family AT `s.aw`, so the three clauses that mention them are literally the
+ * same proposition on both sides and the induction has nothing to do at them.
+ *)
+let rec lemma_pacomp_of_pcomp (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                              (c1 c2: pcomp v cl)
+  : Lemma (requires pcomp_rel r n s.aw c1 c2)
+          (ensures pacomp_rel r n s c1 c2)
+          (decreases %[n; 0; 0])
+  = if n = 0 then ()
+    else
+      match c1, c2 with
+      | PVar _, PVar _ -> ()
+      | POp a1 f1, POp a2 f2 ->
+        lemma_pacomp_of_pcomp r (n - 1) s a1 a2;
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r (n - 1) s' (f1 y1) (f2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r (n - 1) s' (f1 y1) (f2 y2)))
+      | PPerform _ _ _, PPerform _ _ _ -> ()
+      | PHandle t1 ret1 _ b1, PHandle t2 ret2 _ b2 ->
+        lemma_pacomp_of_pcomp r (n - 1) s b1 b2;
+        (match ret1, ret2 with
+         | Some g1, Some g2 ->
+           introduce forall (s': pastate) (y1 y2: pval v).
+               (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                pacomp_rel r (n - 1) s' (g1 y1) (g2 y2))
+           with (introduce _ ==> _
+                 with (lemma_paext_is_pwext s' s;
+                       lemma_pacomp_of_pcomp r (n - 1) s' (g1 y1) (g2 y2)))
+         | _, _ -> ())
+      | PSplice fs1 b1, PSplice fs2 b2 ->
+        lemma_paframes_of_pframes r (n - 1) s fs1 fs2;
+        lemma_pacomp_of_pcomp r (n - 1) s b1 b2
+      | PEmit _ b1, PEmit _ b2 -> lemma_pacomp_of_pcomp r (n - 1) s b1 b2
+      | PWeave _ _ is1 ow1 b1, PWeave _ _ is2 ow2 b2 ->
+        lemma_paframes_of_pframes r (n - 1) s is1 is2;
+        lemma_paowner_of_powner r (n - 1) s ow1 ow2;
+        lemma_pacomp_of_pcomp r (n - 1) s b1 b2
+      | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+        lemma_paplan_of_pplan r (n - 1) s pl1 pl2;
+        lemma_pacomp_of_pcomp r (n - 1) s b1 b2
+      | PExtendC pl1 _ g1, PExtendC pl2 _ g2 ->
+        lemma_paplan_of_pplan r (n - 1) s pl1 pl2;
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r (n - 1) s' (g1 y1) (g2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r (n - 1) s' (g1 y1) (g2 y2)))
+      | PExtendCtxC pl1 _ g1, PExtendCtxC pl2 _ g2 ->
+        lemma_paplan_of_pplan r (n - 1) s pl1 pl2;
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r (n - 1) s' (g1 y1) (g2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r (n - 1) s' (g1 y1) (g2 y2)))
+      | PResumeC pl1 _ k1, PResumeC pl2 _ k2 ->
+        lemma_paplan_of_pplan r (n - 1) s pl1 pl2;
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r (n - 1) s' (k1 y1) (k2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r (n - 1) s' (k1 y1) (k2 y2)))
+      | PNewP _ _ b1, PNewP _ _ b2 -> lemma_pacomp_of_pcomp r (n - 1) s b1 b2
+      | _, _ -> ()
+
+and lemma_paowner_of_powner (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                            (o1 o2: powner v cl)
+  : Lemma (requires powner_rel r n s.aw o1 o2)
+          (ensures paowner_rel r n s o1 o2)
+          (decreases %[n; 1; 0])
+  = if n = 0 then ()
+    else
+      match o1, o2 with
+      | POwner _ ret1 _, POwner _ ret2 _ ->
+        (match ret1, ret2 with
+         | Some g1, Some g2 ->
+           introduce forall (s': pastate) (y1 y2: pval v).
+               (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                pacomp_rel r n s' (g1 y1) (g2 y2))
+           with (introduce _ ==> _
+                 with (lemma_paext_is_pwext s' s;
+                       lemma_pacomp_of_pcomp r n s' (g1 y1) (g2 y2)))
+         | _, _ -> ())
+
+and lemma_paframe_of_pframe (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                            (f1 f2: pframe v cl)
+  : Lemma (requires pframe_rel r n s.aw f1 f2)
+          (ensures paframe_rel r n s f1 f2)
+          (decreases %[n; 2; 0])
+  = if n = 0 then ()
+    else
+      match f1, f2 with
+      | PBindF g1, PBindF g2 ->
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r n s' (g1 y1) (g2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r n s' (g1 y1) (g2 y2)))
+      | PPromptF _ ret1 _, PPromptF _ ret2 _ ->
+        (match ret1, ret2 with
+         | Some g1, Some g2 ->
+           introduce forall (s': pastate) (y1 y2: pval v).
+               (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                pacomp_rel r n s' (g1 y1) (g2 y2))
+           with (introduce _ ==> _
+                 with (lemma_paext_is_pwext s' s;
+                       lemma_pacomp_of_pcomp r n s' (g1 y1) (g2 y2)))
+         | _, _ -> ())
+      | PSiteF g1, PSiteF g2 ->
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r n s' (g1 y1) (g2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r n s' (g1 y1) (g2 y2)))
+      | PModeF _ g1, PModeF _ g2 ->
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r n s' (g1 y1) (g2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r n s' (g1 y1) (g2 y2)))
+      | _, _ -> ()
+
+and lemma_paitem_of_pitem (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                          (i1 i2: plan_item v cl)
+  : Lemma (requires pitem_rel r n s.aw i1 i2)
+          (ensures paitem_rel r n s i1 i2)
+          (decreases %[n; 2; 1])
+  = if n = 0 then ()
+    else
+      match i1, i2 with
+      | PIBind g1, PIBind g2 ->
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r n s' (g1 y1) (g2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r n s' (g1 y1) (g2 y2)))
+      | PIReenter _ ret1, PIReenter _ ret2 ->
+        (match ret1, ret2 with
+         | Some g1, Some g2 ->
+           introduce forall (s': pastate) (y1 y2: pval v).
+               (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                pacomp_rel r n s' (g1 y1) (g2 y2))
+           with (introduce _ ==> _
+                 with (lemma_paext_is_pwext s' s;
+                       lemma_pacomp_of_pcomp r n s' (g1 y1) (g2 y2)))
+         | _, _ -> ())
+      | _, _ -> ()
+
+and lemma_paframes_of_pframes (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                              (fs1 fs2: list (pframe v cl))
+  : Lemma (requires pframes_rel r n s.aw fs1 fs2)
+          (ensures paframes_rel r n s fs1 fs2)
+          (decreases %[n; 3; length fs1])
+  = if n = 0 then ()
+    else
+      match fs1, fs2 with
+      | a1 :: t1, a2 :: t2 ->
+        lemma_paframe_of_pframe r n s a1 a2;
+        lemma_paframes_of_pframes r n s t1 t2
+      | _, _ -> ()
+
+and lemma_paitems_of_pitems (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                            (is1 is2: list (plan_item v cl))
+  : Lemma (requires pitems_rel r n s.aw is1 is2)
+          (ensures paitems_rel r n s is1 is2)
+          (decreases %[n; 3; length is1])
+  = if n = 0 then ()
+    else
+      match is1, is2 with
+      | a1 :: t1, a2 :: t2 ->
+        lemma_paitem_of_pitem r n s a1 a2;
+        lemma_paitems_of_pitems r n s t1 t2
+      | _, _ -> ()
+
+and lemma_paplan_of_pplan (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                          (pl1 pl2: plan v cl)
+  : Lemma (requires pplan_rel r n s.aw pl1 pl2)
+          (ensures paplan_rel r n s pl1 pl2)
+          (decreases %[n; 4; 0])
+  = if n = 0 then ()
+    else
+      match pl1, pl2 with
+      | Plan ls1 ow1, Plan ls2 ow2 ->
+        lemma_paitems_of_pitems r n s ls1 ls2;
+        lemma_paowner_of_powner r n s ow1 ow2
+
+(** The top of the family, and the store relation. Each is the collapse index by
+    index. `lemma_pasrel_of_psrel` is worth naming separately: it says that a
+    store that was FULL for the old world is full for the new state at the same
+    world -- which is exactly what step 5 below has to re-establish after an
+    allocation, and what nothing in B2b.22 could give it. *)
+let lemma_pactx_of_pctx (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                        (cx1 cx2: pctx v cl)
+  : Lemma (requires pctx_rel r n s.aw cx1 cx2)
+          (ensures pactx_rel r n s cx1 cx2)
+  = if n = 0 then ()
+    else
+      match cx1, cx2 with
+      | PCtxDone _, PCtxDone _ -> ()
+      | PCtxRequests _ rs1 p1, PCtxRequests _ rs2 p2 ->
+        lemma_paframes_of_pframes r n s rs1 rs2;
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             pacomp_rel r n s' (p1 y1) (p2 y2))
+        with (introduce _ ==> _
+              with (lemma_paext_is_pwext s' s;
+                    lemma_pacomp_of_pcomp r n s' (p1 y1) (p2 y2)))
+      | _, _ -> ()
+
+let lemma_pacrel_of_pcrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (c1 c2: pcomp v cl)
+  : Lemma (requires pcrel r s.aw c1 c2) (ensures pacrel r s c1 c2)
+  = introduce forall (n: nat). pacomp_rel r n s c1 c2
+    with lemma_pacomp_of_pcomp r n s c1 c2
+
+let lemma_paxrel_of_pxrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (cx1 cx2: pctx v cl)
+  : Lemma (requires pxrel r s.aw cx1 cx2) (ensures paxrel r s cx1 cx2)
+  = introduce forall (n: nat). pactx_rel r n s cx1 cx2
+    with lemma_pactx_of_pctx r n s cx1 cx2
+
+let lemma_pakrel_of_pkrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (k1 k2: pstack v cl)
+  : Lemma (requires pkrel r s.aw k1 k2) (ensures pakrel r s k1 k2)
+  = introduce forall (n: nat). paframes_rel r n s k1 k2
+    with lemma_paframes_of_pframes r n s k1 k2
+
+let lemma_pasrel_of_psrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (s1 s2: pstore v cl)
+  : Lemma (requires psrel r s.aw s1 s2) (ensures pasrel r s s1 s2)
+  = psrel_unfold r s.aw s1 s2 ();
+    introduce forall (i j: nat).
+        (pwlookup_l i s.aw == Some j ==>
+         (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+          paxrel r s (psget i s1) (psget j s2)))
+    with (introduce _ ==> _
+          with lemma_paxrel_of_pxrel r s (psget i s1) (psget j s2))
+
+(**
+ * **THE HYPOTHESIS SIDE, AND IT RUNS THE OTHER WAY.** PROVED -- and the
+ * direction is the whole difficulty of step 2 below.
+ *
+ * `pfn_rel_at r s.aw f1 f2` quantifies over EVERY well-formed `pwext` extension
+ * of `s.aw`; `pafn_rel_at r s f1 f2` quantifies over the accessible states
+ * only. So the old notion is the STRONGER one and implies the new one -- which
+ * is exactly the wrong way round for using a hypothesis.
+ *)
+let lemma_pafn_rel_at_of_pfn_rel_at (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                    (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires pfn_rel_at r s.aw f1 f2) (ensures pafn_rel_at r s f1 f2)
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacrel r s' (f1 y1) (f2 y2))
+    with (introduce _ ==> _
+          with (lemma_paext_is_pwext s' s;
+                lemma_pacrel_of_pcrel r s' (f1 y1) (f2 y2)))
+
+(**
+ * **AND BOTH IMPLICATIONS ARE STRICT.** REFUTED, in the two places it matters,
+ * at the fixture `guard_pa_domain_is_strictly_narrower` built.
+ *
+ * `pahi` and `palo` agree on every handle named at or above 5 and disagree
+ * below it; `pa_low` is the empty world under frontiers `(5, 5)`. The two
+ * `_unfold_g` casts are the old family's counterpart of the six B2b.21 added:
+ * a `GTot prop` in hypothesis position is an atom, and without the cast the
+ * quantifier these refutations have to instantiate is invisible.
+ *)
+let pfn_rel_at_unfold_g (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                        (f1 f2: pval v -> pcomp v cl)
+                        (h: squash (pfn_rel_at r w0 f1 f2))
+  : squash (forall (w: pworld) (y1 y2: pval v).
+              pwf_world w /\ pwext w w0 /\ pval_rel w y1 y2 ==>
+              pcrel r w (f1 y1) (f2 y2))
+  = h
+
+let pcrel_unfold_g (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld) (c1 c2: pcomp v cl)
+                   (h: squash (pcrel r w c1 c2))
+  : squash (forall (n: nat). pcomp_rel r n w c1 c2)
+  = h
+
+(**
+ * **THE HYPOTHESIS-SIDE IMPLICATION IS STRICT.** REFUTED. The two consumers are
+ * `pafn_rel_at`-related at `pa_low` and are NOT `pfn_rel_at`-related at
+ * `pa_low.aw`, because `pwext` admits `[(0, 0)]` -- the identity revival below
+ * the frontier -- and at that world they disagree.
+ *
+ * **This is the fact step 2 turns on.** It says there are continuations
+ * satisfying the NEW `apply` condition's hypothesis at which the OLD condition
+ * has nothing to say, so the old condition cannot be used to discharge the new
+ * one.
+ *)
+let lemma_pahi_palo_not_pfn_rel_at (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (~(pfn_rel_at r pa_low.aw (pahi #v #cl) (palo #v #cl)))
+  = lemma_pwextend_wf 0 0 ([] <: pworld);
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    let w : pworld = pwextend 0 0 ([] <: pworld) in
+    assert (pval_rel #v w (PCtxKey 0) (PCtxKey 0));
+    introduce pfn_rel_at r pa_low.aw (pahi #v #cl) (palo #v #cl) ==> False
+    with begin
+      pfn_rel_at_unfold_g r pa_low.aw (pahi #v #cl) (palo #v #cl) ();
+      assert (pcrel r w (pahi #v #cl (PCtxKey 0)) (palo #v #cl (PCtxKey 0)));
+      pcrel_unfold_g r w
+        (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" []) ();
+      assert (pcomp_rel r 1 w
+                (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" []))
+    end
+
+let guard_pa_apply_hypothesis_variance (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (pafn_rel_at r pa_low (pahi #v #cl) (palo #v #cl) /\
+           ~(pfn_rel_at r pa_low.aw (pahi #v #cl) (palo #v #cl)))
+  = guard_pa_mono_fails_along_bare_pwext #v #cl r;
+    lemma_pahi_palo_not_pfn_rel_at #v #cl r
+
+(**
+ * **THE CONCLUSION-SIDE IMPLICATION IS STRICT TOO, SO THE COLLAPSE IS NOT AN
+ * EQUIVALENCE.** REFUTED. `POp (PPerform "e" "o" []) pahi` and the same node
+ * over `palo` ARE `pacrel`-related at `pa_low` -- their consumers are related
+ * at every accessible state -- and are NOT `pcrel`-related at `pa_low.aw`,
+ * refuted through the `POp` clause's own future quantifier at the same revived
+ * world.
+ *
+ * Taken with the guard above, this is the variance analysis in full, by
+ * machine: the conclusion moves old-to-new, the hypothesis moves new-to-old,
+ * and both are strict. An implication is contravariant in its hypothesis, so
+ * the two directions do not compose, and no derivation of the new `apply`
+ * condition from the old one exists.
+ *)
+let pa_op_hi (#v #cl: Type) : pcomp v cl = POp (PPerform "e" "o" []) (pahi #v #cl)
+let pa_op_lo (#v #cl: Type) : pcomp v cl = POp (PPerform "e" "o" []) (palo #v #cl)
+
+let lemma_pahi_palo_step (#v #cl: Type) (r: pcl_rel_t cl) (m: nat) (s': pastate)
+                         (y1 y2: pval v)
+  : Lemma (requires pafn_rel_at r pa_low (pahi #v #cl) (palo #v #cl) /\
+                    paext s' pa_low /\ pval_rel s'.aw y1 y2)
+          (ensures pacomp_rel r m s' (pahi #v #cl y1) (palo #v #cl y2))
+  = pafn_rel_at_unfold r pa_low (pahi #v #cl) (palo #v #cl) ();
+    pacrel_unfold r s' (pahi #v #cl y1) (palo #v #cl y2) ()
+
+let lemma_pa_op_hi_lo_pacrel (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (requires pafn_rel_at r pa_low (pahi #v #cl) (palo #v #cl))
+          (ensures pacrel r pa_low (pa_op_hi #v #cl) (pa_op_lo #v #cl))
+  = introduce forall (n: nat). pacomp_rel r n pa_low (pa_op_hi #v #cl) (pa_op_lo #v #cl)
+    with (if n = 0 then ()
+          else
+            introduce forall (s': pastate) (y1 y2: pval v).
+                (paext s' pa_low /\ pval_rel s'.aw y1 y2 ==>
+                 pacomp_rel r (n - 1) s' (pahi #v #cl y1) (palo #v #cl y2))
+            with (introduce _ ==> _
+                  with lemma_pahi_palo_step r (n - 1) s' y1 y2))
+
+let lemma_pa_op_hi_lo_not_pcrel (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (~(pcrel r pa_low.aw (pa_op_hi #v #cl) (pa_op_lo #v #cl)))
+  = lemma_pwextend_wf 0 0 ([] <: pworld);
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    let w : pworld = pwextend 0 0 ([] <: pworld) in
+    assert (pval_rel #v w (PCtxKey 0) (PCtxKey 0));
+    introduce pcrel r pa_low.aw (pa_op_hi #v #cl) (pa_op_lo #v #cl) ==> False
+    with begin
+      pcrel_unfold_g r pa_low.aw (pa_op_hi #v #cl) (pa_op_lo #v #cl) ();
+      assert (pcomp_rel r 2 pa_low.aw (pa_op_hi #v #cl) (pa_op_lo #v #cl));
+      assert (pcomp_rel r 1 w
+                (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" []))
+    end
+
+let guard_pa_collapse_is_strict (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (pacrel r pa_low (pa_op_hi #v #cl) (pa_op_lo #v #cl) /\
+           ~(pcrel r pa_low.aw (pa_op_hi #v #cl) (pa_op_lo #v #cl)))
+  = guard_pa_mono_fails_along_bare_pwext #v #cl r;
+    lemma_pa_op_hi_lo_pacrel #v #cl r;
+    lemma_pa_op_hi_lo_not_pcrel #v #cl r
+
+(* ================================================================== *)
+(*  2. STEP 1 AND STEP 2 -- THE THREE COHERENCE CONDITIONS, ONE AT A   *)
+(*     TIME                                                            *)
+(*                                                                     *)
+(*  `pboundary` carries three conditions that mention `b_apply` or     *)
+(*  `b_lk`.  They behave DIFFERENTLY under the narrowing, and this     *)
+(*  section decides each by proof.                                     *)
+(*                                                                     *)
+(*   `b_apply_wb` / `papply_wb` -- mentions `pterm_wb` and NO RELATION *)
+(*     AT ALL.  There is nothing for the narrowing to act on and       *)
+(*     nothing to restate: it is carried into the parallel record      *)
+(*     BY THE SAME NAME, and `naboundary` below discharges it with     *)
+(*     `nboundary`'s own proof term.                                   *)
+(*                                                                     *)
+(*   `b_lookup` / `plookup_equivariant` -- stated over `ptable_rel`,   *)
+(*     which the new family REUSES unchanged at `s.aw`, and which      *)
+(*     contains no future-world quantifier.  It is proved EQUIVALENT   *)
+(*     to its state-indexed form below, in both directions, so it too  *)
+(*     is carried by the same name.                                    *)
+(*                                                                     *)
+(*   `b_apply_eq` / `papply_equivariant` -- mentions `pfn_rel_at` in   *)
+(*     its HYPOTHESIS and `pcrel` in its CONCLUSION, both of them      *)
+(*     future-quantified.  Section 1 proved the two implications run   *)
+(*     in OPPOSITE directions and that both are strict, so this one    *)
+(*     does NOT carry, and a parallel field is required.               *)
+(*                                                                     *)
+(*  ONE FIELD OUT OF FIVE HAD TO CHANGE.  That is the answer to        *)
+(*  step 2, and it is why `paboundary` below is `pboundary` with a     *)
+(*  single field retyped rather than a record built afresh.            *)
+(* ================================================================== *)
+
+(**
+ * **THE LOOKUP CONDITION AT THE STATE.** The old condition with `pworld`
+ * replaced by `pastate` and every occurrence read at `s.aw`; nothing else moves,
+ * because there was nothing else to move.
+ *
+ * The `{:pattern}`-carrying twin and the cast to it are the idiom `plookup_eq_p`
+ * and `lk_patterned` already establish for the old condition: the bare `forall`
+ * has no trigger that fires from a goal already holding the two tables, so the
+ * elimination is written out once.
+ *)
+let palookup_equivariant (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) : GTot prop
+  = forall (n: nat) (s: pastate) (t1 t2: ptable cl) (eff op: string).
+      ptable_rel r n s.aw t1 t2 ==>
+      (match lk t1 eff op, lk t2 eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ r n s.aw f1.body f2.body
+       | _, _ -> False)
+
+let palookup_eq_p (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) : GTot prop
+  = forall (n: nat) (s: pastate) (t1 t2: ptable cl) (eff op: string).
+      {:pattern (lk t1 eff op); (lk t2 eff op); (ptable_rel r n s.aw t1 t2)}
+      ptable_rel r n s.aw t1 t2 ==>
+      (match lk t1 eff op, lk t2 eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ r n s.aw f1.body f2.body
+       | _, _ -> False)
+
+let palk_patterned (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                   (h: squash (palookup_equivariant r lk))
+  : squash (palookup_eq_p r lk)
+  = h
+
+let lemma_palookup_equivariant_at (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (n: nat) (s: pastate) (t1 t2: ptable cl) (eff op: string)
+  : Lemma (requires palookup_equivariant r lk /\ ptable_rel r n s.aw t1 t2)
+          (ensures (match lk t1 eff op, lk t2 eff op with
+                    | None, None -> True
+                    | Some f1, Some f2 -> f1.kind == f2.kind /\ r n s.aw f1.body f2.body
+                    | _, _ -> False))
+  = palk_patterned r lk ()
+
+(**
+ * **THE LOOKUP CONDITION CARRIES OVER, AND IT CARRIES BOTH WAYS.** PROVED,
+ * twice. Forward is instantiation at `w := s.aw`. Backward is instantiation at
+ * `pastate_at w`, the world under frontiers `(0, 0)`, whose `aw` is `w` -- so
+ * every world the old condition speaks about is the world of SOME state and
+ * nothing is lost.
+ *
+ * The two together say the old field is not merely SUFFICIENT for the new
+ * index: it is the same condition. That is why `paboundary` below keeps
+ * `plookup_equivariant` verbatim rather than carrying a `pa`-prefixed copy.
+ *)
+let lemma_palookup_of_plookup (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+  : Lemma (requires plookup_equivariant r lk)
+          (ensures palookup_equivariant r lk)
+  = lk_patterned r lk ()
+
+let pastate_at (w: pworld) : pastate = { aw = w; an1 = 0; an2 = 0 }
+
+let lemma_plookup_of_palookup (#cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+  : Lemma (requires palookup_equivariant r lk)
+          (ensures plookup_equivariant r lk)
+  = palk_patterned r lk ();
+    assert (forall (w: pworld). (pastate_at w).aw == w)
+
+
+(**
+ * **THE APPLY CONDITION AT THE STATE.** The old condition with `pfn_rel_at`
+ * replaced by `pafn_rel_at` and `pcrel` by `pacrel`, at `s`; `pclrel` and
+ * `pvals_rel` stay where they were, read at `s.aw`, because neither has a
+ * future quantifier in it.
+ *
+ * The side condition is `pwf_world s.aw` and not `pawf s`, mirroring the old
+ * condition's `pwf_world w` exactly. It is what `lemma_paext_refl` needs, and
+ * it is the weakest thing that lets a use of this condition read the
+ * continuation AT THE STATE it is standing on; demanding `pawf s` would have
+ * made the condition weaker for no gain.
+ *)
+let paapply_equivariant (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+  : GTot prop
+  = forall (s: pastate) (c1 c2: cl) (p1 p2: list (pval v))
+           (k1 k2: pval v -> pcomp v cl).
+      pwf_world s.aw /\ pclrel r s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+      pafn_rel_at r s k1 k2 ==>
+      pacrel r s (apply c1 p1 k1) (apply c2 p2 k2)
+
+let paapply_eq_p (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl) : GTot prop
+  = forall (s: pastate) (c1 c2: cl) (p1 p2: list (pval v))
+           (k1 k2: pval v -> pcomp v cl).
+      {:pattern (apply c1 p1 k1); (apply c2 p2 k2); (pclrel r s.aw c1 c2)}
+      pwf_world s.aw /\ pclrel r s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+      pafn_rel_at r s k1 k2 ==>
+      pacrel r s (apply c1 p1 k1) (apply c2 p2 k2)
+
+let paapply_patterned (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+                      (h: squash (paapply_equivariant r apply))
+  : squash (paapply_eq_p r apply)
+  = h
+
+let lemma_paapply_equivariant_at (#v #cl: Type) (r: pcl_rel_t cl)
+      (apply: papply_t v cl) (s: pastate) (c1 c2: cl) (p1 p2: list (pval v))
+      (k1 k2: pval v -> pcomp v cl)
+  : Lemma (requires paapply_equivariant r apply /\ pwf_world s.aw /\
+                    pclrel r s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+                    pafn_rel_at r s k1 k2)
+          (ensures pacrel r s (apply c1 p1 k1) (apply c2 p2 k2))
+  = paapply_patterned r apply ()
+
+(**
+ * **HOW FAR THE OLD CONDITION REACHES, EXACTLY.** PROVED: it discharges the new
+ * conclusion whenever the OLD hypothesis about the continuation is in hand.
+ * `apply_patterned` gives `pcrel r s.aw` and `lemma_pacrel_of_pcrel` collapses
+ * it to `pacrel r s`. So the conclusion side costs nothing, and the ENTIRE
+ * distance between the two conditions is the premise `pfn_rel_at r s.aw k1 k2`
+ * in place of `pafn_rel_at r s k1 k2`.
+ *)
+let lemma_paapply_at_of_papply (#v #cl: Type) (r: pcl_rel_t cl)
+      (apply: papply_t v cl) (s: pastate) (c1 c2: cl) (p1 p2: list (pval v))
+      (k1 k2: pval v -> pcomp v cl)
+  : Lemma (requires papply_equivariant r apply /\ pwf_world s.aw /\
+                    pclrel r s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+                    pfn_rel_at r s.aw k1 k2)
+          (ensures pacrel r s (apply c1 p1 k1) (apply c2 p2 k2))
+  = apply_patterned r apply ();
+    assert (pcrel r s.aw (apply c1 p1 k1) (apply c2 p2 k2));
+    lemma_pacrel_of_pcrel r s (apply c1 p1 k1) (apply c2 p2 k2)
+
+(**
+ * **AND THAT PREMISE CANNOT BE MANUFACTURED.** REFUTED. The bridge a derivation
+ * would need -- every `pafn_rel_at`-related pair is `pfn_rel_at`-related at the
+ * state's own world -- is FALSE, and `pahi` / `palo` at `pa_low` is the witness.
+ *
+ * So `papply_equivariant` does NOT discharge `paapply_equivariant`. This is the
+ * verdict of step 2, and it is a verdict rather than a difficulty: the two
+ * conditions are about different things, in the same sense in which
+ * `guard_apply_wb_independent_of_apply_eq` showed `b_apply_wb` and `b_apply_eq`
+ * are, and the parallel record below is the consequence.
+ *)
+let guard_pa_apply_bridge_refuted (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (~(forall (s: pastate) (f1 f2: pval v -> pcomp v cl).
+               pwf_world s.aw /\ pafn_rel_at r s f1 f2 ==> pfn_rel_at r s.aw f1 f2))
+  = guard_pa_apply_hypothesis_variance #v #cl r;
+    introduce (forall (s: pastate) (f1 f2: pval v -> pcomp v cl).
+                 pwf_world s.aw /\ pafn_rel_at r s f1 f2 ==> pfn_rel_at r s.aw f1 f2)
+              ==> False
+    with assert (pwf_world pa_low.aw)
+
+(**
+ * **THE PARALLEL BOUNDARY, AND IT IS `pboundary` WITH ONE FIELD RETYPED.**
+ *
+ * `pb_rel`, `pb_lk`, `pb_apply` are the same data; `pb_mono`, `pb_down`,
+ * `pb_lookup` and `pb_apply_wb` are the same PROPERTIES, by the same names, so
+ * an inhabitant of `pboundary` hands them over with nothing to reprove.
+ * `pb_apply_eq` is the only field that changed, and section 2 is the proof that
+ * it had to.
+ *
+ * `lemma_paboundary_lookup_at_state` is the state-indexed reading of
+ * `pb_lookup`, so a consumer of the new record never has to touch the old
+ * condition's shape.
+ *)
+noeq
+type paboundary (v: Type) (cl: Type) = {
+  pb_rel: pcl_rel_t cl;
+  pb_lk: plookup_t cl;
+  pb_apply: papply_t v cl;
+  pb_mono: squash (pcl_mono pb_rel);
+  pb_down: squash (pcl_down pb_rel);
+  pb_lookup: squash (plookup_equivariant pb_rel pb_lk);
+  pb_apply_eq: squash (paapply_equivariant pb_rel pb_apply);
+  pb_apply_wb: squash (papply_wb pb_apply);
+}
+
+let lemma_paboundary_lookup_at_state (#v #cl: Type) (b: paboundary v cl)
+  : Lemma (palookup_equivariant b.pb_rel b.pb_lk)
+  = let _ : squash (plookup_equivariant b.pb_rel b.pb_lk) = b.pb_lookup in
+    lemma_palookup_of_plookup b.pb_rel b.pb_lk
+
+(* ================================================================== *)
+(*  3. STEP 3 -- THE NEW CONDITION, INHABITED AT THE SHIPPED           *)
+(*     BOUNDARY'S OWN DATA                                             *)
+(*                                                                     *)
+(*  A condition nothing satisfies is not a condition, and a parallel   *)
+(*  record nothing inhabits is not a design.  `naboundary` is          *)
+(*  `nboundary` field for field: the same relation, the same lookup,   *)
+(*  the same interpreter, and FOUR OF THE FIVE PROOF TERMS ARE         *)
+(*  `nboundary`'S OWN.  Only `pb_apply_eq` is new.                     *)
+(* ================================================================== *)
+
+(** Two one-line facts the interpreter's cases run on. `lemma_pafn_at_self` is
+    the continuation read AT the state it is standing on -- `lemma_paext_refl`
+    and the `pafn_rel_at` cast, and nothing else -- and it is the whole reason
+    `napply` satisfies the narrowed condition: every clause of it places the
+    continuation where the state already speaks. *)
+let lemma_pafn_at_self (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (k1 k2: pval v -> pcomp v cl) (y1 y2: pval v)
+  : Lemma (requires pwf_world s.aw /\ pafn_rel_at r s k1 k2 /\ pval_rel s.aw y1 y2)
+          (ensures pacrel r s (k1 y1) (k2 y2))
+  = lemma_paext_refl s;
+    pafn_rel_at_unfold r s k1 k2 ()
+
+let lemma_pacrel_var_at (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (a b: pval v)
+  : Lemma (requires pval_rel s.aw a b)
+          (ensures pacrel r s (PVar #v #cl a) (PVar b))
+  = introduce forall (n: nat). pacomp_rel r n s (PVar #v #cl a) (PVar b) with ()
+
+let lemma_napply_pa_echo (s: pastate) (p1 p2: list (pval fv))
+      (k1 k2: pval fv -> pcomp fv ncl)
+  : Lemma (requires pwf_world s.aw /\ pvals_rel s.aw p1 p2 /\
+                    pafn_rel_at ncl_rel s k1 k2)
+          (ensures pacrel ncl_rel s (napply NEcho p1 k1) (napply NEcho p2 k2))
+  = match p1, p2 with
+    | x1 :: _, x2 :: _ -> lemma_pafn_at_self ncl_rel s k1 k2 x1 x2
+    | [], [] ->
+      assert (pval_rel #fv s.aw (fpv FU) (fpv FU));
+      lemma_pafn_at_self ncl_rel s k1 k2 (fpv FU) (fpv FU)
+    | _, _ -> ()
+
+let lemma_napply_pa_at (s: pastate) (c1 c2: ncl) (p1 p2: list (pval fv))
+      (k1 k2: pval fv -> pcomp fv ncl)
+  : Lemma (requires pwf_world s.aw /\ pclrel ncl_rel s.aw c1 c2 /\
+                    pvals_rel s.aw p1 p2 /\ pafn_rel_at ncl_rel s k1 k2)
+          (ensures pacrel ncl_rel s (napply c1 p1 k1) (napply c2 p2 k2))
+  = match c1, c2 with
+    | NEcho, NEcho -> lemma_napply_pa_echo s p1 p2 k1 k2
+    | NRet a, NRet b ->
+      assert (ncl_rel 1 s.aw c1 c2);
+      lemma_pacrel_var_at ncl_rel s a b
+    | NResume a, NResume b ->
+      assert (ncl_rel 1 s.aw c1 c2);
+      lemma_pafn_at_self ncl_rel s k1 k2 a b
+    | _, _ -> assert (ncl_rel 1 s.aw c1 c2)
+
+(**
+ * **THE INTERPRETER IS EQUIVARIANT AT THE NARROWED INDEX.** PROVED, for every
+ * shape, INCLUDING the two that capture and the one that hands its captured
+ * handle to the continuation.
+ *
+ * `lemma_napply_equivariant` needed `--fuel 3 --ifuel 3`; this one needs
+ * neither, because the case analysis is split across `lemma_napply_pa_echo` and
+ * the two one-line helpers instead of being nested inside one `introduce`.
+ *)
+let lemma_napply_paequivariant () : Lemma (paapply_equivariant ncl_rel napply)
+  = introduce forall (s: pastate) (c1 c2: ncl) (p1 p2: list (pval fv))
+                     (k1 k2: pval fv -> pcomp fv ncl).
+      (pwf_world s.aw /\ pclrel ncl_rel s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+       pafn_rel_at ncl_rel s k1 k2 ==>
+       pacrel ncl_rel s (napply c1 p1 k1) (napply c2 p2 k2))
+    with (introduce _ ==> _ with lemma_napply_pa_at s c1 c2 p1 p2 k1 k2)
+
+let naboundary : paboundary fv ncl = {
+  pb_rel = ncl_rel;
+  pb_lk = pref_lookup #ncl;
+  pb_apply = napply;
+  pb_mono = lemma_ncl_rel_mono ();
+  pb_down = lemma_ncl_rel_down ();
+  pb_lookup = lemma_pref_lookup_equivariant ncl_rel;
+  pb_apply_eq = lemma_napply_paequivariant ();
+  pb_apply_wb = lemma_napply_wb ();
+}
+
+(**
+ * **AND THE NEW CONDITION FIRES ON THE PAIR A ONE-SIDED CONDITION COULD NOT
+ * EVEN STATE.** PROVED. `NRet (PCtxKey 5)` and `NRet (PCtxKey 6)` are DIFFERENT
+ * VALUES, and so are `NResume (PCtxKey 5)` and `NResume (PCtxKey 6)`, and so
+ * are the two capturing continuations `pkcap 5` and `pkcap 6`. At `nas` --
+ * `nw56` under its canonical frontier -- all three pairs are related and the
+ * interpreter's outputs are `pacrel`-related at the state.
+ *
+ * The `=!=` conjuncts are not decoration: without them the guard would be
+ * consistent with the two sides being the same term, which is the situation the
+ * whole two-sided apparatus exists to get away from.
+ *)
+let guard_na_apply_fires_at_capture ()
+  : Lemma (pawf nas /\ nas.aw == nw56 /\
+           (NRet (PCtxKey 5) =!= NRet (PCtxKey 6)) /\
+           (NResume (PCtxKey 5) =!= NResume (PCtxKey 6)) /\
+           pafn_rel_at ncl_rel nas (pkcap 5) (pkcap 6) /\
+           pacrel ncl_rel nas (napply (NRet (PCtxKey 5)) [] (pkcap 5))
+                              (napply (NRet (PCtxKey 6)) [] (pkcap 6)) /\
+           pacrel ncl_rel nas (napply (NResume (PCtxKey 5)) [] (pkcap 5))
+                              (napply (NResume (PCtxKey 6)) [] (pkcap 6)))
+  = guard_pa_nboundary_survives ();
+    assert_norm (pwlookup_l 5 nw56 == Some 6);
+    assert (pval_rel #fv nas.aw (PCtxKey 5) (PCtxKey 6));
+    introduce forall (n: nat).
+        (ncl_rel n nas.aw (NRet (PCtxKey 5)) (NRet (PCtxKey 6)) /\
+         ncl_rel n nas.aw (NResume (PCtxKey 5)) (NResume (PCtxKey 6)))
+    with ();
+    guard_pa_two_captures_related #fv #ncl ncl_rel 5 6 nas;
+    assert (pvals_rel #fv nas.aw [] []);
+    lemma_paapply_equivariant_at naboundary.pb_rel naboundary.pb_apply nas
+      (NRet (PCtxKey 5)) (NRet (PCtxKey 6)) [] [] (pkcap 5) (pkcap 6);
+    lemma_paapply_equivariant_at naboundary.pb_rel naboundary.pb_apply nas
+      (NResume (PCtxKey 5)) (NResume (PCtxKey 6)) [] [] (pkcap 5) (pkcap 6)
+
+(**
+ * **AND THE OUTPUT IT PRODUCES IS NOT TRIVIALLY TRUE.** REFUTED. At `pa_sto0`
+ * -- the empty world at frontiers `(0, 0)` -- the same two clauses are not
+ * related, and the same two outputs are NOT `pacrel`-related either. So the
+ * condition's conclusion carries information: it is the state that makes the
+ * two runs' answers correspond, and at a state that says nothing they do not.
+ *)
+let guard_na_apply_output_discriminates ()
+  : Lemma (~(pclrel ncl_rel pa_sto0.aw (NRet (PCtxKey 5)) (NRet (PCtxKey 6))) /\
+           ~(pacrel ncl_rel pa_sto0 (napply (NRet (PCtxKey 5)) [] (pkcap 5))
+                                    (napply (NRet (PCtxKey 6)) [] (pkcap 6))))
+  = guard_nom_capturing_clauses_related ();
+    assert (pa_sto0.aw == ([] <: pworld));
+    introduce pacrel ncl_rel pa_sto0 (PVar (PCtxKey #fv 5)) (PVar (PCtxKey #fv 6)) ==> False
+    with begin
+      pacrel_unfold ncl_rel pa_sto0 (PVar (PCtxKey #fv 5)) (PVar (PCtxKey #fv 6)) ();
+      assert (pacomp_rel ncl_rel 1 pa_sto0 (PVar (PCtxKey #fv 5)) (PVar (PCtxKey #fv 6)));
+      pval_rel_key_unfold #fv pa_sto0.aw 5 6 ()
+    end
+
+(* ================================================================== *)
+(*  4. STEP 4 -- THE NON-ALLOCATING RULES                              *)
+(*                                                                     *)
+(*  The claim is the cheap one and it is checked rather than           *)
+(*  asserted: a rule that does not call `palloc` leaves BOTH the store *)
+(*  and the counter alone, so the state does not move, `paext` is      *)
+(*  reflexivity, and `pasrel` is preserved with nothing to transport.  *)
+(*                                                                     *)
+(*  WHAT THE CHECK CONSUMES, and it is worth reading off the           *)
+(*  `requires` of `lemma_pasrel_nonalloc`: `pwf_world s.aw`, for       *)
+(*  reflexivity, and the two store identities.  NOT `pcl_mono`, NOT    *)
+(*  `pawf`, NOT `paxrel`, and no monotonicity lemma of B2b.22.  That   *)
+(*  is the sense in which the non-allocating case is free.             *)
+(* ================================================================== *)
+
+(**
+ * **THE SYNTACTIC SIDE CONDITION, AND IT EXCLUDES EXACTLY THE THREE GROWTH
+ * SITES.** `PExtendCtxC` is out; a value meeting `PScopeF`, `PBoundaryF` or
+ * `PSiteF` is out, because the last two reach `pyield`, which allocates when
+ * the scope cuts. Everything else `pstep` can do is a `keep`, which is
+ * `{ cf with st = _ }` and touches neither field.
+ *
+ * The predicate is SUFFICIENT and not necessary -- a value meeting `PBoundaryF`
+ * with a consumer in scope allocates nothing either -- and it is deliberately
+ * syntactic, because what step 4 has to establish is that the state stands
+ * still, not that the classification is sharp.
+ *)
+let panonalloc_shape (#v #cl: Type) (c: pcomp v cl) (k: pstack v cl) : prop
+  = match c with
+    | POp _ _ -> True
+    | PPerform _ _ _ -> True
+    | PHandle _ _ _ _ -> True
+    | PSplice _ _ -> True
+    | PEmit _ _ -> True
+    | PWeave _ _ _ _ _ -> True
+    | PEnterCtx _ _ -> True
+    | PExtendC _ _ _ -> True
+    | PExtendCtxC _ _ _ -> False
+    | PResumeC _ _ _ -> True
+    | PNewP _ _ _ -> True
+    | PReadP _ -> True
+    | PWriteP _ _ -> True
+    | PVar _ ->
+      (match k with
+       | [] -> True
+       | PBindF _ :: _ -> True
+       | PParamF _ _ :: _ -> True
+       | PModeF _ _ :: _ -> True
+       | PPromptF _ _ _ :: _ -> True
+       | PBoundaryF :: _ -> False
+       | PSiteF _ :: _ -> False
+       | PScopeF :: _ -> False)
+
+let lemma_pstep_nonalloc (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+      (cf: pconf v cl) (c: pcomp v cl) (k: pstack v cl)
+  : Lemma (requires cf.st == PStep c k /\ panonalloc_shape c k)
+          (ensures (pstep lk apply cf).store == cf.store /\
+                   (pstep lk apply cf).next == cf.next)
+  = match c with
+    | PPerform e o p ->
+      (match pfind_prompt lk e o k with
+       | None -> ()
+       | Some (captured, found, below) -> (match found.kind with | _ -> ()))
+    | PWeave oe oo ints own body -> (match plan_of ints own with | _ -> ())
+    | PExtendC pl h g -> (match presolve cf.store h with | _ -> ())
+    | PResumeC pl h kk -> (match presolve cf.store h with | _ -> ())
+    | PReadP l -> (match pfind_param l k with | _ -> ())
+    | PWriteP l x -> (match pset_param l x k with | _ -> ())
+    | PVar value ->
+      (match k with
+       | [] -> ()
+       | PBindF _ :: _ -> ()
+       | PParamF _ _ :: _ -> ()
+       | PModeF _ _ :: _ -> ()
+       | PPromptF _ ret _ :: _ -> (match ret with | _ -> ())
+       | _ -> ())
+    | _ -> ()
+
+(** The step, at the two configurations, with the state held fixed. PROVED. *)
+let lemma_pasrel_nonalloc (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (lk: plookup_t cl) (apply: papply_t v cl) (cf1 cf2: pconf v cl)
+      (c1 c2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pwf_world s.aw /\ pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    panonalloc_shape c1 k1 /\ panonalloc_shape c2 k2)
+          (ensures (let cf1' = pstep lk apply cf1 in
+                    let cf2' = pstep lk apply cf2 in
+                    paext s s /\
+                    cf1'.store == cf1.store /\ cf2'.store == cf2.store /\
+                    cf1'.next == s.an1 /\ cf2'.next == s.an2 /\
+                    pasrel r s cf1'.store cf2'.store))
+  = lemma_pstep_nonalloc lk apply cf1 c1 k1;
+    lemma_pstep_nonalloc lk apply cf2 c2 k2;
+    lemma_paext_refl s
+
+(** **AND IT FIRES ON THE MACHINE.** PROVED, at a `PEmit` node over the
+    two-entry store `guard_pa_machine_store_stays_in_domain` built: `pstep`
+    really does return that store and that counter, and the store relation
+    really is still there at `pa_sto2`. *)
+let pa_conf_emit : pconf fv fcl =
+  { st = PStep (PEmit "e" (PVar (PCtxKey 0))) []; store = pa_store; next = 2 }
+
+let guard_pa_nonalloc_fires_on_the_machine ()
+  : Lemma (panonalloc_shape (PEmit #fv #fcl "e" (PVar (PCtxKey 0))) [] /\
+           (pstep flook fapply0 pa_conf_emit).store == pa_store /\
+           (pstep flook fapply0 pa_conf_emit).next == 2 /\
+           paext pa_sto2 pa_sto2 /\
+           pasrel fcl_rel pa_sto2
+             (pstep flook fapply0 pa_conf_emit).store
+             (pstep flook fapply0 pa_conf_emit).store)
+  = guard_pa_machine_store_stays_in_domain ();
+    lemma_pasrel_nonalloc fcl_rel pa_sto2 flook fapply0 pa_conf_emit pa_conf_emit
+      (PEmit "e" (PVar (PCtxKey 0))) (PEmit "e" (PVar (PCtxKey 0))) [] []
+
+(** **AND THE SIDE CONDITION DISCRIMINATES.** PROVED. The three excluded shapes
+    are excluded, and the `PScopeF` one is shown to allocate FOR REAL: the same
+    store the guard above left alone gains an entry and the counter goes from 2
+    to 3. So `panonalloc_shape` is not the constant `True` in disguise. *)
+let pa_conf_scope : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) [PScopeF]; store = pa_store; next = 2 }
+
+let guard_pa_nonalloc_shape_excludes_the_growth_sites (pl: plan fv fcl)
+  : Lemma (~(panonalloc_shape (PVar #fv #fcl (PCtxKey 0)) [PScopeF]) /\
+           ~(panonalloc_shape (PVar #fv #fcl (PCtxKey 0)) [PBoundaryF]) /\
+           ~(panonalloc_shape (PExtendCtxC #fv #fcl pl (PCtxKey 0) (PVar #fv #fcl)) []) /\
+           (pstep flook fapply0 pa_conf_scope).next == pa_conf_scope.next + 1 /\
+           (pstep flook fapply0 pa_conf_scope).store
+             == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store)
+  = assert_norm ((pstep flook fapply0 pa_conf_scope).next == 3);
+    assert_norm ((pstep flook fapply0 pa_conf_scope).store
+                   == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store)
+
+(**
+ * **AND STANDING STILL IS WHAT MAKES IT WORK.** REFUTED, in the same breath.
+ * The store relation holds at `pa_sto2` and FAILS at `paalloc pa_sto2` for the
+ * SAME store -- that is `guard_pa_mono_store_relation_is_not_monotone`, quoted
+ * here beside its positive twin so the contrast is in one statement. Move the
+ * state without moving the store and the obligation is not met; step 5 is what
+ * moves them together.
+ *)
+let guard_pa_nonalloc_needs_the_state_to_stand_still ()
+  : Lemma (pasrel fcl_rel pa_sto2 pa_store pa_store /\
+           paext pa_sto2 pa_sto2 /\
+           paext (paalloc pa_sto2) pa_sto2 /\
+           ~(pasrel fcl_rel (paalloc pa_sto2) pa_store pa_store))
+  = guard_pa_machine_store_stays_in_domain ();
+    lemma_paext_refl pa_sto2;
+    guard_pa_mono_store_relation_is_not_monotone ()
+
+(* ================================================================== *)
+(*  5. STEP 5 -- THE ALLOCATING RULES, AND THE THREE MOVEMENTS IN ONE  *)
+(*     LEMMA                                                           *)
+(*                                                                     *)
+(*  `lemma_psrel_alloc` is the old family's template, and it couples   *)
+(*  two things: the store gains an entry on each side and the world    *)
+(*  gains the pair `(m1, m2)`.  It takes `m1` and `m2` as ARGUMENTS    *)
+(*  and takes `pwbound w m1 m2` as a hypothesis, because a             *)
+(*  world-indexed relation has nowhere to keep the frontiers.          *)
+(*                                                                     *)
+(*  The state-indexed analogue does not have to be told: `s.an1` and   *)
+(*  `s.an2` ARE the frontiers, `paalloc s` is the world extension AND  *)
+(*  the increment, and `palloc` is the machine's own allocator.  So    *)
+(*  the three movements -- STORE, WORLD, FRONTIER -- are coupled in    *)
+(*  ONE statement, and the coupling is what the conclusion says.       *)
+(* ================================================================== *)
+
+(**
+ * **ONE PAIRED ALLOCATION CARRIES `pasrel` FORWARD.** PROVED.
+ *
+ * The hypotheses are: the state is admissible; the store relation holds AT the
+ * state; the two configurations' counters ARE the state's two frontiers -- this
+ * is what ties the machine's allocator to the Kripke index and is the premise
+ * `lemma_psrel_alloc` had to spell out as `pwbound`; and the context about to be
+ * stored is `paxrel`-related at the state.
+ *
+ * The conclusion names all three movements and the handles:
+ *
+ *   - `palloc`'s ACTUAL result on each side -- `(s.an1, cx1) :: cf1.store` and
+ *     the counter at `s.an1 + 1`, not a store the lemma chose;
+ *   - `paalloc s`, whose world is `pwextend s.an1 s.an2 s.aw` -- the extension
+ *     at the two frontiers and at nothing else;
+ *   - the frontiers at `s.an1 + 1` and `s.an2 + 1`, matched to the two
+ *     counters;
+ *   - `pval_rel s'.aw h1 h2`, so the two handles the two runs hand back
+ *     correspond;
+ *   - and `pasrel r s' cf1'.store cf2'.store`, the obligation B2b.22 left open.
+ *
+ * `lemma_paxrel_mono` is where `pcl_mono r` is spent, in both branches: the
+ * entry just stored and every entry already there have to be re-read at the
+ * larger world. Nothing else in the proof needs it.
+ *)
+let lemma_pasrel_alloc (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (cf1 cf2: pconf v cl) (cx1 cx2: pctx v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    pasrel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    paxrel r s cx1 cx2)
+          (ensures (let s' = paalloc s in
+                    let h1 = fst (palloc cx1 cf1) in
+                    let h2 = fst (palloc cx2 cf2) in
+                    let cf1' = snd (palloc cx1 cf1) in
+                    let cf2' = snd (palloc cx2 cf2) in
+                    paext s' s /\ pawf s' /\
+                    s'.aw == pwextend s.an1 s.an2 s.aw /\
+                    s'.an1 == s.an1 + 1 /\ s'.an2 == s.an2 + 1 /\
+                    h1 == PCtxKey s.an1 /\ h2 == PCtxKey s.an2 /\
+                    pval_rel s'.aw h1 h2 /\
+                    cf1'.store == (s.an1, cx1) :: cf1.store /\
+                    cf2'.store == (s.an2, cx2) :: cf2.store /\
+                    cf1'.next == s'.an1 /\ cf2'.next == s'.an2 /\
+                    pasrel r s' cf1'.store cf2'.store))
+  = let s' = paalloc s in
+    let m1 = s.an1 in
+    let m2 = s.an2 in
+    lemma_paext_of_alloc s;
+    lemma_pwbound_fresh s.aw m1 m2;
+    lemma_pwextend_wf m1 m2 s.aw;
+    lemma_pwl_cons m1 m2 s.aw;
+    lemma_pstore_lookup_cons m1 cx1 cf1.store;
+    lemma_pstore_lookup_cons m2 cx2 cf2.store;
+    pasrel_unfold r s cf1.store cf2.store ();
+    introduce forall (i j: nat).
+        (pwlookup_l i s'.aw == Some j ==>
+         (Some? (pstore_lookup i ((m1, cx1) :: cf1.store)) /\
+          Some? (pstore_lookup j ((m2, cx2) :: cf2.store)) /\
+          paxrel r s' (psget i ((m1, cx1) :: cf1.store))
+                      (psget j ((m2, cx2) :: cf2.store))))
+    with (introduce _ ==> _
+          with (if i = m1
+                then begin
+                  assert (j == m2);
+                  assert (psget i ((m1, cx1) :: cf1.store) == cx1);
+                  assert (psget j ((m2, cx2) :: cf2.store) == cx2);
+                  lemma_paxrel_mono r s' s cx1 cx2
+                end
+                else begin
+                  assert (pwlookup_l i s.aw == Some j);
+                  assert (j < m2);
+                  assert (pstore_lookup i ((m1, cx1) :: cf1.store)
+                            == pstore_lookup i cf1.store);
+                  assert (pstore_lookup j ((m2, cx2) :: cf2.store)
+                            == pstore_lookup j cf2.store);
+                  assert (psget i ((m1, cx1) :: cf1.store) == psget i cf1.store);
+                  assert (psget j ((m2, cx2) :: cf2.store) == psget j cf2.store);
+                  assert (paxrel r s (psget i cf1.store) (psget j cf2.store));
+                  lemma_paxrel_mono r s' s (psget i cf1.store) (psget j cf2.store)
+                end))
+
+(**
+ * **THE COUPLING, FIRED, AGAINST AN ACTUAL TRANSITION.** PROVED, and the
+ * contrast is the point.
+ *
+ * `pa_conf_scope` is the machine at growth site 1 -- a value at a scope floor
+ * -- with the two-entry store and its counter at 2, which is `pa_sto2.an1`.
+ * The guard states four things at once: the successor state is reached and is
+ * not reachable backwards; the store relation HOLDS at the successor for the
+ * EXTENDED store; it FAILS at the same successor for the unextended one; and
+ * the store and counter the coupled lemma speaks about are LITERALLY the ones
+ * `pstep` returns.
+ *
+ * Read the third and fourth together: the state motion is the same in both
+ * halves, so what discharges the new obligation is precisely that the store
+ * moved with it. That is why the three movements are in one lemma and not
+ * three.
+ *)
+let guard_pa_alloc_couples_the_three_movements ()
+  : Lemma (pawf pa_sto2 /\
+           pasrel fcl_rel pa_sto2 pa_store pa_store /\
+           paxrel fcl_rel pa_sto2 (PCtxDone (PCtxKey #fv 0))
+                                  (PCtxDone (PCtxKey #fv 0)) /\
+           paext (paalloc pa_sto2) pa_sto2 /\
+           ~(paext pa_sto2 (paalloc pa_sto2)) /\
+           (paalloc pa_sto2).an1 == 3 /\ (paalloc pa_sto2).an2 == 3 /\
+           pwlookup_l 2 (paalloc pa_sto2).aw == Some 2 /\
+           pasrel fcl_rel (paalloc pa_sto2)
+             ((2, PCtxDone (PCtxKey #fv 0)) :: pa_store)
+             ((2, PCtxDone (PCtxKey #fv 0)) :: pa_store) /\
+           ~(pasrel fcl_rel (paalloc pa_sto2) pa_store pa_store) /\
+           (pstep flook fapply0 pa_conf_scope).store
+             == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store /\
+           (pstep flook fapply0 pa_conf_scope).next == (paalloc pa_sto2).an1)
+  = guard_pa_machine_store_stays_in_domain ();
+    lemma_fcl_rel_mono ();
+    guard_pa_mono_store_relation_is_not_monotone ();
+    guard_pa_access_is_not_symmetric pa_sto2;
+    assert_norm (pwlookup_l 0 pa_sto2.aw == Some 0);
+    assert_norm (pwlookup_l 2 (paalloc pa_sto2).aw == Some 2);
+    assert (pval_rel #fv pa_sto2.aw (PCtxKey 0) (PCtxKey 0));
+    introduce forall (n: nat).
+        pactx_rel fcl_rel n pa_sto2 (PCtxDone (PCtxKey #fv 0))
+                                    (PCtxDone (PCtxKey #fv 0))
+    with ();
+    lemma_pasrel_alloc fcl_rel pa_sto2 pa_conf_scope pa_conf_scope
+      (PCtxDone (PCtxKey #fv 0)) (PCtxDone (PCtxKey #fv 0));
+    assert_norm ((pstep flook fapply0 pa_conf_scope).next == 3);
+    assert_norm ((pstep flook fapply0 pa_conf_scope).store
+                   == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store)
+
+(**
+ * **AND AT THE RESIDUAL SHAPE, WHICH IS WHAT GROWTH SITE 3 STORES.** PROVED.
+ * `lemma_pasrel_alloc` takes the stored context as a parameter, so the three
+ * growth sites differ only in what they hand it: `PCtxDone x` at the scope
+ * floor, `PCtxRequests x (hd :: above) PVar` at production, and
+ * `extend_ctx_C pl cx g` at `bindScope`. The first two are fired here at the
+ * fixture; the third differs from them in nothing the lemma can see.
+ *
+ * The `PCtxRequests` entry is not world-independent -- it holds the handle of
+ * the other entry and carries a `post` whose future-state clause has to be
+ * discharged inside the narrowed domain -- so this is the shape at which the
+ * coupling would have failed if `lemma_paxrel_mono` had not been enough.
+ *)
+let pa_resid : pctx fv fcl = PCtxRequests (PCtxKey 0) [] (ppost_id #fv #fcl)
+
+let guard_pa_alloc_couples_at_the_residual_shape ()
+  : Lemma (paxrel fcl_rel pa_sto2 pa_resid pa_resid /\
+           pasrel fcl_rel (paalloc pa_sto2)
+             ((2, pa_resid) :: pa_store) ((2, pa_resid) :: pa_store) /\
+           ~(pasrel fcl_rel (paalloc pa_sto2) pa_store pa_store))
+  = guard_pa_machine_store_stays_in_domain ();
+    lemma_fcl_rel_mono ();
+    guard_pa_mono_store_relation_is_not_monotone ();
+    assert_norm (pwlookup_l 1 pa_sto2.aw == Some 1);
+    assert_norm (psget 1 pa_store == pa_resid);
+    assert_norm (pstore_lookup 1 pa_store == Some pa_resid);
+    pasrel_unfold fcl_rel pa_sto2 pa_store pa_store ();
+    assert (paxrel fcl_rel pa_sto2 (psget 1 pa_store) (psget 1 pa_store));
+    lemma_pasrel_alloc fcl_rel pa_sto2 pa_conf_scope pa_conf_scope pa_resid pa_resid
+
+(* ================================================================== *)
+(*  B2b.23 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED.                                                    *)
+(*   0. `guard_pa_mono_revival_isolated` -- the `pwext`-shaped         *)
+(*      monotonicity principle fails for the IDENTITY REVIVAL ALONE,   *)
+(*      with the frontiers held nondecreasing.                        *)
+(*   1. `lemma_pacomp_of_pcomp` and its `and`-chain, then              *)
+(*      `lemma_pactx_of_pctx`, `lemma_pacrel_of_pcrel`,                *)
+(*      `lemma_paxrel_of_pxrel`, `lemma_pakrel_of_pkrel`,              *)
+(*      `lemma_pasrel_of_psrel`, `lemma_pafn_rel_at_of_pfn_rel_at` --  *)
+(*      the old family COLLAPSES into the new one at the same world,   *)
+(*      at any frontiers, under NO admissibility and NO `pcl_mono`.    *)
+(*   2. `lemma_palookup_of_plookup` and `lemma_plookup_of_palookup` -- *)
+(*      the lookup condition is EQUIVALENT to its state-indexed form.  *)
+(*   3. `lemma_paapply_at_of_papply` -- the old apply condition        *)
+(*      discharges the new conclusion exactly when the OLD premise     *)
+(*      about the continuation is in hand.                            *)
+(*   4. `lemma_napply_paequivariant`, `naboundary` -- the parallel     *)
+(*      record is inhabited at the shipped boundary's own data, with   *)
+(*      four of five proof terms taken over unchanged.                *)
+(*   5. `lemma_pstep_nonalloc`, `lemma_pasrel_nonalloc` -- a           *)
+(*      non-allocating rule leaves store and counter alone and         *)
+(*      preserves `pasrel` at the same state, on `pwf_world s.aw`      *)
+(*      alone.                                                        *)
+(*   6. `lemma_pasrel_alloc` -- ONE lemma couples `palloc`'s actual    *)
+(*      result, `pwextend` at the two frontiers, the frontier          *)
+(*      increment and the successor `pasrel`.                         *)
+(*                                                                     *)
+(*  WHAT IS REFUTED.                                                   *)
+(*   `guard_pa_apply_hypothesis_variance` -- `pafn_rel_at` at a state  *)
+(*   does NOT give `pfn_rel_at` at its world.                         *)
+(*   `guard_pa_collapse_is_strict` -- and the collapse does not run    *)
+(*   backwards either, so the two directions are opposite and both     *)
+(*   strict.                                                          *)
+(*   `guard_pa_apply_bridge_refuted` -- therefore the bridge a         *)
+(*   derivation of `paapply_equivariant` from `papply_equivariant`     *)
+(*   would need is FALSE, which is why `paboundary` exists.           *)
+(*   `guard_na_apply_output_discriminates` -- the new condition's      *)
+(*   conclusion is not trivially true.                                *)
+(*   `guard_pa_nonalloc_shape_excludes_the_growth_sites` -- the        *)
+(*   side condition of step 4 is not the constant `True`.             *)
+(*   `guard_pa_nonalloc_needs_the_state_to_stand_still` and            *)
+(*   `guard_pa_alloc_couples_the_three_movements` -- the same state    *)
+(*   motion fails with the store held fixed and succeeds with the      *)
+(*   store moved, which is the coupling stated as a contrast.         *)
+(*                                                                     *)
+(*  THE ANSWER TO STEP 2, IN ONE LINE.  `papply_wb` carries over       *)
+(*  untouched because it names no relation; `plookup_equivariant`      *)
+(*  carries over because `ptable_rel` has no future quantifier, and    *)
+(*  the carrying is an EQUIVALENCE rather than an implication;         *)
+(*  `papply_equivariant` does NOT carry over, and the obstruction is   *)
+(*  the contravariance of the hypothesis, exhibited by machine rather  *)
+(*  than argued.  ONE FIELD OF FIVE HAD TO CHANGE.                     *)
+(*                                                                     *)
+(*  WHAT IS NOT CLAIMED.  The whole-dispatcher step theorem is NOT     *)
+(*  proved at the new index; the old step theorem is neither kept nor  *)
+(*  re-derived; nothing is lifted to finite runs; no observation       *)
+(*  relation is defined at the new index; the fundamental theorem is   *)
+(*  not re-proved; and no law is reconnected.  Steps 4 and 5 above     *)
+(*  are the two halves of a transition's obligation stated and         *)
+(*  discharged SEPARATELY -- they are not composed into a statement    *)
+(*  about `pstep` as a whole, and composing them is the next gate.     *)
+(*                                                                     *)
+(*  It is also NOT claimed that `papply_equivariant` fails to IMPLY    *)
+(*  `paapply_equivariant` for every interpreter.  What is proved is    *)
+(*  that no DERIVATION through the continuation premise exists,        *)
+(*  because the premise it would need is false; a counterexample       *)
+(*  interpreter satisfying the old condition and failing the new one   *)
+(*  is not exhibited here.                                            *)
+(* ================================================================== *)

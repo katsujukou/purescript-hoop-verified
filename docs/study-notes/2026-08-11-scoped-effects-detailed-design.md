@@ -6241,6 +6241,163 @@ of it, not as an afterthought:
 point that tests whether the three allocating rules really grow world and store
 in step.
 
+#### The boundary gate: a parallel discipline, and store realization locally
+
+> The allocation-aware fundamental theorem requires a parallel boundary
+> discipline rather than the old boundary record alone. This discipline is
+> non-vacuous: `naboundary` satisfies it. Locally, non-allocating transitions
+> preserve store realization at the same allocation state, while allocating
+> transitions preserve it by advancing the world, both frontiers, and both
+> concrete stores together through the actual `palloc` results. These local
+> obligations have not yet been assembled into a dispatcher theorem.
+
+#### The boundary choice resolved
+
+This is better recorded as a designed fork settling than as a stop condition
+firing:
+
+> The boundary-choice condition resolved in favour of a parallel
+> allocation-aware record.
+
+The three coherence conditions behaved differently. `papply_wb` mentions no
+relation at all and is reused by name. `plookup_equivariant` is stated over
+`ptable_rel`, which the new family reuses unchanged, and it carried over as an
+**equivalence**, not merely an implication — the reverse direction is witnessed
+by instantiating at `{ aw = w; an1 = 0; an2 = 0 }`. So `paboundary` differs from
+`pboundary` in exactly one of its eight fields: `pb_apply_eq`. `pb_lookup` still
+carries the **old** `plookup_equivariant`.
+
+The variance is what forces the split. In `papply_equivariant`, both
+`pfn_rel_at` and `pcrel` belong to the family with future-world quantification.
+On the conclusion side `pcrel r s.aw ==> pacrel r s` is the direction that
+holds; on the hypothesis side the direction that holds is
+`pfn_rel_at r s.aw ==> pafn_rel_at r s`, which is the wrong way round. Invoking
+the old condition would need `pafn_rel_at ==> pfn_rel_at`, over strictly more
+futures. Both strictness claims are refuted rather than argued, and the bridge
+the derivation would require is itself refuted.
+
+The witness is one consumer pair: it satisfies `pafn_rel_at` at `pa_low` — empty
+world, frontiers `(5,5)`, so every accessible state's new names are at or above
+5 — and fails `pfn_rel_at` at `pa_low.aw`, because plain `pwext` admits
+`[(0,0)]`, where the two disagree. Verified independently of the gate.
+
+Nothing here introduces a new trust assumption:
+
+- the old record keeps `apply`/`lookup` coherence for the old relation;
+- the new record keeps the counterpart for the allocation-indexed relation;
+- `naboundary` proves every field concretely;
+- no `admit`, no axiomatic field.
+
+So: **the proof interface had to change, not the concrete interpreter
+semantics.**
+
+The strength of "not derivable" should be read as the proof supports:
+
+> the old record does not provide enough information to derive the new condition
+> in this development
+
+and not as a claim that no formulation whatsoever could derive it. What was
+proved is the non-existence of the derivation through the continuation premise,
+plus refutations of the two strictness directions — not a semantic
+counterexample separating an interpreter that satisfies the old condition from
+one that breaks the new.
+
+#### The two local forms, and why they divide
+
+**Non-allocation.** `lemma_pasrel_nonalloc`: the allocation state is unchanged,
+both concrete stores are unchanged, and store realization survives on
+reflexivity of the world alone. That `pcl_mono` and the family's monotonicity
+lemmas are not needed is natural — neither the world's obligations nor the
+stores' witnesses have grown. The `requires` reads as the evidence: world
+well-formedness, for reflexivity, and the two store identities. Nothing else.
+
+**Allocation.** This is the load-bearing side. `lemma_pasrel_alloc` moves five
+things at once:
+
+- a new correspondence in the world;
+- each frontier advanced by one;
+- a matching entry added to each concrete store;
+- the handle being the **actual** `palloc` return value;
+- the successor `pasrel` constructed from those.
+
+The central evidence is the guard showing that moving any one of them
+separately fails: at the *same* transition, extending the store gives the
+successor `pasrel` and not extending it does not — and the machine's own
+`pstep` result for that configuration matches the coupling lemma's store and
+counter literally.
+
+That it also goes through in `PCtxRequests` shape matters. The coupling is not
+established only for a simple `PCtxDone` value correspondence, but for an actual
+residual-context shape carrying a stored `post` with its own future-world
+quantification.
+
+The state-indexed allocation lemma needed **no** extra hypothesis where the old
+`lemma_psrel_alloc` took `m1`, `m2` and assumed `pwbound`: the frontiers are
+read off the state.
+
+#### Also landed
+
+The isolating guard checked outside the file in the previous gate is now in it,
+verbatim: with the frontiers held nondecreasing, the failure of monotonicity
+along bare `pwext` is the below-frontier identity revival alone, not a frontier
+rollback.
+
+#### Proof engineering, kept separate from the semantic result
+
+The old `lemma_napply_equivariant` needed `--fuel 3 --ifuel 3`. Its
+allocation-aware counterpart verifies at **default fuel**, because the case
+analysis was split into auxiliary lemmas rather than the limit being raised.
+Decomposition stabilised proof search where loosening the budget would have
+hidden the shape of the problem. Reusable, and unrelated to what the gate established
+semantically.
+
+#### Not claimed
+
+- an allocation-aware one-step fundamental theorem;
+- compatibility for every dispatcher arm;
+- any relation between successor configurations including the trace;
+- finite-run compatibility;
+- any implication between the old and new relations, or between the two boundary
+  records;
+- any connection to the observation relations or the laws.
+
+The stage reached is **not** "all the material for every transition is in
+place". It is:
+
+> the two local store-realization preservation laws that the dispatcher proof
+> will need are in place.
+
+#### Position
+
+> The allocation-aware boundary is inhabited, and both local forms of
+> store-realization preservation are proved. The next gate must show that every
+> dispatcher arm selects one of those forms and returns a single successor state
+> satisfying the complete transition relation.
+
+#### The next gate: the dispatcher's one step
+
+Its conclusion must carry, simultaneously: a successor allocation state `s'`;
+`paext s' s`; the allocation-aware relation on the successor configurations;
+`pasrel` on the successor stores; equality of traces; for the allocating rules,
+world, frontier and store provenance in the actual `palloc`; and for the
+non-allocating rules, `s' = s`.
+
+1. fix the allocation-aware one-step compatibility statement;
+2. close the non-allocating arms with `lemma_pasrel_nonalloc`;
+3. close the three allocating arms with the coupling lemma;
+4. at `PPerform`, actually use `paboundary`'s apply and lookup conditions;
+5. re-prove every arm of the dispatcher;
+6. discriminate the two shapes with one allocating and one non-allocating
+   fixture;
+7. run the `PCtxRequests` route again on a residual-bearing allocation fixture;
+8. only then lift to finite runs.
+
+Stop conditions: a dispatcher arm that fits neither local form; `PPerform`
+demanding the old boundary condition back; world and store successors needing
+different allocation witnesses; trace compatibility and allocation-state
+compatibility unsatisfiable at the same successor configuration; or `pasrel`
+obtainable only by assuming an unreachable or ill-formed initial store.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
