@@ -6846,6 +6846,141 @@ public specialisation cannot be derived from today's general theorem; or
 introducing the well-formed domain makes the positive non-diagonal fixture
 vacuous.
 
+#### The observation gate: a paired-configuration simulation
+
+> The allocation-aware finite-run theorem induces a one-directional
+> observational simulation on explicitly related pairs of initial
+> configurations. It preserves related result values, exact trace order and
+> multiplicity, final store realization, and allocator-respecting evolution of
+> the relational state.
+
+And, of equal standing:
+
+> This is a paired-configuration observation theorem, not yet a closed public
+> observational equivalence.
+
+`lemma_paobs_le_cf_of_pacfrel` derives it from `lemma_parun_compat` alone — no
+second induction, no re-proof of the step cases. It is **soundness in one
+direction**. Recovering relatedness from observation — completeness — is neither
+proved nor the present objective.
+
+#### The final world is existentially quantified, and must be
+
+What paired convergence carries uniquely is the **data**: the trace, both result
+values, both final stores, and both final frontiers, the frontiers determined
+separately by each side's own run. The final **state** is not unique, and that
+is not a weakness — it follows from the world's list representation being
+non-canonical. Checked independently of the gate: `[(0,0)]` and
+`[(0,0); (0,0)]` are both `pwf_world`, decide every lookup identically, and
+extend each other, while being different values.
+
+A semantic identity could be recorded as mutual `pwext`, but no quotient is
+constructed here and none is claimed.
+
+#### `pb_apply_wb` is finally placed
+
+After going unused by both the one-step and the finite-run relational
+compatibility proofs, it is consumed exactly once: in showing that the
+well-formed observation domain is **closed under running**. Its status is
+settled — not a condition on relational compatibility of transitions, but a
+boundary condition that forms the well-formed observation domain. It uses only
+`pconf_ok`'s `pstate_wb` conjunct, and `pconf_wf`'s preservation across every
+transition needs no `papply_wb` at all, so the final stores' freshness comes for
+free. No use for it was manufactured; the proofs that do not need it still do
+not mention it.
+
+#### Four conjuncts, each shown irremovable
+
+Each guard drops one conjunct and exhibits a pair the weakened relation then
+admits and the intact relation rejects:
+
+- **trace** — `"a1"` changed to `"zz"` with store, frontiers, handles and stack
+  identical, so the unmutated `s'` satisfies everything else;
+- **related values** — a left returning a handle against a right returning a
+  payload, which no world relates;
+- **final store realization** — a right running on an **empty** store while the
+  returned handles are still related;
+- **final `paext`** — a state whose world speaks a key **below** the starting
+  frontier, which is the re-anchoring that `panchor` exists to prevent, read at
+  the state index.
+
+They show each conjunct cannot be removed. They do **not** establish that the
+four are logically independent of one another, and that should not be read into
+them.
+
+The symmetric candidate `paobs_tr_eq_at` is only a definition. Neither direction
+of symmetry, nor transitivity, nor any correspondence with contextual
+equivalence is proved.
+
+#### The central open point: the public form's store conjunct
+
+This is not a footnote after the result. It is the gap:
+
+> The non-store components of the public observation can be recovered, but store
+> realization remains indexed by the allocation state. `panobs_tr_le_nosto`
+> measures exactly the part that collapses back to the public form; it is an
+> audit boundary, not the final public observation.
+
+The public specialisation reproduces `pnobs_tr_le`'s three hypotheses verbatim,
+and its trace equality, `pwf_world w`, `pwext w (panchor sto)` and
+`pval_rel w x1 x2` verbatim. Only the store conjunct stays at the new index, and
+the bridge that would lower it —
+
+```text
+pawf s /\ paxrel r s cx1 cx2 ==> pxrel r s.aw cx1 cx2
+```
+
+— is **refuted**. The obstruction is the narrowing itself, not a gap in a proof.
+Confirmed independently: no lemma in the appended region concludes a full
+`pnobs_tr_le`.
+
+```text
+explicitly related initial configurations
+          │
+          ▼  PROVED
+allocation-aware observational simulation
+          │
+          ├─ value / trace / frontier evolution ── returns to the public form
+          │
+          └─ store realization ─────────────────── the allocation state remains
+```
+
+One correction to the plan: `padiag`'s `pawf` does **not** follow from
+`lemma_panchor_bound` alone. `pawf` is `pwf_world` conjoined with `pwbound`, and
+that lemma supplies only the second; `lemma_panchor_wf` supplies the first. That
+was the whole of what the specialisation needed beyond the sketch.
+
+#### Position
+
+> Allocation-aware observational soundness is established for explicitly related
+> initial configurations. The remaining obstacle to a closed public observation
+> is exactly the initial and final store-realization discipline; every non-store
+> component has already been recovered.
+
+#### The public store-domain gate, before returning to the laws
+
+1. build the canonical diagonal `pastate` from a shared public store and
+   counter;
+2. show it satisfies `pawf`;
+3. settle the condition under which a well-formed public store is `pasrel`-
+   related to **itself** at that state;
+4. fold that condition into the public observation's starting domain;
+5. check non-vacuity on both the empty store and a non-empty store the machine
+   actually built;
+6. derive a closed public observation theorem from the paired theorem;
+7. pin down that its only difference from `panobs_tr_le_nosto` is the store
+   conjunct;
+8. only then re-adjudicate right identity under the allocation-aware and
+   administrative observations.
+
+Stop conditions: a machine-built non-empty store is not self-related; the anchor
+and the counter do not mesh; self-relatedness of *all* stores has to be assumed
+unchecked; or the public form can be closed only by dropping the store conjunct.
+
+Step 8 stays fenced. The allocator-name problem is repaired, but the
+administrative stored-`post` difference between `qext` and `qprod` is a separate
+problem, and right identity must not be expected back automatically.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

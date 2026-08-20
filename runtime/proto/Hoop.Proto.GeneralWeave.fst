@@ -36581,3 +36581,1778 @@ let guard_nd_mutation_event_multiplicity ()
 (*  run theorem's relational trace claim is non-vacuous on two          *)
 (*  genuinely different executions.                                     *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.26 -- THE ALLOCATION-AWARE OBSERVATION                         *)
+(*                                                                     *)
+(*  `lemma_parun_compat` is the allocation-aware finite-run theorem.   *)
+(*  It is proved, it is non-vacuous, and it has a genuinely            *)
+(*  non-diagonal trace-producing inhabitant (`nd_cfl` / `nd_cfr` at    *)
+(*  `nd_s0`).  What it does NOT yet have is an OBSERVATION: a relation *)
+(*  between programs, rather than between two runs handed to it        *)
+(*  already related.  This section builds one, BESIDE `pnobs_tr_le`    *)
+(*  and without touching it.                                          *)
+(*                                                                     *)
+(*  THE ORDER OF BUSINESS.                                             *)
+(*                                                                     *)
+(*   1. HOW A PAIRED CONVERGENCE CARRIES THE FINAL STATE.  A           *)
+(*      `pastate` holds both frontiers AND the world at once, so this  *)
+(*      is a decision and not a rename.  `paconverges` is              *)
+(*      `pnconverges` with the final COUNTER read off -- one more      *)
+(*      projection, the same existential -- and `pa2converges` pairs   *)
+(*      two of them, making the left end at `s'.an1` and the right at  *)
+(*      `s'.an2`.  The two frontiers are then DETERMINED, separately,  *)
+(*      each by its own run (`lemma_pa2converges_data_unique`); the    *)
+(*      WORLD is not (`guard_pa2converges_state_not_unique`).  So the  *)
+(*      final state is carried EXISTENTIALLY by every relation below,  *)
+(*      and what is unique is the DATA: the trace, both values, both   *)
+(*      stores and both frontiers.                                     *)
+(*                                                                     *)
+(*   2. THE PAIRED-START PREORDER.  `paobs_le_cf` at two               *)
+(*      configurations, `paobs_tr_le_at` at two computations over      *)
+(*      every RELATED pair of stacks and stores.  The two sides no     *)
+(*      longer start in the same configuration -- which is the one     *)
+(*      thing `pnobs_tr_le` cannot say, and the whole reason the       *)
+(*      allocation-indexed family was built.                           *)
+(*                                                                     *)
+(*   3. ONE-DIRECTIONAL COMPATIBILITY, from `lemma_parun_compat` and   *)
+(*      nothing else.                                                  *)
+(*                                                                     *)
+(*   4. THE NON-DIAGONAL FIXTURE RUN THROUGH IT, as a positive         *)
+(*      instance with the whole conclusion read out by computation.    *)
+(*                                                                     *)
+(*   5. THE PUBLIC DIAGONAL SPECIALISATION, at                         *)
+(*      `{ aw = panchor sto; an1 = n0; an2 = n0 }`.  It comes out of   *)
+(*      the general form and reproduces `pnobs_tr_le` HYPOTHESIS FOR   *)
+(*      HYPOTHESIS and conjunct for conjunct except ONE: the store     *)
+(*      correspondence stays at the narrowed index, and                *)
+(*      `guard_paobs_store_conjunct_stays_at_the_new_index` refutes    *)
+(*      the bridge that would lift it.  `lemma_panobs_nosto_of_pub`    *)
+(*      measures exactly what does come back.                          *)
+(*                                                                     *)
+(*   6. WHERE `pb_apply_wb` LIVES.  Not in the relational core -- it   *)
+(*      is used by none of the compatibility results -- but in the     *)
+(*      WELL-FORMED OBSERVATION DOMAIN, and there only by the STACK    *)
+(*      layer: `lemma_prun_conf_wf` shows the freshness layer is free, *)
+(*      `lemma_paobs_dom_prun` and `lemma_paobs_dom_closed` are where  *)
+(*      the hypothesis is spent.  This is `pnobs_dom`'s verdict,       *)
+(*      repeated off the diagonal.                                     *)
+(*                                                                     *)
+(*   7. THE FOUR CONJUNCTS, ONE MUTATION EACH.  Trace, related         *)
+(*      values, final store relation, final accessibility: for each,   *)
+(*      a pair the relation REFUSES and the one-conjunct-weaker        *)
+(*      relation ADMITS.                                               *)
+(*                                                                     *)
+(*  WHAT IS NOT DONE, DELIBERATELY.  The laws, the administrative      *)
+(*  observation, and the right-identity counterexample.  The           *)
+(*  allocator-name problem is repaired; the administrative stored      *)
+(*  `post` difference between `qext` and `qprod` is a SEPARATE         *)
+(*  problem, and nothing here should be read as bearing on it.         *)
+(* ================================================================== *)
+
+(* ---- 1. ALLOCATION-AWARE CONVERGENCE, ON ONE SIDE ----------------- *)
+
+(**
+ * **CONVERGENCE, WITH THE FINAL FRONTIER READ OFF.**
+ *
+ * `pnconverges` carries the trace, the value and the final STORE. The
+ * allocation-indexed comparison needs one thing more, and exactly one: the
+ * final COUNTER, because `pacfrel` pins the two counters to the two frontiers
+ * BY IDENTITY, so a paired statement that did not carry them could not name
+ * the state it ends at.
+ *
+ * It is the same existential over `prun` with one more projection read off --
+ * the move `pnconverges` itself made over `pconverges_tr` -- so nothing about
+ * the run or the trace changes, and `lemma_paconverges_forget` proves it
+ * implies `pnconverges` at the same trace, value and store.
+ *)
+let paconverges (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                (cf: pconf v cl) (tr: list string) (x: pval v)
+                (sto': pstore v cl) (n': nat)
+  : GTot prop
+  = exists (n: nat).
+      (fst (prun lk apply n cf)).st == PDone x /\
+      snd (prun lk apply n cf) == tr /\
+      (fst (prun lk apply n cf)).store == sto' /\
+      (fst (prun lk apply n cf)).next == n'
+
+let paconverges_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                       (cf: pconf v cl) (tr: list string) (x: pval v)
+                       (sto': pstore v cl) (n': nat)
+                       (h: squash (paconverges lk apply cf tr x sto' n'))
+  : squash (exists (n: nat).
+              (fst (prun lk apply n cf)).st == PDone x /\
+              snd (prun lk apply n cf) == tr /\
+              (fst (prun lk apply n cf)).store == sto' /\
+              (fst (prun lk apply n cf)).next == n')
+  = h
+
+let lemma_paconverges_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (fuel: nat) (tr: list string) (x: pval v)
+    (sto': pstore v cl) (n': nat)
+  : Lemma (requires (fst (prun lk apply fuel cf)).st == PDone x /\
+                    snd (prun lk apply fuel cf) == tr /\
+                    (fst (prun lk apply fuel cf)).store == sto' /\
+                    (fst (prun lk apply fuel cf)).next == n')
+          (ensures paconverges lk apply cf tr x sto' n')
+  = introduce exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\
+        snd (prun lk apply n cf) == tr /\
+        (fst (prun lk apply n cf)).store == sto' /\
+        (fst (prun lk apply n cf)).next == n'
+    with fuel and ()
+
+let lemma_paconverges_forget (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr: list string) (x: pval v) (sto': pstore v cl) (n': nat)
+  : Lemma (requires paconverges lk apply cf tr x sto' n')
+          (ensures pnconverges lk apply cf tr x sto')
+  = eliminate exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\
+        snd (prun lk apply n cf) == tr /\
+        (fst (prun lk apply n cf)).store == sto' /\
+        (fst (prun lk apply n cf)).next == n'
+    with (lemma_pnconverges_at lk apply cf n tr x sto')
+
+(** **AT MOST ONE TRACE, ONE VALUE, ONE STORE AND ONE FRONTIER.** PROVED, by
+    exactly `lemma_pnconverges_unique`'s argument: the smaller witness has
+    already settled, so `lemma_prun_stable` carries its WHOLE result forward.
+    The fourth component costs nothing extra because stability is about the
+    configuration, and the counter is a field of it. *)
+let lemma_paconverges_unique (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr1 tr2: list string) (x1 x2: pval v)
+    (s1 s2: pstore v cl) (m1 m2: nat)
+  : Lemma (requires paconverges lk apply cf tr1 x1 s1 m1 /\
+                    paconverges lk apply cf tr2 x2 s2 m2)
+          (ensures tr1 == tr2 /\ x1 == x2 /\ s1 == s2 /\ m1 == m2)
+  = eliminate exists (n1: nat).
+        (fst (prun lk apply n1 cf)).st == PDone x1 /\
+        snd (prun lk apply n1 cf) == tr1 /\
+        (fst (prun lk apply n1 cf)).store == s1 /\
+        (fst (prun lk apply n1 cf)).next == m1
+    with
+      (eliminate exists (n2: nat).
+           (fst (prun lk apply n2 cf)).st == PDone x2 /\
+           snd (prun lk apply n2 cf) == tr2 /\
+           (fst (prun lk apply n2 cf)).store == s2 /\
+           (fst (prun lk apply n2 cf)).next == m2
+       with
+         (if n1 <= n2
+          then lemma_prun_stable lk apply n1 (n2 - n1) cf
+          else lemma_prun_stable lk apply n2 (n1 - n2) cf))
+
+(* ---- 2. THE PAIRED CONVERGENCE ------------------------------------ *)
+
+(**
+ * **THE PAIRED CONVERGENCE, AND WHAT IT CARRIES -- THE DECISION OF STEP 1.**
+ *
+ * A `pastate` holds BOTH frontiers and the world at once, so a paired
+ * convergence cannot simply pair two single-sided ones and hope a state falls
+ * out. The decision taken here is:
+ *
+ *   - the TWO FRONTIERS are read off the two runs, one each, by making the
+ *     left convergence end at `s'.an1` and the right at `s'.an2`. They are
+ *     therefore DETERMINED -- `lemma_pa2converges_data_unique` proves it --
+ *     and they are determined SEPARATELY, each by its own run;
+ *   - the WORLD is not determined and is carried EXISTENTIALLY by the
+ *     relations that quantify over `s'`. `guard_pa2converges_state_not_unique`
+ *     REFUTES uniqueness of the state as a value, at a closed instance;
+ *   - the two states are glued by `paext s' s` and by the balanced frontier
+ *     equation, which is not a consequence of `paext`
+ *     (`guard_pa_frontier_eq_not_from_paext`).
+ *
+ * So the answer to "can a paired convergence carry a unique final state" is:
+ * it carries a unique final DATA -- trace, both values, both stores, both
+ * frontiers -- and a NON-UNIQUE final world. Every consumer below therefore
+ * quantifies over `s'` rather than computing it.
+ *)
+let pa2converges (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                 (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                 (tr: list string) (x1 x2: pval v) (t1 t2: pstore v cl)
+                 (s': pastate)
+  : GTot prop
+  = paconverges lk apply cf1 tr x1 t1 s'.an1 /\
+    paconverges lk apply cf2 tr x2 t2 s'.an2 /\
+    paext s' s /\ pawf s' /\
+    s'.an1 + s.an2 == s'.an2 + s.an1 /\
+    pval_rel s'.aw x1 x2 /\
+    pasrel r s' t1 t2
+
+let pa2converges_unfold (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                        (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                        (tr: list string) (x1 x2: pval v) (t1 t2: pstore v cl)
+                        (s': pastate)
+                        (h: squash (pa2converges r lk apply s cf1 cf2 tr x1 x2 t1 t2 s'))
+  : squash (paconverges lk apply cf1 tr x1 t1 s'.an1 /\
+            paconverges lk apply cf2 tr x2 t2 s'.an2 /\
+            paext s' s /\ pawf s' /\
+            s'.an1 + s.an2 == s'.an2 + s.an1 /\
+            pval_rel s'.aw x1 x2 /\
+            pasrel r s' t1 t2)
+  = h
+
+(** **THE DATA IS UNIQUE; THE WORLD IS NOT MENTIONED.** PROVED, from
+    `lemma_paconverges_unique` on each side separately. Note what is NOT in the
+    conclusion: `sa' == sb'`. That is `guard_pa2converges_state_not_unique`'s
+    subject, and it is false. *)
+let lemma_pa2converges_data_unique
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+      (s: pastate) (cf1 cf2: pconf v cl)
+      (tra trb: list string) (xa1 xa2 xb1 xb2: pval v)
+      (ta1 ta2 tb1 tb2: pstore v cl) (sa' sb': pastate)
+  : Lemma (requires pa2converges r lk apply s cf1 cf2 tra xa1 xa2 ta1 ta2 sa' /\
+                    pa2converges r lk apply s cf1 cf2 trb xb1 xb2 tb1 tb2 sb')
+          (ensures tra == trb /\ xa1 == xb1 /\ xa2 == xb2 /\
+                   ta1 == tb1 /\ ta2 == tb2 /\
+                   sa'.an1 == sb'.an1 /\ sa'.an2 == sb'.an2)
+  = lemma_paconverges_unique lk apply cf1 tra trb xa1 xb1 ta1 tb1 sa'.an1 sb'.an1;
+    lemma_paconverges_unique lk apply cf2 tra trb xa2 xb2 ta2 tb2 sa'.an2 sb'.an2
+
+(* ---- 3. THE PAIRED-START OBSERVATIONAL PREORDER -------------------- *)
+
+(**
+ * **THE PAIRED-START OBSERVATIONAL PREORDER, AT TWO CONFIGURATIONS.**
+ *
+ * Read it against `pnobs_tr_le`, which it stands BESIDE and does not replace:
+ *
+ *   - the two sides start in DIFFERENT configurations, related at `s`. That is
+ *     the whole point: `pnobs_tr_le` starts both sides at the same `k`, `sto`
+ *     and `n0`, and cannot state a comparison in which the two sides hold
+ *     different stores and different frontiers -- which is what
+ *     `lemma_parun_compat` proves about;
+ *   - the TRACE MUST STILL MATCH EXACTLY. `guard_paobs_trace_is_load_bearing`
+ *     is the check;
+ *   - the two final VALUES correspond at the FINAL state's world;
+ *   - the two final STORES correspond at the FINAL state, on its world's
+ *     domain only, so garbage is still ignored;
+ *   - the final state is ACCESSIBLE from the starting one and the two
+ *     frontiers advanced by the same amount;
+ *   - the step counts are not mentioned: each side's is existentially
+ *     quantified inside `paconverges`, independently.
+ *
+ * `s'.an1 == m1` outside the existential is the statement that the left
+ * frontier the caller supplied IS the state's left frontier; it is what makes
+ * the existential answerable only by the state the run actually reached.
+ *)
+let paobs_le_cf (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      paconverges lk apply cf1 tr x1 t1 m1 ==>
+      (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         pa2converges r lk apply s cf1 cf2 tr x1 x2 t1 t2 s')
+
+let paobs_le_cf_unfold (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                       (h: squash (paobs_le_cf r lk apply s cf1 cf2))
+  : squash (forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+              paconverges lk apply cf1 tr x1 t1 m1 ==>
+              (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                 s'.an1 == m1 /\
+                 pa2converges r lk apply s cf1 cf2 tr x1 x2 t1 t2 s'))
+  = h
+
+(* ---- 4. ONE-DIRECTIONAL COMPATIBILITY ----------------------------- *)
+
+let lemma_pastrel_done_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (x1: pval v) (st2: pstate v cl)
+  : Lemma (requires pastrel r s (PDone x1) st2)
+          (ensures PDone? st2 /\ pval_rel s.aw x1 (PDone?.value st2))
+  = pastrel_unfold r s (PDone x1) st2 ()
+
+(** The whole content, at ONE fuel, so that the existential over the step count
+    is eliminated before `lemma_parun_compat` is applied rather than after.
+    Splitting it out is what keeps both queries at default fuel. *)
+let lemma_paobs_at_fuel
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+      (fuel: nat) (s: pastate) (cf1 cf2: pconf v cl)
+      (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ paapply_equivariant r apply /\
+                    pacfrel r s cf1 cf2 /\
+                    (fst (prun lk apply fuel cf1)).st == PDone x1 /\
+                    snd (prun lk apply fuel cf1) == tr /\
+                    (fst (prun lk apply fuel cf1)).store == t1 /\
+                    (fst (prun lk apply fuel cf1)).next == m1)
+          (ensures exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                     s'.an1 == m1 /\
+                     pa2converges r lk apply s cf1 cf2 tr x1 x2 t1 t2 s')
+  = lemma_parun_compat r lk apply fuel s cf1 cf2;
+    eliminate exists (s': pastate).
+        (paext s' s /\ pawf s' /\
+         s'.an1 + s.an2 == s'.an2 + s.an1 /\
+         pacfrel r s' (fst (prun lk apply fuel cf1))
+                      (fst (prun lk apply fuel cf2)))
+    with
+      (pacfrel_unfold r s' (fst (prun lk apply fuel cf1))
+                           (fst (prun lk apply fuel cf2)) ();
+       lemma_pastrel_done_inv r s' x1 (fst (prun lk apply fuel cf2)).st;
+       let x2 = PDone?.value (fst (prun lk apply fuel cf2)).st in
+       let t2 = (fst (prun lk apply fuel cf2)).store in
+       lemma_paconverges_at lk apply cf1 fuel tr x1 t1 s'.an1;
+       lemma_paconverges_at lk apply cf2 fuel tr x2 t2 s'.an2;
+       introduce exists (y2: pval v) (u2: pstore v cl) (s'': pastate).
+           (s''.an1 == m1 /\
+            pa2converges r lk apply s cf1 cf2 tr x1 y2 t1 u2 s'')
+       with x2 t2 s' and ())
+
+(**
+ * **ONE-DIRECTIONAL OBSERVATIONAL COMPATIBILITY.** PROVED, from
+ * `lemma_parun_compat` and NOTHING ELSE -- no second induction, no re-proof of
+ * the step case.
+ *
+ * Related configurations refine each other observationally: whatever the left
+ * converges to, the right converges to WITH THE SAME TRACE, at a state
+ * accessible from the one they started related at.
+ *
+ * The direction is `le` and only `le`. The symmetric statement is not claimed
+ * here and does not follow: `pacfrel` is not proved symmetric anywhere in this
+ * file, and the run theorem is stated of an ordered pair.
+ *)
+let lemma_paobs_le_cf_of_pacfrel
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+      (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ paapply_equivariant r apply /\
+                    pacfrel r s cf1 cf2)
+          (ensures paobs_le_cf r lk apply s cf1 cf2)
+  = introduce forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+        (paconverges lk apply cf1 tr x1 t1 m1 ==>
+         (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+            s'.an1 == m1 /\
+            pa2converges r lk apply s cf1 cf2 tr x1 x2 t1 t2 s'))
+    with
+      (introduce _ ==> _
+       with (paconverges_unfold lk apply cf1 tr x1 t1 m1 ();
+             eliminate exists (n: nat).
+                 (fst (prun lk apply n cf1)).st == PDone x1 /\
+                 snd (prun lk apply n cf1) == tr /\
+                 (fst (prun lk apply n cf1)).store == t1 /\
+                 (fst (prun lk apply n cf1)).next == m1
+             with lemma_paobs_at_fuel r lk apply n s cf1 cf2 tr x1 t1 m1))
+
+(* ---- 5. THE PREORDER AT THE COMPUTATION LEVEL --------------------- *)
+
+(** The preorder at the COMPUTATION level: at a state `s`, over every pair of
+    stacks and every pair of stores the state relates. The ambient data is
+    quantified over among the RELATED ones, which is the paired-start reading of
+    `pnobs_tr_le`'s "equivariant ones". *)
+let paobs_tr_le_at (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+                   (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (k1 k2: pstack v cl) (sto1 sto2: pstore v cl).
+      (pakrel b.pb_rel s k1 k2 /\ pasrel b.pb_rel s sto1 sto2) ==>
+      paobs_le_cf b.pb_rel b.pb_lk b.pb_apply s
+        ({ st = PStep c1 k1; store = sto1; next = s.an1 })
+        ({ st = PStep c2 k2; store = sto2; next = s.an2 })
+
+let paobs_tr_eq_at (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+                   (c1 c2: pcomp v cl)
+  : GTot prop
+  = paobs_tr_le_at b s c1 c2 /\ paobs_tr_le_at b s c2 c1
+
+let lemma_pacfrel_of_parts (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (c1 c2: pcomp v cl) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pacrel r s c1 c2 /\ pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures pacfrel r s ({ st = PStep c1 k1; store = sto1; next = s.an1 })
+                               ({ st = PStep c2 k2; store = sto2; next = s.an2 }))
+  = ()
+
+(** **RELATEDNESS AT A STATE IMPLIES OBSERVATIONAL REFINEMENT AT THAT STATE.**
+    PROVED. The four non-state premises come off the `paboundary` record;
+    `pb_apply_wb` is NOT among them and is not used. *)
+let lemma_paobs_tr_le_at_of_pacrel
+      (#v #cl: Type) (b: paboundary v cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires pawf s /\ pacrel b.pb_rel s c1 c2)
+          (ensures paobs_tr_le_at b s c1 c2)
+  = lemma_paboundary_premises b;
+    introduce forall (k1 k2: pstack v cl) (sto1 sto2: pstore v cl).
+        ((pakrel b.pb_rel s k1 k2 /\ pasrel b.pb_rel s sto1 sto2) ==>
+         paobs_le_cf b.pb_rel b.pb_lk b.pb_apply s
+           ({ st = PStep c1 k1; store = sto1; next = s.an1 })
+           ({ st = PStep c2 k2; store = sto2; next = s.an2 }))
+    with
+      (introduce _ ==> _
+       with (lemma_pacfrel_of_parts b.pb_rel s c1 c2 k1 k2 sto1 sto2;
+             lemma_paobs_le_cf_of_pacfrel b.pb_rel b.pb_lk b.pb_apply s
+               ({ st = PStep c1 k1; store = sto1; next = s.an1 })
+               ({ st = PStep c2 k2; store = sto2; next = s.an2 })))
+
+(* ---- 6. THE DIAGONAL STATE, AND THE PUBLIC SPECIALISATION --------- *)
+
+(**
+ * **THE CANONICAL DIAGONAL ALLOCATION STATE.** The identity on the keys the two
+ * sides start sharing, under ONE counter used as BOTH frontiers. This is the
+ * state at which the paired-start preorder specialises to the public one.
+ *)
+let padiag (#v #cl: Type) (sto: pstore v cl) (n0: nat) : pastate
+  = { aw = panchor sto; an1 = n0; an2 = n0 }
+
+(** **AND IT IS WELL FORMED, FROM `psfresh` -- BUT NOT FROM `lemma_panchor_bound`
+    ALONE.** PROVED. `pawf` is `pbounded_world`, which is `pwf_world` AND
+    `pwbound`. `lemma_panchor_bound` supplies the second conjunct from
+    `psfresh`; the first is `lemma_panchor_wf`, which is unconditional and sits
+    beside it. Both are needed and neither is more than one line. *)
+let lemma_padiag_wf (#v #cl: Type) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires psfresh sto n0) (ensures pawf (padiag #v #cl sto n0))
+  = lemma_panchor_wf sto;
+    lemma_panchor_bound sto n0
+
+let pstore_equivariant_at_unfold (#v #cl: Type) (r: pcl_rel_t cl)
+                                 (sto: pstore v cl)
+                                 (h: squash (pstore_equivariant_at r sto))
+  : squash (forall (i: nat) (cx: pctx v cl).
+              pstore_lookup i sto == Some cx ==>
+              pequivariant_ctx_at r (panchor sto) cx)
+  = h
+
+let pequivariant_ctx_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (w0: pworld)
+                               (cx: pctx v cl)
+                               (h: squash (pequivariant_ctx_at r w0 cx))
+  : squash (forall (w: pworld). pwf_world w /\ pwext w w0 ==> pxrel r w cx cx)
+  = h
+
+(** The ambient stack, transported. `pequivariant_k_at` is anchor-relative, so
+    it speaks at the anchor itself -- `pwext` is reflexive -- and
+    `lemma_pakrel_of_pkrel` collapses the result to the state whose world IS
+    that anchor. *)
+let lemma_padiag_krel (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl)
+                      (n0: nat) (k: pstack v cl)
+  : Lemma (requires pequivariant_k_at r (panchor sto) k)
+          (ensures pakrel r (padiag #v #cl sto n0) k k)
+  = lemma_panchor_wf sto;
+    pequivariant_k_at_unfold r (panchor sto) k ();
+    assert (pkrel r (panchor sto) k k);
+    lemma_pakrel_of_pkrel r (padiag #v #cl sto n0) k k
+
+(** The ambient store, transported. The anchor pins every key to ITSELF
+    (`lemma_panchor_l`), so the quantifier's two indices coincide and the single
+    obligation is the entry's self-relation, which `pstore_equivariant_at`
+    supplies at every future world and `lemma_paxrel_of_pxrel` collapses. *)
+let lemma_padiag_srel (#v #cl: Type) (r: pcl_rel_t cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires pstore_equivariant_at r sto)
+          (ensures pasrel r (padiag #v #cl sto n0) sto sto)
+  = lemma_panchor_wf sto;
+    pstore_equivariant_at_unfold r sto ();
+    introduce forall (i j: nat).
+        (pwlookup_l i (padiag #v #cl sto n0).aw == Some j ==>
+         (Some? (pstore_lookup i sto) /\ Some? (pstore_lookup j sto) /\
+          paxrel r (padiag #v #cl sto n0) (psget i sto) (psget j sto)))
+    with
+      (introduce _ ==> _
+       with begin
+         lemma_panchor_l i sto;
+         let cx = psget i sto in
+         assert (pstore_lookup i sto == Some cx);
+         pequivariant_ctx_at_unfold r (panchor sto) cx ();
+         assert (pxrel r (panchor sto) cx cx);
+         lemma_paxrel_of_pxrel r (padiag #v #cl sto n0) cx cx
+       end)
+
+(**
+ * **THE PUBLIC DIAGONAL SPECIALISATION.**
+ *
+ * Compare it with `pnobs_tr_le` line by line. IDENTICAL: both sides start at
+ * the SAME `k`, `sto` and `n0`; the three hypotheses are
+ * `pequivariant_k_at ... (panchor sto) k`, `pstore_equivariant_at ... sto` and
+ * `psfresh sto n0`, verbatim; the trace matches by equality; the world is
+ * well-formed and EXTENDS `panchor sto`; the two values correspond at it.
+ *
+ * DIFFERENT, in exactly one place: the store conjunct is `pasrel` at the FINAL
+ * STATE, not `psrel` at its world. That is not a stylistic choice.
+ * `guard_paobs_store_conjunct_stays_at_the_new_index` REFUTES the bridge a
+ * `psrel` conclusion would need -- `paxrel` at a state does NOT imply `pxrel`
+ * at that state's world, because the new family quantifies over ACCESSIBLE
+ * states and the old one over every `pwext` extension. So the public form
+ * derivable from the paired-start theorem carries the store correspondence at
+ * the narrowed index, and `lemma_panobs_nosto_of_pub` measures exactly how much
+ * of `pnobs_tr_le` comes back: everything except that conjunct.
+ *
+ * The final frontier is also carried, which `pnobs_tr_le` could not do.
+ *)
+let paobs_tr_le_pub_at (#v #cl: Type) (b: paboundary v cl)
+                       (sto: pstore v cl) (n0: nat) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (k: pstack v cl) (tr: list string) (x1: pval v)
+           (t1: pstore v cl) (m1: nat).
+      (pequivariant_k_at b.pb_rel (panchor sto) k /\
+       pstore_equivariant_at b.pb_rel sto /\
+       psfresh sto n0 /\
+       paconverges b.pb_lk b.pb_apply
+                   ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 t1 m1) ==>
+      (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         paconverges b.pb_lk b.pb_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+         paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+         pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2)
+
+let paobs_tr_le_pub (#v #cl: Type) (b: paboundary v cl) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (sto: pstore v cl) (n0: nat). paobs_tr_le_pub_at b sto n0 c1 c2
+
+(** **AND IT COMES OUT OF THE GENERAL THEOREM BY SPECIALISATION.** PROVED: put
+    `k1 = k2 = k`, `sto1 = sto2 = sto` and `s = padiag sto n0`, and the three
+    public hypotheses are exactly what `lemma_padiag_wf`, `lemma_padiag_krel`
+    and `lemma_padiag_srel` need. Nothing about the run is redone. *)
+let lemma_paobs_pub_at_of_paired
+      (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl) (n0: nat)
+      (c1 c2: pcomp v cl)
+  : Lemma (requires psfresh sto n0 /\
+                    paobs_tr_le_at b (padiag #v #cl sto n0) c1 c2)
+          (ensures paobs_tr_le_pub_at b sto n0 c1 c2)
+  = lemma_padiag_wf #v #cl sto n0;
+    introduce forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                     (t1: pstore v cl) (m1: nat).
+        ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+          pstore_equivariant_at b.pb_rel sto /\
+          psfresh sto n0 /\
+          paconverges b.pb_lk b.pb_apply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 t1 m1) ==>
+         (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+            s'.an1 == m1 /\
+            paconverges b.pb_lk b.pb_apply
+                        ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+            pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+            paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+            pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2))
+    with
+      (introduce _ ==> _
+       with begin
+         let sd : pastate = padiag #v #cl sto n0 in
+         lemma_padiag_krel b.pb_rel sto n0 k;
+         lemma_padiag_srel b.pb_rel sto n0;
+         assert (paobs_le_cf b.pb_rel b.pb_lk b.pb_apply sd
+                   ({ st = PStep c1 k; store = sto; next = sd.an1 })
+                   ({ st = PStep c2 k; store = sto; next = sd.an2 }));
+         paobs_le_cf_unfold b.pb_rel b.pb_lk b.pb_apply sd
+           ({ st = PStep c1 k; store = sto; next = sd.an1 })
+           ({ st = PStep c2 k; store = sto; next = sd.an2 }) ();
+         eliminate exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+             (s'.an1 == m1 /\
+              pa2converges b.pb_rel b.pb_lk b.pb_apply sd
+                ({ st = PStep c1 k; store = sto; next = sd.an1 })
+                ({ st = PStep c2 k; store = sto; next = sd.an2 })
+                tr x1 x2 t1 t2 s')
+         with
+           (pa2converges_unfold b.pb_rel b.pb_lk b.pb_apply sd
+              ({ st = PStep c1 k; store = sto; next = sd.an1 })
+              ({ st = PStep c2 k; store = sto; next = sd.an2 })
+              tr x1 x2 t1 t2 s' ();
+            lemma_paext_is_pwext s' sd;
+            introduce exists (y2: pval v) (u2: pstore v cl) (s'': pastate).
+                (s''.an1 == m1 /\
+                 paconverges b.pb_lk b.pb_apply
+                             ({ st = PStep c2 k; store = sto; next = n0 })
+                             tr y2 u2 s''.an2 /\
+                 pwf_world s''.aw /\ pwext s''.aw (panchor sto) /\
+                 paext s'' (padiag #v #cl sto n0) /\ pawf s'' /\
+                 pval_rel s''.aw x1 y2 /\ pasrel b.pb_rel s'' t1 u2)
+            with x2 t2 s' and ())
+       end)
+
+let lemma_paobs_pub_of_pacrel_diag
+      (#v #cl: Type) (b: paboundary v cl) (c1 c2: pcomp v cl)
+  : Lemma (requires (forall (sto: pstore v cl) (n0: nat).
+                       psfresh sto n0 ==> pacrel b.pb_rel (padiag #v #cl sto n0) c1 c2))
+          (ensures paobs_tr_le_pub b c1 c2)
+  = introduce forall (sto: pstore v cl) (n0: nat). paobs_tr_le_pub_at b sto n0 c1 c2
+    with
+      (if psfresh sto n0
+       then (lemma_padiag_wf #v #cl sto n0;
+             lemma_paobs_tr_le_at_of_pacrel b (padiag #v #cl sto n0) c1 c2;
+             lemma_paobs_pub_at_of_paired b sto n0 c1 c2)
+       else
+         (introduce forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                           (t1: pstore v cl) (m1: nat).
+              ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+                pstore_equivariant_at b.pb_rel sto /\
+                psfresh sto n0 /\
+                paconverges b.pb_lk b.pb_apply
+                            ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 t1 m1) ==>
+               (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                  s'.an1 == m1 /\
+                  paconverges b.pb_lk b.pb_apply
+                              ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+                  pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+                  paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+                  pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2))
+          with (introduce _ ==> _ with ())))
+
+(* ---- 7. THE BOUNDARY THE NON-DIAGONAL FIXTURE RUNS AT ------------- *)
+
+let lemma_fapply0_wb () : Lemma (papply_wb fapply0)
+  = introduce forall (c: fcl) (payload: list (pval fv)) (kf: (pval fv -> pcomp fv fcl)).
+      ((forall (x: pval fv). pterm_wb (kf x)) ==> pterm_wb (fapply0 c payload kf))
+    with (introduce _ ==> _ with lemma_wb_trivial (PVar (fpv FU) <: pcomp fv fcl))
+
+(** The fixture's own boundary record, so that the domain layer below has
+    something to be non-vacuous ON. Four of the five proof terms are the ones
+    `lemma_nd_hyps` already used; `pb_apply_wb` is the only new one, and
+    `fapply0` returns a `PVar`, which `lemma_wb_trivial` judges. *)
+let faboundary : paboundary fv fcl = {
+  pb_rel = fcl_rel;
+  pb_lk = flook;
+  pb_apply = fapply0;
+  pb_mono = lemma_fcl_rel_mono ();
+  pb_down = lemma_fcl_rel_down ();
+  pb_lookup = lemma_flook_equivariant ();
+  pb_apply_eq = lemma_fapply0_paequivariant ();
+  pb_apply_wb = lemma_fapply0_wb ();
+}
+
+(* ---- 8. THE NON-DIAGONAL FIXTURE, THROUGH THE PREORDER ------------ *)
+
+let nd_tl : pstore fv fcl = (2, PCtxDone (PCtxKey #fv 1)) :: nd_stl
+let nd_tr : pstore fv fcl = (1, PCtxDone (PCtxKey #fv 0)) :: nd_str
+
+let lemma_nd_paconverges ()
+  : Lemma (paconverges flook fapply0 nd_cfl ["a0"; "a1"] (PCtxKey #fv 2) nd_tl 3 /\
+           paconverges flook fapply0 nd_cfr ["a0"; "a1"] (PCtxKey #fv 1) nd_tr 2)
+  = lemma_nd_runs ();
+    lemma_paconverges_at flook fapply0 nd_cfl 6 ["a0"; "a1"] (PCtxKey #fv 2) nd_tl 3;
+    lemma_paconverges_at flook fapply0 nd_cfr 6 ["a0"; "a1"] (PCtxKey #fv 1) nd_tr 2
+
+let lemma_nd_paobs_witness ()
+  : Lemma (requires paobs_le_cf fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr /\
+                    paconverges flook fapply0 nd_cfl
+                                ["a0"; "a1"] (PCtxKey #fv 2) nd_tl 3 /\
+                    paconverges flook fapply0 nd_cfr
+                                ["a0"; "a1"] (PCtxKey #fv 1) nd_tr 2 /\
+                    pwlookup_l 1 nd_s0.aw == Some 0)
+          (ensures exists (s': pastate).
+                     pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+                       ["a0"; "a1"] (PCtxKey #fv 2) (PCtxKey #fv 1) nd_tl nd_tr s' /\
+                     s'.an1 == 3 /\ s'.an2 == 2 /\
+                     pwlookup_l 1 s'.aw == Some 0 /\ pwlookup_l 2 s'.aw == Some 1)
+  = paobs_le_cf_unfold fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr ();
+    eliminate exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+        (s'.an1 == 3 /\
+         pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+           ["a0"; "a1"] (PCtxKey #fv 2) x2 nd_tl t2 s')
+    with
+      (pa2converges_unfold fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+         ["a0"; "a1"] (PCtxKey #fv 2) x2 nd_tl t2 s' ();
+       lemma_paconverges_unique flook fapply0 nd_cfr
+         ["a0"; "a1"] ["a0"; "a1"] x2 (PCtxKey #fv 1) t2 nd_tr s'.an2 2;
+       paext_unfold s' nd_s0 ();
+       introduce exists (s'': pastate).
+           (pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+              ["a0"; "a1"] (PCtxKey #fv 2) (PCtxKey #fv 1) nd_tl nd_tr s'' /\
+            s''.an1 == 3 /\ s''.an2 == 2 /\
+            pwlookup_l 1 s''.aw == Some 0 /\ pwlookup_l 2 s''.aw == Some 1)
+       with s' and ())
+
+(**
+ * **THE PREORDER, FIRED OFF THE DIAGONAL.** PROVED, on the SAME pair
+ * `guard_nd_parun_compat_fires` uses: two configurations differing in control,
+ * in store and in frontier.
+ *
+ *   - the left converges, with a NON-EMPTY trace `["a0"; "a1"]`, to
+ *     `PCtxKey 2` at frontier 3;
+ *   - the preorder then produces the right's convergence AT THE SAME TRACE, to
+ *     `PCtxKey 1` at frontier 2, over a DIFFERENT final store;
+ *   - the final state's world speaks for the pair `(2, 1)` that the starting
+ *     world did not have, and still speaks for `(1, 0)`;
+ *   - so the value conjunct is instantiated on two handles that are LITERALLY
+ *     DIFFERENT NUMBERS, and the store conjunct on two stores of different
+ *     lengths.
+ *)
+let guard_nd_paobs_le_fires ()
+  : Lemma (paobs_le_cf fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr /\
+           paconverges flook fapply0 nd_cfl ["a0"; "a1"] (PCtxKey #fv 2) nd_tl 3 /\
+           paconverges flook fapply0 nd_cfr ["a0"; "a1"] (PCtxKey #fv 1) nd_tr 2 /\
+           nd_tl =!= nd_tr /\ pwlookup_l 2 nd_s0.aw == None /\
+           (exists (s': pastate).
+              pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+                ["a0"; "a1"] (PCtxKey #fv 2) (PCtxKey #fv 1) nd_tl nd_tr s' /\
+              s'.an1 == 3 /\ s'.an2 == 2 /\
+              pwlookup_l 1 s'.aw == Some 0 /\ pwlookup_l 2 s'.aw == Some 1))
+  = lemma_nd_hyps ();
+    lemma_nd_state_wf ();
+    lemma_nd_paconverges ();
+    assert_norm (nd_tl =!= nd_tr);
+    lemma_paobs_le_cf_of_pacfrel fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr;
+    lemma_nd_paobs_witness ()
+
+(* ---- 9. THE WELL-FORMED OBSERVATION DOMAIN ------------------------ *)
+
+(**
+ * **THE WELL-FORMED OBSERVATION DOMAIN, PAIRED.**
+ *
+ * `pnobs_dom` is the diagonal version: three hypotheses about `(k, sto, n0)`
+ * plus `pconf_ok` of one side. Off the diagonal the first three collapse into
+ * `pacfrel` -- relatedness at `s` IS what "the ambient data corresponds" means
+ * when the two sides hold different ambient data -- and `pconf_ok` is asked of
+ * BOTH sides, because each has its own control component and its own store.
+ *)
+let paobs_dom (#v #cl: Type) (b: paboundary v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = pawf s /\ pacfrel b.pb_rel s cf1 cf2 /\ pconf_ok cf1 /\ pconf_ok cf2
+
+let paobs_dom_unfold (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+                     (cf1 cf2: pconf v cl)
+                     (h: squash (paobs_dom b s cf1 cf2))
+  : squash (pawf s /\ pacfrel b.pb_rel s cf1 cf2 /\ pconf_ok cf1 /\ pconf_ok cf2)
+  = h
+
+let paobs_dom_fold (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+                   (cf1 cf2: pconf v cl)
+                   (h: squash (pawf s /\ pacfrel b.pb_rel s cf1 cf2 /\
+                               pconf_ok cf1 /\ pconf_ok cf2))
+  : squash (paobs_dom b s cf1 cf2)
+  = h
+
+(** **STEP 6, AND THIS IS WHERE `pb_apply_wb` GOES.** It is used by NOTHING in
+    the relational core: not by `lemma_pastep_compat`, not by
+    `lemma_parun_compat`, not by `lemma_paobs_le_cf_of_pacfrel`, not by the
+    public specialisation. It is used HERE and below, by the domain layer, and
+    for the same reason `lemma_pnobs_dom_prun` used `b_apply_wb`: `pconf_ok`'s
+    third conjunct `pstate_wb` is the one that needs it. *)
+let lemma_paboundary_apply_wb (#v #cl: Type) (b: paboundary v cl)
+  : Lemma (papply_wb b.pb_apply)
+  = b.pb_apply_wb
+
+(* -- the freshness half, WITHOUT `pb_apply_wb` ---------------------- *)
+
+let lemma_pstep_tr_conf_wf
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+  : Lemma (requires pconf_wf cf)
+          (ensures pconf_wf (fst (pstep_tr lk apply cf)))
+  = match cf.st with
+    | PStep (PEmit ev body) k -> ()
+    | _ -> lemma_pstep_conf_wf lk apply cf
+
+(** **AND THE FRESHNESS HALF NEEDS NO SUCH HYPOTHESIS.** PROVED, with no
+    `papply_wb` anywhere: `pconf_wf` is preserved by every transition
+    unconditionally (`lemma_pstep_conf_wf`), and the instrumented transition
+    differs on one node that touches neither the store nor the counter. This is
+    what makes the verdict precise: the domain's freshness layer is free, and
+    `pb_apply_wb` is bought by the STACK layer alone. *)
+let rec lemma_prun_conf_wf
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (fuel: nat) (cf: pconf v cl)
+  : Lemma (requires pconf_wf cf)
+          (ensures pconf_wf (fst (prun lk apply fuel cf)))
+          (decreases fuel)
+  = if fuel = 0 then ()
+    else
+      match cf.st with
+      | PStep _ _ ->
+        lemma_pstep_tr_conf_wf lk apply cf;
+        lemma_prun_conf_wf lk apply (fuel - 1) (fst (pstep_tr lk apply cf))
+      | _ -> ()
+
+let lemma_paconverges_psfresh
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl) (cf: pconf v cl)
+    (tr: list string) (x: pval v) (t: pstore v cl) (m: nat)
+  : Lemma (requires pconf_wf cf /\ paconverges lk apply cf tr x t m)
+          (ensures psfresh t m)
+  = eliminate exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\
+        snd (prun lk apply n cf) == tr /\
+        (fst (prun lk apply n cf)).store == t /\
+        (fst (prun lk apply n cf)).next == m
+    with
+      (lemma_prun_conf_wf lk apply n cf;
+       lemma_psfresh_of_conf_wf (fst (prun lk apply n cf)))
+
+(* -- the closure half, and it DOES consume `pb_apply_wb` ------------ *)
+
+(** Both sides' runs stay in `pconf_ok`, at any two fuels. PROVED, and it
+    CONSUMES `b.pb_apply_wb` through `lemma_prun_conf_ok`. *)
+let lemma_paobs_dom_prun (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+    (cf1 cf2: pconf v cl) (f1 f2: nat)
+  : Lemma (requires paobs_dom b s cf1 cf2)
+          (ensures pconf_ok (fst (prun b.pb_lk b.pb_apply f1 cf1)) /\
+                   pconf_ok (fst (prun b.pb_lk b.pb_apply f2 cf2)))
+  = paobs_dom_unfold b s cf1 cf2 ();
+    lemma_paboundary_apply_wb b;
+    lemma_prun_conf_ok b.pb_lk b.pb_apply f1 cf1;
+    lemma_prun_conf_ok b.pb_lk b.pb_apply f2 cf2
+
+(** The domain is CLOSED under the operation the observation performs: from a
+    domain pair, at any fuel, at any state the run theorem hands back, the two
+    configurations reached are again a domain pair. This is the composability
+    the whole layer exists for, and it is where `pb_apply_wb` is spent. *)
+let lemma_paobs_dom_closed (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+    (cf1 cf2: pconf v cl) (s': pastate) (fuel: nat)
+  : Lemma (requires paobs_dom b s cf1 cf2 /\ pawf s' /\
+                    pacfrel b.pb_rel s' (fst (prun b.pb_lk b.pb_apply fuel cf1))
+                                        (fst (prun b.pb_lk b.pb_apply fuel cf2)))
+          (ensures paobs_dom b s' (fst (prun b.pb_lk b.pb_apply fuel cf1))
+                                  (fst (prun b.pb_lk b.pb_apply fuel cf2)))
+  = lemma_paobs_dom_prun b s cf1 cf2 fuel fuel;
+    paobs_dom_fold b s' (fst (prun b.pb_lk b.pb_apply fuel cf1))
+                        (fst (prun b.pb_lk b.pb_apply fuel cf2)) ()
+
+(* -- the well-formed observation ------------------------------------ *)
+
+(**
+ * **THE WELL-FORMED OBSERVATION.** `paobs_le_cf` restricted to the domain, with
+ * two conjuncts added to the conclusion: each final store is FRESH for its own
+ * final frontier. Those two are what a caller needs to feed the result of one
+ * observation into the next -- `psfresh` is the public form's third hypothesis
+ * -- and they come from `pconf_wf`, hence WITHOUT `pb_apply_wb`. The domain
+ * membership in the antecedent is what carries `pb_apply_wb`'s payload, through
+ * `lemma_paobs_dom_closed`.
+ *)
+let paobs_le_cf_wf (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+                   (cf1 cf2: pconf v cl)
+  : GTot prop
+  = forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      (paobs_dom b s cf1 cf2 /\
+       paconverges b.pb_lk b.pb_apply cf1 tr x1 t1 m1) ==>
+      (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         pa2converges b.pb_rel b.pb_lk b.pb_apply s cf1 cf2 tr x1 x2 t1 t2 s' /\
+         psfresh t1 s'.an1 /\ psfresh t2 s'.an2)
+
+let lemma_paobs_le_cf_wf_of_dom (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+    (cf1 cf2: pconf v cl)
+  : Lemma (requires paobs_dom b s cf1 cf2)
+          (ensures paobs_le_cf_wf b s cf1 cf2)
+  = paobs_dom_unfold b s cf1 cf2 ();
+    lemma_paboundary_premises b;
+    lemma_paobs_le_cf_of_pacfrel b.pb_rel b.pb_lk b.pb_apply s cf1 cf2;
+    paobs_le_cf_unfold b.pb_rel b.pb_lk b.pb_apply s cf1 cf2 ();
+    introduce forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+        ((paobs_dom b s cf1 cf2 /\
+          paconverges b.pb_lk b.pb_apply cf1 tr x1 t1 m1) ==>
+         (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+            s'.an1 == m1 /\
+            pa2converges b.pb_rel b.pb_lk b.pb_apply s cf1 cf2 tr x1 x2 t1 t2 s' /\
+            psfresh t1 s'.an1 /\ psfresh t2 s'.an2))
+    with
+      (introduce _ ==> _
+       with
+         (eliminate exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+              (s'.an1 == m1 /\
+               pa2converges b.pb_rel b.pb_lk b.pb_apply s cf1 cf2 tr x1 x2 t1 t2 s')
+          with
+            (pa2converges_unfold b.pb_rel b.pb_lk b.pb_apply s cf1 cf2
+               tr x1 x2 t1 t2 s' ();
+             lemma_paconverges_psfresh b.pb_lk b.pb_apply cf1 tr x1 t1 s'.an1;
+             lemma_paconverges_psfresh b.pb_lk b.pb_apply cf2 tr x2 t2 s'.an2;
+             introduce exists (y2: pval v) (u2: pstore v cl) (s'': pastate).
+                 (s''.an1 == m1 /\
+                  pa2converges b.pb_rel b.pb_lk b.pb_apply s cf1 cf2
+                    tr x1 y2 t1 u2 s'' /\
+                  psfresh t1 s''.an1 /\ psfresh u2 s''.an2)
+             with x2 t2 s' and ())))
+
+(* ---- 10. THE NON-DIAGONAL FIXTURE IS IN THE WELL-FORMED DOMAIN ---- *)
+
+let lemma_nd_frames_wb ()
+  : Lemma (pframes_wb #fv #fcl [PScopeF])
+  = lemma_wb_frames_nil #fv #fcl ();
+    introduce forall (n: nat). pframe_wb_n n (PScopeF #fv #fcl) with ();
+    lemma_wb_frames_cons_bwd (PScopeF #fv #fcl) []
+
+(** The fixture satisfies the machine invariant on BOTH sides: every key is
+    below the frontier, every stored residual is well formed, and the `PScopeF`
+    stack is `pwb`, carries a judged frame and ANSWERS -- so the control
+    computation carries no obligation at all. *)
+let guard_nd_conf_ok ()
+  : Lemma (pconf_ok nd_cfl /\ pconf_ok nd_cfr)
+  = lemma_nd_frames_wb ();
+    assert_norm (pwb #fv #fcl [PScopeF] == true);
+    assert_norm (panswered #fv #fcl [PScopeF] == true);
+    assert_norm (pstore_resid_wf nd_stl == true);
+    assert_norm (pstore_resid_wf nd_str == true)
+
+let lemma_faboundary_fields ()
+  : Lemma (faboundary.pb_rel == fcl_rel /\
+           faboundary.pb_lk == flook /\
+           faboundary.pb_apply == fapply0)
+  = assert_norm (faboundary.pb_rel == fcl_rel);
+    assert_norm (faboundary.pb_lk == flook);
+    assert_norm (faboundary.pb_apply == fapply0)
+
+let guard_nd_in_paobs_dom ()
+  : Lemma (paobs_dom faboundary nd_s0 nd_cfl nd_cfr /\
+           paobs_le_cf_wf faboundary nd_s0 nd_cfl nd_cfr)
+  = lemma_faboundary_fields ();
+    guard_nd_conf_ok ();
+    lemma_nd_hyps ();
+    paobs_dom_fold faboundary nd_s0 nd_cfl nd_cfr ();
+    lemma_paobs_le_cf_wf_of_dom faboundary nd_s0 nd_cfl nd_cfr
+
+let paobs_le_cf_wf_unfold (#v #cl: Type) (b: paboundary v cl) (s: pastate)
+                          (cf1 cf2: pconf v cl)
+                          (h: squash (paobs_le_cf_wf b s cf1 cf2))
+  : squash (forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+              (paobs_dom b s cf1 cf2 /\
+               paconverges b.pb_lk b.pb_apply cf1 tr x1 t1 m1) ==>
+              (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                 s'.an1 == m1 /\
+                 pa2converges b.pb_rel b.pb_lk b.pb_apply s cf1 cf2 tr x1 x2 t1 t2 s' /\
+                 psfresh t1 s'.an1 /\ psfresh t2 s'.an2))
+  = h
+
+(**
+ * **THE DOMAIN DOES NOT EMPTY THE FIXTURE OUT.** PROVED, and this is the check
+ * the gate's stop condition asks for EXPLICITLY rather than by inference.
+ *
+ * The only worked non-diagonal witness in this file is IN the well-formed
+ * domain, and the well-formed observation fires on it with the whole conclusion
+ * read out: the same non-empty trace, the two different values, the two
+ * different grown stores, the two different final frontiers, and both final
+ * stores fresh for their own frontier. So the observation is not being defined
+ * on a set the interesting executions fall outside of.
+ *)
+let guard_nd_paobs_wf_not_vacuous ()
+  : Lemma (paobs_dom faboundary nd_s0 nd_cfl nd_cfr /\
+           (exists (s': pastate).
+              pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+                ["a0"; "a1"] (PCtxKey #fv 2) (PCtxKey #fv 1) nd_tl nd_tr s' /\
+              s'.an1 == 3 /\ s'.an2 == 2 /\
+              psfresh nd_tl 3 /\ psfresh nd_tr 2))
+  = lemma_faboundary_fields ();
+    guard_nd_in_paobs_dom ();
+    lemma_nd_paconverges ();
+    paobs_le_cf_wf_unfold faboundary nd_s0 nd_cfl nd_cfr ();
+    eliminate exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+        (s'.an1 == 3 /\
+         pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+           ["a0"; "a1"] (PCtxKey #fv 2) x2 nd_tl t2 s' /\
+         psfresh nd_tl s'.an1 /\ psfresh t2 s'.an2)
+    with
+      (pa2converges_unfold fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+         ["a0"; "a1"] (PCtxKey #fv 2) x2 nd_tl t2 s' ();
+       lemma_paconverges_unique flook fapply0 nd_cfr
+         ["a0"; "a1"] ["a0"; "a1"] x2 (PCtxKey #fv 1) t2 nd_tr s'.an2 2;
+       introduce exists (s'': pastate).
+           (pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+              ["a0"; "a1"] (PCtxKey #fv 2) (PCtxKey #fv 1) nd_tl nd_tr s'' /\
+            s''.an1 == 3 /\ s''.an2 == 2 /\
+            psfresh nd_tl 3 /\ psfresh nd_tr 2)
+       with s' and ())
+
+(* ---- 11. THE FOUR CONJUNCTS, ONE MUTATION EACH -------------------- *)
+
+let paobs_le_cf_notr (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                     (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = forall (tr1: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      paconverges lk apply cf1 tr1 x1 t1 m1 ==>
+      (exists (tr2: list string) (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         paconverges lk apply cf1 tr1 x1 t1 s'.an1 /\
+         paconverges lk apply cf2 tr2 x2 t2 s'.an2 /\
+         paext s' s /\ pawf s' /\
+         s'.an1 + s.an2 == s'.an2 + s.an1 /\
+         pval_rel s'.aw x1 x2 /\ pasrel r s' t1 t2)
+
+let paobs_le_cf_noval (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      paconverges lk apply cf1 tr x1 t1 m1 ==>
+      (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         paconverges lk apply cf1 tr x1 t1 s'.an1 /\
+         paconverges lk apply cf2 tr x2 t2 s'.an2 /\
+         paext s' s /\ pawf s' /\
+         s'.an1 + s.an2 == s'.an2 + s.an1 /\
+         pasrel r s' t1 t2)
+
+let paobs_le_cf_nosto (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      paconverges lk apply cf1 tr x1 t1 m1 ==>
+      (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         paconverges lk apply cf1 tr x1 t1 s'.an1 /\
+         paconverges lk apply cf2 tr x2 t2 s'.an2 /\
+         paext s' s /\ pawf s' /\
+         s'.an1 + s.an2 == s'.an2 + s.an1 /\
+         pval_rel s'.aw x1 x2)
+
+let paobs_le_cf_noext (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = forall (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      paconverges lk apply cf1 tr x1 t1 m1 ==>
+      (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         paconverges lk apply cf1 tr x1 t1 s'.an1 /\
+         paconverges lk apply cf2 tr x2 t2 s'.an2 /\
+         pawf s' /\
+         s'.an1 + s.an2 == s'.an2 + s.an1 /\
+         pval_rel s'.aw x1 x2 /\ pasrel r s' t1 t2)
+
+(* -- (i) THE TRACE ------------------------------------------------- *)
+
+let lemma_nd_final_state ()
+  : Lemma (exists (s': pastate).
+             paext s' nd_s0 /\ pawf s' /\
+             s'.an1 == 3 /\ s'.an2 == 2 /\
+             pval_rel s'.aw (PCtxKey #fv 2) (PCtxKey #fv 1) /\
+             pasrel fcl_rel s' nd_tl nd_tr)
+  = guard_nd_paobs_le_fires ();
+    eliminate exists (s': pastate).
+        (pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+           ["a0"; "a1"] (PCtxKey #fv 2) (PCtxKey #fv 1) nd_tl nd_tr s' /\
+         s'.an1 == 3 /\ s'.an2 == 2 /\
+         pwlookup_l 1 s'.aw == Some 0 /\ pwlookup_l 2 s'.aw == Some 1)
+    with
+      (pa2converges_unfold fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr
+         ["a0"; "a1"] (PCtxKey #fv 2) (PCtxKey #fv 1) nd_tl nd_tr s' ();
+       introduce exists (s'': pastate).
+           (paext s'' nd_s0 /\ pawf s'' /\
+            s''.an1 == 3 /\ s''.an2 == 2 /\
+            pval_rel s''.aw (PCtxKey #fv 2) (PCtxKey #fv 1) /\
+            pasrel fcl_rel s'' nd_tl nd_tr)
+       with s' and ())
+
+let lemma_nd_id_paconverges ()
+  : Lemma (paconverges flook fapply0 nd_cfr_id ["a0"; "zz"] (PCtxKey #fv 1) nd_tr 2 /\
+           ["a0"; "zz"] =!= ["a0"; "a1"])
+  = assert_norm (snd (prun flook fapply0 6 nd_cfr_id) == ["a0"; "zz"]);
+    assert_norm ((fst (prun flook fapply0 6 nd_cfr_id)).st == PDone (PCtxKey #fv 1));
+    assert_norm ((fst (prun flook fapply0 6 nd_cfr_id)).store == nd_tr);
+    assert_norm ((fst (prun flook fapply0 6 nd_cfr_id)).next == 2);
+    lemma_paconverges_at flook fapply0 nd_cfr_id 6
+      ["a0"; "zz"] (PCtxKey #fv 1) nd_tr 2
+
+let lemma_nd_notr_holds ()
+  : Lemma (paobs_le_cf_notr fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id)
+  = lemma_nd_paconverges ();
+    lemma_nd_id_paconverges ();
+    lemma_nd_final_state ();
+    introduce forall (tr1: list string) (x1: pval fv) (t1: pstore fv fcl) (m1: nat).
+        (paconverges flook fapply0 nd_cfl tr1 x1 t1 m1 ==>
+         (exists (tr2: list string) (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+            s'.an1 == m1 /\
+            paconverges flook fapply0 nd_cfl tr1 x1 t1 s'.an1 /\
+            paconverges flook fapply0 nd_cfr_id tr2 x2 t2 s'.an2 /\
+            paext s' nd_s0 /\ pawf s' /\
+            s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+            pval_rel s'.aw x1 x2 /\ pasrel fcl_rel s' t1 t2))
+    with
+      (introduce _ ==> _
+       with
+         (lemma_paconverges_unique flook fapply0 nd_cfl
+            ["a0"; "a1"] tr1 (PCtxKey #fv 2) x1 nd_tl t1 3 m1;
+          eliminate exists (s': pastate).
+              (paext s' nd_s0 /\ pawf s' /\
+               s'.an1 == 3 /\ s'.an2 == 2 /\
+               pval_rel s'.aw (PCtxKey #fv 2) (PCtxKey #fv 1) /\
+               pasrel fcl_rel s' nd_tl nd_tr)
+          with
+            (introduce exists (tr2: list string) (x2: pval fv)
+                              (t2: pstore fv fcl) (s'': pastate).
+                 (s''.an1 == m1 /\
+                  paconverges flook fapply0 nd_cfl tr1 x1 t1 s''.an1 /\
+                  paconverges flook fapply0 nd_cfr_id tr2 x2 t2 s''.an2 /\
+                  paext s'' nd_s0 /\ pawf s'' /\
+                  s''.an1 + nd_s0.an2 == s''.an2 + nd_s0.an1 /\
+                  pval_rel s''.aw x1 x2 /\ pasrel fcl_rel s'' t1 t2)
+             with ["a0"; "zz"] (PCtxKey #fv 1) nd_tr s' and ())))
+
+let lemma_nd_le_id_fails ()
+  : Lemma (~(paobs_le_cf fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id))
+  = lemma_nd_paconverges ();
+    lemma_nd_id_paconverges ();
+    introduce paobs_le_cf fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id ==> False
+    with
+      (paobs_le_cf_unfold fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id ();
+       eliminate exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+           (s'.an1 == 3 /\
+            pa2converges fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id
+              ["a0"; "a1"] (PCtxKey #fv 2) x2 nd_tl t2 s')
+       with
+         (pa2converges_unfold fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id
+            ["a0"; "a1"] (PCtxKey #fv 2) x2 nd_tl t2 s' ();
+          lemma_paconverges_unique flook fapply0 nd_cfr_id
+            ["a0"; "a1"] ["a0"; "zz"] x2 (PCtxKey #fv 1) t2 nd_tr s'.an2 2))
+
+(**
+ * **CONJUNCT 1 -- THE TRACE.** REFUTED, and the mutation is one this file
+ * already owns: `nd_cfr_id` emits `"zz"` where `nd_cfr` emits `"a1"`, and
+ * changes NOTHING else -- same store, same frontier, same handle, same stack.
+ *
+ * With the trace equality WEAKENED to "the right converges to SOME trace",
+ * `paobs_le_cf_notr` HOLDS of the mutated pair: every other conjunct is
+ * satisfied by the very state `lemma_parun_compat` hands back for the
+ * unmutated pair, because the mutation leaves the final configuration alone.
+ * With the trace equality as stated, `paobs_le_cf` FAILS, because
+ * `lemma_paconverges_unique` pins the right's trace to `["a0"; "zz"]` and that
+ * is not `["a0"; "a1"]`.
+ *
+ * So the conjunct is what refuses the pair, and dropping it admits it.
+ *)
+let guard_paobs_trace_is_load_bearing ()
+  : Lemma (paobs_le_cf_notr fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id /\
+           ~(paobs_le_cf fcl_rel flook fapply0 nd_s0 nd_cfl nd_cfr_id) /\
+           paconverges flook fapply0 nd_cfl ["a0"; "a1"] (PCtxKey #fv 2) nd_tl 3 /\
+           paconverges flook fapply0 nd_cfr_id ["a0"; "zz"] (PCtxKey #fv 1) nd_tr 2 /\
+           ["a0"; "a1"] =!= ["a0"; "zz"])
+  = lemma_nd_paconverges ();
+    lemma_nd_id_paconverges ();
+    lemma_nd_notr_holds ();
+    lemma_nd_le_id_fails ()
+
+(* -- (ii) THE RELATED VALUES --------------------------------------- *)
+
+let ndv_cfl : pconf fv fcl = { st = PStep nd_c2_l []; store = nd_stl; next = 2 }
+let ndv_c2_r : pcomp fv fcl = PEmit "a0" (PEmit "a1" (PVar (fpv (FI 9))))
+let ndv_cfr : pconf fv fcl = { st = PStep ndv_c2_r []; store = nd_str; next = 1 }
+
+let lemma_ndv_paconverges ()
+  : Lemma (paconverges flook fapply0 ndv_cfl ["a0"; "a1"] (PCtxKey #fv 1) nd_stl 2 /\
+           paconverges flook fapply0 ndv_cfr ["a0"; "a1"] (fpv (FI 9)) nd_str 1)
+  = assert_norm (snd (prun flook fapply0 6 ndv_cfl) == ["a0"; "a1"]);
+    assert_norm ((fst (prun flook fapply0 6 ndv_cfl)).st == PDone (PCtxKey #fv 1));
+    assert_norm ((fst (prun flook fapply0 6 ndv_cfl)).store == nd_stl);
+    assert_norm ((fst (prun flook fapply0 6 ndv_cfl)).next == 2);
+    assert_norm (snd (prun flook fapply0 6 ndv_cfr) == ["a0"; "a1"]);
+    assert_norm ((fst (prun flook fapply0 6 ndv_cfr)).st == PDone (fpv (FI 9)));
+    assert_norm ((fst (prun flook fapply0 6 ndv_cfr)).store == nd_str);
+    assert_norm ((fst (prun flook fapply0 6 ndv_cfr)).next == 1);
+    lemma_paconverges_at flook fapply0 ndv_cfl 6
+      ["a0"; "a1"] (PCtxKey #fv 1) nd_stl 2;
+    lemma_paconverges_at flook fapply0 ndv_cfr 6
+      ["a0"; "a1"] (fpv (FI 9)) nd_str 1
+
+let lemma_ndv_noval_holds ()
+  : Lemma (paobs_le_cf_noval fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr)
+  = lemma_ndv_paconverges ();
+    lemma_nd_state_wf ();
+    lemma_nd_store_rel ();
+    lemma_paext_refl_wf nd_s0;
+    introduce forall (tr: list string) (x1: pval fv) (t1: pstore fv fcl) (m1: nat).
+        (paconverges flook fapply0 ndv_cfl tr x1 t1 m1 ==>
+         (exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+            s'.an1 == m1 /\
+            paconverges flook fapply0 ndv_cfl tr x1 t1 s'.an1 /\
+            paconverges flook fapply0 ndv_cfr tr x2 t2 s'.an2 /\
+            paext s' nd_s0 /\ pawf s' /\
+            s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+            pasrel fcl_rel s' t1 t2))
+    with
+      (introduce _ ==> _
+       with
+         (lemma_paconverges_unique flook fapply0 ndv_cfl
+            ["a0"; "a1"] tr (PCtxKey #fv 1) x1 nd_stl t1 2 m1;
+          introduce exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+              (s'.an1 == m1 /\
+               paconverges flook fapply0 ndv_cfl tr x1 t1 s'.an1 /\
+               paconverges flook fapply0 ndv_cfr tr x2 t2 s'.an2 /\
+               paext s' nd_s0 /\ pawf s' /\
+               s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+               pasrel fcl_rel s' t1 t2)
+          with (fpv (FI 9)) nd_str nd_s0 and ()))
+
+let lemma_ndv_le_fails ()
+  : Lemma (~(paobs_le_cf fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr))
+  = lemma_ndv_paconverges ();
+    introduce paobs_le_cf fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr ==> False
+    with
+      (paobs_le_cf_unfold fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr ();
+       eliminate exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+           (s'.an1 == 2 /\
+            pa2converges fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr
+              ["a0"; "a1"] (PCtxKey #fv 1) x2 nd_stl t2 s')
+       with
+         (pa2converges_unfold fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr
+            ["a0"; "a1"] (PCtxKey #fv 1) x2 nd_stl t2 s' ();
+          lemma_paconverges_unique flook fapply0 ndv_cfr
+            ["a0"; "a1"] ["a0"; "a1"] x2 (fpv (FI 9)) t2 nd_str s'.an2 1))
+
+(**
+ * **CONJUNCT 2 -- THE RELATED VALUES.** REFUTED. Over an EMPTY stack -- so that
+ * the returned value is the program's own and not a freshly allocated handle --
+ * the left returns the handle `PCtxKey 1` and the right returns the PAYLOAD
+ * `PV (FI 9)`. The traces agree, the stores are the fixture's own and are
+ * related at `nd_s0`, no allocation happens on either side, and both frontiers
+ * are exactly `nd_s0`'s.
+ *
+ * With `pval_rel` dropped, `paobs_le_cf_noval` HOLDS at `s' = nd_s0` itself.
+ * With it, `paobs_le_cf` FAILS -- and it fails at EVERY world, not merely at
+ * the ones accessible from `nd_s0`, because `pval_rel` relates a handle to a
+ * payload in no world whatsoever. That last conjunct is stated outright.
+ *)
+let guard_paobs_values_are_load_bearing ()
+  : Lemma (paobs_le_cf_noval fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr /\
+           ~(paobs_le_cf fcl_rel flook fapply0 nd_s0 ndv_cfl ndv_cfr) /\
+           paconverges flook fapply0 ndv_cfl ["a0"; "a1"] (PCtxKey #fv 1) nd_stl 2 /\
+           paconverges flook fapply0 ndv_cfr ["a0"; "a1"] (fpv (FI 9)) nd_str 1 /\
+           (forall (w: pworld). ~(pval_rel #fv w (PCtxKey 1) (fpv (FI 9)))))
+  = lemma_ndv_paconverges ();
+    lemma_ndv_noval_holds ();
+    lemma_ndv_le_fails ()
+
+(* -- (iii) THE FINAL STORE RELATION -------------------------------- *)
+
+let nds_cfr : pconf fv fcl = { st = PStep nd_c2_r []; store = []; next = 1 }
+
+let lemma_nds_paconverges ()
+  : Lemma (paconverges flook fapply0 nds_cfr
+             ["a0"; "a1"] (PCtxKey #fv 0) ([] <: pstore fv fcl) 1)
+  = assert_norm (snd (prun flook fapply0 6 nds_cfr) == ["a0"; "a1"]);
+    assert_norm ((fst (prun flook fapply0 6 nds_cfr)).st == PDone (PCtxKey #fv 0));
+    assert_norm ((fst (prun flook fapply0 6 nds_cfr)).store == ([] <: pstore fv fcl));
+    assert_norm ((fst (prun flook fapply0 6 nds_cfr)).next == 1);
+    lemma_paconverges_at flook fapply0 nds_cfr 6
+      ["a0"; "a1"] (PCtxKey #fv 0) ([] <: pstore fv fcl) 1
+
+let lemma_nds_nosto_holds ()
+  : Lemma (paobs_le_cf_nosto fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr)
+  = lemma_ndv_paconverges ();
+    lemma_nds_paconverges ();
+    lemma_nd_state_wf ();
+    lemma_paext_refl_wf nd_s0;
+    introduce forall (tr: list string) (x1: pval fv) (t1: pstore fv fcl) (m1: nat).
+        (paconverges flook fapply0 ndv_cfl tr x1 t1 m1 ==>
+         (exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+            s'.an1 == m1 /\
+            paconverges flook fapply0 ndv_cfl tr x1 t1 s'.an1 /\
+            paconverges flook fapply0 nds_cfr tr x2 t2 s'.an2 /\
+            paext s' nd_s0 /\ pawf s' /\
+            s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+            pval_rel s'.aw x1 x2))
+    with
+      (introduce _ ==> _
+       with
+         (lemma_paconverges_unique flook fapply0 ndv_cfl
+            ["a0"; "a1"] tr (PCtxKey #fv 1) x1 nd_stl t1 2 m1;
+          introduce exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+              (s'.an1 == m1 /\
+               paconverges flook fapply0 ndv_cfl tr x1 t1 s'.an1 /\
+               paconverges flook fapply0 nds_cfr tr x2 t2 s'.an2 /\
+               paext s' nd_s0 /\ pawf s' /\
+               s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+               pval_rel s'.aw x1 x2)
+          with (PCtxKey #fv 0) ([] <: pstore fv fcl) nd_s0 and ()))
+
+let lemma_pasrel_absent (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (s1 s2: pstore v cl) (i j: nat)
+  : Lemma (requires pasrel r s s1 s2 /\ pwlookup_l i s.aw == Some j /\
+                    Some? (pstore_lookup i s1) /\
+                    pstore_lookup j s2 == None)
+          (ensures False)
+  = pasrel_unfold r s s1 s2 ()
+
+let lemma_nds_le_fails ()
+  : Lemma (~(paobs_le_cf fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr))
+  = lemma_ndv_paconverges ();
+    lemma_nds_paconverges ();
+    lemma_nd_state_wf ();
+    assert_norm (pstore_lookup 0 ([] <: pstore fv fcl) == None);
+    assert_norm (pstore_lookup 1 nd_stl == Some (fce_cx (FI 1)));
+    introduce paobs_le_cf fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr ==> False
+    with
+      (paobs_le_cf_unfold fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr ();
+       eliminate exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+           (s'.an1 == 2 /\
+            pa2converges fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr
+              ["a0"; "a1"] (PCtxKey #fv 1) x2 nd_stl t2 s')
+       with
+         (pa2converges_unfold fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr
+            ["a0"; "a1"] (PCtxKey #fv 1) x2 nd_stl t2 s' ();
+          lemma_paconverges_unique flook fapply0 nds_cfr
+            ["a0"; "a1"] ["a0"; "a1"] x2 (PCtxKey #fv 0)
+            t2 ([] <: pstore fv fcl) s'.an2 1;
+          lemma_paext_is_pwext s' nd_s0;
+          lemma_pasrel_absent fcl_rel s' nd_stl ([] <: pstore fv fcl) 1 0))
+
+(**
+ * **CONJUNCT 3 -- THE FINAL STORE RELATION.** REFUTED. The left is the same
+ * empty-stack program over the fixture's store; the right runs the RENAMED
+ * program over the EMPTY store. The traces agree and the two returned handles
+ * ARE related -- `nd_s0`'s world pins 1 to 0 -- so the value conjunct is
+ * satisfied and so are accessibility, well-formedness and the frontier
+ * equation, all at `s' = nd_s0`.
+ *
+ * With `pasrel` dropped, `paobs_le_cf_nosto` HOLDS. With it, `paobs_le_cf`
+ * FAILS, and it fails for EVERY admissible state rather than for the chosen
+ * one: any `s'` accessible from `nd_s0` still pins 1 to 0, and `pasrel` then
+ * demands an entry at key 0 of a store that has none.
+ *
+ * So the store conjunct is what forbids a right-hand side from simply
+ * DISCARDING an entry a public handle names.
+ *)
+let guard_paobs_final_store_is_load_bearing ()
+  : Lemma (paobs_le_cf_nosto fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr /\
+           ~(paobs_le_cf fcl_rel flook fapply0 nd_s0 ndv_cfl nds_cfr) /\
+           paconverges flook fapply0 ndv_cfl ["a0"; "a1"] (PCtxKey #fv 1) nd_stl 2 /\
+           paconverges flook fapply0 nds_cfr
+             ["a0"; "a1"] (PCtxKey #fv 0) ([] <: pstore fv fcl) 1 /\
+           pwlookup_l 1 nd_s0.aw == Some 0 /\
+           pstore_lookup 0 ([] <: pstore fv fcl) == None)
+  = lemma_ndv_paconverges ();
+    lemma_nds_paconverges ();
+    lemma_nd_state_wf ();
+    assert_norm (pstore_lookup 0 ([] <: pstore fv fcl) == None);
+    lemma_nds_nosto_holds ();
+    lemma_nds_le_fails ()
+
+(* -- (iv) THE FINAL ACCESSIBILITY ---------------------------------- *)
+
+let nde_stl : pstore fv fcl = [(1, fce_cx (FI 1)); (0, fce_cx (FI 1))]
+let nde_c2 : pcomp fv fcl = PEmit "a0" (PEmit "a1" (PVar (PCtxKey 0)))
+let nde_cfl : pconf fv fcl = { st = PStep nde_c2 []; store = nde_stl; next = 2 }
+let nde_cfr : pconf fv fcl = { st = PStep nde_c2 []; store = nd_str; next = 1 }
+let nde_s2 : pastate = { aw = pwextend 0 0 ([] <: pworld); an1 = 2; an2 = 1 }
+
+let lemma_nde_paconverges ()
+  : Lemma (paconverges flook fapply0 nde_cfl ["a0"; "a1"] (PCtxKey #fv 0) nde_stl 2 /\
+           paconverges flook fapply0 nde_cfr ["a0"; "a1"] (PCtxKey #fv 0) nd_str 1)
+  = assert_norm (snd (prun flook fapply0 6 nde_cfl) == ["a0"; "a1"]);
+    assert_norm ((fst (prun flook fapply0 6 nde_cfl)).st == PDone (PCtxKey #fv 0));
+    assert_norm ((fst (prun flook fapply0 6 nde_cfl)).store == nde_stl);
+    assert_norm ((fst (prun flook fapply0 6 nde_cfl)).next == 2);
+    assert_norm (snd (prun flook fapply0 6 nde_cfr) == ["a0"; "a1"]);
+    assert_norm ((fst (prun flook fapply0 6 nde_cfr)).st == PDone (PCtxKey #fv 0));
+    assert_norm ((fst (prun flook fapply0 6 nde_cfr)).store == nd_str);
+    assert_norm ((fst (prun flook fapply0 6 nde_cfr)).next == 1);
+    lemma_paconverges_at flook fapply0 nde_cfl 6
+      ["a0"; "a1"] (PCtxKey #fv 0) nde_stl 2;
+    lemma_paconverges_at flook fapply0 nde_cfr 6
+      ["a0"; "a1"] (PCtxKey #fv 0) nd_str 1
+
+let lemma_nde_state ()
+  : Lemma (pawf nde_s2 /\ pwlookup_l 0 nde_s2.aw == Some 0 /\
+           pval_rel #fv nde_s2.aw (PCtxKey 0) (PCtxKey 0) /\
+           pwlookup_l 0 nd_s0.aw == None)
+  = assert_norm (pbounded_world 0 0 ([] <: pworld));
+    lemma_pbounded_world_alloc 0 0 ([] <: pworld);
+    lemma_pbounded_world_weaken 1 1 2 1 nde_s2.aw;
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    assert_norm (pwlookup_l 0 nd_s0.aw == None)
+
+let lemma_nde_store_rel ()
+  : Lemma (pasrel fcl_rel nde_s2 nde_stl nd_str)
+  = lemma_nde_state ();
+    lemma_fce_cx_selfrel nde_s2.aw (FI 1);
+    lemma_paxrel_of_pxrel fcl_rel nde_s2 (fce_cx (FI 1)) (fce_cx (FI 1));
+    assert_norm (pstore_lookup 0 nde_stl == Some (fce_cx (FI 1)));
+    assert_norm (pstore_lookup 0 nd_str == Some (fce_cx (FI 1)));
+    assert_norm (psget 0 nde_stl == fce_cx (FI 1));
+    assert_norm (psget 0 nd_str == fce_cx (FI 1));
+    introduce forall (i j: nat).
+        (pwlookup_l i nde_s2.aw == Some j ==>
+         (Some? (pstore_lookup i nde_stl) /\ Some? (pstore_lookup j nd_str) /\
+          paxrel fcl_rel nde_s2 (psget i nde_stl) (psget j nd_str)))
+    with (introduce _ ==> _ with ())
+
+let lemma_nde_noext_holds ()
+  : Lemma (paobs_le_cf_noext fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr)
+  = lemma_nde_paconverges ();
+    lemma_nde_state ();
+    lemma_nde_store_rel ();
+    introduce forall (tr: list string) (x1: pval fv) (t1: pstore fv fcl) (m1: nat).
+        (paconverges flook fapply0 nde_cfl tr x1 t1 m1 ==>
+         (exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+            s'.an1 == m1 /\
+            paconverges flook fapply0 nde_cfl tr x1 t1 s'.an1 /\
+            paconverges flook fapply0 nde_cfr tr x2 t2 s'.an2 /\
+            pawf s' /\
+            s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+            pval_rel s'.aw x1 x2 /\ pasrel fcl_rel s' t1 t2))
+    with
+      (introduce _ ==> _
+       with
+         (lemma_paconverges_unique flook fapply0 nde_cfl
+            ["a0"; "a1"] tr (PCtxKey #fv 0) x1 nde_stl t1 2 m1;
+          introduce exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+              (s'.an1 == m1 /\
+               paconverges flook fapply0 nde_cfl tr x1 t1 s'.an1 /\
+               paconverges flook fapply0 nde_cfr tr x2 t2 s'.an2 /\
+               pawf s' /\
+               s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+               pval_rel s'.aw x1 x2 /\ pasrel fcl_rel s' t1 t2)
+          with (PCtxKey #fv 0) nd_str nde_s2 and ()))
+
+let lemma_paext_no_new_pair (s' s: pastate) (i k: nat)
+  : Lemma (requires paext s' s /\ pwlookup_l i s'.aw == Some k /\
+                    pwlookup_l i s.aw == None /\ i < s.an1)
+          (ensures False)
+  = paext_unfold s' s ()
+
+let lemma_nde_le_fails ()
+  : Lemma (~(paobs_le_cf fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr))
+  = lemma_nde_paconverges ();
+    lemma_nde_state ();
+    introduce paobs_le_cf fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr ==> False
+    with
+      (paobs_le_cf_unfold fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr ();
+       eliminate exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+           (s'.an1 == 2 /\
+            pa2converges fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr
+              ["a0"; "a1"] (PCtxKey #fv 0) x2 nde_stl t2 s')
+       with
+         (pa2converges_unfold fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr
+            ["a0"; "a1"] (PCtxKey #fv 0) x2 nde_stl t2 s' ();
+          lemma_paconverges_unique flook fapply0 nde_cfr
+            ["a0"; "a1"] ["a0"; "a1"] x2 (PCtxKey #fv 0) t2 nd_str s'.an2 1;
+          lemma_paext_no_new_pair s' nd_s0 0 0))
+
+(**
+ * **CONJUNCT 4 -- THE FINAL ACCESSIBILITY.** REFUTED, and this is the
+ * re-anchoring the anchor exists to prevent, read at the state index.
+ *
+ * Both sides run the SAME program, returning `PCtxKey 0`; the stores agree on
+ * key 0 and are related there; the frontiers are `nd_s0`'s. The state
+ * `nde_s2` -- the world `[(0, 0)]` under the same two frontiers -- is
+ * WELL FORMED, satisfies the frontier equation, relates the two values and
+ * relates the two stores. So with `paext` dropped, `paobs_le_cf_noext` HOLDS.
+ *
+ * With `paext` present, `paobs_le_cf` FAILS: `nd_s0`'s world is SILENT about
+ * key 0, and 0 is BELOW `nd_s0`'s left frontier, so no accessible state may
+ * speak for it. `~(paext nde_s2 nd_s0)` is stated outright.
+ *
+ * Dropping the conjunct therefore admits a comparison that MANUFACTURES a
+ * correspondence between two handles the two runs never allocated in step --
+ * which is exactly the unsoundness `panchor` was introduced against.
+ *)
+let guard_paobs_final_paext_is_load_bearing ()
+  : Lemma (paobs_le_cf_noext fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr /\
+           ~(paobs_le_cf fcl_rel flook fapply0 nd_s0 nde_cfl nde_cfr) /\
+           paconverges flook fapply0 nde_cfl ["a0"; "a1"] (PCtxKey #fv 0) nde_stl 2 /\
+           paconverges flook fapply0 nde_cfr ["a0"; "a1"] (PCtxKey #fv 0) nd_str 1 /\
+           pawf nde_s2 /\ pwlookup_l 0 nde_s2.aw == Some 0 /\
+           pwlookup_l 0 nd_s0.aw == None /\ ~(paext nde_s2 nd_s0))
+  = lemma_nde_paconverges ();
+    lemma_nde_state ();
+    lemma_nde_noext_holds ();
+    lemma_nde_le_fails ();
+    introduce paext nde_s2 nd_s0 ==> False
+    with lemma_paext_no_new_pair nde_s2 nd_s0 0 0
+
+(* ---- 12. THE FINAL STATE IS NOT UNIQUE ---------------------------- *)
+
+let nde_s2_dup : pastate
+  = { aw = pwextend 0 0 (pwextend 0 0 ([] <: pworld)); an1 = 2; an2 = 1 }
+
+let lemma_nde_dup_lookups ()
+  : Lemma ((forall (a: nat). pwlookup_l a nde_s2_dup.aw == pwlookup_l a nde_s2.aw) /\
+           (forall (b: nat). pwlookup_r b nde_s2_dup.aw == pwlookup_r b nde_s2.aw) /\
+           nde_s2_dup.aw =!= nde_s2.aw)
+  = lemma_pwl_cons 0 0 (pwextend 0 0 ([] <: pworld));
+    lemma_pwr_cons 0 0 (pwextend 0 0 ([] <: pworld));
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    lemma_pwr_cons 0 0 ([] <: pworld);
+    assert_norm (nde_s2_dup.aw =!= nde_s2.aw)
+
+let lemma_nde_dup_state ()
+  : Lemma (pawf nde_s2_dup /\ paext nde_s2_dup nde_s2 /\
+           pval_rel #fv nde_s2_dup.aw (PCtxKey 0) (PCtxKey 0))
+  = lemma_nde_state ();
+    lemma_nde_dup_lookups ()
+
+let lemma_nde_dup_store_rel ()
+  : Lemma (pasrel fcl_rel nde_s2_dup nde_stl nd_str)
+  = lemma_nde_dup_lookups ();
+    lemma_fce_cx_selfrel nde_s2_dup.aw (FI 1);
+    lemma_paxrel_of_pxrel fcl_rel nde_s2_dup (fce_cx (FI 1)) (fce_cx (FI 1));
+    assert_norm (pstore_lookup 0 nde_stl == Some (fce_cx (FI 1)));
+    assert_norm (pstore_lookup 0 nd_str == Some (fce_cx (FI 1)));
+    assert_norm (psget 0 nde_stl == fce_cx (FI 1));
+    assert_norm (psget 0 nd_str == fce_cx (FI 1));
+    introduce forall (i j: nat).
+        (pwlookup_l i nde_s2_dup.aw == Some j ==>
+         (Some? (pstore_lookup i nde_stl) /\ Some? (pstore_lookup j nd_str) /\
+          paxrel fcl_rel nde_s2_dup (psget i nde_stl) (psget j nd_str)))
+    with (introduce _ ==> _ with lemma_nde_state ())
+
+(**
+ * **THE FINAL STATE IS NOT UNIQUE.** REFUTED, at a closed instance, and this is
+ * the negative half of step 1's decision.
+ *
+ * `nde_s2` and `nde_s2_dup` are the worlds `[(0, 0)]` and `[(0, 0); (0, 0)]`
+ * under the same two frontiers. They are DIFFERENT VALUES and they decide
+ * exactly the same lookups in both directions -- first match wins -- so every
+ * predicate the paired convergence applies to the state agrees on them:
+ * `pawf`, `paext`, the frontier equation, `pval_rel` and `pasrel`. Both are
+ * therefore final states of the SAME paired convergence.
+ *
+ * Which is why `pa2converges` takes `s'` as an argument and every consumer
+ * quantifies over it. `lemma_pa2converges_data_unique` says what IS pinned:
+ * the trace, the two values, the two stores and the two frontiers.
+ *)
+let guard_pa2converges_state_not_unique ()
+  : Lemma (nde_s2 =!= nde_s2_dup /\
+           nde_s2.an1 == nde_s2_dup.an1 /\ nde_s2.an2 == nde_s2_dup.an2 /\
+           pa2converges fcl_rel flook fapply0 nde_s2 nde_cfl nde_cfr
+             ["a0"; "a1"] (PCtxKey #fv 0) (PCtxKey #fv 0) nde_stl nd_str nde_s2 /\
+           pa2converges fcl_rel flook fapply0 nde_s2 nde_cfl nde_cfr
+             ["a0"; "a1"] (PCtxKey #fv 0) (PCtxKey #fv 0) nde_stl nd_str nde_s2_dup)
+  = lemma_nde_paconverges ();
+    lemma_nde_state ();
+    lemma_nde_store_rel ();
+    lemma_nde_dup_state ();
+    lemma_nde_dup_store_rel ();
+    lemma_nde_dup_lookups ();
+    lemma_paext_refl_wf nde_s2
+
+(* ---- 13. THE STORE CONJUNCT CANNOT BE READ AT THE OLD INDEX ------- *)
+
+let paxrel_ctx_hi (#v #cl: Type) (a: v) : pctx v cl
+  = PCtxRequests (PV a) ([] <: pstack v cl) (pahi #v #cl)
+
+let paxrel_ctx_lo (#v #cl: Type) (a: v) : pctx v cl
+  = PCtxRequests (PV a) ([] <: pstack v cl) (palo #v #cl)
+
+let pxrel_unfold_g (#v #cl: Type) (r: pcl_rel_t cl) (w: pworld)
+                   (cx1 cx2: pctx v cl)
+                   (h: squash (pxrel r w cx1 cx2))
+  : squash (forall (n: nat). pctx_rel r n w cx1 cx2)
+  = h
+
+let lemma_paxrel_ctx_step (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                          (s': pastate) (y1 y2: pval v)
+  : Lemma (requires pafn_rel_at r pa_low (pahi #v #cl) (palo #v #cl) /\
+                    paext s' pa_low /\ pval_rel s'.aw y1 y2)
+          (ensures pacomp_rel r n s' (pahi #v #cl y1) (palo #v #cl y2))
+  = pafn_rel_at_unfold r pa_low (pahi #v #cl) (palo #v #cl) ();
+    pacrel_unfold r s' (pahi #v #cl y1) (palo #v #cl y2) ()
+
+let lemma_paxrel_ctx_at (#v #cl: Type) (r: pcl_rel_t cl) (a: v) (n: nat)
+  : Lemma (requires pafn_rel_at r pa_low (pahi #v #cl) (palo #v #cl))
+          (ensures pactx_rel r n pa_low
+                     (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a))
+  = if n = 0 then ()
+    else begin
+      assert (paframes_rel r n pa_low ([] <: pstack v cl) []);
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' pa_low /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r n s' (pahi #v #cl y1) (palo #v #cl y2))
+      with
+        (introduce (paext s' pa_low /\ pval_rel s'.aw y1 y2) ==>
+                   pacomp_rel r n s' (pahi #v #cl y1) (palo #v #cl y2)
+         with lemma_paxrel_ctx_step r n s' y1 y2)
+    end
+
+let lemma_paxrel_ctx_related (#v #cl: Type) (r: pcl_rel_t cl) (a: v)
+  : Lemma (paxrel r pa_low (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a))
+  = guard_pa_mono_fails_along_bare_pwext #v #cl r;
+    introduce forall (n: nat).
+        pactx_rel r n pa_low (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a)
+    with lemma_paxrel_ctx_at r a n
+
+let lemma_pxrel_ctx_fails (#v #cl: Type) (r: pcl_rel_t cl) (a: v)
+  : Lemma (~(pxrel r pa_low.aw (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a)))
+  = lemma_pwextend_wf 0 0 ([] <: pworld);
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    introduce pxrel r pa_low.aw (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a) ==> False
+    with
+      (pxrel_unfold_g r pa_low.aw (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a) ();
+       assert (pctx_rel r 1 pa_low.aw
+                 (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a));
+       assert (pval_rel #v (pwextend 0 0 ([] <: pworld)) (PCtxKey 0) (PCtxKey 0));
+       assert (pcomp_rel r 1 (pwextend 0 0 ([] <: pworld))
+                 (PPerform #v #cl "lo" "lo" []) (PPerform #v #cl "hi" "hi" [])))
+
+(**
+ * **AND THE PUBLIC FORM'S STORE CONJUNCT CANNOT BE LIFTED TO THE OLD INDEX.**
+ * REFUTED, at `pa_low` -- the empty world under frontiers `(5, 5)` -- with
+ * `pahi` and `palo` as the two contexts' post functions.
+ *
+ * At the STATE, the two contexts are `paxrel`-related: every accessible state's
+ * new pairs lie in the window `[5, _)`, so the case on which `pahi` and `palo`
+ * disagree never arises. At the state's WORLD they are NOT `pxrel`-related: the
+ * old family admits `[(0, 0)]` as a future world, which revives a name below
+ * the frontier, and there the two emit different operations.
+ *
+ * So a public form concluding `psrel b.pb_rel w s1' s2'` -- `pnobs_tr_le`'s own
+ * store conjunct -- is NOT derivable from the paired-start theorem, and the
+ * obstruction is the narrowing itself rather than a gap in the proof.
+ * `lemma_panobs_nosto_of_pub` measures what does come back.
+ *)
+let guard_paobs_store_conjunct_stays_at_the_new_index (#v #cl: Type)
+      (r: pcl_rel_t cl) (a: v)
+  : Lemma (pawf pa_low /\
+           paxrel r pa_low (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a) /\
+           ~(pxrel r pa_low.aw (paxrel_ctx_hi #v #cl a) (paxrel_ctx_lo #v #cl a)) /\
+           ~(forall (s: pastate) (cx1 cx2: pctx v cl).
+               pawf s /\ paxrel r s cx1 cx2 ==> pxrel r s.aw cx1 cx2))
+  = assert_norm (pawf pa_low);
+    lemma_paxrel_ctx_related #v #cl r a;
+    lemma_pxrel_ctx_fails #v #cl r a;
+    introduce (forall (s: pastate) (cx1 cx2: pctx v cl).
+                 pawf s /\ paxrel r s cx1 cx2 ==> pxrel r s.aw cx1 cx2) ==> False
+    with assert (pawf pa_low)
+
+(* ---- 14. WHAT THE PUBLIC FORM GIVES BACK TO `pnobs_tr_le` --------- *)
+
+let lemma_paconverges_of_pnconverges
+      (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+      (cf: pconf v cl) (tr: list string) (x: pval v) (sto': pstore v cl)
+  : Lemma (requires pnconverges lk apply cf tr x sto')
+          (ensures exists (m: nat). paconverges lk apply cf tr x sto' m)
+  = pnconverges_unfold lk apply cf tr x sto' ();
+    eliminate exists (n: nat).
+        (fst (prun lk apply n cf)).st == PDone x /\
+        snd (prun lk apply n cf) == tr /\
+        (fst (prun lk apply n cf)).store == sto'
+    with
+      (lemma_paconverges_at lk apply cf n tr x sto'
+         (fst (prun lk apply n cf)).next;
+       introduce exists (m: nat). paconverges lk apply cf tr x sto' m
+       with (fst (prun lk apply n cf)).next and ())
+
+(** `pnobs_tr_le`'s consequent with the store conjunct removed, at a
+    `paboundary`. Everything else is copied verbatim, so the lemma below is a
+    measurement rather than a definition: it says exactly how much of the old
+    public form the new one returns. *)
+let panobs_tr_le_nosto (#v #cl: Type) (b: paboundary v cl) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+           (tr: list string) (x1: pval v) (s1': pstore v cl).
+      (pequivariant_k_at b.pb_rel (panchor sto) k /\
+       pstore_equivariant_at b.pb_rel sto /\
+       psfresh sto n0 /\
+       pnconverges b.pb_lk b.pb_apply
+                   ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+      (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+         pnconverges b.pb_lk b.pb_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+         pwf_world w /\ pwext w (panchor sto) /\
+         pval_rel w x1 x2)
+
+let paobs_tr_le_pub_at_unfold (#v #cl: Type) (b: paboundary v cl)
+      (sto: pstore v cl) (n0: nat) (c1 c2: pcomp v cl)
+      (h: squash (paobs_tr_le_pub_at b sto n0 c1 c2))
+  : squash (forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                   (t1: pstore v cl) (m1: nat).
+              (pequivariant_k_at b.pb_rel (panchor sto) k /\
+               pstore_equivariant_at b.pb_rel sto /\
+               psfresh sto n0 /\
+               paconverges b.pb_lk b.pb_apply
+                 ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 t1 m1) ==>
+              (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                 s'.an1 == m1 /\
+                 paconverges b.pb_lk b.pb_apply
+                   ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+                 pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+                 paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+                 pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2))
+  = h
+
+let lemma_panobs_nosto_step
+      (#v #cl: Type) (b: paboundary v cl) (c1 c2: pcomp v cl)
+      (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+      (tr: list string) (x1: pval v) (s1': pstore v cl) (m1: nat)
+  : Lemma (requires paobs_tr_le_pub_at b sto n0 c1 c2 /\
+                    pequivariant_k_at b.pb_rel (panchor sto) k /\
+                    pstore_equivariant_at b.pb_rel sto /\
+                    psfresh sto n0 /\
+                    paconverges b.pb_lk b.pb_apply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1' m1)
+          (ensures exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+                     pnconverges b.pb_lk b.pb_apply
+                       ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+                     pwf_world w /\ pwext w (panchor sto) /\
+                     pval_rel w x1 x2)
+  = paobs_tr_le_pub_at_unfold b sto n0 c1 c2 ();
+    eliminate exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+        (s'.an1 == m1 /\
+         paconverges b.pb_lk b.pb_apply
+           ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+         paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+         pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' s1' t2)
+    with
+      (lemma_paconverges_forget b.pb_lk b.pb_apply
+         ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2;
+       introduce exists (y2: pval v) (u2: pstore v cl) (w: pworld).
+           (pnconverges b.pb_lk b.pb_apply
+              ({ st = PStep c2 k; store = sto; next = n0 }) tr y2 u2 /\
+            pwf_world w /\ pwext w (panchor sto) /\
+            pval_rel w x1 y2)
+       with x2 t2 s'.aw and ())
+
+(** **THE PUBLIC FORM RETURNS ALL OF `pnobs_tr_le` EXCEPT ITS STORE CONJUNCT.**
+    PROVED. The convergences forget their frontiers through
+    `lemma_paconverges_forget`, the world is the final state's own, and
+    `pwf_world` and `pwext ... (panchor sto)` come off `paext` through
+    `lemma_paext_is_pwext`. The store conjunct is the one thing not returned,
+    and `guard_paobs_store_conjunct_stays_at_the_new_index` is why. *)
+let lemma_panobs_nosto_of_pub (#v #cl: Type) (b: paboundary v cl)
+                              (c1 c2: pcomp v cl)
+  : Lemma (requires paobs_tr_le_pub b c1 c2)
+          (ensures panobs_tr_le_nosto b c1 c2)
+  = introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (tr: list string) (x1: pval v) (s1': pstore v cl).
+        ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+          pstore_equivariant_at b.pb_rel sto /\
+          psfresh sto n0 /\
+          pnconverges b.pb_lk b.pb_apply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1') ==>
+         (exists (x2: pval v) (s2': pstore v cl) (w: pworld).
+            pnconverges b.pb_lk b.pb_apply
+                        ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 s2' /\
+            pwf_world w /\ pwext w (panchor sto) /\
+            pval_rel w x1 x2))
+    with
+      (introduce _ ==> _
+       with
+         (lemma_paconverges_of_pnconverges b.pb_lk b.pb_apply
+            ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1';
+          eliminate exists (m: nat).
+              paconverges b.pb_lk b.pb_apply
+                ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 s1' m
+          with lemma_panobs_nosto_step b c1 c2 k sto n0 tr x1 s1' m))
+
+(* ================================================================== *)
+(*  B2b.26 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED.                                                    *)
+(*   `lemma_paconverges_unique` -- one trace, one value, one store and *)
+(*   one frontier per configuration.                                   *)
+(*   `lemma_pa2converges_data_unique` -- a paired convergence pins the *)
+(*   trace, BOTH values, BOTH stores and BOTH frontiers.  It does NOT  *)
+(*   pin the state.                                                    *)
+(*   `lemma_paobs_le_cf_of_pacfrel` -- one-directional observational   *)
+(*   compatibility, from `lemma_parun_compat` alone.                   *)
+(*   `lemma_paobs_tr_le_at_of_pacrel` -- the same at the computation   *)
+(*   level, off a `paboundary`, using four of its five fields.         *)
+(*   `lemma_padiag_wf` / `lemma_padiag_krel` / `lemma_padiag_srel` --  *)
+(*   the diagonal state is well formed and carries the ambient stack   *)
+(*   and store.  `pawf` needs `lemma_panchor_bound` AND               *)
+(*   `lemma_panchor_wf`, not the first alone.                          *)
+(*   `lemma_paobs_pub_at_of_paired` -- the public form, by             *)
+(*   specialisation and with no part of the run redone.                *)
+(*   `lemma_panobs_nosto_of_pub` -- the public form returns all of     *)
+(*   `pnobs_tr_le`'s consequent except its store conjunct.             *)
+(*   `lemma_prun_conf_wf` -- the freshness layer of the domain is      *)
+(*   preserved with NO `papply_wb`.                                    *)
+(*   `lemma_paobs_dom_prun` / `lemma_paobs_dom_closed` -- the domain   *)
+(*   is closed under running, and THIS is what consumes                *)
+(*   `pb_apply_wb`.                                                    *)
+(*                                                                     *)
+(*  WHAT FIRES.                                                        *)
+(*   `guard_nd_paobs_le_fires` -- the preorder instantiated on the     *)
+(*   non-diagonal pair: a common non-empty trace, two DIFFERENT final  *)
+(*   values related by a world that gained the pair `(2, 1)`, two      *)
+(*   DIFFERENT final stores, two DIFFERENT final frontiers.            *)
+(*   `guard_nd_conf_ok` / `guard_nd_in_paobs_dom` /                    *)
+(*   `guard_nd_paobs_wf_not_vacuous` -- the same fixture is INSIDE the *)
+(*   well-formed domain and the well-formed observation fires on it,   *)
+(*   with both final stores fresh for their own frontiers.  The gate's *)
+(*   stop condition is checked here by execution, not inferred.        *)
+(*                                                                     *)
+(*  WHAT IS REFUTED.                                                    *)
+(*   `guard_pa2converges_state_not_unique` -- two DIFFERENT `pastate`  *)
+(*   values are both final states of the SAME paired convergence.      *)
+(*   `guard_paobs_trace_is_load_bearing`,                              *)
+(*   `guard_paobs_values_are_load_bearing`,                            *)
+(*   `guard_paobs_final_store_is_load_bearing`,                        *)
+(*   `guard_paobs_final_paext_is_load_bearing` -- for each conjunct of *)
+(*   the observation's conclusion, a closed pair that the relation     *)
+(*   REFUSES and the relation-with-that-conjunct-removed ADMITS.       *)
+(*   `guard_paobs_store_conjunct_stays_at_the_new_index` -- `paxrel`   *)
+(*   at a state does NOT imply `pxrel` at that state's world, so the   *)
+(*   public form's store conjunct cannot be lifted to `psrel`.         *)
+(*                                                                     *)
+(*  WHAT IS NOT CLAIMED.  No symmetry: every result here is `le` and   *)
+(*  the `eq` forms are definitions, not theorems.  No law, no          *)
+(*  administrative observation, no right identity, and no bridge from  *)
+(*  `pnobs_tr_le` INTO this section -- only the one measured           *)
+(*  direction out of it.                                               *)
+(* ================================================================== *)
