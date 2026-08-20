@@ -35477,3 +35477,654 @@ let lemma_paprov_step_recovers_the_pair
               fst (palloc d2 cf2) == PCtxKey s.an2)
          with cx1 cx2 and ())
     end
+
+(* ================================================================== *)
+(*  B2b.24 -- ONE STEP LIFTS TO A FINITE RUN, AT THE                   *)
+(*            ALLOCATION-INDEXED FAMILY                                *)
+(*                                                                     *)
+(*  `lemma_pastep_tr_compat` closed one-step compatibility for the     *)
+(*  state-indexed family: sixteen computation arms and four terminal   *)
+(*  arms, all delivering `pastep_compat_at`.  This section closes the  *)
+(*  same statement UNDER FINITE RUNS, by induction on the fuel, and it *)
+(*  is the exact allocation-indexed counterpart of                     *)
+(*  `lemma_prun_compat` / `lemma_prun_prov_compat`.                    *)
+(*                                                                     *)
+(*  THE ONE THING THAT HAS TO BE THREADED SEPARATELY.  `paext s' s`    *)
+(*  unfolds to `pwalloc_ext s.an1 s.an2 s'.an1 s'.an2 s'.aw s.aw`,     *)
+(*  which says only that NEITHER frontier went backwards.  It does     *)
+(*  NOT say the two advanced by the same amount:                       *)
+(*  `guard_pa_frontier_eq_not_from_paext` exhibits two states with     *)
+(*  `paext` and `pawf` on both, whose left frontier moved once and     *)
+(*  whose right frontier moved twice.  So                              *)
+(*                                                                     *)
+(*      s'.an1 + s.an2 == s'.an2 + s.an1                               *)
+(*                                                                     *)
+(*  -- additively, because `nat` subtraction truncates -- is carried   *)
+(*  as a SEPARATE conjunct through the induction, and it is taken at   *)
+(*  each step off the TWO-SHAPE DICHOTOMY `paprov_step_at`, where a    *)
+(*  transition either moves neither frontier or moves both by one.     *)
+(*  `lemma_paprov_step_counter` is that reading, and                   *)
+(*  `lemma_parun_alloc_compose` is the composition: the extension by   *)
+(*  `lemma_paext_trans` at the middle state, the frontier equation by  *)
+(*  ADDITION.  Neither mentions `prun`.                                *)
+(*                                                                     *)
+(*  This is the same repair the world-indexed development already      *)
+(*  paid for at `lemma_prov_step_facts` / `lemma_prun_alloc_compose`,  *)
+(*  transported to the state.  Fold only the `paext` weakening and the *)
+(*  equality is lost and cannot be recovered afterwards.               *)
+(*                                                                     *)
+(*  WHAT IS NOT TOUCHED.  The observation relations (`pnconverges`,    *)
+(*  `pnobs_tr_le`), the laws, the administrative observation, and any  *)
+(*  bridge between the old run theorem and this one.  Every name below *)
+(*  is NEW; nothing above is modified.                                 *)
+(* ================================================================== *)
+
+(* ---- 1. THE PREMISES, TAKEN FROM A BOUNDARY RECORD ---------------- *)
+
+(**
+ * **THE FIVE SIDE CONDITIONS, OFF ONE RECORD.** PROVED, and proved once, so
+ * that no consumer downstream can silently drop a field: a `paboundary` carries
+ * `pcl_mono`, `pcl_down`, `plookup_equivariant` and -- the field that made the
+ * record necessary -- `paapply_equivariant`, and those are EXACTLY the four
+ * non-state hypotheses of the one-step theorem.
+ *
+ * The bodies are the record's own proof terms, read at the type the caller
+ * needs. `pb_apply_wb` is not used here and is not re-proved.
+ *)
+let lemma_paboundary_premises (#v #cl: Type) (b: paboundary v cl)
+  : Lemma (pcl_mono b.pb_rel /\ pcl_down b.pb_rel /\
+           plookup_equivariant b.pb_rel b.pb_lk /\
+           paapply_equivariant b.pb_rel b.pb_apply)
+  = let _ : squash (pcl_mono b.pb_rel) = b.pb_mono in
+    let _ : squash (pcl_down b.pb_rel) = b.pb_down in
+    let _ : squash (plookup_equivariant b.pb_rel b.pb_lk) = b.pb_lookup in
+    let _ : squash (paapply_equivariant b.pb_rel b.pb_apply) = b.pb_apply_eq in
+    ()
+
+(** The one-step theorem at a boundary record. `lemma_pastep_tr_compat` is NOT
+    redone; it is applied to the four premises the wrapper just produced. *)
+let lemma_pastep_tr_compat_at_boundary
+      (#v #cl: Type) (b: paboundary v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pacfrel b.pb_rel s cf1 cf2)
+          (ensures pastep_compat_at b.pb_rel b.pb_lk b.pb_apply s cf1 cf2)
+  = lemma_paboundary_premises b;
+    lemma_pastep_tr_compat b.pb_rel b.pb_lk b.pb_apply s cf1 cf2
+
+(* ---- 2. THE FRONTIER INCREMENT, OFF THE ONE-STEP DICHOTOMY -------- *)
+
+(**
+ * **THE DICHOTOMY IS WHERE THE EQUATION LIVES.** PROVED, and proved
+ * DEFINITIONALLY: `paprov_step_at` is a disjunction whose left arm forces
+ * `s' == s` -- so the equation reads `s.an1 + s.an2 == s.an2 + s.an1` -- and
+ * whose right arm forces `s' == paalloc s`, whose two frontiers are `s.an1 + 1`
+ * and `s.an2 + 1`. Both arms also pin the two configurations' counters, which
+ * is why the configuration-level equation comes out in the same breath.
+ *
+ * There is no third arm, and after `paext` has been folded there is no way back
+ * to either: this lemma has to be called AT THE STEP.
+ *)
+let lemma_paprov_step_counter
+      (#v #cl: Type) (s' s: pastate) (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires paprov_step_at s' s cf1 cf2 cf1' cf2')
+          (ensures s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                   cf1'.next + cf2.next == cf2'.next + cf1.next)
+  = ()
+
+(**
+ * **ONE STEP IN FRONT OF A RUN, AT THE STATE ALONE.** PROVED. Three states, NO
+ * configurations and NO `prun`, so the query that composes the two accesses
+ * never carries the driver's recursion with it.
+ *
+ * BOTH conjuncts compose, and they compose differently: accessibility by
+ * `lemma_paext_trans` -- which is the transitivity that had to be handed over,
+ * `pwalloc_ext`'s not being definitional -- and the frontier equation by
+ * ADDITION, which is why it is stated additively and not as a difference.
+ *)
+let lemma_parun_alloc_compose (s s1 s2: pastate)
+  : Lemma (requires paext s1 s /\ paext s2 s1 /\
+                    s1.an1 + s.an2 == s1.an2 + s.an1 /\
+                    s2.an1 + s1.an2 == s2.an2 + s1.an1)
+          (ensures paext s2 s /\ s2.an1 + s.an2 == s2.an2 + s.an1)
+  = lemma_paext_trans s2 s1 s
+
+(* ---- 3. THE BASE ARMS -------------------------------------------- *)
+
+(**
+ * **NO FUEL, OR NOTHING LEFT TO DO.** PROVED. Both configurations come back
+ * unchanged, so the state answering the existential is the state handed in:
+ * accessibility is `lemma_paext_refl_wf`, well-formedness is the hypothesis,
+ * and the frontier equation is `s.an1 + s.an2 == s.an2 + s.an1`.
+ *
+ * The hypothesis is a DISJUNCTION that also covers the mismatched shapes: if
+ * one side is stepping and the other is not, `pastrel` is `False` -- which
+ * `pastrel_unfold` is what makes visible -- and there is nothing to prove.
+ * That is exactly what the dispatcher's wildcard arm hands over.
+ *)
+let lemma_parun_compat_base
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pacfrel r s cf1 cf2 /\
+                    (fuel = 0 \/ ~(PStep? cf1.st) \/ ~(PStep? cf2.st)))
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (s': pastate).
+                      paext s' s /\ pawf s' /\
+                      s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                      pacfrel r s' (fst (prun lk apply fuel cf1))
+                                   (fst (prun lk apply fuel cf2))) /\
+                   (fst (prun lk apply fuel cf1)).next + cf2.next
+                     == (fst (prun lk apply fuel cf2)).next + cf1.next)
+  = pacfrel_unfold r s cf1 cf2 ();
+    pastrel_unfold r s cf1.st cf2.st ();
+    lemma_paext_refl_wf s;
+    lemma_prun_at_rest lk apply fuel cf1;
+    lemma_prun_at_rest lk apply fuel cf2;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\
+         s'.an1 + s.an2 == s'.an2 + s.an1 /\
+         pacfrel r s' (fst (prun lk apply fuel cf1))
+                      (fst (prun lk apply fuel cf2)))
+    with s and ()
+
+(* ---- 4. THE JOINT, WITH NO RUN IN IT ------------------------------ *)
+
+(**
+ * **THE INTERMEDIATE STATE IS ELIMINATED HERE, AND NOWHERE ELSE.** PROVED, over
+ * three states and four configurations with no `prun` in the statement.
+ *
+ * `s1` is the one-step successor's state and `s2` is the induction hypothesis's;
+ * the conclusion mentions only `s` and `s2`, which is what lets the inductive
+ * existential be answered by `s2` alone.
+ *
+ * The last conjunct is where `pacfrel`'s IDENTITY form is spent, and it is
+ * near-definitional: `pacfrel r s cf1 cf2` gives `cf1.next == s.an1` and
+ * `cf2.next == s.an2` BY EQUALITY, and `pacfrel r s2 e1 e2` gives
+ * `e1.next == s2.an1` and `e2.next == s2.an2`, so the configuration-level
+ * frontier equation is the state-level one with the four projections
+ * substituted. Had `pacfrel` pinned the counters only by a BOUND, this step
+ * would have had to be redone as an inequality argument and the equation would
+ * not have survived.
+ *)
+let lemma_parun_compat_join
+      (#v #cl: Type) (r: pcl_rel_t cl) (s s1 s2: pastate)
+      (cf1 cf2 e1 e2: pconf v cl)
+  : Lemma (requires pacfrel r s cf1 cf2 /\ pacfrel r s2 e1 e2 /\
+                    paext s1 s /\ paext s2 s1 /\
+                    s1.an1 + s.an2 == s1.an2 + s.an1 /\
+                    s2.an1 + s1.an2 == s2.an2 + s1.an1)
+          (ensures paext s2 s /\ s2.an1 + s.an2 == s2.an2 + s.an1 /\
+                   e1.next + cf2.next == e2.next + cf1.next)
+  = lemma_parun_alloc_compose s s1 s2;
+    pacfrel_unfold r s cf1 cf2 ();
+    pacfrel_unfold r s2 e1 e2 ()
+
+(* ---- 5. ONE STEP IN FRONT OF A RUN, ASSEMBLED --------------------- *)
+
+(**
+ * **THE INDUCTIVE STEP, WITH THE INDUCTION HYPOTHESIS AS A HYPOTHESIS.**
+ * PROVED. Nothing here recurses; the last two clauses of the `requires` ARE the
+ * induction hypothesis, instantiated at the successor pair, and the caller is
+ * the only place a recursive call appears.
+ *
+ * The trace is concatenated IN THE ORDER THE DRIVER PRODUCES IT:
+ * `lemma_prun_unfold_at_step` gives
+ * `snd (prun fuel cf) == snd (pstep_tr cf) @ snd (prun (fuel-1) (fst (pstep_tr cf)))`
+ * on each side, the two heads agree because the one-step theorem says so, and
+ * the two tails agree by the induction hypothesis. So the equality is between
+ * two `@`-applications with equal arguments in the same positions, and no
+ * associativity or commutativity of `@` is needed or used.
+ *
+ * `lemma_paprov_step_counter` is called BEFORE the induction hypothesis's
+ * existential is opened, because that is the last point at which the two-shape
+ * dichotomy for the FIRST step is still in scope.
+ *)
+let lemma_parun_compat_step
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat{fuel > 0}) (s: pastate)
+      (cf1 cf2: pconf v cl) (s1: pastate) (d1 d2: pconf v cl)
+  : Lemma (requires PStep? cf1.st /\ PStep? cf2.st /\
+                    pacfrel r s cf1 cf2 /\
+                    d1 == fst (pstep_tr lk apply cf1) /\
+                    d2 == fst (pstep_tr lk apply cf2) /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    paext s1 s /\ pawf s1 /\
+                    paprov_step_at s1 s cf1 cf2 d1 d2 /\
+                    pacfrel r s1 d1 d2 /\
+                    snd (prun lk apply (fuel - 1) d1)
+                      == snd (prun lk apply (fuel - 1) d2) /\
+                    (exists (s2: pastate).
+                       paext s2 s1 /\ pawf s2 /\
+                       s2.an1 + s1.an2 == s2.an2 + s1.an1 /\
+                       pacfrel r s2 (fst (prun lk apply (fuel - 1) d1))
+                                    (fst (prun lk apply (fuel - 1) d2))))
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (s': pastate).
+                      paext s' s /\ pawf s' /\
+                      s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                      pacfrel r s' (fst (prun lk apply fuel cf1))
+                                   (fst (prun lk apply fuel cf2))) /\
+                   (fst (prun lk apply fuel cf1)).next + cf2.next
+                     == (fst (prun lk apply fuel cf2)).next + cf1.next)
+  = lemma_prun_unfold_at_step lk apply fuel cf1;
+    lemma_prun_unfold_at_step lk apply fuel cf2;
+    lemma_paprov_step_counter s1 s cf1 cf2 d1 d2;
+    eliminate exists (s2: pastate).
+        (paext s2 s1 /\ pawf s2 /\
+         s2.an1 + s1.an2 == s2.an2 + s1.an1 /\
+         pacfrel r s2 (fst (prun lk apply (fuel - 1) d1))
+                      (fst (prun lk apply (fuel - 1) d2)))
+    with
+      (lemma_parun_compat_join r s s1 s2 cf1 cf2
+         (fst (prun lk apply (fuel - 1) d1)) (fst (prun lk apply (fuel - 1) d2));
+       introduce exists (s': pastate).
+           (paext s' s /\ pawf s' /\
+            s'.an1 + s.an2 == s'.an2 + s.an1 /\
+            pacfrel r s' (fst (prun lk apply fuel cf1))
+                         (fst (prun lk apply fuel cf2)))
+       with s2 and ())
+
+(* ---- 6. THE RUN, AT ALLOCATION STRENGTH --------------------------- *)
+
+(**
+ * **THE FUNDAMENTAL THEOREM, AT THE ALLOCATION-INDEXED FAMILY.** PROVED, by
+ * induction on the fuel, under the ALLOCATION-AWARE COUNTERPARTS OF
+ * `lemma_prun_compat`'S HYPOTHESES, field for field:
+ *
+ *   `pwf_world w`               becomes  `pawf s`
+ *   `pcl_mono r`                unchanged
+ *   `pcl_down r`                unchanged
+ *   `plookup_equivariant r lk`  unchanged
+ *   `papply_equivariant r apply` becomes `paapply_equivariant r apply`
+ *   `pcfrel r w cf1 cf2`        becomes  `pacfrel r s cf1 cf2`
+ *
+ * Related configurations, run for THE SAME FUEL, produce THE SAME TRACE and two
+ * configurations related at a state that is
+ *
+ *   - ACCESSIBLE from the state they started in -- every pair its world has that
+ *     the starting world did not is a pair of names taken from the window the
+ *     two frontiers opened;
+ *   - WELL-FORMED, so the invariant the next run needs is re-established rather
+ *     than merely implied;
+ *   - and whose TWO FRONTIERS ADVANCED BY THE SAME AMOUNT, stated additively.
+ *
+ * The last conjunct is not a consequence of the first: see
+ * `guard_pa_frontier_eq_not_from_paext`. It survives only because every step
+ * supplies it from the two-shape dichotomy through `lemma_paprov_step_counter`,
+ * and `lemma_parun_alloc_compose` ADDS the two equations rather than composing
+ * the weakening.
+ *
+ * Because `pacfrel` pins the counters to the frontiers BY IDENTITY, the state
+ * handed back IS the successor's allocator state and not a bound on it, and the
+ * configuration-level equation outside the existential is the same statement
+ * read through those four identities.
+ *
+ * The recursion is split into two mutually recursive lemmas at the measure
+ * `%[fuel; k]` -- `lemma_parun_compat` dispatches at `k = 1`,
+ * `lemma_parun_compat_stepcase` does the case analysis at `k = 0` -- for the
+ * reason recorded throughout this file: one query covering both the base and the
+ * stepping arm needs splitting, and splitting the DEFINITION is how that is
+ * paid for rather than by a flag.
+ *
+ * WHAT IS NOT CLAIMED, as in `lemma_prun_compat`: nothing is re-anchored, no
+ * transition counts are related beyond the shared fuel, and termination is not
+ * asserted on either side.
+ *)
+let rec lemma_parun_compat
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ paapply_equivariant r apply /\
+                    pacfrel r s cf1 cf2)
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (s': pastate).
+                      paext s' s /\ pawf s' /\
+                      s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                      pacfrel r s' (fst (prun lk apply fuel cf1))
+                                   (fst (prun lk apply fuel cf2))) /\
+                   (fst (prun lk apply fuel cf1)).next + cf2.next
+                     == (fst (prun lk apply fuel cf2)).next + cf1.next)
+          (decreases %[fuel; 1])
+  = if fuel = 0
+    then lemma_parun_compat_base r lk apply fuel s cf1 cf2
+    else lemma_parun_compat_stepcase r lk apply fuel s cf1 cf2
+
+and lemma_parun_compat_stepcase
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat{fuel > 0}) (s: pastate)
+      (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ paapply_equivariant r apply /\
+                    pacfrel r s cf1 cf2)
+          (ensures snd (prun lk apply fuel cf1) == snd (prun lk apply fuel cf2) /\
+                   (exists (s': pastate).
+                      paext s' s /\ pawf s' /\
+                      s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                      pacfrel r s' (fst (prun lk apply fuel cf1))
+                                   (fst (prun lk apply fuel cf2))) /\
+                   (fst (prun lk apply fuel cf1)).next + cf2.next
+                     == (fst (prun lk apply fuel cf2)).next + cf1.next)
+          (decreases %[fuel; 0])
+  = match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      lemma_pastep_tr_compat r lk apply s cf1 cf2;
+      pastep_compat_unfold r lk apply s cf1 cf2 ();
+      let d1 = fst (pstep_tr lk apply cf1) in
+      let d2 = fst (pstep_tr lk apply cf2) in
+      eliminate exists (s1: pastate).
+          (paext s1 s /\ pawf s1 /\
+           paprov_step_at s1 s cf1 cf2 d1 d2 /\ pacfrel r s1 d1 d2)
+      with
+        (lemma_parun_compat r lk apply (fuel - 1) s1 d1 d2;
+         lemma_parun_compat_step r lk apply fuel s cf1 cf2 s1 d1 d2)
+    | _, _ -> lemma_parun_compat_base r lk apply fuel s cf1 cf2
+
+(* ---- 7. THE TRACE-FREE DRIVER, AS A COROLLARY --------------------- *)
+
+(**
+ * **`psteps` NEEDS NO SECOND INDUCTION.** PROVED, from `lemma_prun_erase`, which
+ * already says `psteps` IS the first component of `prun` at every fuel and
+ * every configuration. So the state, the accessibility, the well-formedness and
+ * the frontier equation transfer verbatim; only the trace, which `psteps` does
+ * not have, is dropped.
+ *)
+let lemma_pasteps_compat
+      (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+      (apply: papply_t v cl) (fuel: nat) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pcl_down r /\
+                    plookup_equivariant r lk /\ paapply_equivariant r apply /\
+                    pacfrel r s cf1 cf2)
+          (ensures (exists (s': pastate).
+                      paext s' s /\ pawf s' /\
+                      s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                      pacfrel r s' (psteps lk apply fuel cf1)
+                                   (psteps lk apply fuel cf2)) /\
+                   (psteps lk apply fuel cf1).next + cf2.next
+                     == (psteps lk apply fuel cf2).next + cf1.next)
+  = lemma_prun_erase lk apply fuel cf1;
+    lemma_prun_erase lk apply fuel cf2;
+    lemma_parun_compat r lk apply fuel s cf1 cf2;
+    eliminate exists (s': pastate).
+        (paext s' s /\ pawf s' /\
+         s'.an1 + s.an2 == s'.an2 + s.an1 /\
+         pacfrel r s' (fst (prun lk apply fuel cf1))
+                      (fst (prun lk apply fuel cf2)))
+    with
+      (introduce exists (s'': pastate).
+           (paext s'' s /\ pawf s'' /\
+            s''.an1 + s.an2 == s''.an2 + s.an1 /\
+            pacfrel r s'' (psteps lk apply fuel cf1) (psteps lk apply fuel cf2))
+       with s' and ())
+
+(* ---- 8. THE RUN THEOREM, AT A BOUNDARY RECORD --------------------- *)
+
+(** The run theorem with its four non-state premises taken off a `paboundary`,
+    so that a consumer holding the record has nothing left to establish beyond
+    `pawf` and `pacfrel`. `lemma_parun_compat` is applied, not redone. *)
+let lemma_parun_compat_at_boundary
+      (#v #cl: Type) (b: paboundary v cl) (fuel: nat) (s: pastate)
+      (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pacfrel b.pb_rel s cf1 cf2)
+          (ensures snd (prun b.pb_lk b.pb_apply fuel cf1)
+                     == snd (prun b.pb_lk b.pb_apply fuel cf2) /\
+                   (exists (s': pastate).
+                      paext s' s /\ pawf s' /\
+                      s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                      pacfrel b.pb_rel s'
+                        (fst (prun b.pb_lk b.pb_apply fuel cf1))
+                        (fst (prun b.pb_lk b.pb_apply fuel cf2))) /\
+                   (fst (prun b.pb_lk b.pb_apply fuel cf1)).next + cf2.next
+                     == (fst (prun b.pb_lk b.pb_apply fuel cf2)).next + cf1.next)
+  = lemma_paboundary_premises b;
+    lemma_parun_compat b.pb_rel b.pb_lk b.pb_apply fuel s cf1 cf2
+
+(* ---- 9. GUARD 1 -- THE FRONTIER EQUATION IS NOT FROM `paext` ------ *)
+
+(**
+ * **THE EXTRA CONJUNCT CARRIES WEIGHT.** REFUTED, by a closed instance.
+ *
+ * `[(0,0)]` extends `[]` by ONE pair, and that pair lies in the window both
+ * `0 <= 0 < 1` (left) and `0 <= 0 < 2` (right) describe, so the state
+ * `{ aw = [(0,0)]; an1 = 1; an2 = 2 }` is ACCESSIBLE from `pa_sto0` and is
+ * WELL-FORMED -- with the left frontier advanced ONCE and the right TWICE. Yet
+ * `1 + 0 =!= 2 + 0`.
+ *
+ * So a run statement that folded only `paext` would let through two related runs that
+ * allocated a different number of times, and no later argument could recover
+ * the equation. This is the trap the world-indexed development fell into once,
+ * at `guard_run_counter_eq_not_from_alloc_ext`, and this is its state-indexed
+ * reading.
+ *)
+let pa_ce_hi : pastate = { aw = ([(0,0)] <: pworld); an1 = 1; an2 = 2 }
+
+let guard_pa_frontier_eq_not_from_paext ()
+  : Lemma (paext pa_ce_hi pa_sto0 /\ pawf pa_ce_hi /\ pawf pa_sto0 /\
+           ~(pa_ce_hi.an1 + pa_sto0.an2 == pa_ce_hi.an2 + pa_sto0.an1) /\
+           ~(forall (s' s: pastate).
+               paext s' s /\ pawf s /\ pawf s' ==>
+               s'.an1 + s.an2 == s'.an2 + s.an1))
+  = guard_run_counter_eq_not_from_alloc_ext ();
+    guard_pa_machine_store_stays_in_domain ();
+    introduce (forall (s' s: pastate).
+                 paext s' s /\ pawf s /\ pawf s' ==>
+                 s'.an1 + s.an2 == s'.an2 + s.an1) ==> False
+    with begin
+      assert (paext pa_ce_hi pa_sto0 /\ pawf pa_sto0 /\ pawf pa_ce_hi ==>
+              pa_ce_hi.an1 + pa_sto0.an2 == pa_ce_hi.an2 + pa_sto0.an1)
+    end
+
+(* ---- 10. GUARD 2 -- A CONCRETE RUN CONTAINING BOTH SHAPES --------- *)
+
+(**
+ * The fixture is `pa_conf_emit`'s node UNDER `pa_conf_scope`'s stack: the
+ * `PEmit` is stripped first, at a frontier that does not move, and what is left
+ * is `pa_conf_scope` verbatim, whose `PScopeF` frame allocates. So one
+ * configuration exercises BOTH arms of the dichotomy in consecutive
+ * transitions, over the store `guard_pa_machine_store_stays_in_domain` built.
+ *)
+let pa_conf_both : pconf fv fcl =
+  { st = PStep (PEmit "e" (PVar (PCtxKey 0))) [PScopeF]; store = pa_store; next = 2 }
+
+(** The run theorem's hypotheses at the fixture, collected. Every ingredient is
+    already proved above: `lemma_pa_fixture_boundary` for the four side
+    conditions and the store relation, and the three relation lemmas for the
+    node and the one-frame stack. *)
+let lemma_pa_conf_both_related ()
+  : Lemma (pawf pa_sto2 /\ pcl_mono fcl_rel /\ pcl_down fcl_rel /\
+           plookup_equivariant fcl_rel flook /\
+           paapply_equivariant fcl_rel fapply0 /\
+           pacfrel fcl_rel pa_sto2 pa_conf_both pa_conf_both)
+  = lemma_pa_fixture_boundary ();
+    lemma_pacrel_var #fv #fcl fcl_rel pa_sto2 (PCtxKey 0) (PCtxKey 0);
+    lemma_pafrel_scope #fv #fcl fcl_rel pa_sto2;
+    lemma_pakrel_nil #fv #fcl fcl_rel pa_sto2;
+    lemma_pakrel_cons fcl_rel pa_sto2 (PScopeF #fv #fcl) PScopeF [] [];
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n pa_sto2
+          (PEmit #fv #fcl "e" (PVar (PCtxKey 0))) (PEmit #fv #fcl "e" (PVar (PCtxKey 0)))
+    with (if n = 0 then () else ())
+
+(**
+ * **THE TWO SHAPES, BOTH PRESENT AND EACH EXCLUDING THE OTHER.** PROVED. The
+ * first transition really is the STANDING-STILL arm -- it satisfies
+ * `paprov_step_at` at the SAME state and fails it at `paalloc pa_sto2`, because
+ * the successor's counter is still 2 and the allocating arm demands 3. The
+ * second really is the ALLOCATING arm -- it satisfies `paprov_step_at` at
+ * `paalloc pa_sto2`, witnessed through `lemma_paprov_alloc_intro` by the
+ * context the machine actually stores, and fails it at `pa_sto2`.
+ *
+ * So the dichotomy is TWO-SIDED on this run, and neither arm is the constant
+ * `True` or the constant `False` in disguise.
+ *)
+let guard_parun_run_contains_both_shapes ()
+  : Lemma (fst (pstep_tr flook fapply0 pa_conf_both) == pa_conf_scope /\
+           ~(paprov_step_at (paalloc pa_sto2) pa_sto2 pa_conf_both pa_conf_both
+               (fst (pstep_tr flook fapply0 pa_conf_both))
+               (fst (pstep_tr flook fapply0 pa_conf_both))) /\
+           ~(paprov_step_at pa_sto2 pa_sto2 pa_conf_scope pa_conf_scope
+               (fst (pstep_tr flook fapply0 pa_conf_scope))
+               (fst (pstep_tr flook fapply0 pa_conf_scope))))
+  = guard_pa_dispatch_alloc_fires ();
+    assert_norm (fst (pstep_tr flook fapply0 pa_conf_both) == pa_conf_scope);
+    assert_norm ((paalloc pa_sto2).an1 == 3)
+
+let guard_parun_step_shapes_discriminate ()
+  : Lemma (paprov_step_at pa_sto2 pa_sto2 pa_conf_both pa_conf_both
+             (fst (pstep_tr flook fapply0 pa_conf_both))
+             (fst (pstep_tr flook fapply0 pa_conf_both)) /\
+           ~(paprov_step_at (paalloc pa_sto2) pa_sto2 pa_conf_both pa_conf_both
+               (fst (pstep_tr flook fapply0 pa_conf_both))
+               (fst (pstep_tr flook fapply0 pa_conf_both))) /\
+           paprov_step_at (paalloc pa_sto2) pa_sto2 pa_conf_scope pa_conf_scope
+             (fst (pstep_tr flook fapply0 pa_conf_scope))
+             (fst (pstep_tr flook fapply0 pa_conf_scope)) /\
+           ~(paprov_step_at pa_sto2 pa_sto2 pa_conf_scope pa_conf_scope
+               (fst (pstep_tr flook fapply0 pa_conf_scope))
+               (fst (pstep_tr flook fapply0 pa_conf_scope))))
+  = guard_pa_dispatch_alloc_fires ();
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_both)).next == 2);
+    assert_norm ((paalloc pa_sto2).an1 == 3);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_scope)).store
+                   == (snd (palloc (PCtxDone (PCtxKey #fv 0)) pa_conf_scope)).store);
+    assert_norm ((fst (pstep_tr flook fapply0 pa_conf_scope)).next
+                   == (snd (palloc (PCtxDone (PCtxKey #fv 0)) pa_conf_scope)).next);
+    lemma_paprov_alloc_intro pa_sto2 pa_conf_scope pa_conf_scope
+      (fst (pstep_tr flook fapply0 pa_conf_scope))
+      (fst (pstep_tr flook fapply0 pa_conf_scope))
+      (PCtxDone (PCtxKey #fv 0)) (PCtxDone (PCtxKey #fv 0))
+
+(**
+ * **THE RUN THEOREM, FIRED, WITH EVERYTHING READ OUT BY COMPUTATION.** PROVED,
+ * at fuel 6 -- well past the point where both runs have answered.
+ *
+ *   - the WHOLE TRACE is `["e"]`: the one `PEmit` and nothing else;
+ *   - the FINAL STATE is `PDone (PCtxKey 2)`, the handle the allocation minted;
+ *   - the FINAL STORE is the fixture's store with the allocated entry on top;
+ *   - the FINAL COUNTER is `pa_sto2.an1 + 1` -- ONE allocation across the whole
+ *     run, which is `guard_parun_run_contains_both_shapes` read forward;
+ *   - the state the theorem hands back has BOTH frontiers at `+ 1`, obtained by
+ *     `pacfrel`'s identity conjuncts from the computed counter, so the frontier
+ *     equation is instantiated and not merely asserted.
+ *
+ * And the existential is NOT answered by the state handed in: `pacfrel` FAILS
+ * at `pa_sto2` on the final pair, because 3 is not 2. So the theorem's `s'` is
+ * forced to have moved, and the conclusion is not the trivial one.
+ *)
+let guard_parun_compat_fires ()
+  : Lemma (pacfrel fcl_rel pa_sto2 pa_conf_both pa_conf_both /\
+           snd (prun flook fapply0 6 pa_conf_both) == ["e"] /\
+           (fst (prun flook fapply0 6 pa_conf_both)).next == pa_sto2.an1 + 1 /\
+           (fst (prun flook fapply0 6 pa_conf_both)).store
+             == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store /\
+           (fst (prun flook fapply0 6 pa_conf_both)).st == PDone (PCtxKey #fv 2) /\
+           (exists (s': pastate).
+              paext s' pa_sto2 /\ pawf s' /\
+              s'.an1 + pa_sto2.an2 == s'.an2 + pa_sto2.an1 /\
+              s'.an1 == pa_sto2.an1 + 1 /\ s'.an2 == pa_sto2.an2 + 1 /\
+              pacfrel fcl_rel s' (fst (prun flook fapply0 6 pa_conf_both))
+                                 (fst (prun flook fapply0 6 pa_conf_both))) /\
+           ~(pacfrel fcl_rel pa_sto2 (fst (prun flook fapply0 6 pa_conf_both))
+                                     (fst (prun flook fapply0 6 pa_conf_both))))
+  = lemma_pa_conf_both_related ();
+    lemma_parun_compat fcl_rel flook fapply0 6 pa_sto2 pa_conf_both pa_conf_both;
+    assert_norm (snd (prun flook fapply0 6 pa_conf_both) == ["e"]);
+    assert_norm ((fst (prun flook fapply0 6 pa_conf_both)).next == 3);
+    assert_norm ((fst (prun flook fapply0 6 pa_conf_both)).store
+                   == (2, PCtxDone (PCtxKey #fv 0)) :: pa_store);
+    assert_norm ((fst (prun flook fapply0 6 pa_conf_both)).st == PDone (PCtxKey #fv 2));
+    eliminate exists (s': pastate).
+        (paext s' pa_sto2 /\ pawf s' /\
+         s'.an1 + pa_sto2.an2 == s'.an2 + pa_sto2.an1 /\
+         pacfrel fcl_rel s' (fst (prun flook fapply0 6 pa_conf_both))
+                            (fst (prun flook fapply0 6 pa_conf_both)))
+    with
+      (pacfrel_unfold fcl_rel s' (fst (prun flook fapply0 6 pa_conf_both))
+                                 (fst (prun flook fapply0 6 pa_conf_both)) ();
+       introduce exists (s'': pastate).
+           (paext s'' pa_sto2 /\ pawf s'' /\
+            s''.an1 + pa_sto2.an2 == s''.an2 + pa_sto2.an1 /\
+            s''.an1 == pa_sto2.an1 + 1 /\ s''.an2 == pa_sto2.an2 + 1 /\
+            pacfrel fcl_rel s'' (fst (prun flook fapply0 6 pa_conf_both))
+                                (fst (prun flook fapply0 6 pa_conf_both)))
+       with s' and ());
+    introduce pacfrel fcl_rel pa_sto2 (fst (prun flook fapply0 6 pa_conf_both))
+                                      (fst (prun flook fapply0 6 pa_conf_both)) ==> False
+    with pacfrel_unfold fcl_rel pa_sto2 (fst (prun flook fapply0 6 pa_conf_both))
+                                        (fst (prun flook fapply0 6 pa_conf_both)) ()
+
+(** **AND THE COROLLARY IS NOT VACUOUS EITHER.** PROVED, at the same fixture:
+    `psteps` reaches the same counter and the same relation, and the frontiers
+    are read out of the state the corollary hands back. *)
+let guard_pasteps_compat_fires ()
+  : Lemma ((psteps flook fapply0 6 pa_conf_both).next == pa_sto2.an1 + 1 /\
+           (exists (s': pastate).
+              paext s' pa_sto2 /\ pawf s' /\
+              s'.an1 == pa_sto2.an1 + 1 /\ s'.an2 == pa_sto2.an2 + 1 /\
+              pacfrel fcl_rel s' (psteps flook fapply0 6 pa_conf_both)
+                                 (psteps flook fapply0 6 pa_conf_both)))
+  = lemma_pa_conf_both_related ();
+    lemma_pasteps_compat fcl_rel flook fapply0 6 pa_sto2 pa_conf_both pa_conf_both;
+    lemma_prun_erase flook fapply0 6 pa_conf_both;
+    assert_norm ((fst (prun flook fapply0 6 pa_conf_both)).next == 3);
+    eliminate exists (s': pastate).
+        (paext s' pa_sto2 /\ pawf s' /\
+         s'.an1 + pa_sto2.an2 == s'.an2 + pa_sto2.an1 /\
+         pacfrel fcl_rel s' (psteps flook fapply0 6 pa_conf_both)
+                            (psteps flook fapply0 6 pa_conf_both))
+    with
+      (pacfrel_unfold fcl_rel s' (psteps flook fapply0 6 pa_conf_both)
+                                 (psteps flook fapply0 6 pa_conf_both) ();
+       introduce exists (s'': pastate).
+           (paext s'' pa_sto2 /\ pawf s'' /\
+            s''.an1 == pa_sto2.an1 + 1 /\ s''.an2 == pa_sto2.an2 + 1 /\
+            pacfrel fcl_rel s'' (psteps flook fapply0 6 pa_conf_both)
+                                (psteps flook fapply0 6 pa_conf_both))
+       with s' and ())
+
+(* ================================================================== *)
+(*  B2b.24 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT IS PROVED.                                                    *)
+(*   1. `lemma_paboundary_premises` /                                   *)
+(*      `lemma_pastep_tr_compat_at_boundary` -- the one-step theorem's  *)
+(*      four non-state premises come off a `paboundary` record in one   *)
+(*      call, so no field can be dropped downstream.                    *)
+(*   2. `lemma_paprov_step_counter` -- the frontier equation, read off  *)
+(*      the two-shape dichotomy, at the only point it is available.     *)
+(*   3. `lemma_parun_alloc_compose` -- the composition, over states     *)
+(*      only: `lemma_paext_trans` for accessibility, ADDITION for the   *)
+(*      frontier equation.                                              *)
+(*   4. `lemma_parun_compat_base` -- fuel 0 and the terminal arms.       *)
+(*   5. `lemma_parun_compat_join` -- the intermediate state eliminated   *)
+(*      in favour of the final one, with `pacfrel`'s identity form       *)
+(*      turning the state equation into the configuration equation.      *)
+(*   6. `lemma_parun_compat_step` -- one step in front of a run, the     *)
+(*      induction hypothesis taken as a hypothesis, the trace            *)
+(*      concatenated in the driver's own order.                          *)
+(*   7. `lemma_parun_compat` / `lemma_parun_compat_stepcase` -- THE      *)
+(*      RUN THEOREM, at the allocation-indexed family, under            *)
+(*      `lemma_prun_compat`'s hypotheses transported field for field.    *)
+(*   8. `lemma_pasteps_compat` -- the trace-free driver, from            *)
+(*      `lemma_prun_erase` and NOT from a second induction.              *)
+(*   9. `lemma_parun_compat_at_boundary` -- the same, at a record.       *)
+(*                                                                     *)
+(*  WHAT IS REFUTED.                                                    *)
+(*   `guard_pa_frontier_eq_not_from_paext` -- the frontier equation is  *)
+(*   NOT a consequence of `paext` and `pawf`, by a closed instance      *)
+(*   whose two frontiers advance by one and by two.                     *)
+(*                                                                     *)
+(*  WHAT FIRES.                                                         *)
+(*   `guard_parun_run_contains_both_shapes` and                          *)
+(*   `guard_parun_step_shapes_discriminate` -- a run whose first        *)
+(*   transition is the standing-still arm and whose second is the       *)
+(*   allocating arm, each satisfying its own arm and FAILING the other. *)
+(*   `guard_parun_compat_fires` and `guard_pasteps_compat_fires` --     *)
+(*   the theorem and its corollary instantiated on that run, with the   *)
+(*   trace, the final state, the final store and both frontiers read    *)
+(*   out by computation, and with the existential shown NOT to be       *)
+(*   answerable by the state handed in.                                 *)
+(*                                                                     *)
+(*  WHAT IS NOT DONE, DELIBERATELY.  The observation relations          *)
+(*  (`pnconverges`, `pnobs_tr_le`), the laws, the administrative        *)
+(*  observation, and any bridge from `lemma_prun_compat` or            *)
+(*  `lemma_prun_prov_compat` to this theorem.  Those are the next       *)
+(*  gate's and are not opened here.                                     *)
+(* ================================================================== *)

@@ -6567,6 +6567,143 @@ final `s₂`; the trace concatenation orders disagree; or `pasrel` can be rebuil
 at each step but not collected into the single store realization the inductive
 conclusion needs.
 
+#### The finite-run gate: the temporal lift closes
+
+> Under the allocation-aware counterparts of the original run theorem's
+> premises, two related executions of arbitrary finite fuel produce equal traces
+> and a single final allocation state that is accessible from the initial state,
+> well formed, related to both final configurations, and balanced in the amount
+> by which the two allocation frontiers advance.
+
+This is still not the whole fundamental theorem:
+
+> This closes the finite-run compatibility component. Convergence and
+> observational compatibility remain to be derived from it.
+
+The hypotheses correspond to `lemma_prun_compat`'s field for field, with nothing
+added — compared directly, not asserted:
+
+| old | new |
+|---|---|
+| `pwf_world w` | `pawf s` |
+| `pcl_mono r`, `pcl_down r`, `plookup_equivariant r lk` | unchanged |
+| `papply_equivariant r apply` | `paapply_equivariant r apply` |
+| `pcfrel r w cf1 cf2` | `pacfrel r s cf1 cf2` |
+
+#### Where the balanced-frontier equation comes from
+
+`paext` says only that both frontiers are nondecreasing. The two-shape
+provenance says that each step moves neither frontier or moves both by one.
+`lemma_paprov_step_counter` extracts that — its body is `()`, so it is
+definitional given the dichotomy, there being no third branch — and
+`lemma_parun_alloc_compose` composes it along the run: a pure state-and-counter
+lemma with no `prun` in it at all. So the balanced equation is **not** a
+consequence of `paext`, and a guard refutes the implication schema, not merely
+one instance. Reproduced independently: two states with `paext` and
+admissibility whose increments are 1 and 2.
+
+The character of the result is worth naming:
+
+> The run theorem is provenance-derived but not provenance-retaining: exact
+> one-step provenance is consumed during the induction and retained only through
+> the aggregate accessible-state relation and balanced-frontier equation.
+
+No run-level allocation history survives in the conclusion, and no
+correspondence between each added pair and the transition that added it. That is not a problem
+now. If a later world factorisation needs an **ordered** allocation history, it
+will not be recoverable from this conclusion and would have to be re-derived.
+
+#### The counter identities pay off two gates later
+
+> The counter identities chosen at the configuration-relation gate turned a
+> state-level balance equation into the concrete run-level equation by
+> substitution. Had the relation recorded only upper bounds, the equation would
+> not have survived definitionally.
+
+This is not proof shortening. It is the return on indexing the relation so that
+it is exactly synchronised with the concrete machine state.
+
+#### The diagonal fixture: an evidential gap, not a hole in the theorem
+
+`lemma_parun_compat` is proved for arbitrary related pairs of configurations, so
+the theorem is not restricted to the diagonal. What is unverified is narrower:
+
+> The theorem is universal, but its run-level fixture is diagonal. The fixture
+> exercises state evolution, both allocation shapes and frontier accounting, but
+> trace equality there is reflexive. Non-vacuity of the relational trace claim
+> on two genuinely different executions remains unmeasured.
+
+The world-indexed development's non-diagonal `ce_cfl`/`ce_cfr` were not
+ported — confirmed absent from the appended region. Building a non-diagonal fixture needs
+the world and store relations discharged afresh, not a citation of the old
+`pcrel`.
+
+Acceptance conditions for that fixture:
+
+- the initial configurations or stores differ structurally;
+- the identity world is not the trivial empty world, or the two sides' raw
+  handles differ;
+- `pacfrel` holds at the actual counters and stores;
+- both runs emit a non-empty trace;
+- the traces agree in order and multiplicity;
+- at least one allocation occurs, so the successor `paext` and `pasrel` are
+  exercised too;
+- changing one side's event, order or multiplicity makes the guard fail.
+
+#### Two things kept separate from the semantic result
+
+`psteps` is covered by the erasure theorem, and the note is the same as before:
+
+> The uninstrumented result is an erasure corollary, not a second induction.
+
+Warning 349 appeared on `if fuel = 0 then … else <match>` and was cleared by
+**splitting the definition** into a mutual recursion with a lexicographic
+measure, not by raising a budget. Proof engineering: proof search stabilised
+without giving the solver more room. Everything verifies at default fuel.
+
+#### `pb_apply_wb`, unused twice
+
+> `pb_apply_wb` has now been unused by both the one-step and finite-run
+> relational compatibility proofs. This suggests that it belongs to the
+> well-formed observation layer rather than the relational core, but that
+> classification is deferred until the observation theorem either consumes it or
+> leaves it unused again.
+
+The places it might still be needed are the well-formed observation domain,
+`pstate_wb`/`pterm_wb`, unreachability of `PPaused`, and the observation
+theorem's starting-configuration conditions.
+
+#### Not proved
+
+- convergence and the observation relations — untouched; the only occurrences
+  of their names in the appended region are ledger comments saying so;
+- the laws and the administrative observation;
+- any bridge between the old and new run theorems, in either direction;
+- a run-level provenance predicate;
+- non-vacuity on a non-diagonal run.
+
+#### Position
+
+> Allocation-aware compatibility is now closed under arbitrary finite fuel. The
+> remaining gap before observation is evidential rather than inductive:
+> exhibit a genuinely non-diagonal trace-producing run, then package the run
+> theorem as convergence and observational compatibility.
+
+#### The next order
+
+A short non-diagonal run gate first, before any observation relation is defined:
+
+1. build a non-diagonal allocation-aware initial configuration pair;
+2. prove `pacfrel` at the actual frontiers, world and stores;
+3. run it for finite fuel with a non-empty trace;
+4. read out the whole conclusion of `lemma_parun_compat` at that pair;
+5. mutation guards changing one trace element, its order, and its multiplicity;
+6. only then define allocation-aware convergence and observation.
+
+The observation gate will then have to derive, from the run theorem: right-hand
+convergence, trace equality, related result values, the final `pasrel`, the
+final `paext`, and well-formedness of the final state.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
