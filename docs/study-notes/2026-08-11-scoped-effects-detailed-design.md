@@ -6981,6 +6981,113 @@ Step 8 stays fenced. The allocator-name problem is repaired, but the
 administrative stored-`post` difference between `qext` and `qprod` is a separate
 problem, and right identity must not be expected back automatically.
 
+#### The public store-domain gate: closure is possible, and it is global
+
+The gate closes, and the premise **can** be replaced — not merely implied, but
+as an equivalence. What that costs is the gate's real content.
+
+> Under the current store-uniform formulation, closing the premise over every
+> initial store collapses it to relatedness at `pabot`, hence to the global
+> notion. Retaining computations that legitimately name handles therefore
+> requires the store-anchored form.
+
+Nothing here proves that a closed general theorem is impossible. What is settled
+is a **fork**:
+
+- **`paobs_tr_le_pub_at b sto n0`** — closed *after fixing its provenance
+  parameters*, and a store-indexed relative theorem. It can keep computations
+  that legitimately own handles.
+- **`paobs_tr_le_pub b`** — a single proposition uniform over every store. Its
+  quantifier includes the empty store, so the premise collapses to
+  `pacrel r pabot` and becomes global relatedness.
+
+#### The evidence, in three steps
+
+1. `pawf s <==> paext s pabot` — the bottom of the admissible allocation states.
+   Its proof is `()`; verified independently.
+2. Relatedness at every diagonal state is **equivalent** to `pacrel r pabot`.
+   This is `lemma_padiag_hyp_iff_pabot`, a biconditional, not a conjecture. The
+   engine is step 1 plus the family's existing monotonicity, which lifts the
+   bottom instance to every `pawf` state; `pcl_mono` is consumed exactly there.
+   `pabot` is in the family because the empty store is a store and
+   `psfresh [] 0` holds.
+3. The cost is structural. At `pabot.aw = []` **no** pair of handles is
+   related — checked independently for arbitrary `i` and `j`, not just for the
+   fixture — so the development's own non-diagonal pair and the handle-naming
+   fixture both drop out of the global premise.
+
+> The non-diagonal witness is not lost because of an accidental choice of names.
+> Every handle relation is absent at the bottom world, so any pair whose
+> relatedness depends on owned handles lies outside the store-uniform premise.
+
+The anchored form is also **strictly more general**, machine-checked: a pair
+related at a machine-built store's diagonal state fails at `pabot`.
+
+#### What the two forms are for
+
+The fork does not require discarding either side; it assigns them roles.
+
+- **provenance-indexed, anchored laws** — the principal theorems, for general
+  higher-order contexts, captured closures, and computations holding existing
+  handles;
+- **global laws at `pabot`** — a corollary and audit form, for top-level,
+  handle-free closed programs.
+
+This is the same shape as the earlier anchor-relative equivariance. Promoting
+the global condition back to the primary notion would again exclude exactly the
+legitimate handle capture that the work up to here was done to admit. So the
+principal laws — right identity among them — should be adjudicated first on
+`_pub_at`, with the `pabot` specialisation taken afterwards as a closed
+corollary.
+
+#### The starting domain was already in place
+
+Three planned steps were already done, and the interesting one needed no new
+condition: the canonical diagonal state, its `pawf`, and the store's
+self-relation at it, whose hypothesis is the **existing**
+`pstore_equivariant_at`. The gate machine-checked that the public form's
+antecedent *is* that starting-domain condition, rather than assuming it.
+
+Non-vacuity was measured on three stores separately: the empty store, `ce_sto`,
+and a store `prun` actually built — three entries, one of them a **stored
+handle** `PCtxDone (PCtxKey 1)`. A global store condition would reject the
+third; the anchored condition admits it, which is what keeps the public form
+from being empty in practice. And the condition is a real restriction:
+`[(0, PCtxDone (PCtxKey 5))]` is not equivariant at its own anchor.
+
+#### The residue between the two public forms
+
+Exactly one store conjunct, and it returns — at the **new** index.
+`panobs_tr_le_asto` is `panobs_tr_le_nosto` with `pasrel b.pb_rel s' s1' s2'`
+put back, and it follows from the public form. Stated at the strength proved:
+
+> It carries the additional allocation-indexed store conjunct that
+> `panobs_tr_le_nosto` omits. No strictness relation between the two complete
+> propositions is claimed.
+
+What does not return is the old-index `psrel`; that bridge was refuted in the
+previous gate. The two ends stay distinct: the **starting** store's
+self-relation comes from the old side condition and is settled; the
+**concluding** store conjunct stays at the allocation index.
+
+#### Not proved
+
+- that fixing the anchor per store preserves relativisation **in general** — a
+  design reading from one worked example, not a theorem;
+- any strictness between `panobs_tr_le_asto` and `panobs_tr_le_nosto`;
+- symmetry, in any form — everything in this line is `le`;
+- completeness, in either public form;
+- the laws, the administrative observation, `qext`, `qprod`, `padm_*`, and the
+  re-adjudication of right identity — untouched, the only mentions in the
+  appended region being ledger comments saying so.
+
+#### Position
+
+> The public-observation gate does close, but its store-uniform closure is
+> necessarily global in the present formulation. General handle-owning
+> computations remain covered by the provenance-indexed, store-anchored family
+> rather than by that global corollary.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
