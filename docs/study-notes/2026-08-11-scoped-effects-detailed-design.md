@@ -6704,6 +6704,148 @@ The observation gate will then have to derive, from the run theorem: right-hand
 convergence, trace equality, related result values, the final `pasrel`, the
 final `paext`, and well-formedness of the final state.
 
+#### The non-diagonal gate: the evidential hole closes
+
+> The allocation-aware finite-run theorem has a genuinely non-diagonal,
+> trace-producing inhabitant. The two executions begin with different counters
+> and stores, evolve the world by relating distinct freshly allocated raw
+> identities, emit the same non-empty trace, and satisfy the complete
+> final-state conclusion of `lemma_parun_compat`.
+
+This is not a new general theorem. It is a check that the general theorem
+already proved is not an empty relation off the diagonal.
+
+#### What became non-trivial
+
+The fixture is non-diagonal in several ways at once: starting frontiers `2` and
+`1`; different stores; **different entry contents at the shared key `0`**
+(`FI 7` on the left, `FI 1` on the right); a non-empty world `[(1,0)]`; raw keys
+`2` and `1` corresponded after allocation; final frontiers `3` and `2`; and a
+common non-empty trace `["a0"; "a1"]`.
+
+So the balanced equation
+
+```text
+3 + 1 == 2 + 2
+```
+
+is an equality of *increments*, not of absolute values — the two final
+frontiers differ. And the final-state witness cannot be replaced by the initial state, so
+`paext`'s existential really does grow.
+
+> The witness exercises nominal renaming, store realization, frontier
+> advancement and trace production simultaneously. It is not merely two
+> syntactically different terms running over the same empty state.
+
+#### How to read the trace mutations
+
+Three mutations were rejected, each changing only the right side's emission
+structure and leaving stores, frontiers, handles and stack alone: one event's
+identity; the order of two events; and the multiplicity of one event with its
+order and its event set unchanged. A negative control confirms they fire — the
+same refutation script applied to the *unmutated* pair fails, in a module where
+the positive `pacfrel` is proved.
+
+Independently of the gate, the **mirror** mutation was also checked: swapping
+the two events on the **left** instead of the right is likewise rejected. So the
+discrimination is not an artefact of which side was edited.
+
+The strength has to be stated carefully:
+
+> The positive fixture proves non-vacuity of equal non-empty traces on genuinely
+> different related executions. The order mutations are rejected already by the
+> input relation, showing that the relation enforces the corresponding emission
+> discipline; they are not mutation tests of the theorem's trace-equality
+> conjunct in isolation.
+
+The mutations fail at the *premise*, not at the conclusion. Nothing here
+independently refutes the theorem's trace-equality conjunct by deleting or
+altering it.
+
+#### Why the existing non-diagonal pair was not reused directly
+
+`ce_cfl`/`ce_cfr` sit at the **empty** world, where `pval_rel` relates no handle
+at all, so they cannot meet the requirement that either the identity world be
+non-empty or the two sides' raw handles differ. The gate instead started from a
+state of the shape those two reach after one lockstep allocation — world
+`[(1,0)]`, frontiers `2` and `1`.
+
+Precisely: this is **the shape of a state after one allocation**, not a
+machine-reached state. `nd_s0` is constructed directly and its `pawf` is proved
+from the allocation lemma; no run of `ce_cfl`/`ce_cfr` is executed to produce
+it, and the fixture's stores are its own. That is sufficient here, because the
+finite-run theorem's domain is admissible related configurations, not reachable
+ones — but reachability is not claimed.
+
+#### What the collapse route supplied, and what it did not
+
+The collapse `lemma_paxrel_of_pxrel` was used for exactly one thing: the store
+entries' relation at the world's single pair `(1,0)`, transporting an
+old-family fact. Everything else — the two `PEmit` layers' computation
+relation, the one-frame stack relation, the quantifier ranging over the
+world's domain, and the **counter identities** — was discharged directly in the allocation-indexed
+family. The counter identities do not follow from the collapse; they hold by the
+choice of `nd_s0` and are stated.
+
+#### Established here
+
+- non-diagonal inhabitation of the allocation-aware run relation;
+- a concrete related run with a non-empty trace;
+- a worked instance where the world corresponds **distinct** raw names;
+- final `paext`, `pawf`, `pacfrel` and balanced frontiers holding together;
+- concrete discriminating power against event order, identity and multiplicity.
+
+#### Still open
+
+- the convergence relation;
+- an observational preorder or equivalence;
+- contextual adequacy;
+- the move from nominal to administrative observation;
+- the laws;
+- any bridge between the old and new theorems.
+
+#### Position
+
+> The evidential gap before observation is closed: the run theorem now has a
+> non-diagonal, non-silent inhabitant. What remains is no longer to show that
+> the relation has real executions, but to package the universal run theorem into
+> convergence and observation.
+
+#### The observation gate is not a rename
+
+`pnconverges` cannot simply be re-indexed, because a `pastate` carries both
+frontiers and the world at once, so the observation's **starting domain** has to
+be decided first. Two layers keep that decision honest:
+
+1. **general form** — a paired-start observation relating two different
+   ambient configurations through `pacfrel`;
+2. **public form** — starting from the same public stack, store and counter,
+   specialised to a canonical diagonal allocation state.
+
+The general form takes today's non-diagonal fixture and the fundamental theorem;
+the public form is what the eventual statement of the laws can use.
+
+1. decide how allocation-aware convergence carries the final `pastate`;
+2. define the paired-start observational preorder beside the old observation;
+3. prove one-directional observational compatibility from `lemma_parun_compat`;
+4. run today's non-diagonal fixture through it as a positive instance;
+5. define the public diagonal specialisation;
+6. check whether `pb_apply_wb` is consumed by the well-formed observation
+   domain;
+7. guards showing each conjunct — values, trace, final `pasrel`, `paext` — is
+   load-bearing;
+8. only then re-adjudicate the nominal right-identity counterexample.
+
+That last step matters and should not be anticipated. The allocator-name problem
+is repaired, but the administrative stored-`post` difference between `qext` and
+`qprod` is a **separate** problem, so right identity should not be expected to
+come back automatically under an allocation-aware nominal observation.
+
+Stop conditions: paired convergence cannot carry a unique final state; the
+public specialisation cannot be derived from today's general theorem; or
+introducing the well-formed domain makes the positive non-diagonal fixture
+vacuous.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

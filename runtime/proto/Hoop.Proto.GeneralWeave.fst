@@ -36128,3 +36128,456 @@ let guard_pasteps_compat_fires ()
 (*  `lemma_prun_prov_compat` to this theorem.  Those are the next       *)
 (*  gate's and are not opened here.                                     *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.25 -- THE RUN THEOREM, OFF THE DIAGONAL                        *)
+(*                                                                     *)
+(*  `lemma_parun_compat` is proved for ARBITRARY related pairs, so the *)
+(*  theorem was never restricted to the diagonal.  The gap this        *)
+(*  section closes is EVIDENTIAL: every run-level fixture above --     *)
+(*  `pa_conf_both`, `guard_parun_compat_fires`,                        *)
+(*  `guard_pasteps_compat_fires` -- runs ONE configuration against     *)
+(*  ITSELF.  Those fixtures exercise state evolution, both allocation  *)
+(*  shapes and the frontier accounting, but the trace equality they    *)
+(*  instantiate is REFLEXIVE, so nothing there measures whether        *)
+(*  `snd (prun ...) == snd (prun ...)` says anything at all.           *)
+(*                                                                     *)
+(*  What is built below is ONE non-diagonal fixture and the mutations  *)
+(*  that break it.  Nothing else: no allocation-aware convergence, no  *)
+(*  observation relation, no law, and no bridge between the            *)
+(*  world-indexed theorem and this one.                                *)
+(*                                                                     *)
+(*  THE FIXTURE.  Two configurations that differ in EVERY component    *)
+(*  the relation is allowed to let differ:                             *)
+(*                                                                     *)
+(*    - the STORES differ structurally -- two entries against one,     *)
+(*      under different keys, and the left's extra entry carries a     *)
+(*      DIFFERENT payload from the right's only entry, so it is not    *)
+(*      even a renaming of it;                                         *)
+(*    - the FRONTIERS differ -- 2 against 1;                           *)
+(*    - the RAW HANDLES differ -- the left computes with `PCtxKey 1`   *)
+(*      and the right with `PCtxKey 0`, and the identity world is      *)
+(*      `[(1,0)]`, which is not the empty world.  So BOTH disjuncts of *)
+(*      the non-triviality condition hold, not just one.               *)
+(*                                                                     *)
+(*  The two nodes are the same program up to that renaming, wrapped in *)
+(*  TWO nested `PEmit`s with DISTINGUISHABLE events, over a `PScopeF`  *)
+(*  stack.  Two events rather than one is what makes the ORDER and the *)
+(*  MULTIPLICITY mutations below expressible at all; `PScopeF` is what *)
+(*  makes the run ALLOCATE, so the successor's `paext` and `pasrel`    *)
+(*  are exercised on the same run as the trace.                        *)
+(* ================================================================== *)
+
+(** The identity world, and the state read at the two ACTUAL frontiers. The
+    world says left-1 corresponds to right-0 and nothing else; the frontiers are
+    2 and 1, which is exactly where `ce_cfl`/`ce_cfr` arrive after their one
+    lockstep allocation. `pawf` is then `pbounded_world 2 1 [(1,0)]`, which
+    `lemma_pbounded_world_alloc` supplies from the empty world. *)
+let nd_w : pworld = pwextend 1 0 ([] <: pworld)
+let nd_s0 : pastate = { aw = nd_w; an1 = 2; an2 = 1 }
+
+let lemma_nd_state_wf ()
+  : Lemma (pawf nd_s0 /\ pwlookup_l 1 nd_w == Some 0 /\
+           pval_rel #fv nd_s0.aw (PCtxKey 1) (PCtxKey 0) /\
+           nd_w =!= ([] <: pworld) /\ pwlookup_l 2 nd_s0.aw == None)
+  = assert_norm (pbounded_world 1 0 ([] <: pworld));
+    lemma_pbounded_world_alloc 1 0 ([] <: pworld);
+    assert_norm (pwlookup_l 2 nd_w == None);
+    assert_norm (nd_w == [(1,0)])
+
+(** The two stores. The left holds TWO entries -- one at key 1, which the world
+    speaks for, and one at key 0, which it does not and whose payload differs
+    from anything on the right. The right holds ONE entry, at key 0. *)
+let nd_stl : pstore fv fcl = [(1, fce_cx (FI 1)); (0, fce_cx (FI 7))]
+let nd_str : pstore fv fcl = [(0, fce_cx (FI 1))]
+
+(**
+ * **THE STORE RELATION, AT THE ACTUAL STORES.** PROVED. The world's one pair
+ * `(1,0)` forces one obligation and one only, and it is discharged by
+ * `lemma_fce_cx_selfrel` COLLAPSED through `lemma_paxrel_of_pxrel`. That is the
+ * only place in this section where the collapse route is used: the entry
+ * relation is an OLD-family fact, transported. The quantifier that picks the
+ * pair out, the two store lookups, and the counter identities below are
+ * discharged directly at the allocation-indexed family.
+ *)
+let lemma_nd_store_rel ()
+  : Lemma (pasrel fcl_rel nd_s0 nd_stl nd_str)
+  = lemma_nd_state_wf ();
+    lemma_pwl_cons 1 0 ([] <: pworld);
+    lemma_fce_cx_selfrel nd_w (FI 1);
+    lemma_paxrel_of_pxrel fcl_rel nd_s0 (fce_cx (FI 1)) (fce_cx (FI 1));
+    assert_norm (pstore_lookup 1 nd_stl == Some (fce_cx (FI 1)));
+    assert_norm (pstore_lookup 0 nd_str == Some (fce_cx (FI 1)));
+    assert_norm (psget 1 nd_stl == fce_cx (FI 1));
+    assert_norm (psget 0 nd_str == fce_cx (FI 1));
+    introduce forall (i j: nat).
+        (pwlookup_l i nd_s0.aw == Some j ==>
+         (Some? (pstore_lookup i nd_stl) /\ Some? (pstore_lookup j nd_str) /\
+          paxrel fcl_rel nd_s0 (psget i nd_stl) (psget j nd_str)))
+    with (introduce _ ==> _ with ())
+
+(** The two nodes, layer by layer, so that each relation step is one unfolding
+    of `pacomp_rel` and the whole thing runs at default fuel. `a0` is emitted
+    first and `a1` second, on BOTH sides; the only difference between the two
+    columns is the handle at the bottom. *)
+let nd_c0_l : pcomp fv fcl = PVar (PCtxKey 1)
+let nd_c0_r : pcomp fv fcl = PVar (PCtxKey 0)
+let nd_c1_l : pcomp fv fcl = PEmit "a1" nd_c0_l
+let nd_c1_r : pcomp fv fcl = PEmit "a1" nd_c0_r
+let nd_c2_l : pcomp fv fcl = PEmit "a0" nd_c1_l
+let nd_c2_r : pcomp fv fcl = PEmit "a0" nd_c1_r
+
+(** One `PEmit` layer, at one index. The family's clause is
+    `e1 == e2 /\ pacomp_rel r (n-1) s b1 b2`, so re-establishing the relation
+    under an emission is exactly one unfolding and the equality of the two
+    event names. *)
+let lemma_nd_emit_step (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (n: nat)
+                       (e: string) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s b1 b2)
+          (ensures pacomp_rel r n s (PEmit e b1) (PEmit e b2))
+  = pacrel_unfold r s b1 b2 ();
+    if n = 0 then () else assert (pacomp_rel r (n - 1) s b1 b2)
+
+let lemma_nd_emit (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (e: string) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s b1 b2)
+          (ensures pacrel r s (PEmit e b1) (PEmit e b2))
+  = introduce forall (n: nat). pacomp_rel r n s (PEmit e b1) (PEmit e b2)
+    with lemma_nd_emit_step r s n e b1 b2
+
+(** **THE TWO NODES ARE RELATED, AND THEY ARE NOT THE SAME NODE.** PROVED, from
+    `lemma_pacrel_var` at the two DIFFERENT handles and two applications of
+    `lemma_nd_emit`. *)
+let lemma_nd_comp_rel ()
+  : Lemma (pacrel fcl_rel nd_s0 nd_c2_l nd_c2_r)
+  = lemma_nd_state_wf ();
+    lemma_pacrel_var #fv #fcl fcl_rel nd_s0 (PCtxKey 1) (PCtxKey 0);
+    lemma_nd_emit #fv #fcl fcl_rel nd_s0 "a1" nd_c0_l nd_c0_r;
+    lemma_nd_emit #fv #fcl fcl_rel nd_s0 "a0" nd_c1_l nd_c1_r
+
+(** The pair. The `PScopeF` frame is what allocates; the counters are the
+    frontiers `pacfrel` pins them to BY IDENTITY, so condition 3's counter half
+    holds by the choice of `nd_s0` and is stated, not inherited. *)
+let nd_cfl : pconf fv fcl = { st = PStep nd_c2_l [PScopeF]; store = nd_stl; next = 2 }
+let nd_cfr : pconf fv fcl = { st = PStep nd_c2_r [PScopeF]; store = nd_str; next = 1 }
+
+let lemma_nd_stack_rel ()
+  : Lemma (pakrel #fv #fcl fcl_rel nd_s0 [PScopeF] [PScopeF])
+  = lemma_pafrel_scope #fv #fcl fcl_rel nd_s0;
+    lemma_pakrel_nil #fv #fcl fcl_rel nd_s0;
+    lemma_pakrel_cons fcl_rel nd_s0 (PScopeF #fv #fcl) PScopeF [] []
+
+let lemma_nd_related ()
+  : Lemma (pacfrel fcl_rel nd_s0 nd_cfl nd_cfr)
+  = lemma_nd_comp_rel ();
+    lemma_nd_stack_rel ();
+    lemma_nd_store_rel ()
+
+(** **THE PAIR IS GENUINELY NON-DIAGONAL.** PROVED, component by component, so
+    that nothing below can be met by the reflexive reading. *)
+let guard_nd_fixture_is_non_diagonal ()
+  : Lemma (nd_cfl =!= nd_cfr /\
+           nd_cfl.st =!= nd_cfr.st /\
+           nd_cfl.store =!= nd_cfr.store /\
+           nd_cfl.next =!= nd_cfr.next /\
+           nd_c2_l =!= nd_c2_r /\
+           PCtxKey #fv 1 =!= PCtxKey #fv 0 /\
+           nd_w =!= ([] <: pworld) /\
+           pstore_lookup 1 nd_stl == Some (fce_cx (FI 1)) /\
+           pstore_lookup 1 nd_str == None /\
+           pstore_lookup 0 nd_stl == Some (fce_cx (FI 7)) /\
+           pstore_lookup 0 nd_str == Some (fce_cx (FI 1)) /\
+           psget 0 nd_stl =!= psget 0 nd_str)
+  = lemma_nd_state_wf ();
+    assert_norm (pstore_lookup 1 nd_stl == Some (fce_cx (FI 1)));
+    assert_norm (pstore_lookup 1 nd_str == None);
+    assert_norm (pstore_lookup 0 nd_stl == Some (fce_cx (FI 7)));
+    assert_norm (pstore_lookup 0 nd_str == Some (fce_cx (FI 1)));
+    assert_norm (psget 0 nd_stl == fce_cx (FI 7));
+    assert_norm (psget 0 nd_str == fce_cx (FI 1));
+    assert_norm (fce_cx (FI 7) =!= fce_cx (FI 1))
+
+(** The theorem's hypotheses at the fixture, collected. Every ingredient is
+    already proved above; `lemma_fapply0_paequivariant` is the allocation-indexed
+    apply condition and NOT the old one. *)
+let lemma_nd_hyps ()
+  : Lemma (pawf nd_s0 /\ pcl_mono fcl_rel /\ pcl_down fcl_rel /\
+           plookup_equivariant fcl_rel flook /\
+           paapply_equivariant fcl_rel fapply0 /\
+           pacfrel fcl_rel nd_s0 nd_cfl nd_cfr)
+  = lemma_nd_state_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_fapply0_paequivariant ();
+    lemma_nd_related ()
+
+(** Both runs, at THE SAME FUEL, read out by computation. The two traces are
+    equal and non-empty; the two final states, the two final stores and the two
+    final frontiers are all DIFFERENT. *)
+let lemma_nd_runs ()
+  : Lemma (snd (prun flook fapply0 6 nd_cfl) == ["a0"; "a1"] /\
+           snd (prun flook fapply0 6 nd_cfr) == ["a0"; "a1"] /\
+           snd (prun flook fapply0 6 nd_cfl) =!= ([] <: list string) /\
+           (fst (prun flook fapply0 6 nd_cfl)).st == PDone (PCtxKey #fv 2) /\
+           (fst (prun flook fapply0 6 nd_cfr)).st == PDone (PCtxKey #fv 1) /\
+           (fst (prun flook fapply0 6 nd_cfl)).store
+             == (2, PCtxDone (PCtxKey #fv 1)) :: nd_stl /\
+           (fst (prun flook fapply0 6 nd_cfr)).store
+             == (1, PCtxDone (PCtxKey #fv 0)) :: nd_str /\
+           (fst (prun flook fapply0 6 nd_cfl)).next == 3 /\
+           (fst (prun flook fapply0 6 nd_cfr)).next == 2)
+  = assert_norm (snd (prun flook fapply0 6 nd_cfl) == ["a0"; "a1"]);
+    assert_norm (snd (prun flook fapply0 6 nd_cfr) == ["a0"; "a1"]);
+    assert_norm ((fst (prun flook fapply0 6 nd_cfl)).st == PDone (PCtxKey #fv 2));
+    assert_norm ((fst (prun flook fapply0 6 nd_cfr)).st == PDone (PCtxKey #fv 1));
+    assert_norm ((fst (prun flook fapply0 6 nd_cfl)).store
+                   == (2, PCtxDone (PCtxKey #fv 1)) :: nd_stl);
+    assert_norm ((fst (prun flook fapply0 6 nd_cfr)).store
+                   == (1, PCtxDone (PCtxKey #fv 0)) :: nd_str);
+    assert_norm ((fst (prun flook fapply0 6 nd_cfl)).next == 3);
+    assert_norm ((fst (prun flook fapply0 6 nd_cfr)).next == 2)
+
+(** **THE ALLOCATION IS REAL, AND IT HAPPENS ON BOTH SIDES.** PROVED. Each side
+    gains exactly one entry, at a key neither store had, and each frontier
+    advances by exactly one -- from 2 to 3 on the left and from 1 to 2 on the
+    right. So the successor `paext` and the successor `pasrel` are exercised on
+    the very run whose trace is being compared. *)
+let guard_nd_allocation_occurs ()
+  : Lemma ((fst (prun flook fapply0 6 nd_cfl)).next == nd_cfl.next + 1 /\
+           (fst (prun flook fapply0 6 nd_cfr)).next == nd_cfr.next + 1 /\
+           pstore_lookup 2 nd_stl == None /\
+           pstore_lookup 1 nd_str == None /\
+           pstore_lookup 2 (fst (prun flook fapply0 6 nd_cfl)).store
+             == Some (PCtxDone (PCtxKey #fv 1)) /\
+           pstore_lookup 1 (fst (prun flook fapply0 6 nd_cfr)).store
+             == Some (PCtxDone (PCtxKey #fv 0)))
+  = lemma_nd_runs ();
+    assert_norm (pstore_lookup 2 nd_stl == None);
+    assert_norm (pstore_lookup 1 nd_str == None);
+    assert_norm (pstore_lookup 2 ((2, PCtxDone (PCtxKey #fv 1)) :: nd_stl)
+                   == Some (PCtxDone (PCtxKey #fv 1)));
+    assert_norm (pstore_lookup 1 ((1, PCtxDone (PCtxKey #fv 0)) :: nd_str)
+                   == Some (PCtxDone (PCtxKey #fv 0)))
+
+(**
+ * **THE RUN THEOREM, FIRED OFF THE DIAGONAL, WITH THE WHOLE CONCLUSION READ
+ * OUT.** PROVED, at fuel 6 on BOTH sides.
+ *
+ *   - the TRACE EQUALITY is instantiated on two runs of two DIFFERENT
+ *     configurations, and the common trace is `["a0"; "a1"]` -- non-empty, two
+ *     events, in that order;
+ *   - the EXISTENTIAL FINAL STATE `s'` is accessible from `nd_s0` and
+ *     well-formed, and its world SPEAKS FOR A NEW PAIR: `pwlookup_l 2 s'.aw` is
+ *     `Some 1`, where `pwlookup_l 2 nd_s0.aw` was `None`. So `paext` moved, and
+ *     it moved by relating two handles that are LITERALLY DIFFERENT NUMBERS;
+ *   - the OLD pair `(1,0)` is still there, so nothing was forgotten;
+ *   - the BALANCED FRONTIER EQUATION reads `3 + 1 == 2 + 2` -- and the two final
+ *     frontiers are 3 and 2, so this is NOT the trivial instance;
+ *   - the final `pacfrel` holds at `s'` and its counters are pinned to 3 and 2
+ *     by identity, and the final `pasrel` relates the two GROWN stores;
+ *   - and the existential is NOT answered by the state handed in: `pacfrel`
+ *     FAILS at `nd_s0` on the final pair, because 3 is not 2.
+ *)
+let guard_nd_parun_compat_fires ()
+  : Lemma (pacfrel fcl_rel nd_s0 nd_cfl nd_cfr /\
+           snd (prun flook fapply0 6 nd_cfl) == ["a0"; "a1"] /\
+           snd (prun flook fapply0 6 nd_cfl) =!= ([] <: list string) /\
+           snd (prun flook fapply0 6 nd_cfl) == snd (prun flook fapply0 6 nd_cfr) /\
+           (fst (prun flook fapply0 6 nd_cfl)).st == PDone (PCtxKey #fv 2) /\
+           (fst (prun flook fapply0 6 nd_cfr)).st == PDone (PCtxKey #fv 1) /\
+           (fst (prun flook fapply0 6 nd_cfl)).next == 3 /\
+           (fst (prun flook fapply0 6 nd_cfr)).next == 2 /\
+           pwlookup_l 2 nd_s0.aw == None /\
+           (fst (prun flook fapply0 6 nd_cfl)).next + nd_cfr.next
+             == (fst (prun flook fapply0 6 nd_cfr)).next + nd_cfl.next /\
+           (exists (s': pastate).
+              paext s' nd_s0 /\ pawf s' /\
+              s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+              s'.an1 == 3 /\ s'.an2 == 2 /\
+              pwlookup_l 1 s'.aw == Some 0 /\
+              pwlookup_l 2 s'.aw == Some 1 /\
+              pasrel fcl_rel s' (fst (prun flook fapply0 6 nd_cfl)).store
+                                (fst (prun flook fapply0 6 nd_cfr)).store /\
+              pacfrel fcl_rel s' (fst (prun flook fapply0 6 nd_cfl))
+                                 (fst (prun flook fapply0 6 nd_cfr))) /\
+           ~(pacfrel fcl_rel nd_s0 (fst (prun flook fapply0 6 nd_cfl))
+                                   (fst (prun flook fapply0 6 nd_cfr))))
+  = lemma_nd_hyps ();
+    lemma_nd_state_wf ();
+    lemma_nd_runs ();
+    lemma_parun_compat fcl_rel flook fapply0 6 nd_s0 nd_cfl nd_cfr;
+    eliminate exists (s': pastate).
+        (paext s' nd_s0 /\ pawf s' /\
+         s'.an1 + nd_s0.an2 == s'.an2 + nd_s0.an1 /\
+         pacfrel fcl_rel s' (fst (prun flook fapply0 6 nd_cfl))
+                            (fst (prun flook fapply0 6 nd_cfr)))
+    with
+      (pacfrel_unfold fcl_rel s' (fst (prun flook fapply0 6 nd_cfl))
+                                 (fst (prun flook fapply0 6 nd_cfr)) ();
+       pastrel_unfold fcl_rel s' (fst (prun flook fapply0 6 nd_cfl)).st
+                                 (fst (prun flook fapply0 6 nd_cfr)).st ();
+       paext_unfold s' nd_s0 ();
+       introduce exists (s'': pastate).
+           (paext s'' nd_s0 /\ pawf s'' /\
+            s''.an1 + nd_s0.an2 == s''.an2 + nd_s0.an1 /\
+            s''.an1 == 3 /\ s''.an2 == 2 /\
+            pwlookup_l 1 s''.aw == Some 0 /\
+            pwlookup_l 2 s''.aw == Some 1 /\
+            pasrel fcl_rel s'' (fst (prun flook fapply0 6 nd_cfl)).store
+                               (fst (prun flook fapply0 6 nd_cfr)).store /\
+            pacfrel fcl_rel s'' (fst (prun flook fapply0 6 nd_cfl))
+                                (fst (prun flook fapply0 6 nd_cfr)))
+       with s' and ());
+    introduce pacfrel fcl_rel nd_s0 (fst (prun flook fapply0 6 nd_cfl))
+                                    (fst (prun flook fapply0 6 nd_cfr)) ==> False
+    with pacfrel_unfold fcl_rel nd_s0 (fst (prun flook fapply0 6 nd_cfl))
+                                      (fst (prun flook fapply0 6 nd_cfr)) ()
+
+(* ---- THE MUTATIONS: WHAT MAKES THE TRACE EQUALITY DISCRIMINATING -- *)
+
+(**
+ * One inversion of the `PEmit` clause, and it is what every mutation below is
+ * refuted with: at any positive index, two related `PEmit` nodes have THE SAME
+ * EVENT and related bodies.
+ *)
+let lemma_nd_emit_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (n: nat{n > 0})
+                      (e1 e2: string) (b1 b2: pcomp v cl)
+  : Lemma (requires pacomp_rel r n s (PEmit e1 b1) (PEmit e2 b2))
+          (ensures e1 == e2 /\ pacomp_rel r (n - 1) s b1 b2)
+  = ()
+
+let lemma_nd_pacrel_at (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (c1 c2: pcomp v cl) (n: nat)
+  : Lemma (requires pacrel r s c1 c2) (ensures pacomp_rel r n s c1 c2)
+  = pacrel_unfold r s c1 c2 ()
+
+(**
+ * **MUTATION 1 -- ONE EVENT'S IDENTITY.** REFUTED. The right side's SECOND
+ * emission becomes `"zz"`; nothing else changes -- same store, same frontier,
+ * same handle, same stack, same shape. The trace becomes `["a0"; "zz"]`, so the
+ * theorem's trace equality would be FALSE on this pair, and `pacfrel` FAILS,
+ * through the `PEmit` clause's `e1 == e2` at index 1.
+ *)
+let nd_c1_r_id : pcomp fv fcl = PEmit "zz" nd_c0_r
+let nd_c2_r_id : pcomp fv fcl = PEmit "a0" nd_c1_r_id
+let nd_cfr_id : pconf fv fcl = { st = PStep nd_c2_r_id [PScopeF]; store = nd_str; next = 1 }
+
+let guard_nd_mutation_event_identity ()
+  : Lemma (snd (prun flook fapply0 6 nd_cfl) == ["a0"; "a1"] /\
+           snd (prun flook fapply0 6 nd_cfr_id) == ["a0"; "zz"] /\
+           snd (prun flook fapply0 6 nd_cfl) =!= snd (prun flook fapply0 6 nd_cfr_id) /\
+           nd_cfr_id.store == nd_cfr.store /\ nd_cfr_id.next == nd_cfr.next /\
+           ~(pacfrel fcl_rel nd_s0 nd_cfl nd_cfr_id))
+  = assert_norm (snd (prun flook fapply0 6 nd_cfl) == ["a0"; "a1"]);
+    assert_norm (snd (prun flook fapply0 6 nd_cfr_id) == ["a0"; "zz"]);
+    introduce pacfrel fcl_rel nd_s0 nd_cfl nd_cfr_id ==> False
+    with begin
+      pacfrel_unfold fcl_rel nd_s0 nd_cfl nd_cfr_id ();
+      pastrel_unfold fcl_rel nd_s0 nd_cfl.st nd_cfr_id.st ();
+      lemma_nd_pacrel_at fcl_rel nd_s0 nd_c2_l nd_c2_r_id 2;
+      lemma_nd_emit_inv fcl_rel nd_s0 2 "a0" "a0" nd_c1_l nd_c1_r_id;
+      lemma_nd_emit_inv fcl_rel nd_s0 1 "a1" "zz" nd_c0_l nd_c0_r
+    end
+
+(**
+ * **MUTATION 2 -- THE ORDER OF TWO EVENTS.** REFUTED. The right side emits the
+ * SAME TWO EVENTS with the SAME MULTIPLICITIES, in the opposite order. The
+ * trace becomes `["a1"; "a0"]`, which is a permutation of `["a0"; "a1"]` and
+ * not equal to it, and `pacfrel` FAILS already at index 1, on the OUTERMOST
+ * emission. So the relation is sensitive to order and not merely to the set of
+ * events emitted.
+ *)
+let nd_c1_r_ord : pcomp fv fcl = PEmit "a0" nd_c0_r
+let nd_c2_r_ord : pcomp fv fcl = PEmit "a1" nd_c1_r_ord
+let nd_cfr_ord : pconf fv fcl = { st = PStep nd_c2_r_ord [PScopeF]; store = nd_str; next = 1 }
+
+let guard_nd_mutation_event_order ()
+  : Lemma (snd (prun flook fapply0 6 nd_cfl) == ["a0"; "a1"] /\
+           snd (prun flook fapply0 6 nd_cfr_ord) == ["a1"; "a0"] /\
+           snd (prun flook fapply0 6 nd_cfl) =!= snd (prun flook fapply0 6 nd_cfr_ord) /\
+           nd_cfr_ord.store == nd_cfr.store /\ nd_cfr_ord.next == nd_cfr.next /\
+           ~(pacfrel fcl_rel nd_s0 nd_cfl nd_cfr_ord))
+  = assert_norm (snd (prun flook fapply0 6 nd_cfl) == ["a0"; "a1"]);
+    assert_norm (snd (prun flook fapply0 6 nd_cfr_ord) == ["a1"; "a0"]);
+    introduce pacfrel fcl_rel nd_s0 nd_cfl nd_cfr_ord ==> False
+    with begin
+      pacfrel_unfold fcl_rel nd_s0 nd_cfl nd_cfr_ord ();
+      pastrel_unfold fcl_rel nd_s0 nd_cfl.st nd_cfr_ord.st ();
+      lemma_nd_pacrel_at fcl_rel nd_s0 nd_c2_l nd_c2_r_ord 1;
+      lemma_nd_emit_inv fcl_rel nd_s0 1 "a0" "a1" nd_c1_l nd_c1_r_ord
+    end
+
+(**
+ * **MUTATION 3 -- THE MULTIPLICITY OF ONE EVENT.** REFUTED. The right side
+ * emits `"a0"` TWICE and `"a1"` once, in that order; the SET of events is
+ * unchanged and so is their relative order. The trace becomes
+ * `["a0"; "a0"; "a1"]`, and `pacfrel` FAILS at index 1 of the residue, where
+ * the left has `"a1"` and the right still has `"a0"`. So the relation counts
+ * emissions and does not merely track which ones occur.
+ *)
+let nd_c3_r_mul : pcomp fv fcl = PEmit "a0" nd_c2_r
+let nd_cfr_mul : pconf fv fcl = { st = PStep nd_c3_r_mul [PScopeF]; store = nd_str; next = 1 }
+
+let guard_nd_mutation_event_multiplicity ()
+  : Lemma (snd (prun flook fapply0 7 nd_cfl) == ["a0"; "a1"] /\
+           snd (prun flook fapply0 7 nd_cfr_mul) == ["a0"; "a0"; "a1"] /\
+           snd (prun flook fapply0 7 nd_cfl) =!= snd (prun flook fapply0 7 nd_cfr_mul) /\
+           nd_cfr_mul.store == nd_cfr.store /\ nd_cfr_mul.next == nd_cfr.next /\
+           ~(pacfrel fcl_rel nd_s0 nd_cfl nd_cfr_mul))
+  = assert_norm (snd (prun flook fapply0 7 nd_cfl) == ["a0"; "a1"]);
+    assert_norm (snd (prun flook fapply0 7 nd_cfr_mul) == ["a0"; "a0"; "a1"]);
+    introduce pacfrel fcl_rel nd_s0 nd_cfl nd_cfr_mul ==> False
+    with begin
+      pacfrel_unfold fcl_rel nd_s0 nd_cfl nd_cfr_mul ();
+      pastrel_unfold fcl_rel nd_s0 nd_cfl.st nd_cfr_mul.st ();
+      lemma_nd_pacrel_at fcl_rel nd_s0 nd_c2_l nd_c3_r_mul 2;
+      lemma_nd_emit_inv fcl_rel nd_s0 2 "a0" "a0" nd_c1_l nd_c2_r;
+      lemma_nd_emit_inv fcl_rel nd_s0 1 "a1" "a0" nd_c0_l nd_c1_r
+    end
+
+(* ================================================================== *)
+(*  B2b.25 -- THE LEDGER                                               *)
+(*                                                                     *)
+(*  WHAT FIRES.                                                        *)
+(*   `guard_nd_fixture_is_non_diagonal` -- the two configurations       *)
+(*   differ in state, in store and in frontier, the two stores differ   *)
+(*   in length, in keys AND in the payload they share a key for, the    *)
+(*   two raw handles are different numbers, and the identity world is   *)
+(*   not the empty world.                                               *)
+(*   `lemma_nd_related` -- `pacfrel` holds at the ACTUAL frontiers      *)
+(*   `2` and `1`, the ACTUAL world `[(1,0)]` and the ACTUAL stores.     *)
+(*   Only the ONE store entry the world speaks for is discharged        *)
+(*   through the collapse (`lemma_paxrel_of_pxrel` over                 *)
+(*   `lemma_fce_cx_selfrel`); the counter identities, the node          *)
+(*   relation, the stack relation and the quantifier over the world's   *)
+(*   domain are discharged directly at the allocation-indexed family.   *)
+(*   `guard_nd_allocation_occurs` -- one allocation per side, at keys   *)
+(*   neither store held, frontiers 2->3 and 1->2.                       *)
+(*   `guard_nd_parun_compat_fires` -- the theorem instantiated on the   *)
+(*   pair: a common NON-EMPTY trace `["a0"; "a1"]`, a final state       *)
+(*   whose world gained the pair `(2,1)` the starting world did not     *)
+(*   have, the balanced frontier equation `3 + 1 == 2 + 2` at two       *)
+(*   DIFFERENT final frontiers, the final `pasrel` over two grown       *)
+(*   stores, and the existential shown NOT to be answerable by the      *)
+(*   state handed in.                                                   *)
+(*                                                                     *)
+(*  WHAT IS REFUTED.                                                    *)
+(*   `guard_nd_mutation_event_identity`,                                *)
+(*   `guard_nd_mutation_event_order`,                                   *)
+(*   `guard_nd_mutation_event_multiplicity` -- three one-sided          *)
+(*   perturbations, each changing NOTHING but the emission structure    *)
+(*   of the right-hand node.  In each case the emitted traces are       *)
+(*   shown DIFFERENT by computation and `pacfrel` is shown to FAIL.     *)
+(*   So on this fixture the theorem's trace equality is a real          *)
+(*   constraint: it is false for pairs the relation refuses, and the    *)
+(*   relation is what refuses them.                                     *)
+(*                                                                     *)
+(*  WHAT IS NOT CLAIMED.  Nothing about allocation-aware convergence,   *)
+(*  nothing about `pnconverges` or `pnobs_tr_le`, nothing about the     *)
+(*  laws or the administrative observation, and no bridge between       *)
+(*  `lemma_prun_compat` / `lemma_prun_prov_compat` and                  *)
+(*  `lemma_parun_compat`.  This section measures ONE thing: that the    *)
+(*  run theorem's relational trace claim is non-vacuous on two          *)
+(*  genuinely different executions.                                     *)
+(* ================================================================== *)
