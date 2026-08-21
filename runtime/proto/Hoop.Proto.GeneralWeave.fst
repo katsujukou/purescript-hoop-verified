@@ -39182,3 +39182,755 @@ let guard_panobs_residue_is_the_store_conjunct ()
 (*  administrative observation, no `qext`, no `qprod`, no `padm_*`,    *)
 (*  and no re-adjudication of right identity.                          *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.N -- RE-ADJUDICATION GATE: RIGHT IDENTITY, RESTATED, AT THE    *)
+(*  ALLOCATION-AWARE STORE-ANCHORED PUBLIC OBSERVATION                 *)
+(*                                                                     *)
+(*  Everything below is ADDITIVE.  Every name is NEW.  `pcrel`,        *)
+(*  `pxrel`, `psrel`, `padm_*`, `pnobs_tr_le`, `paobs_tr_le_pub_at`,   *)
+(*  `law_right_identity_ext_nom`, `qprod`, `qext`, `qmid_sl`,          *)
+(*  `qmid_sr`, `guard_ri_ext_midpoint_no_world` and every recorded     *)
+(*  verdict above are UNTOUCHED.                                       *)
+(*                                                                     *)
+(*  THE QUESTION.  B2b.5's finding was a NEGATIVE about the middle of  *)
+(*  the two runs: `guard_ri_ext_midpoint_no_world` proves that at      *)
+(*  EVERY well-formed world relating the two post-prefix COMPUTATIONS, *)
+(*  the two post-prefix STORES are unrelated, because `qext` and       *)
+(*  `qprod` differ in ONE PLACE AND ONE ONLY -- the stored `post`.     *)
+(*                                                                     *)
+(*  The allocation-aware line of work repaired the ALLOCATOR-NAME      *)
+(*  problem by narrowing the future quantification from every `pwext`  *)
+(*  extension to the allocator-respecting ones (`paext`).  The         *)
+(*  `qprod`/`qext` difference is not a name problem, so the            *)
+(*  EXPECTATION -- checked below, never assumed -- is that the         *)
+(*  counterexample survives.  It does, and the domain checks below     *)
+(*  show that it survives NON-VACUOUSLY.                               *)
+(* ================================================================== *)
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 0 -- CAN THE SPECIMEN EVEN BE STATED AT THE NEW INDEX?        *)
+(*                                                                     *)
+(*  The specimen runs at `xboundary`, whose `b_apply` is `xapply`.     *)
+(*  A `paboundary` over `xapply` needs ONE new field,                  *)
+(*  `paapply_equivariant fcl_rel xapply`, and whether `xapply`         *)
+(*  satisfies it is itself a checkpoint: if it did not, the            *)
+(*  interpreter the counterexample runs at would be OUTSIDE the new    *)
+(*  boundary discipline, which would be a finding about the            *)
+(*  discipline and not something to work around.                       *)
+(* ------------------------------------------------------------------ *)
+
+(** The plan `xapply`'s clause opens, self-related at the new index. Its item
+    list is empty and its owner holds `xtbl0` with no return clause, so the whole
+    obligation is `lemma_ptable_selfrel` at the state's own world. *)
+let lemma_xplan_paselfrel (n: nat) (s: pastate)
+  : Lemma (paplan_rel fcl_rel n s xplan xplan)
+  = if n = 0 then () else lemma_ptable_selfrel n s.aw xtbl0
+
+(** The interpreter's one clause, at the state it is standing on. `xapply` places
+    the continuation AT the state -- `lemma_pafn_at_self` and nothing else -- and
+    wraps it in a `PEnterCtx` whose plan is self-related. Neither half needs a
+    future world, which is exactly why the narrowed hypothesis suffices. *)
+let lemma_xapply_pa_at (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+      (k1 k2: pval fv -> pcomp fv fcl)
+  : Lemma (requires pwf_world s.aw /\ pafn_rel_at fcl_rel s k1 k2)
+          (ensures pacrel fcl_rel s (xapply c1 p1 k1) (xapply c2 p2 k2))
+  = assert (pval_rel #fv s.aw (fpv FU) (fpv FU));
+    lemma_pafn_at_self fcl_rel s k1 k2 (fpv FU) (fpv FU);
+    pacrel_unfold fcl_rel s (k1 (fpv FU)) (k2 (fpv FU)) ();
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n s (PEnterCtx xplan (k1 (fpv FU)))
+                               (PEnterCtx xplan (k2 (fpv FU)))
+    with (if n = 0 then () else lemma_xplan_paselfrel (n - 1) s)
+
+(**
+ * **STEP 0 IS A YES: THE COUNTEREXAMPLE'S OWN INTERPRETER SATISFIES THE
+ * ALLOCATION-AWARE APPLY CONDITION.** PROVED, at default fuel.
+ *
+ * This is not automatic. `guard_pa_apply_bridge_refuted` shows the old field
+ * does NOT discharge the new one in general; `xapply` passes because every
+ * clause of it reads the continuation at the state it already stands on.
+ *)
+let lemma_xapply_paequivariant () : Lemma (paapply_equivariant fcl_rel xapply)
+  = introduce forall (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (k1 k2: pval fv -> pcomp fv fcl).
+      (pwf_world s.aw /\ pclrel fcl_rel s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+       pafn_rel_at fcl_rel s k1 k2 ==>
+       pacrel fcl_rel s (xapply c1 p1 k1) (xapply c2 p2 k2))
+    with (introduce _ ==> _ with lemma_xapply_pa_at s c1 c2 p1 p2 k1 k2)
+
+(** **THE COUNTEREXAMPLE'S BOUNDARY, AT THE ALLOCATION INDEX.** Four of the five
+    proof terms are `xboundary`'s own -- same relation, same lookup, same
+    interpreter, same well-boundedness judgement. `pb_apply_eq` is the only new
+    field, and step 0 above is its proof. *)
+let xaboundary : paboundary fv fcl = {
+  pb_rel = fcl_rel;
+  pb_lk = flook;
+  pb_apply = xapply;
+  pb_mono = lemma_fcl_rel_mono ();
+  pb_down = lemma_fcl_rel_down ();
+  pb_lookup = lemma_flook_equivariant ();
+  pb_apply_eq = lemma_xapply_paequivariant ();
+  pb_apply_wb = lemma_xapply_wb ();
+}
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 1 -- THE LAW, TRANSPOSED TO THE ANCHORED PUBLIC FORM           *)
+(* ------------------------------------------------------------------ *)
+
+(**
+ * **RIGHT IDENTITY, RESTATED, AT THE ALLOCATION-AWARE STORE-ANCHORED PUBLIC
+ * OBSERVATION.** The two sides are `law_right_identity_ext_nom`'s, verbatim;
+ * only the observation changed, from `pnobs_tr_eq b` to both directions of
+ * `paobs_tr_le_pub_at b sto n0`.
+ *
+ * The store and the counter become INDICES rather than internal quantifiers.
+ * That is forced: `paobs_tr_le_pub_at` is the form anchored at ONE store, and
+ * `guard_pub_at_is_strictly_more_general` records why the anchored form is the
+ * one to use -- the store-uniform premise collapses to the bottom state and
+ * excludes handle-owning computations.
+ *)
+let law_right_identity_ext_pa_at
+    (#v #cl: Type)
+    (b: paboundary v cl)
+    (ops: ctx_ops v cl)
+    (pl: plan v cl)
+    (c: pcomp v cl)
+    (g: pval v -> pcomp v cl)
+    (sto: pstore v cl)
+    (n0: nat)
+  : GTot prop
+  = paobs_tr_le_pub_at b sto n0
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                              (fun cy -> ops.o_extend pl cy g)))
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g)) /\
+    paobs_tr_le_pub_at b sto n0
+      (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g))
+      (pbind (ops.o_enter_ctx pl c)
+             (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                              (fun cy -> ops.o_extend pl cy g)))
+
+(** **The transposed statement is WELL TYPED at `prop`, and that is the only
+    thing this states.** Exactly as `guard_ri_ext_nom_is_statable` is for the
+    nominal form. Nothing in this file depends on it holding. *)
+let guard_ri_ext_pa_is_statable
+    (#v #cl: Type) (b: paboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (law_right_identity_ext_pa_at b ops pl c g sto n0
+           == law_right_identity_ext_pa_at b ops pl c g sto n0)
+  = ()
+
+let law_ri_ext_pa_at_unfold
+    (#v #cl: Type) (b: paboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl) (sto: pstore v cl) (n0: nat)
+    (h: squash (law_right_identity_ext_pa_at b ops pl c g sto n0))
+  : squash (paobs_tr_le_pub_at b sto n0
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                                      (fun cy -> ops.o_extend pl cy g)))
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g)) /\
+            paobs_tr_le_pub_at b sto n0
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g))
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                                      (fun cy -> ops.o_extend pl cy g))))
+  = h
+
+let law_ri_ext_pa_at_fold
+    (#v #cl: Type) (b: paboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl) (sto: pstore v cl) (n0: nat)
+    (h: squash (paobs_tr_le_pub_at b sto n0
+                  (pbind (ops.o_enter_ctx pl c)
+                         (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                                          (fun cy -> ops.o_extend pl cy g)))
+                  (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g)) /\
+                paobs_tr_le_pub_at b sto n0
+                  (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g))
+                  (pbind (ops.o_enter_ctx pl c)
+                         (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                                          (fun cy -> ops.o_extend pl cy g)))))
+  : squash (law_right_identity_ext_pa_at b ops pl c g sto n0)
+  = h
+
+(**
+ * **THE TRANSPOSITION DOES NOT CHANGE WHAT THE LAW SAYS.** PROVED: closing the
+ * two new indices over the anchored form gives, conjunct by conjunct, the
+ * store-uniform `paobs_tr_le_pub` in both directions. So making `sto` and `n0`
+ * indices is a change of GRANULARITY -- it lets one instance be exhibited at one
+ * store -- and not a change of content.
+ *)
+let guard_ri_ext_pa_closure
+    (#v #cl: Type) (b: paboundary v cl) (ops: ctx_ops v cl) (pl: plan v cl)
+    (c: pcomp v cl) (g: pval v -> pcomp v cl)
+  : Lemma ((forall (sto: pstore v cl) (n0: nat).
+              law_right_identity_ext_pa_at b ops pl c g sto n0)
+           <==>
+           (paobs_tr_le_pub b
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                                      (fun cy -> ops.o_extend pl cy g)))
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g)) /\
+            paobs_tr_le_pub b
+              (pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g))
+              (pbind (ops.o_enter_ctx pl c)
+                     (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                                      (fun cy -> ops.o_extend pl cy g)))))
+  = let lhs : pcomp v cl =
+      pbind (ops.o_enter_ctx pl c)
+            (fun cx -> pbind (ops.o_extend_ctx pl cx (PVar #v #cl))
+                             (fun cy -> ops.o_extend pl cy g)) in
+    let rhs : pcomp v cl =
+      pbind (ops.o_enter_ctx pl c) (fun cx -> ops.o_extend pl cx g) in
+    introduce (forall (sto: pstore v cl) (n0: nat).
+                 law_right_identity_ext_pa_at b ops pl c g sto n0)
+              ==> (paobs_tr_le_pub b lhs rhs /\ paobs_tr_le_pub b rhs lhs)
+    with begin
+      introduce forall (sto: pstore v cl) (n0: nat).
+          paobs_tr_le_pub_at b sto n0 lhs rhs
+      with law_ri_ext_pa_at_unfold b ops pl c g sto n0 ();
+      introduce forall (sto: pstore v cl) (n0: nat).
+          paobs_tr_le_pub_at b sto n0 rhs lhs
+      with law_ri_ext_pa_at_unfold b ops pl c g sto n0 ()
+    end;
+    introduce (paobs_tr_le_pub b lhs rhs /\ paobs_tr_le_pub b rhs lhs)
+              ==> (forall (sto: pstore v cl) (n0: nat).
+                     law_right_identity_ext_pa_at b ops pl c g sto n0)
+    with begin
+      paobs_tr_le_pub_unfold b lhs rhs ();
+      paobs_tr_le_pub_unfold b rhs lhs ();
+      introduce forall (sto: pstore v cl) (n0: nat).
+          law_right_identity_ext_pa_at b ops pl c g sto n0
+      with law_ri_ext_pa_at_fold b ops pl c g sto n0 ()
+    end
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 2 -- THE INSTANCE AT THE ENDS OF THE TWO RUNS                  *)
+(* ------------------------------------------------------------------ *)
+
+(** The answers' shared residual, self-related at the new index. Same four
+    frames, same proof shape as `lemma_qresid_selfrel`, with `paext` in place of
+    `pwext` and the state in place of the world. *)
+let lemma_qresid_paselfrel (n: nat) (s: pastate)
+  : Lemma (paframes_rel fcl_rel n s qresid qresid)
+  = if n = 0 then ()
+    else begin
+      lemma_ptable_selfrel n s.aw xltbl;
+      lemma_ptable_selfrel n s.aw xtbl0;
+      introduce forall (s': pastate) (y1 y2: pval fv).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel fcl_rel n s' (PVar y1) (PVar y2))
+      with (introduce _ ==> _ with ())
+    end
+
+(** **The context both answers name is self-related at EVERY state.** PROVED,
+    exactly as `lemma_qcx_selfrel` is at every world: the payload is `PV FU`, the
+    `post` is the identity, and the residual holds no handle. *)
+let lemma_qcx_paselfrel (s: pastate)
+  : Lemma (paxrel fcl_rel s qcx qcx)
+  = introduce forall (n: nat). pactx_rel fcl_rel n s qcx qcx
+    with (if n = 0 then ()
+          else begin
+            lemma_qresid_paselfrel n s;
+            introduce forall (s': pastate) (y1 y2: pval fv).
+                (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                 pacomp_rel fcl_rel n s' (PVar y1) (PVar y2))
+            with (introduce _ ==> _ with ())
+          end)
+
+(**
+ * The two final states, and their counters are the machine's own: the left run
+ * allocates three contexts and ends with `next = 3`, the right allocates two and
+ * ends with `next = 2`. `qw` and `qw'` are `guard_qce_world`'s worlds, unchanged.
+ *)
+let qas_l : pastate = { aw = qw;  an1 = 3; an2 = 2 }
+let qas_r : pastate = { aw = qw'; an1 = 2; an2 = 3 }
+
+let lemma_qas_l_srel () : Lemma (pasrel fcl_rel qas_l qsl qsr)
+  = guard_qce_answer_ctx ();
+    assert_norm (pwlookup_l 2 qw == Some 1);
+    lemma_qcx_paselfrel qas_l;
+    introduce forall (i j: nat).
+        (pwlookup_l i qas_l.aw == Some j ==>
+         (Some? (pstore_lookup i qsl) /\ Some? (pstore_lookup j qsr) /\
+          paxrel fcl_rel qas_l (psget i qsl) (psget j qsr)))
+    with (introduce _ ==> _ with assert (i == 2 /\ j == 1))
+
+let lemma_qas_r_srel () : Lemma (pasrel fcl_rel qas_r qsr qsl)
+  = guard_qce_answer_ctx ();
+    assert_norm (pwlookup_l 1 qw' == Some 2);
+    lemma_qcx_paselfrel qas_r;
+    introduce forall (i j: nat).
+        (pwlookup_l i qas_r.aw == Some j ==>
+         (Some? (pstore_lookup i qsr) /\ Some? (pstore_lookup j qsl) /\
+          paxrel fcl_rel qas_r (psget i qsr) (psget j qsl)))
+    with (introduce _ ==> _ with assert (i == 1 /\ j == 2))
+
+(** **THE TWO FINAL STATES ARE WELL FORMED AND ALLOCATOR-REACHABLE FROM THE
+    START, AND THEY RELATE THE TWO FINAL STORES.** PROVED. `paext _ (padiag [] 0)`
+    is the conjunct `guard_qce_world` could not state: every pair the final world
+    has that the empty start did not lies in the window the two allocators
+    actually opened. *)
+let guard_qce_pastate ()
+  : Lemma (pawf qas_l /\ paext qas_l (padiag ([] <: pstore fv fcl) 0) /\
+           pwf_world qas_l.aw /\ pwext qas_l.aw (panchor ([] <: pstore fv fcl)) /\
+           pval_rel #fv qas_l.aw (PCtxKey 2) (PCtxKey 1) /\
+           pasrel fcl_rel qas_l qsl qsr /\
+           pawf qas_r /\ paext qas_r (padiag ([] <: pstore fv fcl) 0) /\
+           pwf_world qas_r.aw /\ pwext qas_r.aw (panchor ([] <: pstore fv fcl)) /\
+           pval_rel #fv qas_r.aw (PCtxKey 1) (PCtxKey 2) /\
+           pasrel fcl_rel qas_r qsr qsl)
+  = guard_qce_world ();
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    lemma_qas_l_srel ();
+    lemma_qas_r_srel ()
+
+let guard_ri_ext_pa_shape ()
+  : Lemma (qcf_l == ({ st = PStep qlhs ([] <: pstack fv fcl);
+                       store = ([] <: pstore fv fcl); next = 0 }) /\
+           qcf_r == ({ st = PStep qrhs ([] <: pstack fv fcl);
+                       store = ([] <: pstore fv fcl); next = 0 }) /\
+           xaboundary.pb_rel == fcl_rel /\ xaboundary.pb_lk == flook /\
+           xaboundary.pb_apply == xapply)
+  = assert_norm (xaboundary.pb_rel == fcl_rel);
+    assert_norm (xaboundary.pb_lk == flook);
+    assert_norm (xaboundary.pb_apply == xapply)
+
+(** The two runs, with their FINAL COUNTERS carried -- which `pnconverges` could
+    not carry and `paconverges` can. PROVED by running the machine. *)
+let lemma_qce_paconverges ()
+  : Lemma (paconverges flook xapply qcf_l ([] <: list string) (PCtxKey 2) qsl 3 /\
+           paconverges flook xapply qcf_r ([] <: list string) (PCtxKey 1) qsr 2)
+  = assert_norm ((fst (prun flook xapply 60 qcf_l)).st == PDone (PCtxKey 2));
+    assert_norm (snd (prun flook xapply 60 qcf_l) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 60 qcf_l)).next == 3);
+    assert_norm ((fst (prun flook xapply 60 qcf_r)).st == PDone (PCtxKey 1));
+    assert_norm (snd (prun flook xapply 60 qcf_r) == ([] <: list string));
+    assert_norm ((fst (prun flook xapply 60 qcf_r)).next == 2);
+    lemma_paconverges_at flook xapply qcf_l 60 [] (PCtxKey 2) qsl 3;
+    lemma_paconverges_at flook xapply qcf_r 60 [] (PCtxKey 1) qsr 2
+
+let lemma_ri_ext_pa_start_dom ()
+  : Lemma (pastart_dom xaboundary ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0)
+  = guard_xce_config_ok ();
+    guard_ri_ext_pa_shape ();
+    pastart_dom_fold xaboundary ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 ()
+
+(**
+ * **THE OBSERVATION FIRES ON THE SPECIMEN: ITS ANTECEDENT IS SATISFIED, NOT
+ * MERELY ABSENT.** PROVED, and this is the anti-vacuity check the positive
+ * result below is worthless without. These four conjuncts ARE the antecedent of
+ * `paobs_tr_le_pub_at xaboundary [] 0 qlhs qrhs` at `k := []`, `tr := []`,
+ * `x1 := PCtxKey 2`, `t1 := qsl`, `m1 := 3`.
+ *)
+let guard_ri_ext_pa_antecedent_fires ()
+  : Lemma (pequivariant_k_at xaboundary.pb_rel (panchor ([] <: pstore fv fcl))
+                             ([] <: pstack fv fcl) /\
+           pstore_equivariant_at xaboundary.pb_rel ([] <: pstore fv fcl) /\
+           psfresh ([] <: pstore fv fcl) 0 /\
+           paconverges xaboundary.pb_lk xaboundary.pb_apply
+             ({ st = PStep qlhs ([] <: pstack fv fcl);
+                store = ([] <: pstore fv fcl); next = 0 })
+             ([] <: list string) (PCtxKey 2) qsl 3)
+  = guard_xce_config_ok ();
+    guard_ri_ext_pa_shape ();
+    lemma_qce_paconverges ()
+
+(**
+ * **THE RESTATED RIGHT IDENTITY SURVIVES `xapply` AT THE ALLOCATION INDEX,
+ * TOO.** PROVED, and this conjunction IS the body of both directions of
+ * `paobs_tr_le_pub_at xaboundary [] 0` at `k := []`, with every existential
+ * witness written down and the final frontiers carried.
+ *
+ * It is `guard_ri_ext_survives_xapply` with three things added that the nominal
+ * form could not say: the two final counters, the accessibility of the two final
+ * states from the diagonal start, and `pasrel` at the state in place of `psrel`
+ * at its world.
+ *
+ * **What this is NOT.** It is ONE ambient stack, ONE store, ONE counter, ONE
+ * plan, ONE body and ONE extension. It is not
+ * `law_right_identity_ext_pa_at`, which quantifies over every equivariant `k`.
+ * Nothing here proves that.
+ *)
+let guard_ri_ext_pa_survives_xapply ()
+  : Lemma (
+      pastart_dom xaboundary ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+      paconverges flook xapply qcf_l ([] <: list string) (PCtxKey 2) qsl 3 /\
+      paconverges flook xapply qcf_r ([] <: list string) (PCtxKey 1) qsr 2 /\
+      (exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+         s'.an1 == 3 /\
+         paconverges flook xapply qcf_r ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 2) x2 /\ pasrel fcl_rel s' qsl t2) /\
+      (exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+         s'.an1 == 2 /\
+         paconverges flook xapply qcf_l ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 1) x2 /\ pasrel fcl_rel s' qsr t2))
+  = lemma_ri_ext_pa_start_dom ();
+    lemma_qce_paconverges ();
+    guard_qce_pastate ();
+    introduce exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+        (s'.an1 == 3 /\
+         paconverges flook xapply qcf_r ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 2) x2 /\ pasrel fcl_rel s' qsl t2)
+    with (PCtxKey 1) qsr qas_l and ();
+    introduce exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+        (s'.an1 == 2 /\
+         paconverges flook xapply qcf_l ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 1) x2 /\ pasrel fcl_rel s' qsr t2)
+    with (PCtxKey 2) qsl qas_r and ()
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 3 -- THE DOMAIN CHECKS, ON THE MIDPOINT ITSELF                 *)
+(*                                                                     *)
+(*  A narrowed observation can make a law come out true VACUOUSLY, by   *)
+(*  excluding the specimen from its domain.  The four checks below are  *)
+(*  the ones that rule that out, and they are stated as machine-checked *)
+(*  facts rather than assumed.                                          *)
+(* ------------------------------------------------------------------ *)
+
+(** The `post` the extension records, as a closure, self-related at every index.
+    Split out of `lemma_qext_selfrel` because the nested `introduce _ ==> _`
+    inside another `introduce` cannot infer its own conclusion. *)
+let lemma_qext_post_selfrel (n: nat) (w': pworld) (y1 y2: pval fv)
+  : Lemma (requires pval_rel w' y1 y2)
+          (ensures pcomp_rel fcl_rel n w'
+                     (POp (PVar y1 <: pcomp fv fcl) (PVar #fv #fcl))
+                     (POp (PVar y2 <: pcomp fv fcl) (PVar #fv #fcl)))
+  = if n = 0 then ()
+    else introduce forall (w'': pworld) (z1 z2: pval fv).
+             (pwf_world w'' /\ pwext w'' w' /\ pval_rel w'' z1 z2 ==>
+              pcomp_rel fcl_rel (n - 1) w'' (PVar z1) (PVar z2))
+         with (introduce _ ==> _ with ())
+
+(** `qext` is self-related at every world -- so the reason the PAIR
+    `(qext, qprod)` is refused is the DIFFERENCE between them and not a defect
+    in either one. *)
+let lemma_qext_selfrel (w: pworld)
+  : Lemma (pxrel fcl_rel w qext qext)
+  = introduce forall (n: nat). pctx_rel fcl_rel n w qext qext
+    with (if n = 0 then ()
+          else begin
+            lemma_qresid0_selfrel n w;
+            introduce forall (w': pworld) (y1 y2: pval fv).
+                (pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==>
+                 pcomp_rel fcl_rel n w'
+                   (POp (PVar y1 <: pcomp fv fcl) (PVar #fv #fcl))
+                   (POp (PVar y2 <: pcomp fv fcl) (PVar #fv #fcl)))
+            with (introduce _ ==> _ with lemma_qext_post_selfrel n w' y1 y2)
+          end)
+
+(** **DOMAIN CHECK 1: BOTH MIDPOINT STORES ARE EQUIVARIANT AT THEIR OWN
+    ANCHORS.** PROVED. `qmid_sl` holds `qext` at 1 and `qprod` at 0; `qmid_sr`
+    holds `qprod` at 0; each entry is self-related at every well-formed world, so
+    a fortiori at every future world of the store's anchor. *)
+let guard_qmid_stores_equivariant ()
+  : Lemma (pstore_equivariant_at fcl_rel qmid_sl /\
+           pstore_equivariant_at fcl_rel qmid_sr)
+  = introduce forall (i: nat) (cx: pctx fv fcl).
+      (pstore_lookup i qmid_sl == Some cx ==>
+       pequivariant_ctx_at fcl_rel (panchor qmid_sl) cx)
+    with (introduce _ ==> _
+          with begin
+            assert_norm (pstore_lookup 0 qmid_sl == Some qprod);
+            assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+            assert (i == 0 \/ i == 1);
+            introduce forall (w: pworld).
+                (pwf_world w /\ pwext w (panchor qmid_sl) ==> pxrel fcl_rel w cx cx)
+            with (introduce _ ==> _
+                  with (lemma_qprod_selfrel w; lemma_qext_selfrel w))
+          end);
+    introduce forall (i: nat) (cx: pctx fv fcl).
+      (pstore_lookup i qmid_sr == Some cx ==>
+       pequivariant_ctx_at fcl_rel (panchor qmid_sr) cx)
+    with (introduce _ ==> _
+          with begin
+            assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+            assert (i == 0);
+            introduce forall (w: pworld).
+                (pwf_world w /\ pwext w (panchor qmid_sr) ==> pxrel fcl_rel w cx cx)
+            with (introduce _ ==> _ with lemma_qprod_selfrel w)
+          end)
+
+(** The two post-prefix configurations, taken off the machine rather than
+    rebuilt. `guard_qce_midpoint` fixed their control states and stores; these
+    are the configurations themselves. *)
+let qmid_cf_l : pconf fv fcl = fst (prun flook xapply 7 qcf_l)
+let qmid_cf_r : pconf fv fcl = fst (prun flook xapply 4 qcf_r)
+
+(** **DOMAIN CHECK 2: BOTH MIDPOINT CONFIGURATIONS SATISFY `pconf_ok`.** PROVED,
+    and not by inspection: the two starts are `pload`s of judged terms, `xapply`
+    is `papply_wb`, and `lemma_prun_conf_ok` carries the invariant along the
+    seven and four steps. The counters are the machine's: 2 on the left, 1 on the
+    right. *)
+let guard_qmid_conf_ok ()
+  : Lemma (pconf_ok qmid_cf_l /\ pconf_ok qmid_cf_r /\
+           qmid_cf_l.store == qmid_sl /\ qmid_cf_l.next == 2 /\
+           qmid_cf_r.store == qmid_sr /\ qmid_cf_r.next == 1)
+  = guard_wb_qlhs ();
+    guard_wb_qrhs ();
+    lemma_xapply_wb ();
+    assert_norm (qcf_l == pload qlhs);
+    assert_norm (qcf_r == pload qrhs);
+    lemma_pload_ok qlhs;
+    lemma_pload_ok qrhs;
+    lemma_prun_conf_ok flook xapply 7 qcf_l;
+    lemma_prun_conf_ok flook xapply 4 qcf_r;
+    assert_norm ((fst (prun flook xapply 7 qcf_l)).store == qmid_sl);
+    assert_norm ((fst (prun flook xapply 7 qcf_l)).next == 2);
+    assert_norm ((fst (prun flook xapply 4 qcf_r)).store == qmid_sr);
+    assert_norm ((fst (prun flook xapply 4 qcf_r)).next == 1)
+
+(** **DOMAIN CHECK 3: EACH MIDPOINT IS A LEGITIMATE STARTING POINT OF THE
+    ANCHORED OBSERVATION.** PROVED. `pastart_dom` is the observation's own
+    starting condition, folded; the freshness conjunct comes from `pconf_wf` of
+    the configuration the machine reached and not from a hand count. *)
+let guard_qmid_start_dom ()
+  : Lemma (pastart_dom xaboundary ([] <: pstack fv fcl) qmid_sl 2 /\
+           pastart_dom xaboundary ([] <: pstack fv fcl) qmid_sr 1)
+  = guard_qmid_conf_ok ();
+    guard_qmid_stores_equivariant ();
+    assert_norm (xaboundary.pb_rel == fcl_rel);
+    lemma_psfresh_of_conf_wf qmid_cf_l;
+    lemma_psfresh_of_conf_wf qmid_cf_r;
+    introduce forall (w: pworld). pkrel #fv #fcl fcl_rel w [] []
+    with lemma_pkrel_nil #fv #fcl fcl_rel w;
+    pastart_dom_fold xaboundary ([] <: pstack fv fcl) qmid_sl 2 ();
+    pastart_dom_fold xaboundary ([] <: pstack fv fcl) qmid_sr 1 ()
+
+(* ------------------------------------------------------------------ *)
+(*  STEP 4 -- THE RE-ADJUDICATION, AND IT IS THE SAME NEGATIVE          *)
+(* ------------------------------------------------------------------ *)
+
+(** The two contexts differ in one place and one only. PROVED by normalisation:
+    same payload, same four residual frames, and `post` the identity on the right
+    against `fun z -> pbind (PVar z) pure` on the left. *)
+let guard_qprod_qext_differ_only_in_post ()
+  : Lemma (presid_of qprod == presid_of qext /\
+           presid_of qprod == qresid0 /\
+           qprod == PCtxRequests fone qresid0 (PVar #fv #fcl) /\
+           qext == PCtxRequests fone qresid0
+                     (fun (z: pval fv) -> pbind (PVar z) (PVar #fv #fcl)))
+  = assert_norm (presid_of qprod == qresid0);
+    assert_norm (presid_of qext == qresid0);
+    assert_norm (qext == PCtxRequests fone qresid0
+                           (fun (z: pval fv) -> pbind (PVar z) (PVar #fv #fcl)))
+
+(**
+ * **AND THIS IS EXACTLY WHERE THE NEGATION BOTTOMS OUT.** PROVED, in one line
+ * and at every well-formed state.
+ *
+ * The `post` clause of `pactx_rel` quantifies over ACCESSIBLE states, and
+ * `paext` is REFLEXIVE (`lemma_paext_refl`), so the clause can always be read at
+ * the state it is standing on -- where it demands `POp (PVar u) pure` be
+ * `pacomp_rel`-related to `PVar u` at index 1. Different constructors at the
+ * head; the relation has no clause joining them.
+ *
+ * **THIS IS WHY THE NARROWING CANNOT HELP.** Narrowing the future quantification
+ * removes states from the domain; it cannot remove the state itself, because a
+ * reflexive accessibility keeps it. So the obstruction is invariant under ANY
+ * narrowing that keeps `paext` reflexive, and `lemma_paext_refl` is a theorem.
+ *)
+let guard_ri_ext_pa_bottoms_out_at_reflexivity (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures paext s s /\ pval_rel #fv s.aw (fpv FU) (fpv FU) /\
+                   ~(pacomp_rel fcl_rel 1 s
+                       (POp (PVar (fpv FU) <: pcomp fv fcl) (PVar #fv #fcl))
+                       (PVar (fpv FU))))
+  = lemma_paext_refl s
+
+(**
+ * **A CONTEXT AND ITS EXTENSION BY `pure` ARE NOT RELATED, AT ANY STATE.**
+ * PROVED. This is `guard_ri_ext_midpoint_unrelated` at the allocation index, and
+ * the proof is the same proof: instantiate the `post` clause at the state itself
+ * and at `PV FU`, and read off the constructor clash.
+ *)
+let guard_ri_ext_pa_midpoint_unrelated (s: pastate) (x: pval fv) (rs: pstack fv fcl)
+  : Lemma (requires pwf_world s.aw)
+          (ensures
+            ~(paxrel fcl_rel s
+                (extend_ctx_C xpl (PCtxRequests x rs (PVar #fv #fcl)) (PVar #fv #fcl))
+                (PCtxRequests x rs (PVar #fv #fcl))))
+  = introduce
+      paxrel fcl_rel s
+        (extend_ctx_C xpl (PCtxRequests x rs (PVar #fv #fcl)) (PVar #fv #fcl))
+        (PCtxRequests x rs (PVar #fv #fcl)) ==> False
+    with begin
+      paxrel_unfold fcl_rel s
+        (extend_ctx_C xpl (PCtxRequests x rs (PVar #fv #fcl)) (PVar #fv #fcl))
+        (PCtxRequests x rs (PVar #fv #fcl)) ();
+      lemma_paext_refl s;
+      assert (pval_rel #fv s.aw (fpv FU) (fpv FU));
+      assert (pactx_rel fcl_rel 1 s
+                (extend_ctx_C xpl (PCtxRequests x rs (PVar #fv #fcl)) (PVar #fv #fcl))
+                (PCtxRequests x rs (PVar #fv #fcl)));
+      assert (pacomp_rel fcl_rel 1 s (POp (PVar (fpv FU)) (PVar #fv #fcl))
+                                     (PVar (fpv FU)))
+    end
+
+(**
+ * **AND SO THE POST-PREFIX STORES ARE NOT RELATED AT ANY STATE THAT RELATES THE
+ * POST-PREFIX COMPUTATIONS.** PROVED, and the quantification is over EVERY
+ * well-formed state, not over one chosen badly.
+ *
+ * This is `guard_ri_ext_midpoint_no_world` at the allocation index. Nothing in
+ * the proof moved: relating the two computations forces the state's world to
+ * send 1 to 0, and at any state that does, the store relation asks the produced
+ * context and its pure extension to correspond, which the lemma above refuses.
+ *
+ * **SO THE COUNTEREXAMPLE SURVIVES, AND FOR THE SAME REASON.** The
+ * allocation-aware line of work repaired the ALLOCATOR-NAME problem; the
+ * `qprod`/`qext` difference is a difference in the STORED `post`, which is not a
+ * name problem, and it is untouched.
+ *)
+let guard_ri_ext_pa_midpoint_no_state (s: pastate)
+  : Lemma (requires pwf_world s.aw /\
+                    pacrel fcl_rel s (PExtendC xpl (PCtxKey 1) xg)
+                                     (PExtendC xpl (PCtxKey 0) xg))
+          (ensures ~(pasrel fcl_rel s qmid_sl qmid_sr))
+  = pacrel_unfold fcl_rel s (PExtendC xpl (PCtxKey 1) xg)
+                            (PExtendC xpl (PCtxKey 0) xg) ();
+    assert (pacomp_rel fcl_rel 1 s (PExtendC xpl (PCtxKey 1) xg)
+                                   (PExtendC xpl (PCtxKey 0) xg));
+    pval_rel_key_unfold #fv s.aw 1 0 ();
+    guard_ri_ext_pa_midpoint_unrelated s fone qresid0;
+    introduce pasrel fcl_rel s qmid_sl qmid_sr ==> False
+    with begin
+      pasrel_unfold fcl_rel s qmid_sl qmid_sr ();
+      assert_norm (pstore_lookup 1 qmid_sl == Some qext);
+      assert_norm (pstore_lookup 0 qmid_sr == Some qprod);
+      assert_norm (psget 1 qmid_sl == qext);
+      assert_norm (psget 0 qmid_sr == qprod);
+      assert (paxrel fcl_rel s (psget 1 qmid_sl) (psget 0 qmid_sr))
+    end
+
+(** **AND THE NARROWED DOMAIN DOES NOT RESCUE IT EITHER.** PROVED: restricting
+    the states to those the allocator can actually reach from the diagonal start
+    changes nothing, because `paext` carries `pwf_world` of the reached state and
+    that is the entire hypothesis the negative uses. *)
+let guard_ri_ext_pa_midpoint_no_reachable_state (s: pastate)
+  : Lemma (requires paext s (padiag ([] <: pstore fv fcl) 0) /\
+                    pacrel fcl_rel s (PExtendC xpl (PCtxKey 1) xg)
+                                     (PExtendC xpl (PCtxKey 0) xg))
+          (ensures ~(pasrel fcl_rel s qmid_sl qmid_sr))
+  = paext_unfold s (padiag ([] <: pstore fv fcl) 0) ();
+    guard_ri_ext_pa_midpoint_no_state s
+
+(** The state the two post-prefix configurations correspond under: the left's
+    fresh handle to the one the right kept, under the two counters the machine
+    itself is holding -- `qmid_cf_l.next` and `qmid_cf_r.next`. *)
+let qmid_as : pastate = { aw = qmid_w; an1 = 2; an2 = 1 }
+
+(** **AND THAT STATE IS REACHED BY THE ALLOCATOR, NOT INVENTED.** PROVED: its
+    counters are the two configurations' own `next` fields, and it is `paext`-
+    accessible from the diagonal start, so the single pair `1 |-> 0` it carries
+    lies inside the window the two allocators opened. The two computations are
+    `pacrel`-related there, by collapse from `guard_ri_ext_midpoint_comps_related`. *)
+let guard_ri_ext_pa_midpoint_state ()
+  : Lemma (pawf qmid_as /\ pwf_world qmid_as.aw /\
+           qmid_as.an1 == qmid_cf_l.next /\ qmid_as.an2 == qmid_cf_r.next /\
+           paext qmid_as (padiag ([] <: pstore fv fcl) 0) /\
+           pacrel fcl_rel qmid_as (PExtendC xpl (PCtxKey 1) xg)
+                                  (PExtendC xpl (PCtxKey 0) xg))
+  = guard_ri_ext_midpoint_comps_related ();
+    guard_qmid_conf_ok ();
+    assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (panchor ([] <: pstore fv fcl) == ([] <: pworld));
+    lemma_pacrel_of_pcrel fcl_rel qmid_as (PExtendC xpl (PCtxKey 1) xg)
+                                          (PExtendC xpl (PCtxKey 0) xg)
+
+(** **AND THE HYPOTHESIS IS SATISFIABLE**, so the negative above is not vacuous.
+    PROVED: `qmid_as` is such a state, and it is an allocator-reachable one. *)
+let guard_ri_ext_pa_midpoint_nonvacuous ()
+  : Lemma (pawf qmid_as /\
+           paext qmid_as (padiag ([] <: pstore fv fcl) 0) /\
+           pacrel fcl_rel qmid_as (PExtendC xpl (PCtxKey 1) xg)
+                                  (PExtendC xpl (PCtxKey 0) xg) /\
+           ~(pasrel fcl_rel qmid_as qmid_sl qmid_sr))
+  = guard_ri_ext_pa_midpoint_state ();
+    guard_ri_ext_pa_midpoint_no_state qmid_as
+
+(* ================================================================== *)
+(*  RE-ADJUDICATION LEDGER -- WHAT CHANGED, AND WHAT DID NOT           *)
+(*                                                                     *)
+(*  STEP 0 -- IS THE SPECIMEN STATABLE AT THE NEW INDEX?  YES.         *)
+(*  `lemma_xapply_paequivariant` proves                                *)
+(*  `paapply_equivariant fcl_rel xapply`, at default fuel, so          *)
+(*  `xaboundary : paboundary fv fcl` exists with four of its five      *)
+(*  proof terms taken verbatim from `xboundary`.  The interpreter the  *)
+(*  counterexample runs at is INSIDE the new boundary discipline.      *)
+(*                                                                     *)
+(*  DOMAIN CHECKS -- ALL FOUR PASS, SO NOTHING BELOW IS VACUOUS:       *)
+(*   - `guard_qmid_stores_equivariant`: `pstore_equivariant_at` holds  *)
+(*     of `qmid_sl` and of `qmid_sr`;                                  *)
+(*   - `guard_qmid_conf_ok`: both post-prefix configurations satisfy   *)
+(*     `pconf_ok`, carried along the run by `lemma_prun_conf_ok`;      *)
+(*   - `guard_qmid_start_dom` and `lemma_ri_ext_pa_start_dom`:         *)
+(*     `pastart_dom` holds at the law's start and at BOTH midpoints;   *)
+(*   - `guard_ri_ext_pa_antecedent_fires`: the observation's           *)
+(*     antecedent is SATISFIED on the specimen, at `k := []`,          *)
+(*     `tr := []`, `x1 := PCtxKey 2`, `t1 := qsl`, `m1 := 3`.          *)
+(*                                                                     *)
+(*  STATABLE AT THE ANCHORED PUBLIC FORM: YES, AND WITHOUT CHANGING    *)
+(*  WHAT THE LAW SAYS.  `law_right_identity_ext_pa_at` is a            *)
+(*  `GTot prop`; `guard_ri_ext_pa_closure` proves that closing its     *)
+(*  two new indices gives, conjunct by conjunct, the store-uniform     *)
+(*  `paobs_tr_le_pub` in both directions.                              *)
+(*                                                                     *)
+(*  AT THE ENDS OF THE TWO RUNS: SURVIVES, AT ONE INSTANCE.            *)
+(*  `guard_ri_ext_pa_survives_xapply` exhibits both directions of the  *)
+(*  anchored body at `k := []`, `sto := []`, `n0 := 0`, with the       *)
+(*  witnesses written down -- and with three conjuncts the nominal     *)
+(*  form could not carry: the final counters, `paext` accessibility    *)
+(*  of the final states from the diagonal start, and `pasrel` at the   *)
+(*  state in place of `psrel` at its world.                            *)
+(*                                                                     *)
+(*  AT THE MIDPOINT: STILL NO, AND FOR THE SAME REASON.                *)
+(*  `guard_ri_ext_pa_midpoint_no_state` is                             *)
+(*  `guard_ri_ext_midpoint_no_world` at the allocation index, and      *)
+(*  `guard_ri_ext_pa_midpoint_no_reachable_state` adds that            *)
+(*  restricting to allocator-reachable states changes nothing.         *)
+(*  `guard_ri_ext_pa_bottoms_out_at_reflexivity` names the point the   *)
+(*  negation bottoms out: the `post` clause read AT THE STATE ITSELF,  *)
+(*  which reflexivity of `paext` always makes available, demanding     *)
+(*  `POp (PVar u) pure` be related to `PVar u`.  It is the SAME place  *)
+(*  as before -- the stored `post` -- and it has not moved.            *)
+(*                                                                     *)
+(*  SO: the narrowing repaired allocator NAMES; this obstruction is    *)
+(*  not a name problem and is untouched by it.  Any narrowing that     *)
+(*  keeps `paext` reflexive leaves it exactly where it is.             *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - `law_right_identity_ext_pa_at` is NOT PROVED.  One ambient      *)
+(*     stack, one store, one counter, one plan, one body, one          *)
+(*     extension.  Nothing here quantifies over `k`;                   *)
+(*   - it is NOT REFUTED either.  The midpoint negative is a fact      *)
+(*     about the STEPWISE ROUTE -- that the instance cannot be         *)
+(*     obtained by relating the two runs configuration by              *)
+(*     configuration -- and not about the law;                         *)
+(*   - `padm_*` is NOT REBUILT at the allocation index.  What the      *)
+(*     nominal index records is that `padm_xrel` DOES relate `qext` to *)
+(*     `qprod` and `padm_srel` DOES relate the two midpoint stores     *)
+(*     (`guard_padm_relates_the_context`,                              *)
+(*     `guard_padm_relates_the_specimen`), directionally.             *)
+(*     Whether that survives `paext` is the NEXT gate and is not       *)
+(*     touched here;                                                   *)
+(*   - joinability, confluence, normal forms and the other four laws   *)
+(*     are NOT ATTEMPTED;                                              *)
+(*   - `pcrel`, `pxrel`, `psrel`, `pacrel`, `paxrel`, `pasrel`,        *)
+(*     `padm_*`, `pnobs_tr_le`, `paobs_tr_le_pub_at`,                  *)
+(*     `law_right_identity_ext_nom`, `qprod`, `qext`, `qmid_sl`,       *)
+(*     `qmid_sr` and every recorded verdict are UNTOUCHED.  This       *)
+(*     section appends;                                                *)
+(*   - the section adds no solver options and no fuel changes, no      *)
+(*     unproved step and no expected failure; every proof above runs   *)
+(*     at the file's default settings.                                 *)
+(* ================================================================== *)

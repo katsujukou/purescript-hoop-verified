@@ -7088,6 +7088,129 @@ self-relation comes from the old side condition and is settled; the
 > computations remain covered by the provenance-indexed, store-anchored family
 > rather than by that global corollary.
 
+#### Right identity, re-adjudicated at the allocation index
+
+What survived is **not** a counterexample to the law. It is the midpoint
+separation specimen that closed the earlier proof route.
+
+> Allocation-aware indexing does not absorb the administrative difference in the
+> stored `post`. At the post-prefix midpoint, the computations are related but
+> the stores cannot be related at any candidate state by `pasrel`, because the
+> `post` clause can always be instantiated at that state itself and the
+> recursive computation relation has no `POp`/`PVar` case.
+
+And immediately:
+
+> This refutes the staged proof through a nominally related midpoint. It neither
+> proves nor refutes the right-identity law itself.
+
+#### Why narrowing cannot help
+
+```text
+paext s s
+   │
+   ▼
+stored-post clause can be tested at s itself
+   │
+   ▼
+pacomp_rel … (POp a f) (PVar x)
+   │
+   ▼
+definitionally false at index 1
+```
+
+Both ends were checked independently of the gate. The bottom step is
+**structural, not fixture-specific**: for *any* clause relation, *any* state and
+*any* terms, `~(pacomp_rel r 1 s (POp a f) (PVar x))` holds with proof body
+`()` — the relation's case analysis simply has no clause joining those two head
+constructors. And `pwf_world s.aw ==> paext s s` is the reflexivity that keeps
+the current state inside its own future domain.
+
+So restricting the future-state domain to allocator-respecting extensions cannot
+remove the current state from that domain. Removing it would cost reflexivity of
+accessibility, which would be a different and worse problem for a Kripke
+relation. **The route of fixing this obstruction by further adjusting
+accessibility is closed.**
+
+It was checked that the conclusion is unchanged when restricted to the narrowed
+domain, and separately that the witness state's counters `(2, 1)` are the two
+midpoint configurations' own `next` values and `paext`-accessible from the
+diagonal start. The obstruction is not at a badly chosen world; it is at a state
+the allocator actually reaches.
+
+#### What did and did not move
+
+The re-adjudication was a genuine test, not a formality:
+
+- **`xapply` satisfies the allocation-aware apply condition** — non-trivially,
+  since the old condition does not imply the new one in general; it goes through
+  because `xapply`'s single clause reads its continuation at the very state it
+  stands at. So `xaboundary` exists with only `pb_apply_eq` new.
+- **The transposition is faithful.** Both sides are those of
+  `law_right_identity_ext_nom`, verbatim, with only the observation changed;
+  the `fun cy -> ops.o_extend pl cy g` shape was already in the nominal form
+  and is not introduced here. Verified by
+  direct comparison. Making `sto` and `n0` indices rather than internal
+  quantifiers is a change of granularity, and closing over them recovers the
+  store-uniform form in both directions.
+- **The domain checks pass, so nothing here is vacuous.**
+  `pstore_equivariant_at` for both midpoint stores; `pconf_ok` for both
+  configurations, carried along the run rather than hand-computed; `pastart_dom` at the law's start point and at
+  both midpoints; and the observation's antecedent **satisfied**, not absent.
+- **The name repair did not dissolve this administrative stored-`post`
+  obstruction.** That is the accurate statement — not that the repair achieved
+  nothing. It did resolve allocator identity, future-world factorisation, and
+  compatibility through the dispatcher, finite runs and observation. What today
+  establishes is that those results and this constructor mismatch are
+  **orthogonal**.
+
+> The midpoint obstruction survives inside the allocation-aware boundary
+> discipline; it is not manufactured by excluding the interpreter or by making
+> the law's antecedent empty.
+
+#### The status of the law itself
+
+Unchanged, and this must not be overstated. The positive result is a single
+point — `k = []`, `sto = []`, `n0 = 0` — where antecedent and consequent hold
+together. That is a **non-vacuous instance**, not a partial proof: the law
+quantifies over `k`, and no quantification was discharged.
+
+Neither the naive symmetrisation's refutation nor the joinability line moves;
+today's result feeds into neither, and neither was attempted.
+
+One argument, recorded as an argument: at the nominal index the administrative
+relations `padm_xrel` and `padm_srel` *do* relate the specimen. So the midpoint
+is already filled on the `padm` side; what is unfilled is the `pacrel`/`pasrel`
+side, and today proves only that the latter stays unfilled at the allocation
+index. Whether the `padm` side survives under `paext` is untouched.
+
+#### Position
+
+> The allocator-aware repair has done its job, but that job is orthogonal to
+> administrative congruence. The remaining midpoint obstruction is
+> constructor-level, is exposed by reflexivity at every admissible state, and
+> must be addressed by an administrative relation rather than by further
+> narrowing accessibility.
+
+#### The next gate: an allocation-aware administrative relation
+
+`padm_*` should not simply be cited at the new index. Build and test it:
+
+1. juxtapose a `paext`-indexed computation-level administrative relation;
+2. relate `(qext, qprod)` in the direction required;
+3. still refuse constructor mismatches other than `POp c PVar` against `c`;
+4. port the negative fixtures — a performing `post`, a `post` that discards its
+   argument, a different residual;
+5. lift to contexts and stores, and relate the midpoint `qmid_sl`/`qmid_sr`;
+6. define the one-directional administrative observation matching `_pub_at`;
+7. check whether right identity's consequent is recovered at the same single
+   point;
+8. only then move to one-step and finite-run preservation.
+
+Stop conditions: relating `qext`/`qprod` also relates an existing negative
+fixture; monotonicity along `paext` fails; or composing states and worlds
+reopens the earlier joinability problem.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
