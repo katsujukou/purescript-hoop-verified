@@ -39934,3 +39934,839 @@ let guard_ri_ext_pa_midpoint_nonvacuous ()
 (*     unproved step and no expected failure; every proof above runs   *)
 (*     at the file's default settings.                                 *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2b.x -- THE ADMINISTRATIVE RELATION, AT THE ALLOCATION INDEX      *)
+(*                                                                     *)
+(*  WHAT THE PREVIOUS GATE LEFT.                                       *)
+(*  `guard_ri_ext_pa_bottoms_out_at_reflexivity` localised the         *)
+(*  remaining obstruction exactly: at the post-prefix midpoint the two *)
+(*  COMPUTATIONS are `pacrel`-related (`guard_ri_ext_pa_midpoint_      *)
+(*  state`) and the two STORES cannot be `pasrel`-related at ANY       *)
+(*  state, because `paext` is REFLEXIVE, so the stored-`post` clause   *)
+(*  is always readable at the state itself, where it demands           *)
+(*  `pacomp_rel r 1 s (POp a f) (PVar x)` -- two head constructors the *)
+(*  congruence joins nowhere.  Narrowing accessibility cannot reach    *)
+(*  that without giving up reflexivity, and reflexivity is a theorem.  *)
+(*                                                                     *)
+(*  SO THE OBSTRUCTION IS CONSTRUCTOR-LEVEL AND ADMINISTRATIVE, and    *)
+(*  must be met by an ADMINISTRATIVE relation.  The world-indexed one  *)
+(*  exists (`padm_pcomp` and its family) and relates the specimen.     *)
+(*  This section builds its counterpart AT THE ALLOCATION INDEX and    *)
+(*  ADJUDICATES it -- it does not cite the world-indexed one.          *)
+(*                                                                     *)
+(*  FAITHFULNESS, AND IT IS MECHANICAL.  Each definition below is its  *)
+(*  `padm_*` counterpart with THREE kinds of difference and no other:  *)
+(*                                                                     *)
+(*   - the name prefix, `padm_` becoming `padma_`;                     *)
+(*   - `w` becoming `s.aw` wherever the world is READ                  *)
+(*     (`pval_rel w ...` -> `pval_rel s.aw ...`,                       *)
+(*      `pwlookup_l i w` -> `pwlookup_l i s.aw`);                      *)
+(*   - the future-world quantifier                                     *)
+(*                                                                     *)
+(*       forall (w': pworld) (y1 y2: pval v).                          *)
+(*         pwf_world w' /\ pwext w' w /\ pval_rel w' y1 y2 ==> ...     *)
+(*                                                                     *)
+(*     becoming                                                        *)
+(*                                                                     *)
+(*       forall (s': pastate) (y1 y2: pval v).                         *)
+(*         paext s' s /\ pval_rel s'.aw y1 y2 ==> ...                  *)
+(*                                                                     *)
+(*     with `pcomp_rel`/`pframes_rel` replaced by                      *)
+(*     `pacomp_rel`/`paframes_rel`, which carry the state as their own *)
+(*     index.  `padm_xrel_at`'s anchor quantifier                      *)
+(*     `pwf_world w /\ pwext w w0` becomes `paext s s0` by the same    *)
+(*     rule -- `pwf_world s.aw` is a conjunct of `paext`, so the side  *)
+(*     condition is subsumed and not dropped.                          *)
+(*                                                                     *)
+(*  THE RECURSION'S MEASURE IS UNCHANGED: `decreases n`, as            *)
+(*  `padm_pcomp` has it.  The state is a parameter and no recursive    *)
+(*  call inspects it.                                                  *)
+(*                                                                     *)
+(*  DIRECTIONAL, and deliberately: only the LEFT may carry the         *)
+(*  administrative unit.  `guard_padma_refuses_the_reverse_specimen`   *)
+(*  is the check that the direction is real at the new index.          *)
+(* ================================================================== *)
+(* ---- 1. THE FAMILY ------------------------------------------------ *)
+
+let rec padma_pcomp (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                    (c1 c2: pcomp v cl)
+  : GTot prop (decreases n)
+  = if n = 0 then True
+    else
+      pacomp_rel r n s c1 c2
+      \/
+      (match c1 with
+       | POp a1 f1 ->
+         (forall (s': pastate) (y1 y2: pval v).
+            paext s' s /\ pval_rel s'.aw y1 y2 ==>
+            pacomp_rel r (n - 1) s' (f1 y1) (PVar y2)) /\
+         padma_pcomp r (n - 1) s a1 c2
+       | _ -> False)
+
+let padma_pcrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (n: nat). padma_pcomp r n s c1 c2
+
+let padma_pctx (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+               (cx1 cx2: pctx v cl)
+  : GTot prop
+  = if n = 0 then True
+    else
+      match cx1, cx2 with
+      | PCtxDone y1, PCtxDone y2 -> pval_rel s.aw y1 y2
+      | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+        pval_rel s.aw x1 x2 /\ paframes_rel r n s rs1 rs2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           padma_pcomp r n s' (p1 y1) (p2 y2))
+      | _, _ -> False
+
+let padma_xrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cx1 cx2: pctx v cl)
+  : GTot prop
+  = forall (n: nat). padma_pctx r n s cx1 cx2
+
+let padma_srel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (s1 s2: pstore v cl)
+  : GTot prop
+  = forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+      pwlookup_l i s.aw == Some j ==>
+      (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+       padma_xrel r s (psget i s1) (psget j s2))
+
+let padma_xrel_at (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+                  (cx1 cx2: pctx v cl) : GTot prop
+  = forall (s: pastate). paext s s0 ==> padma_xrel r s cx1 cx2
+
+(* ---- 2. THE UNFOLDING CASTS --------------------------------------- *)
+
+let padma_pcrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (c1 c2: pcomp v cl) (h: squash (padma_pcrel r s c1 c2))
+  : squash (forall (n: nat). padma_pcomp r n s c1 c2)
+  = h
+
+let padma_xrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (cx1 cx2: pctx v cl) (h: squash (padma_xrel r s cx1 cx2))
+  : squash (forall (n: nat). padma_pctx r n s cx1 cx2)
+  = h
+
+let padma_srel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (s1 s2: pstore v cl) (h: squash (padma_srel r s s1 s2))
+  : squash (forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+              pwlookup_l i s.aw == Some j ==>
+              (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+               padma_xrel r s (psget i s1) (psget j s2)))
+  = h
+
+let padma_xrel_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+                         (cx1 cx2: pctx v cl)
+                         (h: squash (padma_xrel_at r s0 cx1 cx2))
+  : squash (forall (s: pastate). paext s s0 ==> padma_xrel r s cx1 cx2)
+  = h
+
+(* ---- 3. CONTAINMENT ----------------------------------------------- *)
+
+let lemma_padma_pcomp_of_pacomp_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                                    (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires pacomp_rel r n s c1 c2) (ensures padma_pcomp r n s c1 c2)
+  = if n = 0 then () else ()
+
+let lemma_padma_pcrel_of_pacrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2) (ensures padma_pcrel r s c1 c2)
+  = introduce forall (n: nat). padma_pcomp r n s c1 c2
+    with lemma_padma_pcomp_of_pacomp_rel r n s c1 c2
+
+let lemma_padma_pctx_of_pactx_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                                  (s: pastate) (cx1 cx2: pctx v cl)
+  : Lemma (requires pactx_rel r n s cx1 cx2) (ensures padma_pctx r n s cx1 cx2)
+  = if n = 0 then ()
+    else
+      match cx1, cx2 with
+      | PCtxRequests _ _ p1, PCtxRequests _ _ p2 ->
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             padma_pcomp r n s' (p1 y1) (p2 y2))
+        with (introduce _ ==> _
+              with lemma_padma_pcomp_of_pacomp_rel r n s' (p1 y1) (p2 y2))
+      | _, _ -> ()
+
+let lemma_padma_xrel_of_paxrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                               (cx1 cx2: pctx v cl)
+  : Lemma (requires paxrel r s cx1 cx2) (ensures padma_xrel r s cx1 cx2)
+  = introduce forall (n: nat). padma_pctx r n s cx1 cx2
+    with lemma_padma_pctx_of_pactx_rel r n s cx1 cx2
+
+let lemma_padma_srel_of_pasrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                               (s1 s2: pstore v cl)
+  : Lemma (requires pasrel r s s1 s2) (ensures padma_srel r s s1 s2)
+  = pasrel_unfold r s s1 s2 ();
+    introduce forall (i j: nat).
+        (pwlookup_l i s.aw == Some j ==>
+         (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+          padma_xrel r s (psget i s1) (psget j s2)))
+    with (introduce _ ==> _
+          with lemma_padma_xrel_of_paxrel r s (psget i s1) (psget j s2))
+
+let lemma_padma_xrel_at_of_paxrel_at (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+                                     (cx1 cx2: pctx v cl)
+  : Lemma (requires (forall (s: pastate). paext s s0 ==> paxrel r s cx1 cx2))
+          (ensures padma_xrel_at r s0 cx1 cx2)
+  = introduce forall (s: pastate). (paext s s0 ==> padma_xrel r s cx1 cx2)
+    with (introduce _ ==> _ with lemma_padma_xrel_of_paxrel r s cx1 cx2)
+
+(* ---- 4. THE NEGATIVES, IN GENERAL --------------------------------- *)
+
+let lemma_padma_pcrel_var_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                              (y1 y2: pval v)
+  : Lemma (requires padma_pcrel r s (PVar #v #cl y1) (PVar #v #cl y2))
+          (ensures pval_rel s.aw y1 y2)
+  = assert (padma_pcomp r 1 s (PVar #v #cl y1) (PVar #v #cl y2))
+
+let lemma_padma_pcrel_op_strip (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                               (a1: pcomp v cl) (f1: pval v -> pcomp v cl)
+                               (y2: pval v)
+  : Lemma (requires padma_pcrel r s (POp a1 f1) (PVar #v #cl y2))
+          (ensures padma_pcrel r s a1 (PVar #v #cl y2))
+  = introduce forall (m: nat). padma_pcomp r m s a1 (PVar #v #cl y2)
+    with begin
+      assert (padma_pcomp r (m + 1) s (POp a1 f1) (PVar #v #cl y2));
+      assert (~(pacomp_rel r (m + 1) s (POp a1 f1) (PVar #v #cl y2)))
+    end
+
+let lemma_padma_pcrel_unit_var_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                   (y1 y2: pval v) (f: pval v -> pcomp v cl)
+  : Lemma (requires padma_pcrel r s (pbind (PVar #v #cl y1) f) (PVar #v #cl y2))
+          (ensures pval_rel s.aw y1 y2)
+  = lemma_padma_pcrel_op_strip r s (PVar #v #cl y1) f y2;
+    lemma_padma_pcrel_var_inv r s y1 y2
+
+let lemma_padma_pcrel_strip_needs_pure
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (a1: pcomp v cl) (f1: pval v -> pcomp v cl) (y2 y: pval v)
+  : Lemma (requires pwf_world s.aw /\ pval_rel s.aw y y /\ ~(PVar? (f1 y)))
+          (ensures ~(padma_pcrel r s (POp a1 f1) (PVar #v #cl y2)))
+  = lemma_paext_refl s;
+    introduce padma_pcrel r s (POp a1 f1) (PVar #v #cl y2) ==> False
+    with begin
+      assert (~(pacomp_rel r 1 s (f1 y) (PVar #v #cl y)));
+      assert (~(pacomp_rel r 2 s (POp a1 f1) (PVar #v #cl y2)));
+      assert (padma_pcomp r 2 s (POp a1 f1) (PVar #v #cl y2))
+    end
+
+let lemma_padma_pcrel_var_op_refused (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                     (y1: pval v) (a2: pcomp v cl)
+                                     (f2: pval v -> pcomp v cl)
+  : Lemma (ensures ~(padma_pcrel r s (PVar #v #cl y1) (POp a2 f2)))
+  = introduce padma_pcrel r s (PVar #v #cl y1) (POp a2 f2) ==> False
+    with begin
+      assert (~(pacomp_rel r 1 s (PVar #v #cl y1) (POp a2 f2)));
+      assert (padma_pcomp r 1 s (PVar #v #cl y1) (POp a2 f2))
+    end
+
+(** STEP 3: with a non-`POp` head on the LEFT the strip disjunct is `False`, so
+    the administrative relation IS the lockstep congruence and every constructor
+    mismatch the congruence refuses is refused here too. *)
+let lemma_padma_pcomp_non_op (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                             (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires n > 0 /\ ~(POp? c1))
+          (ensures padma_pcomp r n s c1 c2 <==> pacomp_rel r n s c1 c2)
+  = match c1 with
+    | POp _ _ -> ()
+    | _ -> ()
+
+let lemma_padma_pcrel_non_op (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                             (c1 c2: pcomp v cl)
+  : Lemma (requires ~(POp? c1) /\ ~(pacomp_rel r 1 s c1 c2))
+          (ensures ~(padma_pcrel r s c1 c2))
+  = introduce padma_pcrel r s c1 c2 ==> False
+    with begin
+      assert (padma_pcomp r 1 s c1 c2);
+      lemma_padma_pcomp_non_op r 1 s c1 c2
+    end
+
+(* ---- 5. THE NEGATIVE FIXTURES, PORTED ----------------------------- *)
+
+(** 22937, ported: a `post` that DISCARDS its argument and answers `FU`. *)
+let guard_padma_refuses_a_changed_post (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures ~(padma_xrel fcl_rel s qext qbad) /\
+                   ~(padma_xrel fcl_rel s qprod qbad))
+  = lemma_paext_refl s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (qext == PCtxRequests fone qresid0
+                           (fun (z: pval fv) -> pbind (PVar z) (PVar #fv #fcl)));
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    assert_norm (qbad == PCtxRequests fone qresid0 qbadpost);
+    assert_norm (qbadpost fone == PVar (fpv FU));
+    assert (~(pval_rel #fv s.aw fone (fpv FU)));
+    introduce padma_xrel fcl_rel s qext qbad ==> False
+    with begin
+      introduce forall (n: nat).
+          padma_pcomp fcl_rel n s (pbind (PVar fone) (PVar #fv #fcl)) (PVar (fpv FU))
+      with assert (padma_pctx fcl_rel n s qext qbad);
+      lemma_padma_pcrel_unit_var_inv fcl_rel s fone (fpv FU) (PVar #fv #fcl)
+    end;
+    introduce padma_xrel fcl_rel s qprod qbad ==> False
+    with begin
+      introduce forall (n: nat). padma_pcomp fcl_rel n s (PVar fone) (PVar (fpv FU))
+      with assert (padma_pctx fcl_rel n s qprod qbad);
+      lemma_padma_pcrel_var_inv fcl_rel s fone (fpv FU)
+    end
+
+(** 23012, ported: a `post` whose composed function PERFORMS. *)
+let guard_padma_refuses_a_working_post (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures ~(padma_xrel fcl_rel s qwork qprod))
+  = lemma_paext_refl s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (qwork == PCtxRequests fone qresid0
+                            (fun (z: pval fv) -> pbind (PVar z) xg));
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    assert_norm (~(PVar? (xg fone)));
+    introduce padma_xrel fcl_rel s qwork qprod ==> False
+    with begin
+      introduce forall (n: nat).
+          padma_pcomp fcl_rel n s (pbind (PVar fone) xg) (PVar fone)
+      with assert (padma_pctx fcl_rel n s qwork qprod);
+      lemma_padma_pcrel_strip_needs_pure fcl_rel s (PVar fone) xg fone fone
+    end
+
+(** 25223, ported: the specimen the OTHER WAY ROUND. *)
+let guard_padma_refuses_the_reverse_specimen (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures ~(padma_xrel fcl_rel s qprod qext))
+  = lemma_paext_refl s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    assert_norm (qext == PCtxRequests fone qresid0
+                           (fun (z: pval fv) -> pbind (PVar z) (PVar #fv #fcl)));
+    introduce padma_xrel fcl_rel s qprod qext ==> False
+    with begin
+      introduce forall (n: nat).
+          padma_pcomp fcl_rel n s (PVar fone) (pbind (PVar fone) (PVar #fv #fcl))
+      with assert (padma_pctx fcl_rel n s qprod qext);
+      lemma_padma_pcrel_var_op_refused fcl_rel s fone (PVar fone) (PVar #fv #fcl)
+    end
+
+(** 24255, ported: SAME `post`, residuals that mean something different. *)
+let guard_padma_refuses_a_changed_residual (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures ~(padma_xrel fcl_rel s qctxL qctxR))
+  = lemma_paext_refl s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (qctxL == PCtxRequests fone qresidL (PVar #fv #fcl));
+    assert_norm (qctxR == PCtxRequests fone qresidR (PVar #fv #fcl));
+    assert_norm (qsiteL fone == PEmit "left"  (PVar (fpv (FI 7))));
+    assert_norm (qsiteR fone == PEmit "right" (PVar (fpv (FI 8))));
+    introduce padma_xrel fcl_rel s qctxL qctxR ==> False
+    with begin
+      introduce forall (n: nat). paframes_rel fcl_rel n s qresidL qresidR
+      with (if n = 0 then ()
+            else assert (padma_pctx fcl_rel n s
+                           (PCtxRequests fone qresidL (PVar #fv #fcl))
+                           (PCtxRequests fone qresidR (PVar #fv #fcl))));
+      lemma_pakrel_cons_inv fcl_rel s
+        (PBoundaryF #fv #fcl) (PBoundaryF #fv #fcl)
+        [PSiteF qsiteL; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PSiteF qsiteR; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pakrel_cons_inv fcl_rel s
+        (PSiteF qsiteL) (PSiteF qsiteR)
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pafrel_site_inv fcl_rel s qsiteL qsiteR;
+      lemma_pafn_at_self fcl_rel s qsiteL qsiteR fone fone;
+      lemma_pacrel_shape fcl_rel s (qsiteL fone) (qsiteR fone)
+    end
+
+(** 24297, ported: the same trace, a different answer. *)
+let guard_padma_refuses_a_changed_answer (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures ~(padma_xrel fcl_rel s qctxL qctxV))
+  = lemma_paext_refl s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (~(pval_rel #fv s.aw (fpv (FI 7)) (fpv (FI 8))));
+    assert_norm (qctxL == PCtxRequests fone qresidL (PVar #fv #fcl));
+    assert_norm (qctxV == PCtxRequests fone qresidV (PVar #fv #fcl));
+    assert_norm (qsiteL fone == PEmit "left" (PVar (fpv (FI 7))));
+    assert_norm (qsiteV fone == PEmit "left" (PVar (fpv (FI 8))));
+    introduce padma_xrel fcl_rel s qctxL qctxV ==> False
+    with begin
+      introduce forall (n: nat). paframes_rel fcl_rel n s qresidL qresidV
+      with (if n = 0 then ()
+            else assert (padma_pctx fcl_rel n s
+                           (PCtxRequests fone qresidL (PVar #fv #fcl))
+                           (PCtxRequests fone qresidV (PVar #fv #fcl))));
+      lemma_pakrel_cons_inv fcl_rel s
+        (PBoundaryF #fv #fcl) (PBoundaryF #fv #fcl)
+        [PSiteF qsiteL; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PSiteF qsiteV; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pakrel_cons_inv fcl_rel s
+        (PSiteF qsiteL) (PSiteF qsiteV)
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pafrel_site_inv fcl_rel s qsiteL qsiteV;
+      lemma_pafn_at_self fcl_rel s qsiteL qsiteV fone fone;
+      assert (pacomp_rel fcl_rel 2 s (qsiteL fone) (qsiteV fone))
+    end
+
+(** The state over `qw00`; the counters are the smallest that bound it. *)
+let qas00 : pastate = { aw = qw00; an1 = 1; an2 = 1 }
+
+let guard_padma_relates_the_matched_residual (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures paxrel fcl_rel s qctxL qctxL /\ padma_xrel fcl_rel s qctxL qctxL)
+  = guard_padm_relates_the_matched_residual s.aw;
+    lemma_paxrel_of_pxrel fcl_rel s qctxL qctxL;
+    lemma_padma_xrel_of_paxrel fcl_rel s qctxL qctxL
+
+(** 24343, ported: the same, at the STORE. *)
+let guard_padma_srel_refuses_a_changed_residual ()
+  : Lemma (pwf_world qas00.aw /\
+           padma_srel fcl_rel qas00 qstoreL qstoreL /\
+           ~(padma_srel fcl_rel qas00 qstoreL qstoreR) /\
+           ~(padma_srel fcl_rel qas00 qstoreL qstoreV))
+  = lemma_pwextend_wf 0 0 [];
+    assert_norm (qas00.aw == qw00);
+    assert_norm (pwlookup_l 0 qw00 == Some 0);
+    assert_norm (psget 0 qstoreL == qctxL);
+    assert_norm (psget 0 qstoreR == qctxR);
+    assert_norm (psget 0 qstoreV == qctxV);
+    assert_norm (Some? (pstore_lookup 0 qstoreL));
+    assert_norm (Some? (pstore_lookup 0 qstoreR));
+    assert_norm (Some? (pstore_lookup 0 qstoreV));
+    guard_padma_relates_the_matched_residual qas00;
+    introduce forall (i j: nat).
+        (pwlookup_l i qas00.aw == Some j ==>
+         (Some? (pstore_lookup i qstoreL) /\ Some? (pstore_lookup j qstoreL) /\
+          padma_xrel fcl_rel qas00 (psget i qstoreL) (psget j qstoreL)))
+    with (introduce _ ==> _ with assert (i == 0 /\ j == 0));
+    introduce padma_srel fcl_rel qas00 qstoreL qstoreR ==> False
+    with begin
+      padma_srel_unfold fcl_rel qas00 qstoreL qstoreR ();
+      assert (padma_xrel fcl_rel qas00 (psget 0 qstoreL) (psget 0 qstoreR));
+      guard_padma_refuses_a_changed_residual qas00
+    end;
+    introduce padma_srel fcl_rel qas00 qstoreL qstoreV ==> False
+    with begin
+      padma_srel_unfold fcl_rel qas00 qstoreL qstoreV ();
+      assert (padma_xrel fcl_rel qas00 (psget 0 qstoreL) (psget 0 qstoreV));
+      guard_padma_refuses_a_changed_answer qas00
+    end
+
+(** The store-level mirror of the reverse specimen. *)
+let guard_padma_reverse_stores_no_state (s: pastate) (i j: nat)
+                                        (sl sr: pstore fv fcl)
+  : Lemma (requires pwf_world s.aw /\ pval_rel #fv s.aw (PCtxKey i) (PCtxKey j) /\
+                    pstore_lookup i sl == Some qprod /\
+                    pstore_lookup j sr == Some qext)
+          (ensures ~(padma_srel fcl_rel s sl sr))
+  = pval_rel_key_unfold #fv s.aw i j ();
+    guard_padma_refuses_the_reverse_specimen s;
+    introduce padma_srel fcl_rel s sl sr ==> False
+    with begin
+      padma_srel_unfold fcl_rel s sl sr ();
+      assert (psget i sl == qprod);
+      assert (psget j sr == qext);
+      assert (padma_xrel fcl_rel s (psget i sl) (psget j sr))
+    end
+
+(* ---- 6. THE POSITIVES --------------------------------------------- *)
+
+let lemma_padma_pcomp_unit (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                           (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2)
+          (ensures padma_pcomp r n s (pbind c1 (PVar #v #cl)) c2)
+  = if n = 0 then ()
+    else begin
+      assert (pacomp_rel r (n - 1) s c1 c2);
+      lemma_padma_pcomp_of_pacomp_rel r (n - 1) s c1 c2;
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r (n - 1) s' (PVar #v #cl y1) (PVar #v #cl y2))
+      with (introduce _ ==> _ with ())
+    end
+
+let lemma_padma_pcrel_unit (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2)
+          (ensures padma_pcrel r s (pbind c1 (PVar #v #cl)) c2)
+  = introduce forall (n: nat). padma_pcomp r n s (pbind c1 (PVar #v #cl)) c2
+    with lemma_padma_pcomp_unit r n s c1 c2
+
+let lemma_padma_xrel_post_unit
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel s.aw x1 x2 /\ pakrel r s rs1 rs2 /\
+                    pafn_rel_at r s p1 p2)
+          (ensures padma_xrel r s
+                     (PCtxRequests x1 rs1 (fun (z: pval v) -> pbind (p1 z) (PVar #v #cl)))
+                     (PCtxRequests x2 rs2 p2))
+  = pafn_rel_at_unfold r s p1 p2 ();
+    introduce forall (n: nat).
+        padma_pctx r n s
+          (PCtxRequests x1 rs1 (fun (z: pval v) -> pbind (p1 z) (PVar #v #cl)))
+          (PCtxRequests x2 rs2 p2)
+    with (if n = 0 then ()
+          else begin
+            assert (paframes_rel r n s rs1 rs2);
+            introduce forall (s': pastate) (y1 y2: pval v).
+                (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                 padma_pcomp r n s' (pbind (p1 y1) (PVar #v #cl)) (p2 y2))
+            with (introduce _ ==> _
+                  with (assert (pacrel r s' (p1 y1) (p2 y2));
+                        lemma_padma_pcomp_unit r n s' (p1 y1) (p2 y2)))
+          end)
+
+let lemma_padma_xrel_of_extend_ctx_pure
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (pl: plan v cl)
+    (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel s.aw x1 x2 /\ pakrel r s rs1 rs2 /\
+                    pafn_rel_at r s p1 p2)
+          (ensures padma_xrel r s
+                     (extend_ctx_C pl (PCtxRequests x1 rs1 p1) (PVar #v #cl))
+                     (PCtxRequests x2 rs2 p2))
+  = lemma_padma_xrel_post_unit r s x1 x2 rs1 rs2 p1 p2;
+    assert_norm (extend_ctx_C pl (PCtxRequests x1 rs1 p1) (PVar #v #cl)
+                 == PCtxRequests x1 rs1
+                      (fun (z: pval v) -> pbind (p1 z) (PVar #v #cl)))
+
+(** STEP 2: `(qext, qprod)` IS related, in the direction required, at every
+    well-formed state -- and `paxrel` refuses the same pair at every state. *)
+let guard_padma_relates_the_context (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures padma_xrel fcl_rel s qext qprod /\
+                   ~(paxrel fcl_rel s qext qprod))
+  = guard_ri_ext_pa_midpoint_unrelated s fone qresid0;
+    lemma_qresid0_pkrel s.aw;
+    lemma_pakrel_of_pkrel fcl_rel s qresid0 qresid0;
+    lemma_pafn_rel_at_pvar #fv #fcl fcl_rel s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (qext == extend_ctx_C xpl
+                           (PCtxRequests fone qresid0 (PVar #fv #fcl))
+                           (PVar #fv #fcl));
+    assert_norm (qprod == PCtxRequests fone qresid0 (PVar #fv #fcl));
+    lemma_padma_xrel_of_extend_ctx_pure fcl_rel s xpl fone fone qresid0 qresid0
+      (PVar #fv #fcl) (PVar #fv #fcl)
+
+(** STEP 5: the two MIDPOINT STORES correspond, at the allocator-reachable state
+    that relates the two midpoint COMPUTATIONS -- where `pasrel` refuses. *)
+let guard_padma_relates_the_specimen ()
+  : Lemma (pawf qmid_as /\ pwf_world qmid_as.aw /\
+           paext qmid_as (padiag ([] <: pstore fv fcl) 0) /\
+           pacrel fcl_rel qmid_as (PExtendC xpl (PCtxKey 1) xg)
+                                  (PExtendC xpl (PCtxKey 0) xg) /\
+           padma_xrel fcl_rel qmid_as qext qprod /\
+           padma_srel fcl_rel qmid_as qmid_sl qmid_sr /\
+           ~(pasrel fcl_rel qmid_as qmid_sl qmid_sr))
+  = guard_ri_ext_pa_midpoint_state ();
+    guard_ri_ext_pa_midpoint_nonvacuous ();
+    guard_padma_relates_the_context qmid_as;
+    assert_norm (qmid_as.aw == qmid_w);
+    assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (psget 1 qmid_sl == qext);
+    assert_norm (psget 0 qmid_sr == qprod);
+    assert_norm (Some? (pstore_lookup 1 qmid_sl));
+    assert_norm (Some? (pstore_lookup 0 qmid_sr));
+    introduce forall (i j: nat).
+        (pwlookup_l i qmid_as.aw == Some j ==>
+         (Some? (pstore_lookup i qmid_sl) /\ Some? (pstore_lookup j qmid_sr) /\
+          padma_xrel fcl_rel qmid_as (psget i qmid_sl) (psget j qmid_sr)))
+    with (introduce _ ==> _ with assert (i == 1 /\ j == 0))
+
+(** The containment is STRICT, and the witness of strictness is the specimen. *)
+let guard_padma_srel_strictly_weaker ()
+  : Lemma ((forall (s: pastate) (s1 s2: pstore fv fcl).
+              pasrel fcl_rel s s1 s2 ==> padma_srel fcl_rel s s1 s2) /\
+           padma_srel fcl_rel qmid_as qmid_sl qmid_sr /\
+           ~(pasrel fcl_rel qmid_as qmid_sl qmid_sr))
+  = guard_padma_relates_the_specimen ();
+    introduce forall (s: pastate) (s1 s2: pstore fv fcl).
+        (pasrel fcl_rel s s1 s2 ==> padma_srel fcl_rel s s1 s2)
+    with (introduce _ ==> _ with lemma_padma_srel_of_pasrel fcl_rel s s1 s2)
+
+(* ---- 7. STEP 6: THE ONE-DIRECTIONAL ADMINISTRATIVE OBSERVATION ----- *)
+
+(** `paobs_tr_le_pub_at` (37073) with the FINAL-STORE conjunct read up to the
+    administrative relation, and NOTHING ELSE moved. *)
+let paobs_tr_le_pub_adm_at (#v #cl: Type) (b: paboundary v cl)
+                           (sto: pstore v cl) (n0: nat) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (k: pstack v cl) (tr: list string) (x1: pval v)
+           (t1: pstore v cl) (m1: nat).
+      (pequivariant_k_at b.pb_rel (panchor sto) k /\
+       pstore_equivariant_at b.pb_rel sto /\
+       psfresh sto n0 /\
+       paconverges b.pb_lk b.pb_apply
+                   ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 t1 m1) ==>
+      (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+         s'.an1 == m1 /\
+         paconverges b.pb_lk b.pb_apply
+                     ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+         paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+         pval_rel s'.aw x1 x2 /\ padma_srel b.pb_rel s' t1 t2)
+
+let paobs_tr_le_pub_adm_at_unfold
+      (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl) (n0: nat)
+      (c1 c2: pcomp v cl) (h: squash (paobs_tr_le_pub_adm_at b sto n0 c1 c2))
+  : squash (forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                   (t1: pstore v cl) (m1: nat).
+              (pequivariant_k_at b.pb_rel (panchor sto) k /\
+               pstore_equivariant_at b.pb_rel sto /\
+               psfresh sto n0 /\
+               paconverges b.pb_lk b.pb_apply
+                           ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 t1 m1) ==>
+              (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                 s'.an1 == m1 /\
+                 paconverges b.pb_lk b.pb_apply
+                             ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+                 pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+                 paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+                 pval_rel s'.aw x1 x2 /\ padma_srel b.pb_rel s' t1 t2))
+  = h
+
+(** The administrative observation is WEAKER than the one it copies. *)
+let lemma_paobs_pub_adm_at_of_pub_at
+      (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl) (n0: nat)
+      (c1 c2: pcomp v cl)
+  : Lemma (requires paobs_tr_le_pub_at b sto n0 c1 c2)
+          (ensures paobs_tr_le_pub_adm_at b sto n0 c1 c2)
+  = paobs_tr_le_pub_at_unfold b sto n0 c1 c2 ();
+    introduce forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                     (t1: pstore v cl) (m1: nat).
+        ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+          pstore_equivariant_at b.pb_rel sto /\
+          psfresh sto n0 /\
+          paconverges b.pb_lk b.pb_apply
+                      ({ st = PStep c1 k; store = sto; next = n0 }) tr x1 t1 m1) ==>
+         (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+            s'.an1 == m1 /\
+            paconverges b.pb_lk b.pb_apply
+                        ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+            pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+            paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+            pval_rel s'.aw x1 x2 /\ padma_srel b.pb_rel s' t1 t2))
+    with
+      (introduce _ ==> _
+       with
+         (eliminate exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+             (s'.an1 == m1 /\
+              paconverges b.pb_lk b.pb_apply
+                          ({ st = PStep c2 k; store = sto; next = n0 }) tr x2 t2 s'.an2 /\
+              pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+              paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+              pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2)
+          with
+            (lemma_padma_srel_of_pasrel b.pb_rel s' t1 t2;
+             introduce exists (y2: pval v) (u2: pstore v cl) (s'': pastate).
+                 (s''.an1 == m1 /\
+                  paconverges b.pb_lk b.pb_apply
+                              ({ st = PStep c2 k; store = sto; next = n0 }) tr y2 u2 s''.an2 /\
+                  pwf_world s''.aw /\ pwext s''.aw (panchor sto) /\
+                  paext s'' (padiag #v #cl sto n0) /\ pawf s'' /\
+                  pval_rel s''.aw x1 y2 /\ padma_srel b.pb_rel s'' t1 u2)
+             with x2 t2 s' and ())))
+
+(* ---- 8. STEP 7: RIGHT IDENTITY'S CONSEQUENT AT THE SINGLE POINT ---- *)
+
+(**
+ * The body of `paobs_tr_le_pub_adm_at xaboundary [] 0 qlhs qrhs` at `k := []`,
+ * `tr := []`, `x1 := PCtxKey 2`, `t1 := qsl`, `m1 := 3` -- the point
+ * `guard_ri_ext_pa_survives_xapply` used -- together with the antecedent that
+ * fires there, and the reverse direction at the same point.
+ *
+ * The store conjunct is `padma_srel` and it is obtained BY CONTAINMENT from
+ * `pasrel` at `qas_l` / `qas_r`: at the ENDS of the two runs the two stores
+ * were already related without the relaxation, so nothing here is bought by
+ * the administrative disjunct.
+ *)
+let guard_ri_ext_pa_adm_survives_xapply ()
+  : Lemma (
+      pastart_dom xaboundary ([] <: pstack fv fcl) ([] <: pstore fv fcl) 0 /\
+      pequivariant_k_at xaboundary.pb_rel (panchor ([] <: pstore fv fcl))
+                        ([] <: pstack fv fcl) /\
+      pstore_equivariant_at xaboundary.pb_rel ([] <: pstore fv fcl) /\
+      psfresh ([] <: pstore fv fcl) 0 /\
+      paconverges flook xapply qcf_l ([] <: list string) (PCtxKey 2) qsl 3 /\
+      paconverges flook xapply qcf_r ([] <: list string) (PCtxKey 1) qsr 2 /\
+      (exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+         s'.an1 == 3 /\
+         paconverges flook xapply qcf_r ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 2) x2 /\ padma_srel fcl_rel s' qsl t2) /\
+      (exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+         s'.an1 == 2 /\
+         paconverges flook xapply qcf_l ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 1) x2 /\ padma_srel fcl_rel s' qsr t2))
+  = guard_ri_ext_pa_survives_xapply ();
+    guard_ri_ext_pa_antecedent_fires ();
+    guard_qce_pastate ();
+    lemma_qce_paconverges ();
+    lemma_padma_srel_of_pasrel fcl_rel qas_l qsl qsr;
+    lemma_padma_srel_of_pasrel fcl_rel qas_r qsr qsl;
+    introduce exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+        (s'.an1 == 3 /\
+         paconverges flook xapply qcf_r ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 2) x2 /\ padma_srel fcl_rel s' qsl t2)
+    with (PCtxKey 1) qsr qas_l and ();
+    introduce exists (x2: pval fv) (t2: pstore fv fcl) (s': pastate).
+        (s'.an1 == 2 /\
+         paconverges flook xapply qcf_l ([] <: list string) x2 t2 s'.an2 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor ([] <: pstore fv fcl)) /\
+         paext s' (padiag ([] <: pstore fv fcl) 0) /\ pawf s' /\
+         pval_rel s'.aw (PCtxKey 1) x2 /\ padma_srel fcl_rel s' qsr t2)
+    with (PCtxKey 2) qsl qas_r and ()
+
+(* ---- 9. THE STRIP DISJUNCT FIRES, AND THE LEDGER ------------------ *)
+
+(** The administrative disjunct is LOAD-BEARING at the allocation index: it
+    relates a pair the lockstep congruence refuses at index 1. *)
+let guard_padma_strip_disjunct_fires (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures padma_pcrel fcl_rel s
+                     (POp (PVar (fpv FU) <: pcomp fv fcl) (PVar #fv #fcl))
+                     (PVar (fpv FU)) /\
+                   ~(pacomp_rel fcl_rel 1 s
+                       (POp (PVar (fpv FU) <: pcomp fv fcl) (PVar #fv #fcl))
+                       (PVar (fpv FU))))
+  = guard_ri_ext_pa_bottoms_out_at_reflexivity s;
+    assert_norm (pval_rel #fv s.aw (fpv FU) (fpv FU));
+    lemma_pacrel_var #fv #fcl fcl_rel s (fpv FU) (fpv FU);
+    lemma_padma_pcrel_unit fcl_rel s (PVar #fv #fcl (fpv FU)) (PVar #fv #fcl (fpv FU))
+
+(** Every verdict of this section in one statement. The three positives first,
+    then the six refusals, and nothing here is re-proved. *)
+let guard_padma_ledger ()
+  : Lemma ((forall (s: pastate). pwf_world s.aw ==> padma_xrel fcl_rel s qext qprod) /\
+           (forall (s: pastate). pwf_world s.aw ==> ~(paxrel fcl_rel s qext qprod)) /\
+           padma_srel fcl_rel qmid_as qmid_sl qmid_sr /\
+           ~(pasrel fcl_rel qmid_as qmid_sl qmid_sr) /\
+           (forall (s: pastate). pwf_world s.aw ==> padma_xrel fcl_rel s qctxL qctxL) /\
+           (forall (s: pastate). pwf_world s.aw ==> ~(padma_xrel fcl_rel s qext qbad)) /\
+           (forall (s: pastate). pwf_world s.aw ==> ~(padma_xrel fcl_rel s qprod qbad)) /\
+           (forall (s: pastate). pwf_world s.aw ==> ~(padma_xrel fcl_rel s qwork qprod)) /\
+           (forall (s: pastate). pwf_world s.aw ==> ~(padma_xrel fcl_rel s qctxL qctxR)) /\
+           (forall (s: pastate). pwf_world s.aw ==> ~(padma_xrel fcl_rel s qctxL qctxV)) /\
+           (forall (s: pastate). pwf_world s.aw ==> ~(padma_xrel fcl_rel s qprod qext)) /\
+           ~(padma_srel fcl_rel qas00 qstoreL qstoreR) /\
+           ~(padma_srel fcl_rel qas00 qstoreL qstoreV))
+  = guard_padma_relates_the_specimen ();
+    guard_padma_srel_refuses_a_changed_residual ();
+    introduce forall (s: pastate). (pwf_world s.aw ==> padma_xrel fcl_rel s qext qprod)
+    with (introduce _ ==> _ with guard_padma_relates_the_context s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> ~(paxrel fcl_rel s qext qprod))
+    with (introduce _ ==> _ with guard_padma_relates_the_context s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> padma_xrel fcl_rel s qctxL qctxL)
+    with (introduce _ ==> _ with guard_padma_relates_the_matched_residual s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> ~(padma_xrel fcl_rel s qext qbad))
+    with (introduce _ ==> _ with guard_padma_refuses_a_changed_post s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> ~(padma_xrel fcl_rel s qprod qbad))
+    with (introduce _ ==> _ with guard_padma_refuses_a_changed_post s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> ~(padma_xrel fcl_rel s qwork qprod))
+    with (introduce _ ==> _ with guard_padma_refuses_a_working_post s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> ~(padma_xrel fcl_rel s qctxL qctxR))
+    with (introduce _ ==> _ with guard_padma_refuses_a_changed_residual s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> ~(padma_xrel fcl_rel s qctxL qctxV))
+    with (introduce _ ==> _ with guard_padma_refuses_a_changed_answer s);
+    introduce forall (s: pastate). (pwf_world s.aw ==> ~(padma_xrel fcl_rel s qprod qext))
+    with (introduce _ ==> _ with guard_padma_refuses_the_reverse_specimen s)
+
+(* ================================================================== *)
+(*  LEDGER FOR THIS SECTION                                            *)
+(*                                                                     *)
+(*  THE NEGATIVES FIRST, because a relation that relates the           *)
+(*  administrative unit BY BEING TOO PERMISSIVE is worthless.  All     *)
+(*  SIX were PORTED DIRECTLY -- the world-indexed proof with the three *)
+(*  substitutions above and no new argument:                           *)
+(*                                                                     *)
+(*   - `guard_padma_refuses_a_changed_post`   (22937 ported): a `post` *)
+(*     that discards its argument and answers `FU` is refused, against *)
+(*     the production AND against the extension;                       *)
+(*   - `guard_padma_refuses_a_working_post`   (23012 ported): a `post` *)
+(*     composed with `xg`, which PERFORMS, is refused -- so what the   *)
+(*     relation reads is what the composed function DOES, not that a   *)
+(*     `POp` is there;                                                 *)
+(*   - `guard_padma_refuses_a_changed_residual` (24255 ported);        *)
+(*   - `guard_padma_refuses_a_changed_answer`   (24297 ported);        *)
+(*   - `guard_padma_srel_refuses_a_changed_residual` (24343 ported),   *)
+(*     at the store, WITH the matched pair related at the same state   *)
+(*     and by the same lift, so it is a contrast and not a blanket     *)
+(*     refusal;                                                        *)
+(*   - `guard_padma_refuses_the_reverse_specimen` (25223 ported): the  *)
+(*     specimen the OTHER WAY ROUND is refused, and                    *)
+(*     `guard_padma_reverse_stores_no_state` carries that to stores.   *)
+(*                                                                     *)
+(*  AND THE CONSTRUCTOR TEST OF STEP 3 IS PASSED IN GENERAL:           *)
+(*  `lemma_padma_pcomp_non_op` proves that with any head OTHER than    *)
+(*  `POp` on the left the strip disjunct is `False`, so the relation   *)
+(*  IS `pacomp_rel` there and every mismatch the congruence refuses is *)
+(*  refused here.  `lemma_padma_pcrel_var_op_refused` covers `PVar`    *)
+(*  against `POp`; `lemma_padma_pcrel_strip_needs_pure` covers a `POp` *)
+(*  whose continuation does real work.                                 *)
+(*                                                                     *)
+(*  ANTI-VACUITY.  `guard_padma_strip_disjunct_fires` exhibits a pair  *)
+(*  the administrative disjunct relates and `pacomp_rel` refuses at    *)
+(*  index 1, so the disjunct is load-bearing and the refusals above    *)
+(*  are not refusals by a relation that is empty.                      *)
+(*                                                                     *)
+(*  THE POSITIVES.                                                     *)
+(*   - `guard_padma_relates_the_context`: `padma_xrel` relates         *)
+(*     `(qext, qprod)` at EVERY well-formed state, and `paxrel`        *)
+(*     refuses the same pair at every state -- both conjuncts proved   *)
+(*     side by side so neither can be read without the other;          *)
+(*   - `guard_padma_relates_the_specimen`: the two MIDPOINT STORES are *)
+(*     `padma_srel`-related at `qmid_as` -- the allocator-reachable    *)
+(*     state whose counters are the two configurations' own `next`     *)
+(*     fields and which relates the two midpoint COMPUTATIONS -- where *)
+(*     `pasrel` refuses them.  THIS IS THE OBSTRUCTION THE PREVIOUS    *)
+(*     GATE LOCALISED, AND IT IS MET;                                  *)
+(*   - `guard_padma_srel_strictly_weaker`: the containment over        *)
+(*     `pasrel` is strict, with the specimen as the witness.           *)
+(*                                                                     *)
+(*  STEP 6.  `paobs_tr_le_pub_adm_at` is `paobs_tr_le_pub_at` (37073)  *)
+(*  with the FINAL-STORE conjunct read up to `padma_srel` and nothing  *)
+(*  else moved; `lemma_paobs_pub_adm_at_of_pub_at` proves it is the    *)
+(*  weaker of the two.  It is ONE-DIRECTIONAL, as `padma_srel` is.     *)
+(*                                                                     *)
+(*  STEP 7 -- RIGHT IDENTITY'S CONSEQUENT AT THE SINGLE POINT: YES,    *)
+(*  AND FOR A REASON THAT IS NOT THE RELAXATION.                       *)
+(*  `guard_ri_ext_pa_adm_survives_xapply` exhibits the body of         *)
+(*  `paobs_tr_le_pub_adm_at xaboundary [] 0` at `k := []`, `tr := []`, *)
+(*  `x1 := PCtxKey 2`, `t1 := qsl`, `m1 := 3`, in BOTH directions,     *)
+(*  together with the antecedent that fires there.  But the store      *)
+(*  conjunct is obtained BY CONTAINMENT from `pasrel` at `qas_l` and   *)
+(*  `qas_r`: at the ENDS of the two runs the stores were ALREADY       *)
+(*  related without the administrative disjunct                        *)
+(*  (`guard_ri_ext_pa_survives_xapply`).  So the administrative        *)
+(*  relaxation buys NOTHING at the single point, and everything at     *)
+(*  the midpoint.                                                      *)
+(*                                                                     *)
+(*  NOT DONE, AND NAMED:                                               *)
+(*                                                                     *)
+(*   - STEP 8 -- one-step and finite-run PRESERVATION for `padma_*` -- *)
+(*     is OUT OF SCOPE and is NOT STARTED.  Nothing below relates two  *)
+(*     configurations along a transition, and nothing below carries    *)
+(*     `padma_srel` across a step.  Without it the midpoint positive   *)
+(*     does NOT compose into an observation;                           *)
+(*   - transitivity, joinability, confluence and normal forms are NOT  *)
+(*     ATTEMPTED, for `padma_*` or for anything else;                  *)
+(*   - `paobs_tr_le_pub_adm_at xaboundary [] 0 qlhs qrhs` is NOT       *)
+(*     PROVED.  It quantifies over every equivariant `k`; step 7       *)
+(*     exhibits its BODY at one `k` and nothing more;                  *)
+(*   - `law_right_identity_ext_pa_at` is neither proved nor refuted    *)
+(*     here, and no administrative restatement of it is made;          *)
+(*   - MONOTONICITY of `padma_*` along `paext` is NOT PROVED.  It is   *)
+(*     not needed by anything above -- every guard is stated at a      *)
+(*     state, not transported to one -- and it is not claimed;         *)
+(*   - `padm_*`, `pacomp_rel`, `paxrel`, `pasrel`, `paobs_tr_le_pub_   *)
+(*     at`, the `q*` specimen, both relation families and every        *)
+(*     recorded verdict are UNTOUCHED.  This section APPENDS;          *)
+(*   - NO `admit`, NO `assume`, NO `z3rlimit`, NO `#push-options`, NO  *)
+(*     `#set-options`, NO `expect_failure`, NO bodiless `val`.  Every  *)
+(*     proof above runs at the file's default settings.                *)
+(* ================================================================== *)

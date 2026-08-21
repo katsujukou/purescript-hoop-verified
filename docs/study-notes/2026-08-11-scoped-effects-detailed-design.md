@@ -7211,6 +7211,137 @@ Stop conditions: relating `qext`/`qprod` also relates an existing negative
 fixture; monotonicity along `paext` fails; or composing states and worlds
 reopens the earlier joinability problem.
 
+#### The administrative relation: it reaches, it does not carry
+
+> The allocation-aware administrative relation has the intended local
+> discriminating power: it relates `qext` to `qprod` at the reachable midpoint,
+> remains directional, and continues to reject all six negative specimens. But
+> no theorem yet transports this relatedness through machine execution, so it
+> does not yet induce an administrative observation or establish a law.
+
+And of equal standing:
+
+> The positive endpoint instance is inherited through `pasrel`; the
+> administrative relaxation contributes nothing there. Its demonstrated benefit
+> is confined to the midpoint, and the missing transport theorem is what would
+> have to connect that midpoint fact to an observation.
+
+```text
+start
+  │
+  │ ordinary allocation-aware execution
+  ▼
+midpoint
+  │  padma_srel relates qmid_sl to qmid_sr   ← filled for the first time
+  │
+  │ administrative transport                 ← not proved
+  ▼
+end
+  │  pasrel already suffices                 ← not a return on the relaxation
+  ▼
+one positive observation instance
+```
+
+#### The negative specimens first
+
+All six are still refused, every one a **direct port** — no new proof needed,
+none unportable: a changed `post`, a `post` that performs, a changed residual, a
+changed answer, the store-level changed residual, and the reverse specimen. A
+store-level mirror of the last was added as well. The world-indexed inversion
+lemmas already had allocation-indexed counterparts in the file, so only the
+reflexivity step had to be replaced.
+
+This is a fact **at the level of the relation**: those six are refused by
+`padma_*`. It is not a claim that they are observationally distinguishable, nor
+that any execution separates them.
+
+#### The relaxation is confined, and it is real
+
+Two definitional facts, checked independently of the gate, with proof body `()`
+in each case:
+
+- with a `PVar` on the left the administrative relation **coincides** with
+  `pacomp_rel`;
+- a left-hand `PVar` is never administratively related to a right-hand `POp`.
+
+So the accurate description is not "the relation was loosened" but:
+
+> a one-directional rule was added that strips an administrative `POp _ PVar`
+> from the head of the left-hand side.
+
+The general form is proved in the file — for any head other than `POp` the strip
+disjunct is `False`, so the administrative relation *is* the plain one there.
+And the strip disjunct is non-vacuous, so the six refusals are not the refusals
+of an empty relation.
+
+#### Faithfulness
+
+Compared directly against `padm_pcomp`: the differences are exactly the three
+permitted kinds — the name prefix, `w` becoming `s.aw`, and the future
+quantifier `pwf_world w' /\ pwext w' w` becoming `paext s' s`, with
+`pcomp_rel`/`pframes_rel` becoming `pacomp_rel`/`paframes_rel`. The measure
+`(decreases n)` and the `{:pattern}` are carried over unchanged. The
+administrative observation is outside those three kinds and is marked as a new
+definition rather than a copy: it is `paobs_tr_le_pub_at` with the final store
+conjunct alone changed from `pasrel` to `padma_srel`.
+
+#### Not proved
+
+- **No transport.** There is not one lemma carrying `padma_srel` across a
+  transition, so the midpoint result does not compose into an observation.
+- Monotonicity of `padma_*` along `paext` — not needed by any guard here, since
+  none transports a state, and not claimed.
+- Transitivity, joinability, confluence, normal forms.
+- `paobs_tr_le_pub_adm_at xaboundary [] 0 qlhs qrhs` itself: the law quantifies
+  over `k`, and what was shown is its body at one `k`.
+- The law, in either direction; no administrative form of it was even stated.
+
+#### Position
+
+> The missing relation is now present at exactly the configuration where it was
+> needed. The remaining problem is no longer how to relate the midpoint, but how
+> to soundly transport that relation through unequal administrative execution
+> lengths.
+
+#### The next gate: two kinds of monotonicity, and a weak simulation
+
+Monotonicity must be split, and the goal must **not** be written as the simple
+"`padma_srel` is monotone":
+
+- the recursive semantic relations — `padma_pcomp`, contexts, frames — are
+  expected to be Kripke-monotone along `paext`; failure there is a stop
+  condition;
+- `padma_srel` is **store realization**, and monotonicity of two fixed stores
+  under a growing state should *not* be expected. As with `pasrel`, a new
+  world's obligations have to come with an actual store allocation.
+
+Transport is also unlikely to close as an ordinary one-step lockstep. A
+left-hand administrative unit disappears over several silent steps on the left
+against zero or few on the right — the earlier `PBindF` specimen already showed
+the two sides taking different numbers of steps to reconverge. What is probably
+needed is:
+
+> An administrative weak simulation: one machine step or a finite silent
+> administrative burst on one side is matched by zero or more steps on the
+> other, preserving trace, allocation state, and administrative store
+> realization at reconvergence.
+
+1. `paext` monotonicity for the recursive `padma_*` family;
+2. inclusion from `pacrel`/`paxrel`/`pasrel` into the corresponding `padma_*`;
+3. a local lemma that an administrative strip changes neither trace, store nor
+   counter, and reconverges in finitely many steps;
+4. a concrete execution where the `post` of `qext`/`qprod` actually fires,
+   reconverging to a common configuration from unequal step counts;
+5. separate the non-allocating administrative burst from ordinary transitions
+   that really allocate;
+6. assemble those into a weak one-step simulation;
+7. lift to finite runs and to the `_pub_at` administrative observation;
+8. only then re-adjudicate right identity.
+
+Stop conditions: `paext` monotonicity fails for the recursive family; an
+administrative burst changes the trace, the store or a counter; or finite
+reconvergence needs an extra unchecked condition on general interpreters.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
