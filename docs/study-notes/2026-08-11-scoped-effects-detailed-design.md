@@ -7342,6 +7342,127 @@ Stop conditions: `paext` monotonicity fails for the recursive family; an
 administrative burst changes the trace, the store or a counter; or finite
 reconvergence needs an extra unchecked condition on general interpreters.
 
+#### Administrative monotonicity: two verdicts, as the split predicted
+
+> The recursive allocation-aware administrative relations are Kripke-monotone
+> along `paext`, with the same premise schema as the corresponding
+> non-administrative family. Administrative store realization is not monotone
+> under state growth with fixed stores, and should not be: a newly related name
+> creates a new realization obligation that only an actual store allocation can
+> satisfy.
+
+The premise identity carries the same limitation as before:
+
+> The premise schema is identical; the accessibility premise is the semantically
+> narrower `paext`, not the old `pwext`.
+
+Compared directly, not asserted:
+
+```fstar
+lemma_pacomp_rel_mono
+  : requires pacomp_rel  r n s c1 c2 /\ paext s1 s /\ pcl_mono r
+lemma_padma_pcomp_mono
+  : requires padma_pcomp r n s c1 c2 /\ paext s1 s /\ pcl_mono r
+```
+
+No `pawf`, no `pbounded_world`, no per-closure side condition, and nothing
+at all for the administrative disjunct. The anchored form is weaker still, needing only
+`paext` and not `pcl_mono`. The measure is `decreases n` rather than the plain
+family's lexicographic one, because `padma_pcomp` does not cross layers.
+`lemma_paext_future_shrinks` was needed once per layer, as expected.
+
+#### The two roles, kept apart
+
+```text
+recursive padma_* relations
+        │
+        └─ paext monotonicity                    PROVED
+
+padma_srel (world satisfaction / store realization)
+        │
+        ├─ state grows, stores fixed             REFUTED
+        └─ state grows with corresponding stores next gate
+```
+
+The refutation is stated with `pcl_mono` still in the hypotheses, so it is not a
+missing side condition. Reproduced independently at the bottom state with empty
+stores: `paalloc pabot` speaks `0 ↦ 0` and neither store has an entry for it.
+The administrative strip plays no part — this is the same property that stops
+`pasrel` and `psrel`.
+
+`lemma_padma_srel_old_keys_mono` sharpens it, at exactly this strength:
+
+> Existing world obligations survive the state extension; failure can arise only
+> from obligations introduced by newly allocated name pairs.
+
+#### The positive side is machine-checked
+
+`guard_padma_mono_fires` is **PROVED** — it carries a proof body and passes
+with the file. The gate's own report classified it as STATED; that was an
+under-classification, corrected here. It matters because of what it contains:
+
+- the transport is along a **strictly forward** `paext` —
+  `~(paext qmid_as (paalloc qmid_as))` is proved, so this is not reflexivity
+  read back;
+- `padma_xrel` holds at both states while `paxrel` fails at both.
+
+So monotonicity here is not a vacuous instance.
+
+One ablation of the six, M3, failed with an F\* internal error (Error 276)
+rather than a clean verification failure. It is recorded as **tool failure;
+inconclusive** and is not counted as evidence. The other five are ordinary
+failures and the proof status of every guard is unaffected.
+
+#### Position
+
+> Kripke transport of the recursive administrative relation is now available.
+> What remains is operational transport: coupling non-allocating administrative
+> control steps with ordinary execution, while coupling every genuine state
+> extension with the actual allocations that make store realization true.
+
+#### The next gate, and a scoping warning
+
+"An administrative burst changes nothing" is **false as stated in general**. In
+
+```fstar
+POp c PVar
+```
+
+the inner `c` may emit, perform and allocate perfectly normally. What is
+administrative is not `c`'s execution but the extra control wrapped around it:
+
+```text
+POp c PVar
+   │  administrative decomposition
+   ▼
+c under PBindF PVar
+   │  c may emit / perform / allocate normally
+   ▼
+value under PBindF PVar
+   │  administrative discharge
+   ▼
+same value
+```
+
+So split the next gate in two:
+
+1. the minimal specimen `POp (PVar x) PVar` against `PVar x` — reconverging to
+   the same configuration from unequal step counts, with the extra steps
+   themselves changing neither trace, store nor counter;
+2. for general `c`, fix the shape that relates a left-hand intermediate phase
+   carrying `PBindF PVar` to the right-hand ordinary execution.
+
+Note that after the left's first step the two differ not only in the head of the
+computation but in the **stack**. If `padma_pcomp` alone cannot express that
+intermediate state, that is not a failure — it is the finding that an
+allocation-aware administrative **stack or configuration** relation is needed.
+
+Stop conditions: the minimal redex itself changes trace, store or a counter; the
+extra `PBindF PVar` cannot be expressed even by the existing administrative
+stack relation; when `c` allocates, ordinary `paalloc` and store growth cannot be
+coupled to one successor state on both sides; or a general interpreter needs an
+unchecked purity or linearity condition.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

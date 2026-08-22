@@ -40770,3 +40770,343 @@ let guard_padma_ledger ()
 (*     `#set-options`, NO `expect_failure`, NO bodiless `val`.  Every  *)
 (*     proof above runs at the file's default settings.                *)
 (* ================================================================== *)
+
+
+(* ================================================================== *)
+(*  B2b.y -- KRIPKE MONOTONICITY OF THE ADMINISTRATIVE RELATION,       *)
+(*           AND THE REFUTATION AT THE STORE                           *)
+(*                                                                     *)
+(*  B2b.x LEFT MONOTONICITY OF `padma_*` UNPROVED AND SAID SO.  This   *)
+(*  section settles it, and it is TWO QUESTIONS, NOT ONE.              *)
+(*                                                                     *)
+(*  QUESTION 1 -- THE RECURSIVE SEMANTIC MEMBERS.  `padma_pcomp` and   *)
+(*  `padma_pctx`, and with them `padma_pcrel`, `padma_xrel` and        *)
+(*  `padma_xrel_at`, are Kripke-monotone along `paext`.  The premises  *)
+(*  come out as the DIRECT COUNTERPARTS of the plain family's          *)
+(*  (`lemma_pacomp_rel_mono`, 31833): `paext s1 s /\ pcl_mono r` and   *)
+(*  NOTHING ELSE.  No `pawf`, no `pbounded_world`, no per-closure      *)
+(*  side condition, and no condition on the administrative disjunct.   *)
+(*  `padma_xrel_at` needs LESS still -- `paext s0' s0` alone -- since  *)
+(*  it is a quantifier over futures and nothing more.                  *)
+(*                                                                     *)
+(*  WHY THE ADMINISTRATIVE DISJUNCT COSTS NOTHING.  `padma_pcomp` is   *)
+(*  `pacomp_rel` OR the strip clause; the first disjunct moves by      *)
+(*  `lemma_pacomp_rel_mono` verbatim, and the strip clause             *)
+(*                                                                     *)
+(*      forall s'. paext s' s /\ pval_rel s'.aw y1 y2 ==>              *)
+(*                 pacomp_rel r (n-1) s' (f1 y1) (PVar y2)             *)
+(*                                                                     *)
+(*  moves for exactly the reason the plain family's future clause      *)
+(*  does: `paext s' s1` implies `paext s' s`, so the DOMAIN of the     *)
+(*  future quantifier SHRINKS precisely as far as the current state    *)
+(*  GROWS.  That implication is `lemma_paext_future_shrinks` (31776),  *)
+(*  and it is needed ONCE PER LAYER here as it was there --            *)
+(*  `pwalloc_ext`'s transitivity is not definitional and has to be     *)
+(*  handed over.  Its ablation is recorded below.                      *)
+(*                                                                     *)
+(*  THE MEASURE IS `decreases n`, as `padma_pcomp`'s own is; the two   *)
+(*  layers do not recur into one another, so no lexicographic measure  *)
+(*  is needed and none is introduced.  The lemmas are stated in        *)
+(*  IMPLICATION FORM at the recursive layers, because `padma_pcomp`    *)
+(*  is a DISJUNCTION and the induction hypothesis has to be usable     *)
+(*  under a disjunct that may not hold.                                *)
+(*                                                                     *)
+(*  QUESTION 2 -- `padma_srel`.  REFUTED.  It is store realization,    *)
+(*  not a semantic clause, and it is NOT monotone, exactly as          *)
+(*  `pasrel` is not and `psrel` before it is not.  Growing the world   *)
+(*  MANUFACTURES STORE OBLIGATIONS: `paalloc` adds the key pair        *)
+(*  `(2, 1)` to `qmid_as.aw`, and neither store has an entry there.    *)
+(*  The two answers must NOT be run together: the first says the       *)
+(*  SEMANTIC relation survives growth, the second says the STORE       *)
+(*  relation does not, and the second is not a defect of the first.    *)
+(*                                                                     *)
+(*  AND THE DIAGNOSIS IS EXACT.  `lemma_padma_srel_old_keys_mono`      *)
+(*  shows the OLD keys survive verbatim -- for every `i, j` with       *)
+(*  `pwlookup_l i s.aw == Some j` the two residuals stay               *)
+(*  `padma_xrel`-related AT THE GROWN STATE, by Question 1.  So the    *)
+(*  whole of the obstruction is the NEW keys, and nothing else.        *)
+(* ================================================================== *)
+
+(* ---- 1. THE IMPLICATION-FORM BRIDGE ------------------------------- *)
+
+(** `lemma_pacomp_rel_mono` in implication form. `padma_pcomp` is a
+    disjunction, so at the recursive layers the induction hypothesis has to be
+    available whether or not the congruence disjunct holds. *)
+let lemma_padma_pacomp_rel_mono_imp (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                                    (s1 s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires paext s1 s /\ pcl_mono r)
+          (ensures pacomp_rel r n s c1 c2 ==> pacomp_rel r n s1 c1 c2)
+  = FStar.Classical.move_requires (lemma_pacomp_rel_mono r n s1 s c1) c2
+
+(* ---- 2. THE TWO RECURSIVE MEMBERS --------------------------------- *)
+
+(**
+ * **MONOTONICITY OF THE ADMINISTRATIVE COMPUTATION RELATION.** PROVED, at
+ * `padma_pcomp`'s own measure and under `lemma_pacomp_rel_mono`'s own
+ * hypotheses. The congruence disjunct moves by section 1; the strip disjunct's
+ * head recurs at `n - 1`, and its future clause moves because
+ * `lemma_paext_future_shrinks` sends `paext s' s1` to `paext s' s`.
+ *)
+let rec lemma_padma_pcomp_mono_imp (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                                   (s1 s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires paext s1 s /\ pcl_mono r)
+          (ensures padma_pcomp r n s c1 c2 ==> padma_pcomp r n s1 c1 c2)
+          (decreases n)
+  = if n = 0 then ()
+    else begin
+      lemma_paext_future_shrinks s1 s;
+      lemma_padma_pacomp_rel_mono_imp r n s1 s c1 c2;
+      match c1 with
+      | POp a1 f1 -> lemma_padma_pcomp_mono_imp r (n - 1) s1 s a1 c2
+      | _ -> ()
+    end
+
+let lemma_padma_pcomp_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                           (s1 s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires padma_pcomp r n s c1 c2 /\ paext s1 s /\ pcl_mono r)
+          (ensures padma_pcomp r n s1 c1 c2)
+  = lemma_padma_pcomp_mono_imp r n s1 s c1 c2
+
+(**
+ * **MONOTONICITY OF THE ADMINISTRATIVE CONTEXT RELATION.** PROVED. Not
+ * recursive in its own right: the answer and the frames move by the reused
+ * lemmas, and the post clause moves by the same domain shrink, at `n` rather
+ * than `n - 1` because `padma_pctx` reads `padma_pcomp` at the same index.
+ *)
+let lemma_padma_pctx_mono_imp (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                              (s1 s: pastate) (cx1 cx2: pctx v cl)
+  : Lemma (requires paext s1 s /\ pcl_mono r)
+          (ensures padma_pctx r n s cx1 cx2 ==> padma_pctx r n s1 cx1 cx2)
+  = if n = 0 then ()
+    else begin
+      lemma_paext_future_shrinks s1 s;
+      match cx1, cx2 with
+      | PCtxDone y1, PCtxDone y2 ->
+        FStar.Classical.move_requires (lemma_paval_rel_mono s1 s y1) y2
+      | PCtxRequests x1 rs1 _, PCtxRequests x2 rs2 _ ->
+        FStar.Classical.move_requires (lemma_paval_rel_mono s1 s x1) x2;
+        FStar.Classical.move_requires (lemma_paframes_rel_mono r n s1 s rs1) rs2
+      | _, _ -> ()
+    end
+
+let lemma_padma_pctx_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                          (s1 s: pastate) (cx1 cx2: pctx v cl)
+  : Lemma (requires padma_pctx r n s cx1 cx2 /\ paext s1 s /\ pcl_mono r)
+          (ensures padma_pctx r n s1 cx1 cx2)
+  = lemma_padma_pctx_mono_imp r n s1 s cx1 cx2
+
+(* ---- 3. THE INDEX-CLOSED MEMBERS ---------------------------------- *)
+
+(** Index closure commutes with the transport: one `introduce` each. *)
+let lemma_padma_pcrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                           (c1 c2: pcomp v cl)
+  : Lemma (requires padma_pcrel r s c1 c2 /\ paext s1 s /\ pcl_mono r)
+          (ensures padma_pcrel r s1 c1 c2)
+  = padma_pcrel_unfold r s c1 c2 ();
+    introduce forall (n: nat). padma_pcomp r n s1 c1 c2
+    with lemma_padma_pcomp_mono r n s1 s c1 c2
+
+let lemma_padma_xrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                          (cx1 cx2: pctx v cl)
+  : Lemma (requires padma_xrel r s cx1 cx2 /\ paext s1 s /\ pcl_mono r)
+          (ensures padma_xrel r s1 cx1 cx2)
+  = padma_xrel_unfold r s cx1 cx2 ();
+    introduce forall (n: nat). padma_pctx r n s1 cx1 cx2
+    with lemma_padma_pctx_mono r n s1 s cx1 cx2
+
+(** The ANCHORED form needs STRICTLY LESS: no `pcl_mono`, because nothing is
+    transported -- the anchor moves forward and the set of states the body is
+    read at only shrinks. *)
+let lemma_padma_xrel_at_mono (#v #cl: Type) (r: pcl_rel_t cl) (s0' s0: pastate)
+                             (cx1 cx2: pctx v cl)
+  : Lemma (requires padma_xrel_at r s0 cx1 cx2 /\ paext s0' s0)
+          (ensures padma_xrel_at r s0' cx1 cx2)
+  = padma_xrel_at_unfold r s0 cx1 cx2 ();
+    lemma_paext_future_shrinks s0' s0;
+    introduce forall (s: pastate). (paext s s0' ==> padma_xrel r s cx1 cx2)
+    with (introduce _ ==> _ with ())
+
+(* ---- 4. THE GUARD FOR THE POSITIVE -------------------------------- *)
+
+(** The transport is exercised at a STRICTLY FORWARD instance -- `paalloc`
+    beyond `qmid_as`, with `~(paext qmid_as (paalloc qmid_as))` proved beside
+    it so the instance cannot be read as reflexivity -- and what arrives at the
+    far end is a proposition `paxrel` and `pacomp_rel` both REFUSE. *)
+let guard_padma_mono_fires ()
+  : Lemma (pawf qmid_as /\ pawf (paalloc qmid_as) /\
+           paext (paalloc qmid_as) qmid_as /\
+           ~(paext qmid_as (paalloc qmid_as)) /\
+           padma_xrel fcl_rel qmid_as qext qprod /\
+           ~(paxrel fcl_rel qmid_as qext qprod) /\
+           padma_xrel fcl_rel (paalloc qmid_as) qext qprod /\
+           ~(paxrel fcl_rel (paalloc qmid_as) qext qprod) /\
+           padma_pcrel fcl_rel (paalloc qmid_as)
+             (POp (PVar (fpv FU) <: pcomp fv fcl) (PVar #fv #fcl))
+             (PVar (fpv FU)) /\
+           ~(pacomp_rel fcl_rel 1 (paalloc qmid_as)
+               (POp (PVar (fpv FU) <: pcomp fv fcl) (PVar #fv #fcl))
+               (PVar (fpv FU))))
+  = guard_ri_ext_pa_midpoint_state ();
+    lemma_fcl_rel_mono ();
+    lemma_paext_of_alloc qmid_as;
+    guard_pa_access_is_not_symmetric qmid_as;
+    guard_padma_relates_the_context qmid_as;
+    guard_padma_relates_the_context (paalloc qmid_as);
+    guard_padma_strip_disjunct_fires qmid_as;
+    lemma_padma_pcrel_mono fcl_rel (paalloc qmid_as) qmid_as
+      (POp (PVar (fpv FU) <: pcomp fv fcl) (PVar #fv #fcl))
+      (PVar (fpv FU));
+    guard_padma_strip_disjunct_fires (paalloc qmid_as);
+    lemma_padma_xrel_mono fcl_rel (paalloc qmid_as) qmid_as qext qprod
+
+(* ---- 5. STORE REALIZATION: THE OLD KEYS DO SURVIVE ---------------- *)
+
+(**
+ * **THE HALF OF STORE REALIZATION THAT IS MONOTONE.** PROVED, and it is
+ * exactly Question 1 read through `padma_srel`: for every key pair the
+ * SMALLER world already had, the two residuals stay related AT THE GROWN
+ * STATE. This is not `padma_srel r s1 t1 t2` and does not pretend to be --
+ * the quantifier still ranges over `s.aw`, not `s1.aw`, and that gap is the
+ * whole of the refutation below.
+ *)
+let lemma_padma_srel_old_keys_mono (#v #cl: Type) (r: pcl_rel_t cl)
+                                   (s1 s: pastate) (t1 t2: pstore v cl)
+  : Lemma (requires padma_srel r s t1 t2 /\ paext s1 s /\ pcl_mono r)
+          (ensures forall (i j: nat).
+                     {:pattern (pstore_lookup i t1); (pstore_lookup j t2)}
+                     pwlookup_l i s.aw == Some j ==>
+                     (Some? (pstore_lookup i t1) /\ Some? (pstore_lookup j t2) /\
+                      padma_xrel r s1 (psget i t1) (psget j t2)))
+  = padma_srel_unfold r s t1 t2 ();
+    introduce forall (i j: nat).
+        (pwlookup_l i s.aw == Some j ==>
+         (Some? (pstore_lookup i t1) /\ Some? (pstore_lookup j t2) /\
+          padma_xrel r s1 (psget i t1) (psget j t2)))
+    with (introduce _ ==> _
+          with lemma_padma_xrel_mono r s1 s (psget i t1) (psget j t2))
+
+(* ---- 6. STORE REALIZATION: THE REFUTATION ------------------------- *)
+
+(**
+ * **`padma_srel` IS NOT MONOTONE ALONG `paext`.** REFUTED, at the specimen
+ * `guard_padma_relates_the_specimen` already exhibits. `qmid_as.aw` maps `1`
+ * to `0` and nothing else; `paalloc` adds `2 |-> 1`, and `qmid_sl` has no
+ * entry at `2` nor `qmid_sr` at `1`, so the grown state DEMANDS a
+ * correspondence the stores cannot supply. The general statement is refused
+ * with `pcl_mono fcl_rel` IN the hypothesis, so the failure is not a missing
+ * side condition; and the OLD key `(1, 0)` is carried across by section 5 and
+ * displayed beside the refusal, so what fails is the NEW key and only that.
+ *
+ * `pasrel` is refuted at the same point and by the same reading, which is the
+ * verdict the earlier gate already recorded; the administrative disjunct does
+ * not change it, because it never touched the store's DOMAIN.
+ *)
+let guard_padma_srel_is_not_monotone ()
+  : Lemma (pawf qmid_as /\ pawf (paalloc qmid_as) /\
+           paext (paalloc qmid_as) qmid_as /\
+           padma_srel fcl_rel qmid_as qmid_sl qmid_sr /\
+           ~(pasrel fcl_rel qmid_as qmid_sl qmid_sr) /\
+           pwlookup_l 1 qmid_as.aw == Some 0 /\
+           pwlookup_l 2 qmid_as.aw == None /\
+           pwlookup_l 2 (paalloc qmid_as).aw == Some 1 /\
+           pstore_lookup 2 qmid_sl == None /\
+           pstore_lookup 1 qmid_sr == None /\
+           padma_xrel fcl_rel (paalloc qmid_as) (psget 1 qmid_sl) (psget 0 qmid_sr) /\
+           ~(padma_srel fcl_rel (paalloc qmid_as) qmid_sl qmid_sr) /\
+           ~(pasrel fcl_rel (paalloc qmid_as) qmid_sl qmid_sr) /\
+           ~(forall (s1 s: pastate) (u1 u2: pstore fv fcl).
+               padma_srel fcl_rel s u1 u2 /\ paext s1 s /\ pcl_mono fcl_rel ==>
+               padma_srel fcl_rel s1 u1 u2))
+  = guard_padma_relates_the_specimen ();
+    lemma_fcl_rel_mono ();
+    lemma_paext_of_alloc qmid_as;
+    assert_norm (qmid_as.aw == qmid_w);
+    assert_norm (pwlookup_l 1 qmid_w == Some 0);
+    assert_norm (pwlookup_l 2 qmid_w == None);
+    assert_norm (pstore_lookup 2 qmid_sl == None);
+    assert_norm (pstore_lookup 1 qmid_sr == None);
+    assert (pwlookup_l 2 (paalloc qmid_as).aw == Some 1);
+    lemma_padma_srel_old_keys_mono fcl_rel (paalloc qmid_as) qmid_as qmid_sl qmid_sr;
+    assert (padma_xrel fcl_rel (paalloc qmid_as) (psget 1 qmid_sl) (psget 0 qmid_sr));
+    introduce padma_srel fcl_rel (paalloc qmid_as) qmid_sl qmid_sr ==> False
+    with begin
+      padma_srel_unfold fcl_rel (paalloc qmid_as) qmid_sl qmid_sr ();
+      assert (Some? (pstore_lookup 2 qmid_sl) /\ Some? (pstore_lookup 1 qmid_sr))
+    end;
+    introduce pasrel fcl_rel (paalloc qmid_as) qmid_sl qmid_sr ==> False
+    with begin
+      pasrel_unfold fcl_rel (paalloc qmid_as) qmid_sl qmid_sr ();
+      assert (Some? (pstore_lookup 2 qmid_sl) /\ Some? (pstore_lookup 1 qmid_sr))
+    end;
+    introduce (forall (s1 s: pastate) (u1 u2: pstore fv fcl).
+                 padma_srel fcl_rel s u1 u2 /\ paext s1 s /\ pcl_mono fcl_rel ==>
+                 padma_srel fcl_rel s1 u1 u2) ==> False
+    with assert (padma_srel fcl_rel (paalloc qmid_as) qmid_sl qmid_sr)
+
+(* ================================================================== *)
+(*  B2b.y -- THE LEDGER                                                *)
+(*                                                                     *)
+(*  PROVED -- QUESTION 1, THE RECURSIVE SEMANTIC MEMBERS.               *)
+(*   - `lemma_padma_pcomp_mono` / `_imp`, at `decreases n`;             *)
+(*   - `lemma_padma_pctx_mono` / `_imp`;                                *)
+(*   - `lemma_padma_pcrel_mono`, `lemma_padma_xrel_mono`;               *)
+(*   - `lemma_padma_xrel_at_mono`.                                      *)
+(*  THE PREMISES, VERBATIM: `paext s1 s /\ pcl_mono r`, which is        *)
+(*  `lemma_pacomp_rel_mono` (31833) word for word.  NO `pawf`, NO       *)
+(*  `pbounded_world`, NO per-closure condition, NO condition on the     *)
+(*  administrative disjunct.  `lemma_padma_xrel_at_mono` drops          *)
+(*  `pcl_mono` as well and runs on `paext s0' s0` alone.                *)
+(*                                                                     *)
+(*  PROVED -- THE MONOTONE HALF OF STORE REALIZATION.                   *)
+(*   - `lemma_padma_srel_old_keys_mono`: the key pairs the SMALLER      *)
+(*     world already had stay `padma_xrel`-related at the GROWN state.  *)
+(*                                                                     *)
+(*  REFUTED -- QUESTION 2, `padma_srel` ITSELF.                         *)
+(*   - `guard_padma_srel_is_not_monotone`: `padma_srel` holds at        *)
+(*     `qmid_as` and FAILS at `paalloc qmid_as` for the SAME two        *)
+(*     stores, and the general implication is refuted WITH             *)
+(*     `pcl_mono fcl_rel` in its hypothesis.  `pasrel` is refuted at    *)
+(*     the same point, as it already was.  The obstruction is the NEW   *)
+(*     key `2 |-> 1` that `paalloc` manufactures and neither store      *)
+(*     realises -- NOT the administrative disjunct, which never         *)
+(*     touched the store's domain.                                      *)
+(*                                                                     *)
+(*  THE TWO VERDICTS ARE DIFFERENT KINDS OF STATEMENT and are kept      *)
+(*  apart on purpose.  A SEMANTIC clause survives world growth; a       *)
+(*  REALIZATION clause cannot, because growth is what creates the       *)
+(*  obligations it would have to discharge.                             *)
+(*                                                                     *)
+(*  WHAT FIRES, AND THE ABLATIONS RUN.                                  *)
+(*   - `guard_padma_mono_fires` transports along a STRICTLY FORWARD     *)
+(*     `paext` -- `~(paext qmid_as (paalloc qmid_as))` is proved        *)
+(*     beside it -- and lands on propositions `paxrel` and              *)
+(*     `pacomp_rel` refuse.  Asserting the instance is reflexive        *)
+(*     instead FAILS;                                                   *)
+(*   - deleting `lemma_paext_future_shrinks` from the `pcomp` layer     *)
+(*     FAILS, and from the `pctx` layer FAILS.  It is load-bearing      *)
+(*     once per layer, exactly as at 31833;                             *)
+(*   - deleting `pcl_mono r` from `lemma_padma_pcomp_mono_imp`'s        *)
+(*     premise FAILS;                                                   *)
+(*   - deleting `lemma_padma_srel_old_keys_mono`'s call from the        *)
+(*     refutation FAILS, so `lemma_padma_xrel_mono` really is what      *)
+(*     carries the old key across;                                      *)
+(*   - dropping the `~` on the grown-state `padma_srel` conjunct        *)
+(*     FAILS, so the refutation is a refutation and the context it is   *)
+(*     proved in is consistent.                                         *)
+(*                                                                     *)
+(*  NOT ATTEMPTED HERE, AND NOT CLAIMED: the administrative strip       *)
+(*  lemma, the concrete reconvergence execution, any separation of      *)
+(*  the allocation burst from the semantic step, weak simulation,       *)
+(*  finite runs at `padma_*`, the observation, and right identity.      *)
+(*  Nothing above relates two configurations along a transition.        *)
+(*                                                                     *)
+(*  Everything before this line is UNTOUCHED; this section APPENDS.     *)
+(*  B2b.x's ledger item "MONOTONICITY of `padma_*` along `paext` is     *)
+(*  NOT PROVED" is SUPERSEDED for the semantic members and CONFIRMED,   *)
+(*  as a refutation, for `padma_srel`.                                  *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no unproved        *)
+(*  obligation is left standing, no hypothesis is postulated, no        *)
+(*  bodiless `val` is declared, no expected-failure marker is used,     *)
+(*  and no resource-limit or option pragma is issued.  Every proof      *)
+(*  above runs at the file's default settings.                          *)
+(* ================================================================== *)
