@@ -7679,6 +7679,141 @@ scratch and were **not** confirmed to fail as intended; they are not counted.
 That last negative is what would settle `padx_apply_pres` as a genuinely
 necessary semantic boundary condition rather than a proof convenience.
 
+#### Boundary calibration: administrative preservation is a second discipline
+
+> Administrative preservation is independent of nominal equivariance. Both
+> `xapply` and the frame-counting `xapply2` respect the old and
+> allocation-aware name disciplines, but only `xapply` preserves the
+> administrative erasure. Without such a condition, `xapply2` turns one erased
+> identity-bind frame into an observable difference in the final store.
+
+The whole calibration sits in one lemma, so neither half can be read without the
+other:
+
+```fstar
+guard_cal_separation ()
+  : Lemma (papply_equivariant  fcl_rel xapply  /\
+           papply_equivariant  fcl_rel xapply2 /\
+           paapply_equivariant fcl_rel xapply  /\
+           paapply_equivariant fcl_rel xapply2 /\
+           padx_apply_pres     fcl_rel xapply  /\
+           ~(padx_apply_pres   fcl_rel xapply2))
+```
+
+#### The mechanism, computed
+
+```text
+captured segment cap
+        │
+        ├─ pkont_of cap
+        │      xklen = length cap
+        │
+        └─ pkont_of (PBindF PVar :: cap)
+               xklen = length cap + 1
+```
+
+Verified independently for an arbitrary captured stack and value. `xklen` reads
+**no name at all**, so equivariance cannot exclude it: `pacrel` matches stacks
+frame for frame and therefore preserves the length, which is exactly why
+`xapply2` passes both equivariance conditions; `padx_comp` erases one frame and
+therefore does not.
+
+Two orthogonal disciplines have now appeared, mechanically:
+
+- the **nominal** discipline — do not let raw handle identity be observed;
+- the **administrative** discipline — do not let meaningless control
+  representation be observed.
+
+#### What the sixth step proves, and what it does not
+
+From the same two related configurations: `xapply2` halts in three steps on each
+side, both traces empty, returning the **same handle** and the **same counter**,
+yet with different residual stores; the two runs are literally unequal. Under
+`xapply` the two runs are literally **equal** and both reach `PDone`.
+
+Stated at the strength established:
+
+> The experiment proves that an administrative-insensitivity requirement is
+> semantically load-bearing for the intended equivalence. It does not prove that
+> `padx_apply_pres` is the unique or logically weakest possible formulation of
+> that requirement.
+
+What is settled is three things: without a condition there is a concrete
+counterexample; the existing equivariance conditions cannot exclude it; and
+`padx_apply_pres` admits the ordinary `xapply` while rejecting the `xapply2`
+that produces it. Minimality, uniqueness and general sufficiency are unproved.
+
+Step 5 likewise:
+
+> One concrete `PPerform` pair is weakly compatible under the calibrated
+> interpreter. This is evidence that the boundary condition has the intended
+> operational use, not a general theorem for the `PPerform` arm.
+
+```text
+old equivariance ───────┐
+                        ├─ xapply   passes
+new equivariance ───────┤
+                        └─ xapply2  passes
+
+padx_apply_pres ────────── xapply   passes
+                           xapply2  fails
+                                      │
+                                      ▼
+                          concrete final-store difference
+```
+
+#### Necessity and sufficiency, kept apart
+
+| | status |
+|---|---|
+| the condition discriminates as needed | PROVED, by `xapply2` |
+| the condition is inhabited | PROVED, by `xapply` |
+| sufficient for the general `perform` arm | NOT PROVED |
+| sufficient for the dispatcher, finite runs, observation | NOT PROVED |
+
+Also unproved: any claim about interpreters other than these two; and step 6's
+observation is one concrete execution, not a general theorem.
+
+#### A methodological note
+
+F\* stops checking a module after its first error, so a negative ablation must
+be **one assertion per file** or later assertions are silently unchecked. The gate
+caught this mid-run, re-measured, and ran a positive control first to show the
+harness itself was sound. Nine ablations then failed as required. (The mutation
+guards run alongside these gates have observed the same rule: expected-to-fail
+assertions always in their own module, expected-to-pass ones grouped.)
+
+#### Position
+
+> The candidate boundary condition is now inhabited and semantically
+> discriminating: it admits an ordinary higher-order interpreter and rejects a
+> renaming-invariant interpreter that observes administrative frame structure.
+> What remains open is its sufficiency for the general perform transition and,
+> beyond that, for weak simulation.
+
+#### The next gate: a general `PPerform`-arm theorem, condition as hypothesis
+
+Do **not** admit the condition into the boundary record yet. Take it as an
+explicit hypothesis and see whether the general arm closes on it alone.
+
+1. leave the state, the two stores, the two stacks and the prompt-search result
+   as variables;
+2. obtain the captured segments' and `pkont_of`s' relation from
+   `pakrel`/`padx_stack`;
+3. consume `padx_apply_pres` exactly **once**, where the apply outputs are
+   related;
+4. carry trace, store, counter and allocation state in the conclusion together;
+5. re-prove the concrete `xapply` fixture as a corollary of the general theorem;
+6. show that dropping the condition specialises to the concrete `xapply2`
+   counterexample and contradicts;
+7. only if no further condition appears, admit it into the administrative
+   boundary record;
+8. then widen to the whole dispatcher.
+
+Stop conditions: the general arm does not close on `padx_apply_pres` alone;
+`xapply` cannot satisfy whatever extra condition appears; or the relation's
+direction disagrees with the direction of the segments the machine hands over.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

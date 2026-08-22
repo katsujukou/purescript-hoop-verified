@@ -42426,3 +42426,458 @@ let guard_padx_capture_is_padx (s: pastate)
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 3 -- CALIBRATING `padx_apply_pres`:                      *)
+(*  DOES IT DISCRIMINATE, AND IS THE ADMINISTRATIVE CONDITION THE      *)
+(*  ONLY THING THAT SEPARATES THE TWO SPECIMENS?                       *)
+(*                                                                     *)
+(*  The previous stage STATED `padx_apply_pres` and DID NOT DECIDE     *)
+(*  whether any interpreter satisfies it.  This section decides it at  *)
+(*  the two shipped specimens: `xapply`, the ordinary higher-order     *)
+(*  clause interpreter, and `xapply2`, the MEASURING one, which reads  *)
+(*  `xklen` off the computation its continuation returns.  Both are    *)
+(*  already known to satisfy `papply_equivariant` and `papply_wb`      *)
+(*  (`xboundary`, `x2boundary`), so neither is a degenerate specimen.  *)
+(*                                                                     *)
+(*  Everything before this line is UNTOUCHED; this section APPENDS.    *)
+(* ================================================================== *)
+
+(**
+ * The cast that makes `padx_fn_at` usable in HYPOTHESIS position. It is the
+ * `squash`-to-`squash` cast `pafn_rel_at_unfold` is, at the administrative
+ * function relation, accepted BY CONVERSION with no proof obligation.
+ *)
+let cal_padx_fn_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+                          (f1 f2: pval v -> pcomp v cl)
+                          (h: squash (padx_fn_at r s0 f1 f2))
+  : squash (forall (s: pastate) (y1 y2: pval v).
+              paext s s0 /\ pval_rel s.aw y1 y2 ==> padx_comp r s (f1 y1) (f2 y2))
+  = h
+
+(* ---- STEP 1: xapply satisfies padx_apply_pres ---- *)
+
+let cal_padx_fn_self (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (k1 k2: pval v -> pcomp v cl) (y1 y2: pval v)
+  : Lemma (requires pwf_world s.aw /\ padx_fn_at r s k1 k2 /\ pval_rel s.aw y1 y2)
+          (ensures padx_comp r s (k1 y1) (k2 y2))
+  = lemma_paext_refl s;
+    cal_padx_fn_at_unfold r s k1 k2 ()
+
+let lemma_cal_xapply_padx_at (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+      (kk1 kk2: pval fv -> pcomp fv fcl)
+  : Lemma (requires pawf s /\ padx_fn_at fcl_rel s kk1 kk2)
+          (ensures padx_comp fcl_rel s (xapply c1 p1 kk1) (xapply c2 p2 kk2))
+  = assert (pval_rel #fv s.aw (fpv FU) (fpv FU));
+    cal_padx_fn_self fcl_rel s kk1 kk2 (fpv FU) (fpv FU);
+    introduce forall (n: nat). paplan_rel fcl_rel n s xplan xplan
+    with lemma_xplan_paselfrel n s
+
+let lemma_cal_xapply_padx_pres () : Lemma (padx_apply_pres fcl_rel xapply)
+  = introduce forall (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (kk1 kk2: pval fv -> pcomp fv fcl).
+      (pawf s /\ pclrel fcl_rel s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+       padx_fn_at fcl_rel s kk1 kk2 ==>
+       padx_comp fcl_rel s (xapply c1 p1 kk1) (xapply c2 p2 kk2))
+    with (introduce _ ==> _
+          with lemma_cal_xapply_padx_at s c1 c2 p1 p2 kk1 kk2)
+
+(* ---- STEP 2: xapply2 does NOT satisfy padx_apply_pres ---- *)
+
+(** The real captured segment: `padx_g_capR` is what `pfind_prompt` returns at
+    `guard_padx_capture_fires`, and `padx_g_capL` is it with the identity frame
+    consed on. *)
+let cal_kkL : pval fv -> pcomp fv fcl = pkont_of (PBindF (PVar #fv #fcl) :: padx_g_capR)
+let cal_kkR : pval fv -> pcomp fv fcl = pkont_of padx_g_capR
+
+let guard_cal_xklen_differs ()
+  : Lemma (xklen (cal_kkL (fpv FU)) == 3 /\ xklen (cal_kkR (fpv FU)) == 2 /\
+           ~(xklen (cal_kkL (fpv FU)) == xklen (cal_kkR (fpv FU))))
+  = assert_norm (xklen (cal_kkL (fpv FU)) == 3);
+    assert_norm (xklen (cal_kkR (fpv FU)) == 2)
+
+let lemma_cal_cap_pakrel (s: pastate)
+  : Lemma (pakrel fcl_rel s padx_g_capR padx_g_capR)
+  = introduce forall (n: nat). paframes_rel fcl_rel n s padx_g_capR padx_g_capR
+    with lemma_padx_ftbl_out_selfrel n s.aw
+
+let lemma_cal_pvar_int_unrelated (s: pastate) (i j: int)
+  : Lemma (requires ~(i == j))
+          (ensures ~(pacrel fcl_rel s (PVar #fv #fcl (PV (FI i)))
+                                      (PVar #fv #fcl (PV (FI j)))))
+  = introduce pacrel fcl_rel s (PVar #fv #fcl (PV (FI i)))
+                               (PVar #fv #fcl (PV (FI j))) ==> False
+    with (pacrel_unfold fcl_rel s (PVar #fv #fcl (PV (FI i)))
+                                  (PVar #fv #fcl (PV (FI j))) ();
+          assert (pacomp_rel fcl_rel 1 s (PVar #fv #fcl (PV (FI i)))
+                                         (PVar #fv #fcl (PV (FI j)))))
+
+let cal_padx_comp_var_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (x1 x2: pval v) (h: squash (padx_comp r s (PVar #v #cl x1) (PVar #v #cl x2)))
+  : squash (pacrel r s (PVar #v #cl x1) (PVar #v #cl x2))
+  = h
+
+let lemma_cal_xapply2_not_padx_pres ()
+  : Lemma (~(padx_apply_pres fcl_rel xapply2))
+  = introduce padx_apply_pres fcl_rel xapply2 ==> False
+    with (lemma_pabot_wf ();
+          lemma_fcl_rel_mono ();
+          lemma_cal_cap_pakrel pabot;
+          lemma_padx_kont_fn_at fcl_rel pabot padx_g_capR padx_g_capR;
+          padx_apply_pres_inst fcl_rel xapply2 pabot FEcho FEcho
+            ([] <: list (pval fv)) ([] <: list (pval fv)) cal_kkL cal_kkR;
+          guard_cal_xklen_differs ();
+          cal_padx_comp_var_unfold fcl_rel pabot
+            (PV (FI (xklen (cal_kkL (fpv FU)))))
+            (PV (FI (xklen (cal_kkR (fpv FU))))) ();
+          lemma_cal_pvar_int_unrelated pabot 3 2)
+
+(** The antecedent of `padx_apply_pres` is TRUE at the witness the refutation
+    instantiates it at, so the refutation bites on a real instance. *)
+let guard_cal_hyp_inhabited ()
+  : Lemma (pawf pabot /\ pclrel fcl_rel pabot.aw FEcho FEcho /\
+           pvals_rel pabot.aw ([] <: list (pval fv)) ([] <: list (pval fv)) /\
+           padx_fn_at fcl_rel pabot cal_kkL cal_kkR)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_cal_cap_pakrel pabot;
+    lemma_padx_kont_fn_at fcl_rel pabot padx_g_capR padx_g_capR
+
+(* ---- STEP 3: BOTH satisfy the allocation-aware apply condition ---- *)
+
+let rec cal_paframes_length (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+    (a b: pstack v cl)
+  : Lemma (requires n >= 1 /\ paframes_rel r n s a b)
+          (ensures length a == length b)
+          (decreases a)
+  = match a, b with
+    | [], [] -> ()
+    | _ :: t1, _ :: t2 -> cal_paframes_length r n s t1 t2
+    | _, _ -> ()
+
+let cal_pakrel_length (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (a b: pstack v cl)
+  : Lemma (requires pakrel r s a b) (ensures length a == length b)
+  = pakrel_unfold r s a b ();
+    cal_paframes_length r 1 s a b
+
+let cal_pacrel_splice_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2) (ensures PSplice? c1 == PSplice? c2)
+  = pacrel_unfold r s c1 c2 ();
+    assert (pacomp_rel r 1 s c1 c2)
+
+let cal_xklen_pa (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2) (ensures xklen c1 == xklen c2)
+  = cal_pacrel_splice_shape r s c1 c2;
+    match c1, c2 with
+    | PSplice fs1 b1, PSplice fs2 b2 ->
+      lemma_pacrel_splice_inv r s fs1 fs2 b1 b2;
+      cal_pakrel_length r s fs1 fs2
+    | _, _ -> ()
+
+let lemma_cal_xapply2_pa_at (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+      (k1 k2: pval fv -> pcomp fv fcl)
+  : Lemma (requires pwf_world s.aw /\ pafn_rel_at fcl_rel s k1 k2)
+          (ensures pacrel fcl_rel s (xapply2 c1 p1 k1) (xapply2 c2 p2 k2))
+  = assert (pval_rel #fv s.aw (fpv FU) (fpv FU));
+    lemma_pafn_at_self fcl_rel s k1 k2 (fpv FU) (fpv FU);
+    cal_xklen_pa fcl_rel s (k1 (fpv FU)) (k2 (fpv FU));
+    lemma_pacrel_var_at #fv #fcl fcl_rel s (PV (FI (xklen (k1 (fpv FU)))))
+                                           (PV (FI (xklen (k2 (fpv FU)))))
+
+let lemma_cal_xapply2_paequivariant () : Lemma (paapply_equivariant fcl_rel xapply2)
+  = introduce forall (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (k1 k2: pval fv -> pcomp fv fcl).
+      (pwf_world s.aw /\ pclrel fcl_rel s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+       pafn_rel_at fcl_rel s k1 k2 ==>
+       pacrel fcl_rel s (xapply2 c1 p1 k1) (xapply2 c2 p2 k2))
+    with (introduce _ ==> _ with lemma_cal_xapply2_pa_at s c1 c2 p1 p2 k1 k2)
+
+(** **THE SEPARATION, IN ONE STATEMENT.** *)
+let guard_cal_separation ()
+  : Lemma (papply_equivariant fcl_rel xapply /\ papply_equivariant fcl_rel xapply2 /\
+           paapply_equivariant fcl_rel xapply /\ paapply_equivariant fcl_rel xapply2 /\
+           padx_apply_pres fcl_rel xapply /\ ~(padx_apply_pres fcl_rel xapply2))
+  = lemma_xapply_equivariant ();
+    lemma_xapply2_equivariant ();
+    lemma_xapply_paequivariant ();
+    lemma_cal_xapply2_paequivariant ();
+    lemma_cal_xapply_padx_pres ();
+    lemma_cal_xapply2_not_padx_pres ()
+
+(* ---- STEP 4: the outputs, at REAL captured segments ---- *)
+
+let lemma_cal_xapply_on_konts (s: pastate) (cap1 cap2: pstack fv fcl)
+      (c1 c2: fcl) (p1 p2: list (pval fv))
+  : Lemma (requires pawf s /\ pakrel fcl_rel s cap1 cap2)
+          (ensures padx_comp fcl_rel s
+                     (xapply c1 p1 (pkont_of (PBindF (PVar #fv #fcl) :: cap1)))
+                     (xapply c2 p2 (pkont_of cap2)))
+  = lemma_fcl_rel_mono ();
+    lemma_padx_kont_fn_at fcl_rel s cap1 cap2;
+    lemma_cal_xapply_padx_at s c1 c2 p1 p2
+      (pkont_of (PBindF (PVar #fv #fcl) :: cap1)) (pkont_of cap2)
+
+let guard_cal_xapply_outputs_related (s: pastate) (p1 p2: list (pval fv))
+  : Lemma (requires pawf s)
+          (ensures pfind_prompt flook "Out" "o" padx_g_capkx
+                     == Some (padx_g_capL, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+                   pfind_prompt flook "Out" "o" padx_g_capk
+                     == Some (padx_g_capR, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+                   padx_comp fcl_rel s
+                     (xapply FWrap p1 (pkont_of padx_g_capL))
+                     (xapply FWrap p2 (pkont_of padx_g_capR)))
+  = guard_padx_capture_fires ();
+    lemma_cal_cap_pakrel s;
+    lemma_cal_xapply_on_konts s padx_g_capR padx_g_capR FWrap FWrap p1 p2
+
+(* ---- STEP 5: the actual PPerform step, one-step compatibility ---- *)
+
+let lemma_cal_scopef_pakrel (s: pastate)
+  : Lemma (pakrel fcl_rel s ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl))
+  = introduce forall (n: nat).
+      paframes_rel fcl_rel n s ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl)
+    with ()
+
+let cal_cfL (payload: list (pval fv)) (sto: pstore fv fcl) (n0: nat) : pconf fv fcl =
+  { st = PStep (PPerform "Out" "o" payload) padx_g_capkx; store = sto; next = n0 }
+let cal_cfR (payload: list (pval fv)) (sto: pstore fv fcl) (n0: nat) : pconf fv fcl =
+  { st = PStep (PPerform "Out" "o" payload) padx_g_capk; store = sto; next = n0 }
+
+let cal_outL (payload: list (pval fv)) (sto: pstore fv fcl) (n0: nat) : pconf fv fcl =
+  { st = PStep (xapply FWrap payload (pkont_of padx_g_capL))
+               ([PScopeF] <: pstack fv fcl);
+    store = sto; next = n0 }
+let cal_outR (payload: list (pval fv)) (sto: pstore fv fcl) (n0: nat) : pconf fv fcl =
+  { st = PStep (xapply FWrap payload (pkont_of padx_g_capR))
+               ([PScopeF] <: pstack fv fcl);
+    store = sto; next = n0 }
+
+(** **THE TWO TRANSITIONS THE MACHINE ACTUALLY TAKES.** *)
+let lemma_cal_perform_steps (payload: list (pval fv)) (sto: pstore fv fcl) (n0: nat)
+  : Lemma (pstep_tr flook xapply (cal_cfL payload sto n0)
+             == (cal_outL payload sto n0, ([] <: list string)) /\
+           pstep_tr flook xapply (cal_cfR payload sto n0)
+             == (cal_outR payload sto n0, ([] <: list string)))
+  = guard_padx_capture_fires ();
+    lemma_padx_perform_left flook xapply "Out" "o" payload padx_g_capk
+      padx_g_capR ([PScopeF] <: pstack fv fcl) (fclause FWrap) sto n0;
+    lemma_padx_perform_right flook xapply "Out" "o" payload padx_g_capk
+      padx_g_capR ([PScopeF] <: pstack fv fcl) (fclause FWrap) sto n0
+
+(** **WEAK ONE-STEP COMPATIBILITY AT `PPerform`, FOR `xapply`.** The source pair
+    is `padx_st`-joined -- the same redex, and the left stack is the right's with
+    the identity frame on top. One transition on each side, the empty trace on
+    both, store and counter untouched: the two successors carry `padx_comp`-joined
+    computations over `pakrel`-joined ambient stacks. *)
+let lemma_cal_perform_one_step (s: pastate) (payload: list (pval fv))
+      (sto: pstore fv fcl) (n0: nat)
+  : Lemma (requires pawf s /\ pvals_rel s.aw payload payload)
+          (ensures
+            padx_st fcl_rel s (cal_cfL payload sto n0).st (cal_cfR payload sto n0).st /\
+            pstep_tr flook xapply (cal_cfL payload sto n0)
+              == (cal_outL payload sto n0, ([] <: list string)) /\
+            pstep_tr flook xapply (cal_cfR payload sto n0)
+              == (cal_outR payload sto n0, ([] <: list string)) /\
+            (cal_outL payload sto n0).store == sto /\
+            (cal_outL payload sto n0).next == n0 /\
+            (cal_outR payload sto n0).store == sto /\
+            (cal_outR payload sto n0).next == n0 /\
+            padx_comp fcl_rel s (PStep?.c (cal_outL payload sto n0).st)
+                                (PStep?.c (cal_outR payload sto n0).st) /\
+            pakrel fcl_rel s (PStep?.k (cal_outL payload sto n0).st)
+                             (PStep?.k (cal_outR payload sto n0).st))
+  = lemma_cal_perform_steps payload sto n0;
+    guard_cal_xapply_outputs_related s payload payload;
+    lemma_cal_scopef_pakrel s;
+    lemma_cal_cap_pakrel s;
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n s (PPerform "Out" "o" payload) (PPerform "Out" "o" payload)
+    with ();
+    introduce forall (n: nat). padx_top fcl_rel n s padx_g_capkx padx_g_capk
+    with (pakrel_unfold fcl_rel s padx_g_capR padx_g_capR ();
+          lemma_cal_scopef_pakrel s;
+          pakrel_unfold fcl_rel s ([PScopeF] <: pstack fv fcl)
+                                  ([PScopeF] <: pstack fv fcl) ())
+
+(** The step-5 guard, FIRED at a concrete instance, so the compatibility is not
+    a statement about an antecedent nothing satisfies. *)
+let guard_cal_perform_one_step_fires ()
+  : Lemma (padx_st fcl_rel pabot
+             (cal_cfL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0).st
+             (cal_cfR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0).st /\
+           pstep_tr flook xapply (cal_cfL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0)
+             == (cal_outL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0,
+                 ([] <: list string)) /\
+           pstep_tr flook xapply (cal_cfR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0)
+             == (cal_outR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0,
+                 ([] <: list string)) /\
+           padx_comp fcl_rel pabot
+             (PStep?.c (cal_outL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0).st)
+             (PStep?.c (cal_outR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0).st) /\
+           ~(cal_cfL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0
+             == cal_cfR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0))
+  = lemma_pabot_wf ();
+    lemma_cal_perform_one_step pabot ([] <: list (pval fv)) ([] <: pstore fv fcl) 0;
+    assert_norm (length padx_g_capkx == 4);
+    assert_norm (length padx_g_capk == 3)
+
+(* ---- STEP 6: WITH THE CONDITION DROPPED, `xapply2` OBSERVES IT ---- *)
+
+let cal_x2L : pconf fv fcl = cal_cfL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0
+let cal_x2R : pconf fv fcl = cal_cfR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0
+
+let cal_x2_stoL : pstore fv fcl = [(0, PCtxDone (PV (FI 3)))]
+let cal_x2_stoR : pstore fv fcl = [(0, PCtxDone (PV (FI 2)))]
+
+(** **THE OBSERVATION.** Both runs terminate in three transitions with the empty
+    trace and answer with the SAME handle -- and the residuals that handle names
+    are DIFFERENT, by exactly the length of the captured segment. Under `xapply`
+    the two runs are LITERALLY THE SAME RUN. *)
+let guard_cal_xapply2_observes ()
+  : Lemma (prun flook xapply2 3 cal_x2L
+             == (({ st = PDone (PCtxKey 0); store = cal_x2_stoL; next = 1 } <: pconf fv fcl),
+                 ([] <: list string)) /\
+           prun flook xapply2 3 cal_x2R
+             == (({ st = PDone (PCtxKey 0); store = cal_x2_stoR; next = 1 } <: pconf fv fcl),
+                 ([] <: list string)) /\
+           ~(prun flook xapply2 3 cal_x2L == prun flook xapply2 3 cal_x2R) /\
+           prun flook xapply 20 cal_x2L == prun flook xapply 20 cal_x2R /\
+           PDone? (fst (prun flook xapply 20 cal_x2L)).st)
+  = assert_norm (prun flook xapply2 3 cal_x2L
+                 == (({ st = PDone (PCtxKey 0); store = cal_x2_stoL; next = 1 } <: pconf fv fcl),
+                     ([] <: list string)));
+    assert_norm (prun flook xapply2 3 cal_x2R
+                 == (({ st = PDone (PCtxKey 0); store = cal_x2_stoR; next = 1 } <: pconf fv fcl),
+                     ([] <: list string)));
+    assert_norm (~(cal_x2_stoL == cal_x2_stoR));
+    assert_norm (prun flook xapply 20 cal_x2L == prun flook xapply 20 cal_x2R);
+    assert_norm (PDone? (fst (prun flook xapply 20 cal_x2L)).st)
+
+(** **AND THE DIFFERENCE IS A BREACH OF THE STORE RELATION.** At any state whose
+    world couples the two allocated handles -- which is the state the allocating
+    transition moves to -- the two final stores are NOT `pasrel`. *)
+let guard_cal_x2_stores_unrelated (s: pastate)
+  : Lemma (requires pwlookup_l 0 s.aw == Some 0)
+          (ensures ~(pasrel fcl_rel s cal_x2_stoL cal_x2_stoR))
+  = introduce pasrel fcl_rel s cal_x2_stoL cal_x2_stoR ==> False
+    with (pasrel_unfold fcl_rel s cal_x2_stoL cal_x2_stoR ();
+          assert_norm (psget 0 cal_x2_stoL == PCtxDone (PV #fv (FI 3)));
+          assert_norm (psget 0 cal_x2_stoR == PCtxDone (PV #fv (FI 2)));
+          paxrel_unfold fcl_rel s (psget 0 cal_x2_stoL) (psget 0 cal_x2_stoR) ();
+          assert (pactx_rel fcl_rel 1 s (psget 0 cal_x2_stoL) (psget 0 cal_x2_stoR)))
+
+let guard_cal_x2_stores_unrelated_fires ()
+  : Lemma (pawf (paalloc pabot) /\ pwlookup_l 0 (paalloc pabot).aw == Some 0 /\
+           ~(pasrel fcl_rel (paalloc pabot) cal_x2_stoL cal_x2_stoR))
+  = lemma_pabot_wf ();
+    lemma_paext_of_alloc pabot;
+    guard_cal_x2_stores_unrelated (paalloc pabot)
+
+(* ================================================================== *)
+(*  B2c STAGE 3 LEDGER                                                 *)
+(*                                                                     *)
+(*  THE QUESTION THE STAGE WAS OPENED TO ADJUDICATE, AND THE ANSWER.   *)
+(*  Does `padx_apply_pres` DISCRIMINATE?  **YES**, and cleanly:        *)
+(*   - `lemma_cal_xapply_padx_pres` -- the ordinary higher-order       *)
+(*     interpreter `xapply` SATISFIES it.  PROVED.  So the condition   *)
+(*     is not too strong for an interpreter that applies its           *)
+(*     continuation and wraps the result: `xapply` reads the           *)
+(*     continuation AT the state it already stands on                  *)
+(*     (`cal_padx_fn_self`, which is `lemma_pafn_at_self` transposed   *)
+(*     to `padx_fn_at`), and hands the administrative difference       *)
+(*     straight through the `PEnterCtx` node, which is exactly the     *)
+(*     clause `padx_comp` is transparent at.                           *)
+(*   - `lemma_cal_xapply2_not_padx_pres` -- the MEASURING interpreter  *)
+(*     `xapply2` does NOT.  REFUTED, at the REAL captured segment:     *)
+(*     the two continuations are `pkont_of (PBindF PVar :: cap)` and   *)
+(*     `pkont_of cap` at `cap = padx_g_capR`, the segment              *)
+(*     `pfind_prompt flook "Out" "o"` actually returns                 *)
+(*     (`guard_padx_capture_fires`).  Their hypothesis side is         *)
+(*     discharged by `lemma_padx_kont_fn_at`                           *)
+(*     (`guard_cal_hyp_inhabited` records that the whole antecedent is *)
+(*     TRUE at the witness, so the refutation bites on a real          *)
+(*     instance), and the conclusion fails because `xapply2` answers   *)
+(*     `PVar (PV (FI 3))` on the left against `PVar (PV (FI 2))` on    *)
+(*     the right -- `guard_cal_xklen_differs` -- and                   *)
+(*     `lemma_cal_pvar_int_unrelated` sends that pair to `False` at    *)
+(*     index 1.                                                        *)
+(*                                                                     *)
+(*  AND THE SEPARATION IS ATTRIBUTABLE TO THE ADMINISTRATIVE           *)
+(*  CONDITION ALONE.  `guard_cal_separation` states all six facts      *)
+(*  together: BOTH interpreters satisfy `papply_equivariant` (already  *)
+(*  in the file) and BOTH satisfy `paapply_equivariant`               *)
+(*  (`lemma_xapply_paequivariant` already in the file;                 *)
+(*  `lemma_cal_xapply2_paequivariant` is new and PROVED here, on       *)
+(*  `cal_xklen_pa`: related computations have the same `PSplice`       *)
+(*  head shape, related frame lists have equal length, so `xklen` is   *)
+(*  an INVARIANT of `pacrel`).  Equivariance does not see the          *)
+(*  difference because the two segments there are RELATED and so of    *)
+(*  EQUAL length; the administrative relation is the one under which   *)
+(*  they differ by a frame, and it is the only condition that refuses  *)
+(*  `xapply2`.                                                         *)
+(*                                                                     *)
+(*  PROVED.                                                            *)
+(*   1. `lemma_cal_xapply_padx_at`, `lemma_cal_xapply_padx_pres`.      *)
+(*   2. `lemma_cal_xapply2_not_padx_pres`, on real captured segments.  *)
+(*   3. `lemma_cal_xapply2_paequivariant`, `guard_cal_separation`.     *)
+(*   4. `lemma_cal_xapply_on_konts` -- `xapply`'s two outputs ARE      *)
+(*      `padx_comp`-joined whenever the two captured segments are      *)
+(*      `pakrel`-joined and the left is the right with the identity    *)
+(*      frame consed on -- and `guard_cal_xapply_outputs_related`,     *)
+(*      which fires it at `padx_g_capR`/`padx_g_capL`, the segments    *)
+(*      `pfind_prompt` returns, with the clause `FWrap` the search     *)
+(*      actually found.                                                *)
+(*   5. `lemma_cal_perform_steps` -- the two `PPerform` transitions    *)
+(*      the machine takes, via `lemma_padx_perform_left`/`_right` --   *)
+(*      and `lemma_cal_perform_one_step`, WEAK ONE-STEP COMPATIBILITY  *)
+(*      AT `PPerform`: the source pair is `padx_st`-joined, one        *)
+(*      transition on each side, empty trace on both, store and        *)
+(*      counter untouched, and the two successors carry               *)
+(*      `padx_comp`-joined computations over `pakrel`-joined ambient   *)
+(*      stacks.  `guard_cal_perform_one_step_fires` runs it at a       *)
+(*      concrete configuration and records that the two sources are    *)
+(*      DISTINCT, four frames against three.                           *)
+(*   6. `guard_cal_xapply2_observes` -- THE OBSERVATION.  From the two *)
+(*      `padx_st`-joined configurations, `xapply2` runs to completion  *)
+(*      in three transitions on each side with the empty trace, both   *)
+(*      answering with the SAME handle `PCtxKey 0` and the SAME        *)
+(*      counter -- and the residual that handle names is               *)
+(*      `PCtxDone (PV (FI 3))` on the left against                     *)
+(*      `PCtxDone (PV (FI 2))` on the right.  The two runs are         *)
+(*      therefore DIFFERENT.  Under `xapply` they are LITERALLY THE    *)
+(*      SAME RUN -- `prun flook xapply 20` on the two sides is one     *)
+(*      equality -- and both reach a `PDone`.                          *)
+(*      `guard_cal_x2_stores_unrelated` turns the difference into the  *)
+(*      breach it is: at any state whose world couples the two         *)
+(*      allocated handles the two final stores are NOT `pasrel`, and   *)
+(*      `guard_cal_x2_stores_unrelated_fires` runs that at             *)
+(*      `paalloc pabot`, which is the state the allocating transition  *)
+(*      moves to.  So `padx_apply_pres` is a genuinely NECESSARY       *)
+(*      semantic boundary condition and not a proof convenience:       *)
+(*      drop it and an interpreter that passes every other condition   *)
+(*      in the file turns a difference of ONE ADMINISTRATIVE FRAME     *)
+(*      into a difference in the PUBLIC STORE.                         *)
+(*                                                                     *)
+(*  NOT ATTEMPTED, AND NOT CLAIMED.  The whole-dispatcher weak         *)
+(*  simulation for `padx_cf`; the general-`c` step preservation; any   *)
+(*  claim about interpreters other than `xapply` and `xapply2`; any    *)
+(*  claim that `padx_apply_pres` SUFFICES for the `perform` branch --  *)
+(*  what is proved here is that it holds of one ordinary interpreter,  *)
+(*  refuses one measuring one, and that nothing weaker in the file     *)
+(*  refuses the latter.                                                *)
+(*                                                                     *)
+(*  WHAT FIRES, AND THE ABLATIONS RUN.  Claiming                       *)
+(*  `padx_apply_pres fcl_rel xapply2` HOLDS FAILS; claiming            *)
+(*  `~(padx_apply_pres fcl_rel xapply)` FAILS; claiming the two        *)
+(*  `xklen`s AGREE FAILS; claiming the two `xapply2` runs AGREE FAILS; *)
+(*  claiming the two final stores ARE `pasrel` FAILS; claiming the two *)
+(*  `xapply` runs DIFFER FAILS; claiming `padx_st` at the SWAPPED pair *)
+(*  FAILS; claiming the two `PVar` answers are `pacrel` FAILS;         *)
+(*  claiming `xapply2`'s two outputs are `padx_comp` FAILS.            *)
+(*                                                                     *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `#push-options`, no `#set-options`, no *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)
