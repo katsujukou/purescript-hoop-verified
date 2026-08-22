@@ -41368,3 +41368,1061 @@ let guard_arx_detour_is_genuine ()
 (*  and no resource-limit or option pragma is issued.  Every proof     *)
 (*  above runs at the file's default settings.                        *)
 (* ================================================================== *)
+(* ================================================================== *)
+(*  B2c STAGE 2: THE ENCLOSED COMPUTATION RUNS, AND THE LEFT CARRIES   *)
+(*  ONE EXTRA `PBindF PVar`                                            *)
+(*                                                                     *)
+(*  Stage 1 settled the minimal redex: `POp (PVar x) PVar` reaches      *)
+(*  `PVar x` in two steps against zero, for every interpreter, ambient  *)
+(*  stack, store, counter and value.  This stage asks what happens      *)
+(*  ONCE THE ENCLOSED COMPUTATION ACTUALLY RUNS.  After the left's      *)
+(*  first transition the two sides differ not only in the head of the   *)
+(*  computation but IN THE STACK: the left carries an extra             *)
+(*  `PBindF PVar`, and that frame is not control state the moment       *)
+(*  `PPerform` captures it -- it becomes DATA handed to `apply`.        *)
+(*                                                                     *)
+(*  WHAT WAS LOOKED FOR FIRST, AND WHAT WAS FOUND.  `padm_stack` is a   *)
+(*  mode-indexed administrative stack relation whose `PBindF` clause    *)
+(*  has a FUSION disjunct -- `PBindF f1 :: PBindF g1 :: t1'` against    *)
+(*  `PBindF h2 :: t2` -- which is structurally the "left is one frame   *)
+(*  longer" shape.  IT DOES NOT COVER THIS CASE, and the section below  *)
+(*  REFUTES the reading that it does, naming the conjunct that fails.   *)
+(*  So the stack relation had to be new; everything else --             *)
+(*  `paframes_rel`, `pacrel`, `pakrel`, `pasrel`, `pacfrel`, `paalloc`, *)
+(*  `lemma_pasrel_alloc` -- transposed unchanged.                       *)
+(* ================================================================== *)
+
+(* ---- B2c STAGE 2, PART A: THE ADJUDICATION OF THE FUSION CLAUSE ---- *)
+
+(**
+ * **The conjunct that fails.** PROVED, as a refutation, at `w = []` and at step
+ * index 1, with `r` and the two type parameters arbitrary and one value `a: v`
+ * supplied only so that a related pair of values exists to instantiate with.
+ *
+ * `padm_stack`'s fusion disjunct discharges the fused frame with the PLAIN
+ * `pframe_rel`. With the upper function instantiated to `PVar` the fused frame
+ * is `PBindF (fun x -> pbind (PVar x) g1)`, and `pbind c f` is `POp c f`, so
+ * the obligation is to relate `POp (PVar y1) g1` to `g1 y2` under `pcomp_rel`.
+ * At `g1 = PVar` the right-hand side is `PVar y2`, and `pcomp_rel` matches on
+ * the pair of head constructors: `POp` against `PVar` is the `_, _ -> False`
+ * clause. That is the administrative unit the plain relation does not admit,
+ * and it is exactly the unit stage 1 had to spend two transitions on.
+ *
+ * The witness is supplied explicitly, as an existential goal needs: the world
+ * `[]`, which is `pwf_world` and extends itself, and the pair `PV a, PV a`.
+ *)
+let guard_padx_fused_frame_unrelated (#v #cl: Type) (r: pcl_rel_t cl) (a: v)
+  : Lemma (~(pframe_rel r 1 ([] <: pworld)
+               (PBindF (fun (x: pval v) -> pbind (PVar #v #cl x) (PVar #v #cl))
+                 <: pframe v cl)
+               (PBindF (PVar #v #cl) <: pframe v cl)))
+  = introduce pframe_rel r 1 ([] <: pworld)
+                (PBindF (fun (x: pval v) -> pbind (PVar #v #cl x) (PVar #v #cl))
+                  <: pframe v cl)
+                (PBindF (PVar #v #cl) <: pframe v cl) ==> False
+    with begin
+      assert (pwf_world ([] <: pworld));
+      assert (pwext ([] <: pworld) ([] <: pworld));
+      assert (pval_rel #v ([] <: pworld) (PV a) (PV a));
+      assert (pcomp_rel r 1 ([] <: pworld)
+                (pbind (PVar #v #cl (PV a)) (PVar #v #cl))
+                (PVar #v #cl (PV a)))
+    end
+
+(**
+ * **The fusion clause does not even FIRE against an empty right-hand stack.**
+ * PROVED, at every step index, every world, every mode and both marker regimes.
+ * The fusion disjunct needs a `PBindF` at the head of BOTH the left's tail and
+ * the right; with the right empty there is nothing to fuse against, and the
+ * frame-for-frame disjunct needs a right-hand frame it does not have. So the
+ * shortest instance of the shape this stage is about -- one identity frame
+ * against nothing -- is refused for a STRUCTURAL reason, before any conjunct is
+ * reached.
+ *)
+let guard_padx_fusion_misses_empty (#v #cl: Type) (r: pcl_rel_t cl)
+    (m: weave_mode) (sh: bool) (n: nat) (w: pworld)
+  : Lemma (~(padm_stack r m sh n w
+               ([PBindF (PVar #v #cl)] <: pstack v cl)
+               ([] <: pstack v cl)))
+  = ()
+
+(**
+ * **And where the fusion clause DOES fire structurally, its frame conjunct is
+ * the one that fails.** PROVED, as a refutation.
+ *
+ * `[PBindF PVar; PBindF PVar]` against `[PBindF PVar]` is the smallest stack
+ * pair in which the left is `PBindF PVar :: k` for a NONEMPTY `k` whose head is
+ * itself a `PBindF` -- so the fusion disjunct's structural side is satisfied on
+ * the nose, `t1'` and `t2` are both `[]`, and the residual obligation is the
+ * single frame conjunct refuted above. The frame-for-frame disjunct fails too,
+ * and for the reason `guard_padx_fusion_misses_empty` gives: it would demand
+ * `[PBindF PVar]` against `[]` one level down.
+ *
+ * SO THE ANSWER TO THE QUESTION THE GATE POSED IS **NO**: the fusion clause
+ * does not cover `PBindF PVar :: k` against `k`, and the conjunct that fails is
+ *
+ *     pframe_rel r n w (PBindF (fun x -> pbind (f1 x) g1)) (PBindF h2)
+ *
+ * -- the fused frame, discharged by the PLAIN frame relation.
+ *)
+let guard_padx_fusion_conjunct_fails (#v #cl: Type) (r: pcl_rel_t cl) (a: v)
+    (m: weave_mode) (sh: bool)
+  : Lemma (~(padm_stack r m sh 1 ([] <: pworld)
+               ([PBindF (PVar #v #cl); PBindF (PVar #v #cl)] <: pstack v cl)
+               ([PBindF (PVar #v #cl)] <: pstack v cl)))
+  = guard_padx_fused_frame_unrelated #v #cl r a
+
+(* ---- B2c STAGE 2, PART B: THE RELATION (STEP 1) ------------------- *)
+
+(**
+ * **The extra frame ON TOP.** This is the phase the whole stage is about: the
+ * left has just pushed `PBindF PVar` and the value has not yet met it, so the
+ * identity frame is the head of the left's stack and everything beneath it is
+ * related to the whole of the right's stack FRAME FOR FRAME, by `paframes_rel`
+ * -- the allocation-indexed relation, unchanged.
+ *
+ * Note what is NOT said: nothing here relates `PBindF PVar` to anything. The
+ * frame is DELETED, and the deletion is sound because the frame is the
+ * identity, which is a fact about `pstep`'s `PBindF` rule and not about the
+ * relation. The refutation above is why it has to be said this way: `pframe_rel`
+ * cannot express it.
+ *)
+let padx_top (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+             (k1 k2: pstack v cl) : GTot prop
+  = match k1 with
+    | PBindF f :: t1 -> f == PVar #v #cl /\ paframes_rel r n s t1 k2
+    | _ -> False
+
+let padx_ktop (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+              (k1 k2: pstack v cl) : GTot prop
+  = forall (n: nat). padx_top r n s k1 k2
+
+let padx_ktop_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (k1 k2: pstack v cl) (h: squash (padx_ktop r s k1 k2))
+  : squash (forall (n: nat). padx_top r n s k1 k2)
+  = h
+
+(**
+ * **The extra frame AT SOME DEPTH**, which is what the phase becomes as soon as
+ * a `POp` pushes above it. The clauses are `padm_stack`'s two `PBindF`
+ * disjuncts with the fusion one REPLACED by deletion, and the `[]` clause is
+ * `False` because the left is strictly longer -- one frame, exactly.
+ *)
+let rec padx_stack (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                   (k1 k2: pstack v cl) : GTot prop (decreases k1)
+  = match k1 with
+    | [] -> False
+    | PBindF f :: t1 ->
+      (f == PVar #v #cl /\ paframes_rel r n s t1 k2)
+      \/
+      (match k2 with
+       | f2 :: t2 -> paframe_rel r n s (PBindF f) f2 /\ padx_stack r n s t1 t2
+       | [] -> False)
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 -> paframe_rel r n s f1 f2 /\ padx_stack r n s t1 t2
+       | [] -> False)
+
+let padx_k (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+           (k1 k2: pstack v cl) : GTot prop
+  = forall (n: nat). padx_stack r n s k1 k2
+
+let lemma_padx_top_is_stack (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                            (k1 k2: pstack v cl)
+  : Lemma (requires padx_top r n s k1 k2) (ensures padx_stack r n s k1 k2)
+  = ()
+
+let lemma_padx_ktop_is_k (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (k1 k2: pstack v cl)
+  : Lemma (requires padx_ktop r s k1 k2) (ensures padx_k r s k1 k2)
+  = padx_ktop_unfold r s k1 k2 ();
+    introduce forall (n: nat). padx_stack r n s k1 k2
+    with lemma_padx_top_is_stack r n s k1 k2
+
+(**
+ * **Computations that differ by exactly one captured identity frame.** This is
+ * `padm_comp` transposed: transparent at the three nodes that carry a stack or
+ * a body a captured segment can be reached through, and the PLAIN `pacrel`
+ * everywhere else. `PSplice` is where the difference is discharged -- the frame
+ * lists are `padx_ktop`, the BODIES are plain `pacrel`, because the one extra
+ * frame is accounted for once and in the frames. `paplrel` is REUSED, not
+ * restated: it is already in the file, at the same definition.
+ *)
+let rec padx_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (c1 c2: pcomp v cl) : GTot prop (decreases c1)
+  = match c1 with
+    | PSplice fs1 b1 ->
+      (match c2 with
+       | PSplice fs2 b2 -> padx_ktop r s fs1 fs2 /\ pacrel r s b1 b2
+       | _ -> False)
+    | PEnterCtx pl1 b1 ->
+      (match c2 with
+       | PEnterCtx pl2 b2 -> paplrel r s pl1 pl2 /\ padx_comp r s b1 b2
+       | _ -> False)
+    | PEmit e1 b1 ->
+      (match c2 with
+       | PEmit e2 b2 -> e1 == e2 /\ padx_comp r s b1 b2
+       | _ -> False)
+    | _ -> pacrel r s c1 c2
+
+(**
+ * **THE CONFIGURATION RELATION, AND IT IS ALLOCATION-AWARE.** The state clause
+ * is `PStep` against `PStep` and NOTHING ELSE: the intermediate phase is a
+ * phase of a RUNNING machine, and a left that has halted while carrying an
+ * unconsumed frame is not a configuration this relation should admit.
+ *
+ * The store conjunct is `pasrel` and the two counters are PINNED to the two
+ * frontiers of `s`, verbatim as `pacfrel` pins them. That is the whole of
+ * "allocation-aware": the state `s` is not a passive index, it IS the pair of
+ * allocation frontiers the two configurations have reached, so an allocating
+ * transition has exactly one successor state to move to and `paalloc` names it.
+ * `pawf s` is carried inside rather than left to callers, so the relation is
+ * self-contained.
+ *
+ * WHAT IS REUSED AND WHAT IS NEW. Reused, unchanged: `pacrel`, `paframes_rel`,
+ * `pakrel`, `pasrel`, `pawf`, `paext`, `paalloc`, and `pacfrel` itself, which
+ * is what the two sides land in once the frame is gone. New: `padx_top` /
+ * `padx_ktop` / `padx_stack` -- because of the refutation in part A -- and
+ * `padx_st` / `padx_cf` / `padx_comp` built on them.
+ *)
+let padx_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+            (st1 st2: pstate v cl) : GTot prop
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ padx_ktop r s k1 k2
+    | _, _ -> False
+
+let padx_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+            (cf1 cf2: pconf v cl) : GTot prop
+  = pawf s /\ padx_st r s cf1.st cf2.st /\ pasrel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+let padx_cf_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (cf1 cf2: pconf v cl) (h: squash (padx_cf r s cf1 cf2))
+  : squash (pawf s /\ padx_st r s cf1.st cf2.st /\ pasrel r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+let padx_st_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (st1 st2: pstate v cl) (h: squash (padx_st r s st1 st2))
+  : squash (match st1, st2 with
+            | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ padx_ktop r s k1 k2
+            | _, _ -> False)
+  = h
+
+(** **The relation is not vacuous, and it is not `pacfrel`.** PROVED, at one
+    stack pair: a left `[PBindF PVar]` is `padx_ktop` to the empty right, and is
+    NOT `pakrel` to it, so the two relations are genuinely different and the new
+    one is inhabited. *)
+let guard_padx_ktop_is_not_pakrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (padx_ktop r s ([PBindF (PVar #v #cl)] <: pstack v cl) ([] <: pstack v cl) /\
+           ~(pakrel r s ([PBindF (PVar #v #cl)] <: pstack v cl) ([] <: pstack v cl)))
+  = introduce pakrel r s ([PBindF (PVar #v #cl)] <: pstack v cl)
+                        ([] <: pstack v cl) ==> False
+    with (pakrel_unfold r s ([PBindF (PVar #v #cl)] <: pstack v cl)
+                            ([] <: pstack v cl) ();
+          assert (paframes_rel r 1 s ([PBindF (PVar #v #cl)] <: pstack v cl)
+                                     ([] <: pstack v cl)))
+
+(* ---- B2c STAGE 2, PART C: THE FRAME DISAPPEARS EXACTLY AT `PVar` --- *)
+
+(** **The one transition that consumes it.** PROVED, at an arbitrary `lk`,
+    `apply`, value, ambient stack, store and counter, over `pstep_tr` so that the
+    empty trace is part of the statement. It is stage 1's second step, read at an
+    arbitrary tail. *)
+let lemma_padx_pvar_pops (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (t1: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep_tr lk apply
+             ({ st = PStep (PVar x) (PBindF (PVar #v #cl) :: t1);
+                store = sto; next = n0 } <: pconf v cl)
+           == (({ st = PStep (PVar x) t1; store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = lemma_arx_step2 lk apply x t1 sto n0
+
+(** **And the two sides are then joined by the PLAIN relation.** PROVED. This is
+    the statement that makes "the frame disappears" a fact about the RELATION and
+    not only about the stack: the successor of the left and the UNMOVED right are
+    `pacfrel` at the SAME state `s` -- same world, same frontiers. *)
+let lemma_padx_pvar_joins (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (t1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires padx_cf r s
+                      ({ st = PStep (PVar x1) (PBindF (PVar #v #cl) :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures pawf s /\
+                   pacfrel r s
+                     ({ st = PStep (PVar x1) t1;
+                        store = sto1; next = s.an1 } <: pconf v cl)
+                     ({ st = PStep (PVar x2) k2;
+                        store = sto2; next = s.an2 } <: pconf v cl))
+  = padx_cf_unfold r s
+      ({ st = PStep (PVar x1) (PBindF (PVar #v #cl) :: t1);
+         store = sto1; next = s.an1 } <: pconf v cl)
+      ({ st = PStep (PVar x2) k2; store = sto2; next = s.an2 } <: pconf v cl) ();
+    padx_st_unfold r s
+      (PStep (PVar x1) (PBindF (PVar #v #cl) :: t1) <: pstate v cl)
+      (PStep (PVar x2) k2 <: pstate v cl) ();
+    padx_ktop_unfold r s
+      (PBindF (PVar #v #cl) :: t1 <: pstack v cl) k2 ();
+    assert (forall (n: nat). paframes_rel r n s t1 k2)
+
+(** **STEP 2's RESULT**: ONE step on the left against ZERO on the right, the
+    empty trace, store and counter untouched, and the two sides joined by
+    `pacfrel` at the same state. PROVED. *)
+let lemma_padx_pvar_step_and_join
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (t1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires padx_cf r s
+                      ({ st = PStep (PVar x1) (PBindF (PVar #v #cl) :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures (let cf1 : pconf v cl =
+                      { st = PStep (PVar x1) (PBindF (PVar #v #cl) :: t1);
+                        store = sto1; next = s.an1 } in
+                    let cf2 : pconf v cl =
+                      { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+                    let cf1' : pconf v cl =
+                      { st = PStep (PVar x1) t1; store = sto1; next = s.an1 } in
+                    prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+                    prun lk apply 0 cf2 == (cf2, ([] <: list string)) /\
+                    cf1'.store == cf1.store /\ cf1'.next == cf1.next /\
+                    pacfrel r s cf1' cf2))
+  = lemma_padx_pvar_pops lk apply x1 t1 sto1 s.an1;
+    lemma_padx_pvar_joins r s x1 x2 t1 k2 sto1 sto2
+
+(**
+ * **EXACTLY at `PVar`, and the other head nodes are what "exactly" is measured
+ * against.** PROVED, at arbitrary arguments. `PEmit` leaves the frame ON TOP;
+ * `POp` leaves it one deeper, under the frame it just pushed. Neither consumes
+ * it, and neither is a `PVar`.
+ *)
+let lemma_padx_emit_retains (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (e: string) (c: pcomp v cl) (t1: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep_tr lk apply
+             ({ st = PStep (PEmit e c) (PBindF (PVar #v #cl) :: t1);
+                store = sto; next = n0 } <: pconf v cl)
+           == (({ st = PStep c (PBindF (PVar #v #cl) :: t1);
+                  store = sto; next = n0 } <: pconf v cl), [e]))
+  = ()
+
+let lemma_padx_op_retains (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (c: pcomp v cl) (f: pval v -> pcomp v cl) (t1: pstack v cl)
+    (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep_tr lk apply
+             ({ st = PStep (POp c f) (PBindF (PVar #v #cl) :: t1);
+                store = sto; next = n0 } <: pconf v cl)
+           == (({ st = PStep c (PBindF f :: PBindF (PVar #v #cl) :: t1);
+                  store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = ()
+
+(* ---- B2c STAGE 2, PART D: `PEmit` (STEP 3) ------------------------ *)
+
+(** One unfolding of `pacrel` at a `PEmit` pair, in the direction the step needs:
+    the two events are equal and the two bodies are related. PROVED, by
+    instantiating the approximant quantifier at `n + 1`. *)
+let lemma_padx_emit_bodies (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (e1 e2: string) (b1 b2: pcomp v cl)
+  : Lemma (requires pacrel r s (PEmit e1 b1) (PEmit e2 b2))
+          (ensures e1 == e2 /\ pacrel r s b1 b2)
+  = pacrel_unfold r s (PEmit e1 b1) (PEmit e2 b2) ();
+    assert (pacomp_rel r 1 s (PEmit e1 b1) (PEmit e2 b2));
+    introduce forall (n: nat). pacomp_rel r n s b1 b2
+    with assert (pacomp_rel r (n + 1) s (PEmit e1 b1) (PEmit e2 b2))
+
+(**
+ * **STEP 3's RESULT: the same event, and the frame is RETAINED.** PROVED.
+ *
+ * Both sides take one step, both report a singleton trace, and the two traces
+ * are EQUAL -- stated as an equality of the two `snd`s and not merely as
+ * `e1 == e2`, so that it is a claim about what the instrument reported. The
+ * frame is still on top of the left afterwards, the store and the counter are
+ * untouched on both sides, and the two successors are `padx_cf` at the SAME
+ * state: the relation is preserved, not merely not-broken.
+ *)
+let lemma_padx_emit_couples
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (e1 e2: string) (b1 b2: pcomp v cl) (t1 k2: pstack v cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires padx_cf r s
+                      ({ st = PStep (PEmit e1 b1) (PBindF (PVar #v #cl) :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PEmit e2 b2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures (let cfL : pconf v cl =
+                      { st = PStep (PEmit e1 b1) (PBindF (PVar #v #cl) :: t1);
+                        store = sto1; next = s.an1 } in
+                    let cfR : pconf v cl =
+                      { st = PStep (PEmit e2 b2) k2; store = sto2; next = s.an2 } in
+                    let cfL' : pconf v cl =
+                      { st = PStep b1 (PBindF (PVar #v #cl) :: t1);
+                        store = sto1; next = s.an1 } in
+                    let cfR' : pconf v cl =
+                      { st = PStep b2 k2; store = sto2; next = s.an2 } in
+                    e1 == e2 /\
+                    pstep_tr lk apply cfL == (cfL', [e1]) /\
+                    pstep_tr lk apply cfR == (cfR', [e2]) /\
+                    snd (pstep_tr lk apply cfL) == snd (pstep_tr lk apply cfR) /\
+                    cfL'.store == cfL.store /\ cfL'.next == cfL.next /\
+                    cfR'.store == cfR.store /\ cfR'.next == cfR.next /\
+                    padx_ktop r s (PBindF (PVar #v #cl) :: t1) k2 /\
+                    padx_cf r s cfL' cfR'))
+  = padx_cf_unfold r s
+      ({ st = PStep (PEmit e1 b1) (PBindF (PVar #v #cl) :: t1);
+         store = sto1; next = s.an1 } <: pconf v cl)
+      ({ st = PStep (PEmit e2 b2) k2; store = sto2; next = s.an2 } <: pconf v cl) ();
+    padx_st_unfold r s
+      (PStep (PEmit e1 b1) (PBindF (PVar #v #cl) :: t1) <: pstate v cl)
+      (PStep (PEmit e2 b2) k2 <: pstate v cl) ();
+    lemma_padx_emit_bodies r s e1 e2 b1 b2
+
+(* ---- B2c STAGE 2, PART E: THE ALLOCATING RULE (STEP 4) ------------ *)
+
+(** The two transitions, read off. `PExtendCtxC` is the allocating rule the
+    intermediate phase reaches DIRECTLY -- the other one, `PScopeF` under a
+    value, is beneath the identity frame and is reached only after part C has
+    joined the two sides, at which point it is `pacfrel`'s business and not this
+    stage's. *)
+let lemma_padx_extendctxc_left
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (h: pval v) (g: pval v -> pcomp v cl)
+    (t1: pstack v cl) (sto: pstore v cl) (n0: nat) (cx: pctx v cl)
+  : Lemma (requires presolve sto h == Some cx)
+          (ensures pstep_tr lk apply
+                     ({ st = PStep (PExtendCtxC pl h g) (PBindF (PVar #v #cl) :: t1);
+                        store = sto; next = n0 } <: pconf v cl)
+                   == (({ st = PStep (PVar (PCtxKey n0)) (PBindF (PVar #v #cl) :: t1);
+                          store = (n0, extend_ctx_C pl cx g) :: sto;
+                          next = n0 + 1 } <: pconf v cl),
+                       ([] <: list string)))
+  = ()
+
+let lemma_padx_extendctxc_right
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (pl: plan v cl) (h: pval v) (g: pval v -> pcomp v cl)
+    (k2: pstack v cl) (sto: pstore v cl) (n0: nat) (cx: pctx v cl)
+  : Lemma (requires presolve sto h == Some cx)
+          (ensures pstep_tr lk apply
+                     ({ st = PStep (PExtendCtxC pl h g) k2;
+                        store = sto; next = n0 } <: pconf v cl)
+                   == (({ st = PStep (PVar (PCtxKey n0)) k2;
+                          store = (n0, extend_ctx_C pl cx g) :: sto;
+                          next = n0 + 1 } <: pconf v cl),
+                       ([] <: list string)))
+  = ()
+
+(** The two handles the two sides resolve are related, which is what makes the
+    allocation a COUPLED one rather than two independent ones. PROVED, from the
+    computation relation at step index 1. *)
+let lemma_padx_extendctxc_handles
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (pl1 pl2: plan v cl) (h1 h2: pval v) (g1 g2: pval v -> pcomp v cl)
+  : Lemma (requires pacrel r s (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2))
+          (ensures pval_rel s.aw h1 h2)
+  = pacrel_unfold r s (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2) ();
+    assert (pacomp_rel r 1 s (PExtendCtxC pl1 h1 g1) (PExtendCtxC pl2 h2 g2))
+
+(**
+ * **STEP 4's RESULT: ONE `paalloc`, and the ACTUAL store growth on both
+ * sides.** PROVED.
+ *
+ * The successor state is `paalloc s` and is named as such, not reconstructed:
+ * the two counters land on `(paalloc s).an1` and `(paalloc s).an2`, each is its
+ * predecessor PLUS ONE, the two stores are the two old stores with ONE entry
+ * consed at the two old frontiers, and the two fresh handles are `pval_rel` at
+ * the new world. The store relation is carried across by `lemma_pasrel_alloc`,
+ * which is reused verbatim. And the extra frame is RETAINED: the left's
+ * successor is again `padx_cf` to the right's, now at `paalloc s`.
+ *
+ * The one hypothesis that is not discharged here is that the two contexts
+ * ACTUALLY STORED are related -- `paxrel r s (extend_ctx_C pl1 cx1 g1)
+ * (extend_ctx_C pl2 cx2 g2)`. That is the allocation-indexed transposition of
+ * `lemma_extend_ctx_C_rel`, it is a fact about the PLAIN relation with no
+ * administrative content whatever, and it is deliberately left where it belongs
+ * rather than re-proved inside a stage about an extra frame. Everything the
+ * extra frame is responsible for is discharged.
+ *)
+let lemma_padx_extendctxc_couples
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (pl1 pl2: plan v cl) (h1 h2: pval v) (g1 g2: pval v -> pcomp v cl)
+    (t1 k2: pstack v cl) (sto1 sto2: pstore v cl) (cx1 cx2: pctx v cl)
+  : Lemma (requires pcl_mono r /\
+                    presolve sto1 h1 == Some cx1 /\ presolve sto2 h2 == Some cx2 /\
+                    paxrel r s
+                      (extend_ctx_C pl1 cx1 g1) (extend_ctx_C pl2 cx2 g2) /\
+                    padx_cf r s
+                      ({ st = PStep (PExtendCtxC pl1 h1 g1)
+                                    (PBindF (PVar #v #cl) :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PExtendCtxC pl2 h2 g2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures (let cfL : pconf v cl =
+                      { st = PStep (PExtendCtxC pl1 h1 g1)
+                                   (PBindF (PVar #v #cl) :: t1);
+                        store = sto1; next = s.an1 } in
+                    let cfR : pconf v cl =
+                      { st = PStep (PExtendCtxC pl2 h2 g2) k2;
+                        store = sto2; next = s.an2 } in
+                    let cfL' : pconf v cl =
+                      { st = PStep (PVar (PCtxKey s.an1))
+                                   (PBindF (PVar #v #cl) :: t1);
+                        store = (s.an1, extend_ctx_C pl1 cx1 g1) :: sto1;
+                        next = s.an1 + 1 } in
+                    let cfR' : pconf v cl =
+                      { st = PStep (PVar (PCtxKey s.an2)) k2;
+                        store = (s.an2, extend_ctx_C pl2 cx2 g2) :: sto2;
+                        next = s.an2 + 1 } in
+                    pstep_tr lk apply cfL == (cfL', ([] <: list string)) /\
+                    pstep_tr lk apply cfR == (cfR', ([] <: list string)) /\
+                    paext (paalloc s) s /\ pawf (paalloc s) /\
+                    (paalloc s).aw == pwextend s.an1 s.an2 s.aw /\
+                    cfL'.next == (paalloc s).an1 /\ cfR'.next == (paalloc s).an2 /\
+                    cfL'.next == cfL.next + 1 /\ cfR'.next == cfR.next + 1 /\
+                    cfL'.store == (s.an1, extend_ctx_C pl1 cx1 g1) :: cfL.store /\
+                    cfR'.store == (s.an2, extend_ctx_C pl2 cx2 g2) :: cfR.store /\
+                    pval_rel (paalloc s).aw
+                      (PCtxKey #v s.an1) (PCtxKey #v s.an2) /\
+                    pasrel r (paalloc s) cfL'.store cfR'.store /\
+                    padx_cf r (paalloc s) cfL' cfR'))
+  = let cfL : pconf v cl =
+      { st = PStep (PExtendCtxC pl1 h1 g1) (PBindF (PVar #v #cl) :: t1);
+        store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PExtendCtxC pl2 h2 g2) k2; store = sto2; next = s.an2 } in
+    padx_cf_unfold r s cfL cfR ();
+    padx_st_unfold r s
+      (PStep (PExtendCtxC pl1 h1 g1) (PBindF (PVar #v #cl) :: t1) <: pstate v cl)
+      (PStep (PExtendCtxC pl2 h2 g2) k2 <: pstate v cl) ();
+    padx_ktop_unfold r s (PBindF (PVar #v #cl) :: t1 <: pstack v cl) k2 ();
+    lemma_pasrel_alloc r s cfL cfR
+      (extend_ctx_C pl1 cx1 g1) (extend_ctx_C pl2 cx2 g2);
+    assert (pakrel r s t1 k2);
+    lemma_pakrel_mono r (paalloc s) s t1 k2;
+    assert (forall (n: nat). paframes_rel r n (paalloc s) t1 k2);
+    introduce forall (n: nat).
+        pacomp_rel r n (paalloc s)
+          (PVar (PCtxKey s.an1) <: pcomp v cl) (PVar (PCtxKey s.an2) <: pcomp v cl)
+    with ()
+
+(* ---- B2c STAGE 2, PART F: `PPerform` (STEP 5) --------------------- *)
+
+(**
+ * **The capture walks THROUGH the extra frame and puts it at the HEAD of the
+ * captured segment.** PROVED, by one unfolding of `pfind_prompt`.
+ *
+ * This is the whole reason step 5 is the hard one. `pfind_prompt`'s last clause
+ * conses any non-prompt frame onto the captured segment and recurses, so an
+ * identity frame sitting above a prompt is not skipped, not merged and not
+ * dropped: it is CAPTURED. The clause found and the segment left below are the
+ * same on both sides -- the extra frame changes neither -- so the two sides
+ * disagree in exactly one place, and it is the argument `apply` receives.
+ *)
+let lemma_padx_find_prompt_extra (#v #cl: Type) (lk: plookup_t cl) (eff op: string)
+    (f: pval v -> pcomp v cl) (k: pstack v cl)
+  : Lemma (pfind_prompt lk eff op (PBindF f :: k)
+           == (match pfind_prompt lk eff op k with
+               | None -> None
+               | Some (cap, c, below) ->
+                 Some ((PBindF f :: cap <: pstack v cl), c, below)))
+  = ()
+
+let lemma_padx_perform_left
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (eff op: string) (payload: list (pval v)) (k: pstack v cl)
+    (cap below: pstack v cl) (fc: found_clause cl)
+    (sto: pstore v cl) (n0: nat)
+  : Lemma (requires pfind_prompt lk eff op k == Some (cap, fc, below) /\
+                    ~(KScoped? fc.kind))
+          (ensures pstep_tr lk apply
+                     ({ st = PStep (PPerform eff op payload)
+                                   (PBindF (PVar #v #cl) :: k);
+                        store = sto; next = n0 } <: pconf v cl)
+                   == (({ st = PStep (apply fc.body payload
+                                        (pkont_of (PBindF (PVar #v #cl) :: cap)))
+                                     below;
+                          store = sto; next = n0 } <: pconf v cl),
+                       ([] <: list string)))
+  = lemma_padx_find_prompt_extra #v #cl lk eff op (PVar #v #cl) k
+
+let lemma_padx_perform_right
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (eff op: string) (payload: list (pval v)) (k: pstack v cl)
+    (cap below: pstack v cl) (fc: found_clause cl)
+    (sto: pstore v cl) (n0: nat)
+  : Lemma (requires pfind_prompt lk eff op k == Some (cap, fc, below) /\
+                    ~(KScoped? fc.kind))
+          (ensures pstep_tr lk apply
+                     ({ st = PStep (PPerform eff op payload) k;
+                        store = sto; next = n0 } <: pconf v cl)
+                   == (({ st = PStep (apply fc.body payload (pkont_of cap)) below;
+                          store = sto; next = n0 } <: pconf v cl),
+                       ([] <: list string)))
+  = ()
+
+(**
+ * **STEP 5, THE ADJUDICATION -- POSITIVE HALF: the two captured segments ARE
+ * joined, by the NEW relation.** PROVED.
+ *
+ * Whenever the two ambient captured segments are `pakrel`, the left's -- which
+ * is the right's with the identity frame consed on -- is `padx_ktop` to it, and
+ * therefore `padx_k` to it. Read together with
+ * `guard_padx_fusion_conjunct_fails` this is the whole answer: joined by
+ * `padx_stack`, NOT joined by `padm_stack`.
+ *)
+let lemma_padx_captured_segments_joined
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cap1 cap2: pstack v cl)
+  : Lemma (requires pakrel r s cap1 cap2)
+          (ensures padx_ktop r s (PBindF (PVar #v #cl) :: cap1) cap2 /\
+                   padx_k r s (PBindF (PVar #v #cl) :: cap1) cap2)
+  = pakrel_unfold r s cap1 cap2 ();
+    lemma_padx_ktop_is_k r s (PBindF (PVar #v #cl) :: cap1) cap2
+
+(** And therefore the two continuations `pkont_of` builds from them are joined
+    by `padx_comp`. PROVED. *)
+let lemma_padx_kont_of_related
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cap1 cap2: pstack v cl)
+    (y1 y2: pval v)
+  : Lemma (requires pakrel r s cap1 cap2 /\ pval_rel s.aw y1 y2)
+          (ensures padx_comp r s
+                     (pkont_of (PBindF (PVar #v #cl) :: cap1) y1)
+                     (pkont_of cap2 y2))
+  = lemma_padx_captured_segments_joined r s cap1 cap2;
+    introduce forall (n: nat). pacomp_rel r n s (PVar y1) (PVar y2)
+    with ()
+
+(**
+ * **THE OPERATIONAL CONTENT OF THE JOIN, AND IT NEEDS NO HYPOTHESIS AT ALL.**
+ * PROVED, at an arbitrary interpreter, an arbitrary captured segment, an
+ * ARBITRARY AMBIENT STACK, an arbitrary value, store and counter.
+ *
+ * The two continuations, placed in any stack, RECONVERGE -- two steps against
+ * one -- on the same configuration, with the empty trace on both sides and with
+ * neither store nor counter moved. This is stage 1's reconvergence lifted from
+ * the redex to the captured segment, and it is why the failure of `padm_stack`
+ * to relate the two segments is a failure of THAT RELATION and not a difference
+ * in behaviour: the two segments do the same thing, one transition apart.
+ *)
+let lemma_padx_kont_reconverges
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cap k: pstack v cl) (x: pval v) (sto: pstore v cl) (n0: nat)
+  : Lemma (let cfL : pconf v cl =
+             { st = PStep (pkont_of (PBindF (PVar #v #cl) :: cap) x) k;
+               store = sto; next = n0 } in
+           let cfR : pconf v cl =
+             { st = PStep (pkont_of cap x) k; store = sto; next = n0 } in
+           let cfJ : pconf v cl =
+             { st = PStep (PVar x) (cap @ k); store = sto; next = n0 } in
+           prun lk apply 2 cfL == (cfJ, ([] <: list string)) /\
+           prun lk apply 1 cfR == (cfJ, ([] <: list string)) /\
+           psteps lk apply 2 cfL == cfJ /\
+           psteps lk apply 1 cfR == cfJ /\
+           cfJ.store == sto /\ cfJ.next == n0)
+  = ()
+
+(**
+ * **THE CONDITION THE `perform` BRANCH WOULD NEED, STATED AND NOT DECIDED.**
+ *
+ * `padm_apply_pres` is the precedent: the interpreter preserves the
+ * administrative relation. This is its transposition to the extra frame and to
+ * the allocation index, and it is stated in exactly the same shape -- related
+ * clauses, related payloads, continuations related by the ADMINISTRATIVE
+ * function relation, and a conclusion in `padx_comp` and NOT in `pacrel`, for
+ * the same reason `padm_apply_pres` concludes in `padm_comp`: an interpreter
+ * that applies its continuation and wraps the result hands the administrative
+ * difference straight through, so the result is administratively equal and not
+ * plainly equal.
+ *
+ * NOTHING BELOW DECIDES WHETHER ANY PARTICULAR INTERPRETER SATISFIES IT. That
+ * is the next gate's question and it is not asked here.
+ *)
+let padx_fn_at (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+               (f1 f2: pval v -> pcomp v cl) : GTot prop
+  = forall (s: pastate) (y1 y2: pval v).
+      paext s s0 /\ pval_rel s.aw y1 y2 ==> padx_comp r s (f1 y1) (f2 y2)
+
+let padx_apply_pres (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+  : GTot prop
+  = forall (s: pastate) (c1 c2: cl) (p1 p2: list (pval v))
+           (kk1 kk2: pval v -> pcomp v cl).
+      pawf s /\ pclrel r s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+      padx_fn_at r s kk1 kk2 ==>
+      padx_comp r s (apply c1 p1 kk1) (apply c2 p2 kk2)
+
+(** **The condition's hypothesis is MET by the pair the perform rule actually
+    builds.** PROVED. This is what makes the condition the right one to state:
+    it is not a condition about arbitrary continuations, it is a condition about
+    the two `pkont_of`s the two transitions hand over, and their side of it is
+    discharged here. *)
+let lemma_padx_kont_fn_at
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cap1 cap2: pstack v cl)
+  : Lemma (requires pakrel r s cap1 cap2 /\ pawf s /\ pcl_mono r)
+          (ensures padx_fn_at r s
+                     (pkont_of (PBindF (PVar #v #cl) :: cap1)) (pkont_of cap2))
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        paext s' s /\ pval_rel s'.aw y1 y2 ==>
+        padx_comp r s' (pkont_of (PBindF (PVar #v #cl) :: cap1) y1)
+                       (pkont_of cap2 y2)
+    with (introduce _ ==> _
+          with (lemma_pakrel_mono r s' s cap1 cap2;
+                lemma_padx_kont_of_related r s' cap1 cap2 y1 y2))
+
+let padx_apply_pres_inst
+    (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl) (s: pastate)
+    (c1 c2: cl) (p1 p2: list (pval v)) (kk1 kk2: pval v -> pcomp v cl)
+  : Lemma (requires padx_apply_pres r apply /\ pawf s /\ pclrel r s.aw c1 c2 /\
+                    pvals_rel s.aw p1 p2 /\ padx_fn_at r s kk1 kk2)
+          (ensures padx_comp r s (apply c1 p1 kk1) (apply c2 p2 kk2))
+  = ()
+
+(* ---- B2c STAGE 2, PART G: THE GUARDS, AND THEY FIRE --------------- *)
+
+(** The fixtures. Everything is on the SHIPPED fixture types, with the real
+    lookup `flook` and the real tables, so that the guards are statements about
+    the machine and not about a stand-in. The two counters are DIFFERENT on the
+    two sides -- 3 against 5 -- so that a claim about allocation is a claim about
+    GROWTH and not about two numbers that happened to agree. *)
+let padx_g_sto : pstore fv fcl = [(0, PCtxDone (fpv FU))]
+
+let padx_g_kR : pstack fv fcl = [PScopeF]
+let padx_g_kL : pstack fv fcl = [PBindF (PVar #fv #fcl); PScopeF]
+
+let padx_g_pvL : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) padx_g_kL; store = padx_g_sto; next = 3 }
+let padx_g_pvL' : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) padx_g_kR; store = padx_g_sto; next = 3 }
+
+(** **STEP 2 FIRES.** One transition, the empty trace, the frame gone, the store
+    and the counter carried across verbatim -- and the two configurations are
+    DISTINCT, by the length of the stack, so the step is not standing still. *)
+let guard_padx_pvar_fires ()
+  : Lemma (pstep_tr flook fapply0 padx_g_pvL
+             == (padx_g_pvL', ([] <: list string)) /\
+           prun flook fapply0 1 padx_g_pvL
+             == (padx_g_pvL', ([] <: list string)) /\
+           padx_g_pvL'.store == padx_g_sto /\ padx_g_pvL'.next == 3 /\
+           length (PStep?.k padx_g_pvL.st) == 2 /\
+           length (PStep?.k padx_g_pvL'.st) == 1 /\
+           ~(padx_g_pvL == padx_g_pvL'))
+  = assert_norm (pstep_tr flook fapply0 padx_g_pvL
+                 == (padx_g_pvL', ([] <: list string)));
+    assert_norm (prun flook fapply0 1 padx_g_pvL
+                 == (padx_g_pvL', ([] <: list string)));
+    assert_norm (length (PStep?.k padx_g_pvL.st) == 2);
+    assert_norm (length (PStep?.k padx_g_pvL'.st) == 1)
+
+let padx_g_emL : pconf fv fcl =
+  { st = PStep (PEmit "ev" (PVar (fpv FU))) padx_g_kL;
+    store = padx_g_sto; next = 3 }
+let padx_g_emR : pconf fv fcl =
+  { st = PStep (PEmit "ev" (PVar (fpv FU))) padx_g_kR;
+    store = padx_g_sto; next = 5 }
+
+(** **STEP 3 FIRES.** Both sides report the SAME singleton trace, and the left
+    still carries the extra frame afterwards -- two frames against one, before
+    and after. *)
+let guard_padx_emit_fires ()
+  : Lemma (snd (pstep_tr flook fapply0 padx_g_emL) == ["ev"] /\
+           snd (pstep_tr flook fapply0 padx_g_emR) == ["ev"] /\
+           snd (pstep_tr flook fapply0 padx_g_emL)
+             == snd (pstep_tr flook fapply0 padx_g_emR) /\
+           (fst (pstep_tr flook fapply0 padx_g_emL)).st
+             == PStep (PVar (fpv FU)) padx_g_kL /\
+           (fst (pstep_tr flook fapply0 padx_g_emR)).st
+             == PStep (PVar (fpv FU)) padx_g_kR /\
+           (fst (pstep_tr flook fapply0 padx_g_emL)).next == 3 /\
+           (fst (pstep_tr flook fapply0 padx_g_emR)).next == 5 /\
+           length (PStep?.k (fst (pstep_tr flook fapply0 padx_g_emL)).st) == 2 /\
+           length (PStep?.k (fst (pstep_tr flook fapply0 padx_g_emR)).st) == 1)
+  = assert_norm (snd (pstep_tr flook fapply0 padx_g_emL) == ["ev"]);
+    assert_norm (snd (pstep_tr flook fapply0 padx_g_emR) == ["ev"]);
+    assert_norm ((fst (pstep_tr flook fapply0 padx_g_emL)).st
+                 == PStep (PVar (fpv FU)) padx_g_kL);
+    assert_norm ((fst (pstep_tr flook fapply0 padx_g_emR)).st
+                 == PStep (PVar (fpv FU)) padx_g_kR);
+    assert_norm (length (PStep?.k (fst (pstep_tr flook fapply0 padx_g_emL)).st) == 2);
+    assert_norm (length (PStep?.k (fst (pstep_tr flook fapply0 padx_g_emR)).st) == 1)
+
+let padx_g_alL : pconf fv fcl =
+  { st = PStep (PExtendCtxC xplan (PCtxKey 0) (PVar #fv #fcl)) padx_g_kL;
+    store = padx_g_sto; next = 3 }
+let padx_g_alR : pconf fv fcl =
+  { st = PStep (PExtendCtxC xplan (PCtxKey 0) (PVar #fv #fcl)) padx_g_kR;
+    store = padx_g_sto; next = 5 }
+
+(** **STEP 4 FIRES, AND THE ALLOCATION IS REAL.** Both counters advance by
+    exactly one, both stores gain exactly one entry, the two new entries are
+    keyed at the two OLD counters -- which is what couples them to one `paalloc`
+    -- the value position on each side is the corresponding fresh handle, the
+    entry already present is untouched, and the extra frame is still there. *)
+let guard_padx_alloc_fires ()
+  : Lemma ((fst (pstep_tr flook fapply0 padx_g_alL)).next == 4 /\
+           (fst (pstep_tr flook fapply0 padx_g_alR)).next == 6 /\
+           length (fst (pstep_tr flook fapply0 padx_g_alL)).store == 2 /\
+           length (fst (pstep_tr flook fapply0 padx_g_alR)).store == 2 /\
+           pstore_lookup 3 (fst (pstep_tr flook fapply0 padx_g_alL)).store
+             == Some (PCtxDone (fpv FU)) /\
+           pstore_lookup 5 (fst (pstep_tr flook fapply0 padx_g_alR)).store
+             == Some (PCtxDone (fpv FU)) /\
+           pstore_lookup 0 (fst (pstep_tr flook fapply0 padx_g_alL)).store
+             == Some (PCtxDone (fpv FU)) /\
+           (fst (pstep_tr flook fapply0 padx_g_alL)).st
+             == PStep (PVar (PCtxKey 3)) padx_g_kL /\
+           (fst (pstep_tr flook fapply0 padx_g_alR)).st
+             == PStep (PVar (PCtxKey 5)) padx_g_kR /\
+           snd (pstep_tr flook fapply0 padx_g_alL) == ([] <: list string) /\
+           snd (pstep_tr flook fapply0 padx_g_alR) == ([] <: list string))
+  = assert_norm ((fst (pstep_tr flook fapply0 padx_g_alL)).next == 4);
+    assert_norm ((fst (pstep_tr flook fapply0 padx_g_alR)).next == 6);
+    assert_norm (length (fst (pstep_tr flook fapply0 padx_g_alL)).store == 2);
+    assert_norm (length (fst (pstep_tr flook fapply0 padx_g_alR)).store == 2);
+    assert_norm (pstore_lookup 3 (fst (pstep_tr flook fapply0 padx_g_alL)).store
+                 == Some (PCtxDone (fpv FU)));
+    assert_norm (pstore_lookup 5 (fst (pstep_tr flook fapply0 padx_g_alR)).store
+                 == Some (PCtxDone (fpv FU)));
+    assert_norm (pstore_lookup 0 (fst (pstep_tr flook fapply0 padx_g_alL)).store
+                 == Some (PCtxDone (fpv FU)));
+    assert_norm ((fst (pstep_tr flook fapply0 padx_g_alL)).st
+                 == PStep (PVar (PCtxKey 3)) padx_g_kL);
+    assert_norm ((fst (pstep_tr flook fapply0 padx_g_alR)).st
+                 == PStep (PVar (PCtxKey 5)) padx_g_kR);
+    assert_norm (snd (pstep_tr flook fapply0 padx_g_alL) == ([] <: list string));
+    assert_norm (snd (pstep_tr flook fapply0 padx_g_alR) == ([] <: list string))
+
+(** The capture fixture: an ambient prompt whose table declares `"Out"`, a floor
+    beneath it, and ONE ordinary bind frame above the prompt -- so that the
+    captured segment has content of its own and the difference between the two
+    sides is not the whole of the segment. The bind frame carries `PVar` because
+    that is the shape the fusion clause of `padm_stack` is at its most
+    favourable against: its structural side fires on the nose, and what is left
+    is the single conjunct part A refutes. *)
+let padx_g_capR : pstack fv fcl =
+  [PBindF (PVar #fv #fcl); PPromptF ftbl_out None PFamily]
+let padx_g_capL : pstack fv fcl = PBindF (PVar #fv #fcl) :: padx_g_capR
+let padx_g_capk : pstack fv fcl = padx_g_capR @ [PScopeF]
+let padx_g_capkx : pstack fv fcl = PBindF (PVar #fv #fcl) :: padx_g_capk
+
+(** **STEP 5 FIRES: the extra frame really is CAPTURED.** The two searches find
+    the SAME clause and leave the SAME segment below; the captured segments
+    differ by exactly the identity frame, at the head; and the two continuations
+    the perform rule hands to `apply` are therefore DIFFERENT TERMS -- three
+    frames against two. *)
+let guard_padx_capture_fires ()
+  : Lemma (pfind_prompt flook "Out" "o" padx_g_capk
+             == Some (padx_g_capR, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+           pfind_prompt flook "Out" "o" padx_g_capkx
+             == Some (padx_g_capL, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+           length padx_g_capL == 3 /\ length padx_g_capR == 2 /\
+           ~(pkont_of padx_g_capL (fpv FU) == pkont_of padx_g_capR (fpv FU)))
+  = assert_norm (pfind_prompt flook "Out" "o" padx_g_capk
+                 == Some (padx_g_capR, fclause FWrap, ([PScopeF] <: pstack fv fcl)));
+    assert_norm (pfind_prompt flook "Out" "o" padx_g_capkx
+                 == Some (padx_g_capL, fclause FWrap, ([PScopeF] <: pstack fv fcl)));
+    assert_norm (length padx_g_capL == 3);
+    assert_norm (length padx_g_capR == 2);
+    assert_norm (length (PSplice?.frames (pkont_of padx_g_capL (fpv FU))) == 3);
+    assert_norm (length (PSplice?.frames (pkont_of padx_g_capR (fpv FU))) == 2)
+
+(** **AND THE TWO CONTINUATIONS RECONVERGE, ON THE MACHINE.** Two steps against
+    one, the same configuration, the empty trace on both sides, and neither the
+    store nor the counter moved -- the general lemma, run. The last conjunct is
+    the ablation: ONE step on the left does NOT reach it. *)
+let guard_padx_kont_reconverges_fires ()
+  : Lemma (prun flook fapply0 2
+             ({ st = PStep (pkont_of padx_g_capL (fpv FU)) ([PScopeF] <: pstack fv fcl);
+                store = padx_g_sto; next = 3 } <: pconf fv fcl)
+           == prun flook fapply0 1
+                ({ st = PStep (pkont_of padx_g_capR (fpv FU)) ([PScopeF] <: pstack fv fcl);
+                   store = padx_g_sto; next = 3 } <: pconf fv fcl) /\
+           prun flook fapply0 1
+             ({ st = PStep (pkont_of padx_g_capR (fpv FU)) ([PScopeF] <: pstack fv fcl);
+                store = padx_g_sto; next = 3 } <: pconf fv fcl)
+           == (({ st = PStep (PVar (fpv FU)) (padx_g_capR @ [PScopeF]);
+                  store = padx_g_sto; next = 3 } <: pconf fv fcl),
+               ([] <: list string)) /\
+           ~(prun flook fapply0 1
+               ({ st = PStep (pkont_of padx_g_capL (fpv FU)) ([PScopeF] <: pstack fv fcl);
+                  store = padx_g_sto; next = 3 } <: pconf fv fcl)
+             == prun flook fapply0 1
+                  ({ st = PStep (pkont_of padx_g_capR (fpv FU)) ([PScopeF] <: pstack fv fcl);
+                     store = padx_g_sto; next = 3 } <: pconf fv fcl)))
+  = lemma_padx_kont_reconverges flook fapply0 padx_g_capR
+      ([PScopeF] <: pstack fv fcl) (fpv FU) padx_g_sto 3;
+    assert_norm (length (PStep?.k (fst (prun flook fapply0 1
+                   ({ st = PStep (pkont_of padx_g_capL (fpv FU))
+                                 ([PScopeF] <: pstack fv fcl);
+                      store = padx_g_sto; next = 3 } <: pconf fv fcl))).st) == 4);
+    assert_norm (length (PStep?.k (fst (prun flook fapply0 1
+                   ({ st = PStep (pkont_of padx_g_capR (fpv FU))
+                                 ([PScopeF] <: pstack fv fcl);
+                      store = padx_g_sto; next = 3 } <: pconf fv fcl))).st) == 3)
+
+(**
+ * **THE REFUTATION FIRES ON THE SEGMENT THE MACHINE ACTUALLY CAPTURED.**
+ * PROVED, at the very pair `guard_padx_capture_fires` computed, at step index 1
+ * and the empty world, at BOTH modes and BOTH marker regimes.
+ *
+ * This is what keeps part A from being an argument about an artificial stack.
+ * Both `PBindF` disjuncts are refuted, and for the two different reasons the
+ * gate asked to be told apart:
+ *
+ *   - the frame-for-frame disjunct fails STRUCTURALLY, one level down: after
+ *     matching the two identity frames it is left with `PBindF PVar ::
+ *     [PPromptF ...]` against `[PPromptF ...]`, where neither disjunct fires;
+ *   - the FUSION disjunct fires structurally and fails at its single frame
+ *     CONJUNCT, `pframe_rel r n w (PBindF (fun x -> pbind (f1 x) g1))
+ *     (PBindF h2)`, which is `guard_padx_fused_frame_unrelated`.
+ *)
+let guard_padx_capture_not_padm (m: weave_mode) (sh: bool)
+  : Lemma (~(padm_stack fcl_rel m sh 1 ([] <: pworld) padx_g_capL padx_g_capR))
+  = guard_padx_fused_frame_unrelated #fv #fcl fcl_rel FU
+
+(** The ambient prompt's table is related to itself, at every index and every
+    world: `fcl_rel` is equality on clauses and the two lookups are the same
+    lookup. *)
+let lemma_padx_ftbl_out_selfrel (n: nat) (w: pworld)
+  : Lemma (ptable_rel fcl_rel n w ftbl_out ftbl_out)
+  = introduce forall (eff op: string).
+      (match lookup_handler ftbl_out.hs eff op, lookup_handler ftbl_out.hs eff op with
+       | None, None -> True
+       | Some f1, Some f2 -> f1.kind == f2.kind /\ fcl_rel n w f1.body f2.body
+       | _, _ -> False)
+    with ()
+
+(** **And the NEW relation DOES relate them.** PROVED, at the same pair and at
+    any well-formed state: the captured segment is `paframes_rel` to itself, so
+    the left's -- which is it with the identity frame consed on -- is
+    `padx_ktop`, and `padx_k`, to it. Read with the guard above, this is the
+    adjudication of step 5 in two lines: refused by `padm_stack`, admitted by
+    `padx_stack`. *)
+let guard_padx_capture_is_padx (s: pastate)
+  : Lemma (requires pawf s)
+          (ensures padx_ktop fcl_rel s padx_g_capL padx_g_capR /\
+                   padx_k fcl_rel s padx_g_capL padx_g_capR)
+  = introduce forall (n: nat). paframes_rel fcl_rel n s padx_g_capR padx_g_capR
+    with lemma_padx_ftbl_out_selfrel n s.aw;
+    lemma_padx_captured_segments_joined fcl_rel s padx_g_capR padx_g_capR
+
+(* ================================================================== *)
+(*  B2c STAGE 2 LEDGER                                                 *)
+(*                                                                     *)
+(*  THE QUESTION THE STAGE WAS OPENED TO ADJUDICATE, AND THE ANSWER.   *)
+(*  Does `padm_stack`'s FUSION clause cover `PBindF PVar :: k` against *)
+(*  `k`?  **NO.**  REFUTED, twice:                                     *)
+(*   - `guard_padx_fusion_misses_empty` -- against an empty right the  *)
+(*     clause does not fire at all, for a STRUCTURAL reason;           *)
+(*   - `guard_padx_fusion_conjunct_fails` and                          *)
+(*     `guard_padx_fused_frame_unrelated` -- where it does fire, the   *)
+(*     conjunct that fails is                                          *)
+(*         pframe_rel r n w (PBindF (fun x -> pbind (f1 x) g1))        *)
+(*                          (PBindF h2)                                *)
+(*     the FUSED FRAME, discharged by the PLAIN frame relation.  With  *)
+(*     `f1 = PVar` the fused frame is `fun x -> POp (PVar x) g1`, and  *)
+(*     relating that to `g1` under `pcomp_rel` means matching `POp`    *)
+(*     against whatever `g1` returns -- `PVar`, at the fixture -- and  *)
+(*     `pcomp_rel`'s head-constructor match sends that pair to         *)
+(*     `False`.  That is precisely the administrative unit stage 1 had *)
+(*     to spend two transitions on.                                    *)
+(*   - and `guard_padx_capture_not_padm` fires the same refutation on  *)
+(*     THE SEGMENT `pfind_prompt` ACTUALLY RETURNED, so the refutation *)
+(*     is not an artefact of a hand-built stack.                       *)
+(*                                                                     *)
+(*  SO THE STACK RELATION HAD TO BE NEW.  Everything else transposed   *)
+(*  unchanged: `paframes_rel`, `pacrel`, `pakrel`, `pasrel`,           *)
+(*  `pacfrel`, `pawf`, `paext`, `paalloc`, `lemma_pasrel_alloc`,       *)
+(*  `lemma_pakrel_mono`, `lemma_paxrel_mono`, `lemma_paext_of_alloc`,   *)
+(*  `paplrel`.                                                         *)
+(*  NEW: `padx_top`/`padx_ktop`/`padx_stack`/`padx_k`, and             *)
+(*  `padx_comp`/`padx_st`/`padx_cf` built on them.                     *)
+(*                                                                     *)
+(*  PROVED.                                                            *)
+(*   1. THE RELATION (step 1).  `padx_top` deletes the identity frame  *)
+(*      and relates what is beneath it to the whole of the right by    *)
+(*      `paframes_rel`; `padx_stack` is the same with the frame at any *)
+(*      depth, so the phase survives a `POp` pushing above it;         *)
+(*      `padx_cf` pins the two counters to the two frontiers of `s`    *)
+(*      exactly as `pacfrel` does, which is the whole of               *)
+(*      "allocation-aware".  `guard_padx_ktop_is_not_pakrel` shows the *)
+(*      new relation is inhabited and is NOT `pakrel`.                 *)
+(*   2. THE FRAME DISAPPEARS EXACTLY AT `PVar`.                        *)
+(*      `lemma_padx_pvar_pops` (one step, empty trace, store and       *)
+(*      counter untouched), `lemma_padx_pvar_joins` (the two sides are *)
+(*      then `pacfrel` AT THE SAME STATE) and                          *)
+(*      `lemma_padx_pvar_step_and_join` (both, as ONE against ZERO on  *)
+(*      `prun`).  "Exactly" is measured by                             *)
+(*      `lemma_padx_emit_retains` and `lemma_padx_op_retains`: the     *)
+(*      other two head shapes KEEP the frame, `PEmit` on top and `POp` *)
+(*      one deeper.                                                    *)
+(*   3. `PEmit` EMITS THE SAME EVENT WITH THE FRAME RETAINED.          *)
+(*      `lemma_padx_emit_bodies`, `lemma_padx_emit_couples`.  The      *)
+(*      trace claim is an equality of the two INSTRUMENT READINGS, not *)
+(*      only of the two event names, and the successors are again      *)
+(*      `padx_cf` at the same state.                                   *)
+(*   4. THE ALLOCATING RULE IS COUPLED TO ONE `paalloc`.               *)
+(*      `lemma_padx_extendctxc_left`/`_right`,                         *)
+(*      `lemma_padx_extendctxc_handles`,                               *)
+(*      `lemma_padx_extendctxc_couples`: both counters advance by      *)
+(*      exactly one to `(paalloc s).an1` and `(paalloc s).an2`, both   *)
+(*      stores gain exactly one entry keyed at the two OLD frontiers,  *)
+(*      the two fresh handles are `pval_rel` at the new world, the     *)
+(*      store relation is carried across by `lemma_pasrel_alloc`       *)
+(*      reused verbatim, and the extra frame is RETAINED.              *)
+(*   5. THE TWO SEGMENTS `PPerform` CAPTURES.                          *)
+(*      `lemma_padx_find_prompt_extra` -- the search walks THROUGH the *)
+(*      identity frame and CAPTURES it at the head, leaving the clause *)
+(*      found and the segment below identical on the two sides;        *)
+(*      `lemma_padx_perform_left`/`_right` -- the two transitions;     *)
+(*      `lemma_padx_captured_segments_joined` and                      *)
+(*      `lemma_padx_kont_of_related` -- the two segments and the two   *)
+(*      `pkont_of`s ARE joined, by the NEW relation;                   *)
+(*      `lemma_padx_kont_reconverges` -- and the join has OPERATIONAL  *)
+(*      content with NO hypothesis of any kind: the two continuations, *)
+(*      in an ARBITRARY ambient stack, reconverge from two steps       *)
+(*      against one, empty trace on both sides, store and counter      *)
+(*      untouched.  This is stage 1's reconvergence lifted from the    *)
+(*      redex to the captured segment.                                 *)
+(*                                                                     *)
+(*  STATED AND NOT DECIDED.  `padx_fn_at` and `padx_apply_pres` -- the *)
+(*  interpreter-side preservation condition the `perform` branch would *)
+(*  need, in EXACTLY the shape `padm_apply_pres` is in, with a         *)
+(*  conclusion in `padx_comp` and not in `pacrel` for the same reason  *)
+(*  `padm_apply_pres` concludes in `padm_comp`.  Its hypothesis is     *)
+(*  DISCHARGED for the pair the machine builds                         *)
+(*  (`lemma_padx_kont_fn_at`), so the condition is about `apply` and   *)
+(*  about nothing else.  `padx_apply_pres_inst` is the instantiation.  *)
+(*                                                                     *)
+(*  NOT ATTEMPTED, AND NOT CLAIMED.  Whether ANY particular            *)
+(*  interpreter satisfies `padx_apply_pres`; the whole-dispatcher weak *)
+(*  simulation; the general-`c` step preservation for `padx_cf`; the   *)
+(*  `PScopeF` allocation, which is beneath the identity frame and is   *)
+(*  `pacfrel`'s business once step 2 has joined the two sides; the     *)
+(*  allocation-indexed transposition of `lemma_extend_ctx_C_rel`,      *)
+(*  which is a fact about the PLAIN relation and is carried as a       *)
+(*  hypothesis of `lemma_padx_extendctxc_couples` rather than proved   *)
+(*  here.                                                              *)
+(*                                                                     *)
+(*  WHAT FIRES, AND THE ABLATIONS RUN.                                 *)
+(*   - `guard_padx_pvar_fires`, `guard_padx_emit_fires`,               *)
+(*     `guard_padx_alloc_fires`, `guard_padx_capture_fires`,           *)
+(*     `guard_padx_kont_reconverges_fires`,                            *)
+(*     `guard_padx_capture_not_padm`, `guard_padx_capture_is_padx` --  *)
+(*     every one on the SHIPPED fixture types with the real lookup     *)
+(*     `flook` and the real tables, and with the two counters          *)
+(*     DIFFERENT on the two sides (3 against 5) so that an allocation  *)
+(*     claim is a claim about GROWTH;                                  *)
+(*   - claiming `padm_stack` HOLDS on the captured pair FAILS;         *)
+(*     claiming `pakrel` holds on it FAILS; the step-2 guard at ZERO   *)
+(*     steps FAILS; the left continuation reaching the joined          *)
+(*     configuration in ONE step FAILS; claiming the allocating step   *)
+(*     leaves the counter at 3 FAILS; claiming the fused frame IS      *)
+(*     related FAILS; claiming `PEmit` reports the empty trace FAILS.  *)
+(*                                                                     *)
+(*  Everything before this line is UNTOUCHED; this section APPENDS.    *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `#push-options`, no `#set-options`, no *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)

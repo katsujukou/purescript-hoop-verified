@@ -7557,6 +7557,128 @@ specimens.
 > allocation, and may become observable data when a continuation segment is
 > captured.
 
+#### The perform branch: erasure, forced
+
+> The perform-side administrative stack relation is forced into an erasure
+> shape: the existing fusion clause does not relate the captured segments, while
+> deleting exactly one left-hand `PBindF PVar` does. Under `pakrel`, the two
+> segments captured by the machine yield related `pkont_of` continuations,
+> exposing a precise candidate preservation obligation for the interpreter
+> boundary.
+
+The refutation is machine-checked, and so is which conjunct fails:
+
+```fstar
+~(padm_stack r m sh 1 [] [PBindF PVar; PBindF PVar] [PBindF PVar])
+```
+
+The fusion clause discharges its fused frame with the plain `pframe_rel`, and
+`pbind c f` is `POp c f`, so covering the case would need `POp (PVar x) g`
+related to `g x` under a relation that has no such clause.
+
+The surviving construction relates nothing to the extra frame; it **deletes**
+it. `padx_stack` is `padm_stack`'s two `PBindF` disjuncts with the fusion one
+replaced by deletion, and its `[]` clause is `False` because the left is longer
+by exactly one frame.
+
+At the strength established:
+
+> Within the current administrative stack design, the fusion alternative is
+> refuted on the perform specimen, and exact deletion of the left identity-bind
+> frame is the surviving construction.
+
+Not that every conceivable fusion relation is impossible.
+
+And on the deletion's justification:
+
+> The deletion is locally justified by the machine's `PBindF` rule and by the
+> exact two-step stutter theorem. Its soundness across arbitrary execution and
+> public observation remains the weak-simulation obligation.
+
+What is proved is that erasure is the right *shape* — it fits the local rule,
+the captured segments and the continuation construction. That a relation containing
+it is observationally sound is not.
+
+#### The relation does not merely shorten stacks
+
+Four independent checks, three of them re-run here after the gate's own report
+was lost:
+
+- deletion is not for an arbitrary frame — the head must be `PBindF f` with
+  `f == PVar` **syntactically**;
+- a `PScopeF` head is not silently erased;
+- two stacks of equal length are not accepted as "already erased";
+- `pakrel` is load-bearing in the captured-segment lemma — dropping it fails.
+
+So `padx_stack` is not "a relation that may shorten a stack at will". It erases
+exactly one surplus identity-bind frame on the left.
+
+#### The boundary condition, and its exact status
+
+```text
+pakrel captured segments
+          │
+          ▼  PROVED
+related pkont_of continuations
+          │
+          ▼
+padx_apply_pres — candidate boundary condition
+          │
+          ▼
+interpreter outputs related             NOT YET INSTANTIATED
+```
+
+`lemma_padx_captured_segments_joined` needs only `pakrel r s cap1 cap2`. And the
+condition is well localised: `lemma_padx_kont_fn_at` proves its hypothesis is
+met by the pair the perform rule actually builds, so `padx_apply_pres` is not a
+condition on arbitrary continuations but a preservation condition on the two
+`pkont_of`s the two transitions hand over. That is the right localisation — it
+does not make the condition stronger than the proof needs.
+
+But **no interpreter has been shown to satisfy it**. `xapply` does not appear in
+the appended region at all. Until one does, this is a candidate boundary
+discipline, not an established one.
+
+Steps 1–4 should be read the same way: not "the dispatcher's arms are proved",
+but the local material a perform-arm proof will need is now in place — the
+extra frame disappearing exactly at `PVar`, `PEmit` emitting the same event while the
+frame is retained, and the allocating rule coupled to the same `paalloc` and the
+same actual store growth.
+
+#### Verification provenance
+
+The gate's agent died to a network error (`ENOTFOUND`) immediately after its
+single append and before reporting, so there is no agent report for this gate.
+What counts as evidence here is: the full-file verification, re-run from a
+cleared cache (exit 0, success line present, no error line, no warnings); the
+append checked as 1,058 insertions and 0 deletions; and the three ablations
+above, which were re-run directly. The gate's own ablation files remain in
+scratch and were **not** confirmed to fail as intended; they are not counted.
+
+#### Position
+
+> The captured continuation mismatch now has an exact representation: erase one
+> left identity-bind frame, relate the resulting segments, and require the
+> interpreter to preserve the two machine-generated continuations. What remains
+> is to show that this boundary condition is both inhabited by an ordinary
+> interpreter and strong enough to carry the actual perform transition.
+
+#### The next gate: boundary calibration only
+
+1. prove `xapply` satisfies `padx_apply_pres`;
+2. prove an interpreter that reads frame length — `xapply2` — does not;
+3. show both satisfy the existing allocation-aware equivariance conditions, so
+   that the administrative condition is what separates them;
+4. read out that `xapply`'s output computations are related, using real captured
+   segments joined by `pakrel` and their `pkont_of`s;
+5. connect that to the actual `PPerform` step, or to a weak one-step
+   compatibility;
+6. construct an execution in which, with the condition dropped, `xapply2`
+   observes the segment-length difference.
+
+That last negative is what would settle `padx_apply_pres` as a genuinely
+necessary semantic boundary condition rather than a proof convenience.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
