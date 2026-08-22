@@ -7814,6 +7814,129 @@ Stop conditions: the general arm does not close on `padx_apply_pres` alone;
 `xapply` cannot satisfy whatever extra condition appears; or the relation's
 direction disagrees with the direction of the segments the machine hands over.
 
+#### The parameterised diagonal `PPerform` arm
+
+> For the diagonal prompt-search case, the `PPerform` arm closes with
+> `padx_apply_pres` as the only additional interpreter-side assumption. The
+> condition is consumed exactly once, at the point where the two `apply` outputs
+> must be related; all other premises are existing relational, lookup and
+> boundary obligations.
+
+The word "only" is doing limited work:
+
+> "Only" means no further condition on `apply`. It does not mean the theorem has
+> no other premises: the relational hypotheses needed to discharge
+> `padx_apply_pres` itself, together with the existing `pcl_down` and
+> `plookup_equivariant` boundary conditions, remain necessary.
+
+Two of the premises were not predicted, and both turn out to be the *remaining
+conjuncts of `padx_apply_pres`'s own antecedent* — the clause and the payload
+side, where only the continuation side had been discharged in advance. Going the
+other way, `pakrel r s below below` was predicted and is **not** needed by the
+arm: in the packaged form it is derived from one diagonal call of
+`lemma_pafind_prompt_rel`, not assumed.
+
+The single consumption point was checked directly: `padx_apply_pres_inst` occurs
+five times in the appended region, of which **one** is a call and four are
+comments. The condition is not in the boundary record.
+
+#### Load-bearing in two distinct senses
+
+- **Proof dependency** — dropping the condition from the general theorem, with
+  the proof body otherwise unchanged, fails. Re-run independently.
+- **Semantic dependency** — the condition-free statement, specialised to
+  `xapply2`, yields the concrete counterexample and contradicts.
+
+The first alone would only show the current proof uses it. The second is what
+makes it more than a proof convenience. As before, no claim is made that
+`padx_apply_pres` is the unique or weakest such formulation.
+
+Eleven ablations were run, one assertion per file, including **two positive
+controls**, so every one of the eight premises is shown non-redundant.
+
+#### Dispatch changes the phase of the difference
+
+```text
+before PPerform
+  extra PBindF PVar lives in the stack
+             │
+             │ capture + pkont_of + apply
+             ▼
+after PPerform
+  administrative difference lives in the returned computation
+```
+
+> Capture changes the representation phase of the administrative difference.
+> Before dispatch it is a removable stack frame; after dispatch it is
+> computation data returned by the interpreter. `padxg_cf` records that
+> generated phase, while `padx_cf` records the pre-capture stack phase.
+
+So a new successor relation was not a convenience. Stated relative to the
+present design:
+
+> Under the current definitions, the successor cannot in general be recovered as
+> `padx_cf`; the available conclusion is `padx_comp` inside the newly introduced
+> `padxg_cf`.
+
+Not that no other design could use a single relation.
+
+#### The diagonal restriction, first among the open items
+
+> `guard_padxg_one_search_serves_both` makes the restriction explicit: both
+> sides use one prompt-search result. The theorem is general in its remaining
+> parameters, but it is not yet the relational `PPerform` arm for two distinct,
+> related searches and clauses.
+
+Everything else is a variable — state, both stores, both counters, both
+payloads, the ambient stack, the captured and remaining segments, the clause.
+But the captured segment is literally the same list on both sides, with the left
+carrying one extra frame on top; the found clause and the remainder are
+**identical**, not related.
+
+That restriction is why admitting the condition into the boundary record still
+waits.
+
+#### Also not proved
+
+- other transition rules under `padxg_cf`;
+- any statement about interpreters other than `xapply` and `xapply2`;
+- admission into the administrative boundary record, or the whole dispatcher.
+
+#### Position
+
+> The candidate boundary condition is sufficient and load-bearing for the
+> parameterised diagonal `PPerform` arm. Dispatch does not preserve the
+> pre-capture configuration relation; it moves the simulation into a
+> generated-computation phase, which must now be related operationally and
+> generalised beyond the diagonal search.
+
+#### Two gates before the record, not one
+
+```text
+padx_cf  ── PPerform ──▶  padxg_cf
+   ▲                         │
+   └──── reconvergence ──────┘
+```
+
+**Non-diagonal search.** Take each side's own `pfind_prompt` result; get the
+correspondence of responder, payload and captured segment from
+`plookup_equivariant` and the clause relation; join the two `pkont_of`s by
+`padx_fn_at`; consume `padx_apply_pres` at the same single place; and re-derive
+the diagonal theorem as a corollary.
+
+**The generated phase.** State a one-step weak simulation for `padxg_cf`;
+separate `padx_comp`'s plain branch from its strip branch; send the plain branch
+to the existing allocation-aware step theorem; handle the strip branch's extra
+bind push and pop as the weak step difference; couple allocation to the same
+`paalloc` and the same actual store growth; and settle the condition under which
+reconvergence returns from `padxg_cf` to `pacfrel` or `padx_cf`.
+
+Only when both close is the simulation relation genuinely phase-indexed.
+
+Stop conditions: the relation's direction inverts under a non-diagonal search; a
+new interpreter-side condition beyond `padx_apply_pres` becomes necessary; or
+the generated phase never reconverges and remains permanently in a separate phase.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

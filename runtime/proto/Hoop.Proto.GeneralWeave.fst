@@ -42881,3 +42881,616 @@ let guard_cal_x2_stores_unrelated_fires ()
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 4 -- THE GENERAL `PPerform` ARM, ON `padx_apply_pres`    *)
+(*  AS AN EXPLICIT HYPOTHESIS AND ON NOTHING ELSE ABOUT `apply`.       *)
+(*                                                                     *)
+(*  Stage 2 STATED the condition; stage 3 CALIBRATED it -- `xapply`    *)
+(*  satisfies it, `xapply2` does not, and both satisfy every weaker    *)
+(*  condition in the file.  Neither stage asked whether the arm        *)
+(*  CLOSES on it.  This section asks that, at every parameter a        *)
+(*  variable: an arbitrary clause relation, an arbitrary lookup, an    *)
+(*  arbitrary interpreter, an arbitrary allocation state, two          *)
+(*  arbitrary stores, an arbitrary ambient stack and an arbitrary      *)
+(*  prompt-search result.                                              *)
+(*                                                                     *)
+(*  THE CONDITION IS NOT ADMITTED INTO ANY BOUNDARY RECORD HERE.  It   *)
+(*  is a hypothesis of the two theorems and of nothing else, and it is *)
+(*  CONSUMED EXACTLY ONCE, at `padx_apply_pres_inst` inside            *)
+(*  `lemma_padxg_perform_core` -- the only occurrence of that          *)
+(*  instantiation below.                                               *)
+(*                                                                     *)
+(*  THE SCOPING, STATED UP FRONT AND NOT LEFT TO BE INFERRED.  This is *)
+(*  the DIAGONAL arm: ONE program compared WITH and WITHOUT the extra  *)
+(*  administrative frame.  `guard_padxg_one_search_serves_both` is the *)
+(*  precise sense -- ONE `pfind_prompt` call on the ambient stack `k`  *)
+(*  determines BOTH sides, the left's captured segment being literally *)
+(*  `PBindF PVar :: cap` for the right's `cap`, with the SAME clause   *)
+(*  and the SAME segment below.  It is NOT the non-diagonal arm, which *)
+(*  would compare two DIFFERENT but related programs and would need    *)
+(*  `pfind_prompt` to return RELATED results on two different stacks   *)
+(*  (`lemma_pafind_prompt_rel`) as its premise rather than, as here,   *)
+(*  as a source of the diagonal side conditions.  Nothing below        *)
+(*  claims the non-diagonal arm.                                       *)
+(*                                                                     *)
+(*  Everything before this line is UNTOUCHED; this section APPENDS.    *)
+(* ================================================================== *)
+
+(**
+ * **THE SUCCESSOR RELATION: WHERE THE ADMINISTRATIVE DIFFERENCE HAS MOVED.**
+ *
+ * `padx_cf` puts the difference in the STACK -- left carries one identity frame
+ * the right does not. After the capture the frame is gone from the stack: it has
+ * been consumed into the argument `apply` received, so the two ambient stacks
+ * are the SAME `below` and the difference is now in the COMPUTATION. So the
+ * successor relation is `padx_cf` with its state clause transposed: `padx_comp`
+ * on the two computations, PLAIN `pakrel` on the two stacks. Store, counters and
+ * `pawf` are carried verbatim from `padx_cf`, which is what "carry trace, store,
+ * counter and allocation state together" means here -- the two counters are
+ * PINNED to the two frontiers of `s`, exactly as `padx_cf` and `pacfrel` pin
+ * them.
+ *)
+let padxg_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+             (cf1 cf2: pconf v cl) : GTot prop
+  = pawf s /\
+    (match cf1.st, cf2.st with
+     | PStep c1 k1, PStep c2 k2 -> padx_comp r s c1 c2 /\ pakrel r s k1 k2
+     | _, _ -> False) /\
+    pasrel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+(**
+ * **THE ARM, AT ITS MINIMAL HYPOTHESIS SET.** PROVED.
+ *
+ * Every parameter is a variable: `r`, `lk`, `apply`, the state `s`, the two
+ * payloads, the ambient stack `k`, the captured segment, the segment below, the
+ * clause found, the two stores and the two counters. The two transitions are
+ * `lemma_padx_perform_left` and `lemma_padx_perform_right` verbatim; the
+ * hypothesis of `padx_apply_pres` is discharged for the pair the machine builds
+ * by `lemma_padx_kont_fn_at`; and `padx_apply_pres_inst` is called ONCE, on the
+ * two `pkont_of`s, which is the ONE place the condition is used.
+ *
+ * WHAT THE ARM ACTUALLY NEEDED, and it is three things more than the transition
+ * itself does. `pawf s` and `pcl_mono r` are `lemma_padx_kont_fn_at`'s; the
+ * search result and its non-`KScoped` kind are the two transitions'; and
+ * `pakrel r s cap cap`, `pclrel r s.aw fc.body fc.body` and
+ * `pvals_rel s.aw pay1 pay2` are the THREE side conditions
+ * `padx_apply_pres`'s antecedent demands -- the first for the continuation
+ * pair, the second for the clause pair, the third for the payload pair. NONE of
+ * the seven is redundant: dropping any one of them breaks the proof.
+ *
+ * `pakrel r s below below` is NOT among them. The ambient remainder is the SAME
+ * list on the two sides and the transition does not touch it, so the arm proper
+ * never reads a relation on it; it is needed only to PACKAGE the conclusion as
+ * `padxg_cf`, and `lemma_padxg_perform_cf` derives it rather than assuming it.
+ *)
+let lemma_padxg_perform_core
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff op: string) (pay1 pay2: list (pval v))
+    (k cap below: pstack v cl) (fc: found_clause cl)
+    (sto1 sto2: pstore v cl) (n1 n2: nat)
+  : Lemma (requires
+             pawf s /\ pcl_mono r /\
+             padx_apply_pres r apply /\
+             pfind_prompt lk eff op k == Some (cap, fc, below) /\
+             ~(KScoped? fc.kind) /\
+             pakrel r s cap cap /\
+             pclrel r s.aw fc.body fc.body /\
+             pvals_rel s.aw pay1 pay2)
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff op pay1) (PBindF (PVar #v #cl) :: k);
+                 store = sto1; next = n1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff op pay2) k; store = sto2; next = n2 } in
+             let outL : pconf v cl =
+               { st = PStep (apply fc.body pay1
+                               (pkont_of (PBindF (PVar #v #cl) :: cap))) below;
+                 store = sto1; next = n1 } in
+             let outR : pconf v cl =
+               { st = PStep (apply fc.body pay2 (pkont_of cap)) below;
+                 store = sto2; next = n2 } in
+             pstep_tr lk apply cfL == (outL, ([] <: list string)) /\
+             pstep_tr lk apply cfR == (outR, ([] <: list string)) /\
+             prun lk apply 1 cfL == (outL, ([] <: list string)) /\
+             prun lk apply 1 cfR == (outR, ([] <: list string)) /\
+             outL.store == sto1 /\ outR.store == sto2 /\
+             outL.next == n1 /\ outR.next == n2 /\
+             padx_comp r s (PStep?.c outL.st) (PStep?.c outR.st) /\
+             PStep?.k outL.st == below /\ PStep?.k outR.st == below))
+  = lemma_padx_perform_left lk apply eff op pay1 k cap below fc sto1 n1;
+    lemma_padx_perform_right lk apply eff op pay2 k cap below fc sto2 n2;
+    lemma_padx_kont_fn_at r s cap cap;
+    padx_apply_pres_inst r apply s fc.body fc.body pay1 pay2
+      (pkont_of (PBindF (PVar #v #cl) :: cap)) (pkont_of cap)
+
+(** The `squash`-to-`squash` cast that makes `padx_top` usable in HYPOTHESIS
+    position at the shape the source relation supplies, accepted BY CONVERSION
+    with no proof obligation. *)
+let padxg_top_unfold (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                     (k: pstack v cl)
+                     (h: squash (padx_top r n s (PBindF (PVar #v #cl) :: k) k))
+  : squash (paframes_rel r n s k k)
+  = h
+
+(** **The source relation already contains the ambient stack's SELF-relation.**
+    PROVED. `padx_top` deletes the identity frame and relates what is beneath it
+    -- which is the whole of `k` -- to the right's `k` by `paframes_rel`, so
+    `padx_ktop` at the pair the perform rule sees IS `pakrel r s k k`. This is
+    what makes the search's side conditions derivable rather than assumable. *)
+let lemma_padxg_ambient_self (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                             (k: pstack v cl)
+  : Lemma (requires padx_ktop r s (PBindF (PVar #v #cl) :: k) k)
+          (ensures pakrel r s k k)
+  = padx_ktop_unfold r s (PBindF (PVar #v #cl) :: k) k ();
+    introduce forall (n: nat). paframes_rel r n s k k
+    with padxg_top_unfold r n s k ()
+
+(**
+ * **THE GENERAL ARM, PACKAGED: `padx_cf` IN, ONE STEP EACH, `padxg_cf` OUT.**
+ * PROVED, at an arbitrary `r`, `lk`, `apply`, `s`, `k`, search result and pair
+ * of stores.
+ *
+ * The three side conditions the core needed are now DERIVED and not assumed:
+ * `pacrel` at the two `PPerform` redexes gives the payload relation
+ * (`lemma_pacrel_perform_inv`, and with it `eff1 == eff2` and `op1 == op2`);
+ * `padx_ktop` at the two stacks gives `pakrel r s k k`
+ * (`lemma_padxg_ambient_self`); and ONE call to `lemma_pafind_prompt_rel` on
+ * the DIAGONAL pair `k`, `k` gives all three of `pakrel r s cap cap`,
+ * `pakrel r s below below` and `pclrel r s.aw fc.body fc.body` at once.
+ *
+ * That last call is why `pcl_down r` and `plookup_equivariant r lk` appear.
+ * They are conditions on the RELATION and the LOOKUP, not on `apply`; they are
+ * the same two the file's `b_down`/`b_lookup` boundary fields already carry;
+ * and they are not substitutes for the administrative condition -- dropping
+ * either of them loses only `pakrel r s below below` and the clause relation,
+ * while dropping `padx_apply_pres` loses the conclusion itself.
+ *
+ * The trace is empty on both sides, the two stores are carried across verbatim
+ * and so is the store relation, and the two counters stay pinned to `s.an1` and
+ * `s.an2` -- so trace, store, counter and allocation state travel together.
+ *)
+let lemma_padxg_perform_cf
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k cap below: pstack v cl) (fc: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+             padx_apply_pres r apply /\
+             padx_cf r s
+               ({ st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k);
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             pfind_prompt lk eff1 op1 k == Some (cap, fc, below) /\
+             ~(KScoped? fc.kind))
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k);
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k;
+                 store = sto2; next = s.an2 } in
+             let outL : pconf v cl =
+               { st = PStep (apply fc.body pay1
+                               (pkont_of (PBindF (PVar #v #cl) :: cap))) below;
+                 store = sto1; next = s.an1 } in
+             let outR : pconf v cl =
+               { st = PStep (apply fc.body pay2 (pkont_of cap)) below;
+                 store = sto2; next = s.an2 } in
+             eff1 == eff2 /\ op1 == op2 /\
+             pstep_tr lk apply cfL == (outL, ([] <: list string)) /\
+             pstep_tr lk apply cfR == (outR, ([] <: list string)) /\
+             prun lk apply 1 cfL == (outL, ([] <: list string)) /\
+             prun lk apply 1 cfR == (outR, ([] <: list string)) /\
+             padxg_cf r s outL outR))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k);
+        store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k; store = sto2; next = s.an2 } in
+    padx_cf_unfold r s cfL cfR ();
+    padx_st_unfold r s cfL.st cfR.st ();
+    assert (pacrel r s (PPerform eff1 op1 pay1) (PPerform eff2 op2 pay2));
+    lemma_pacrel_perform_inv r s eff1 op1 eff2 op2 pay1 pay2;
+    assert (padx_ktop r s (PBindF (PVar #v #cl) :: k) k);
+    lemma_padxg_ambient_self r s k;
+    lemma_pafind_prompt_rel r lk s eff1 op1 k k;
+    lemma_padxg_perform_core r lk apply s eff1 op1 pay1 pay2 k cap below fc
+      sto1 sto2 s.an1 s.an2
+
+(* ---- STEP 5: THE CONCRETE `xapply` FIXTURE, AS A COROLLARY -------- *)
+
+(** The ambient stack the fixture performs under is `pakrel` to itself, at every
+    index and every state: `fcl_rel` is equality on clauses and the one prompt
+    on it carries `ftbl_out`, which is related to itself. *)
+let cor_padxg_capk_pakrel (s: pastate)
+  : Lemma (pakrel fcl_rel s padx_g_capk padx_g_capk)
+  = introduce forall (n: nat). paframes_rel fcl_rel n s padx_g_capk padx_g_capk
+    with lemma_padx_ftbl_out_selfrel n s.aw
+
+(** And therefore the search's three outputs are self-related -- DERIVED from
+    the ambient stack by `lemma_pafind_prompt_rel`, not restated by hand. *)
+let cor_padxg_capk_search (s: pastate)
+  : Lemma (pakrel fcl_rel s padx_g_capR padx_g_capR /\
+           pakrel fcl_rel s ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl) /\
+           pclrel fcl_rel s.aw FWrap FWrap)
+  = lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    cor_padxg_capk_pakrel s;
+    guard_padx_capture_fires ();
+    lemma_pafind_prompt_rel fcl_rel flook s "Out" "o" padx_g_capk padx_g_capk
+
+(**
+ * **`lemma_cal_perform_one_step` AGAIN -- AND THIS TIME AS A COROLLARY.**
+ * PROVED. The statement is stage 3's verbatim; the proof is no longer a
+ * re-derivation from `lemma_padx_perform_left`/`_right` but ONE instantiation
+ * of `lemma_padxg_perform_core` at `r := fcl_rel`, `lk := flook`,
+ * `apply := xapply`, `k := padx_g_capk` and the search result
+ * `guard_padx_capture_fires` computed. The condition it consumes is
+ * `lemma_cal_xapply_padx_pres`, which is stage 3's, so the concrete fixture is
+ * now a CONSEQUENCE of the general arm plus the calibration, and not an
+ * independent fact.
+ *)
+let cor_padxg_cal_one_step (s: pastate) (payload: list (pval fv))
+      (sto: pstore fv fcl) (n0: nat)
+  : Lemma (requires pawf s /\ pvals_rel s.aw payload payload)
+          (ensures
+            padx_st fcl_rel s (cal_cfL payload sto n0).st (cal_cfR payload sto n0).st /\
+            pstep_tr flook xapply (cal_cfL payload sto n0)
+              == (cal_outL payload sto n0, ([] <: list string)) /\
+            pstep_tr flook xapply (cal_cfR payload sto n0)
+              == (cal_outR payload sto n0, ([] <: list string)) /\
+            (cal_outL payload sto n0).store == sto /\
+            (cal_outL payload sto n0).next == n0 /\
+            (cal_outR payload sto n0).store == sto /\
+            (cal_outR payload sto n0).next == n0 /\
+            padx_comp fcl_rel s (PStep?.c (cal_outL payload sto n0).st)
+                                (PStep?.c (cal_outR payload sto n0).st) /\
+            pakrel fcl_rel s (PStep?.k (cal_outL payload sto n0).st)
+                             (PStep?.k (cal_outR payload sto n0).st))
+  = lemma_fcl_rel_mono ();
+    lemma_cal_xapply_padx_pres ();
+    cor_padxg_capk_search s;
+    guard_padx_capture_fires ();
+    lemma_padxg_perform_core fcl_rel flook xapply s "Out" "o" payload payload
+      padx_g_capk padx_g_capR ([PScopeF] <: pstack fv fcl) (fclause FWrap)
+      sto sto n0 n0;
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n s (PPerform "Out" "o" payload) (PPerform "Out" "o" payload)
+    with ();
+    introduce forall (n: nat). padx_top fcl_rel n s padx_g_capkx padx_g_capk
+    with (pakrel_unfold fcl_rel s padx_g_capk padx_g_capk ())
+
+(** The `squash`-to-`squash` cast for the successor relation, for the refutation
+    below to be able to instantiate what is inside it. *)
+let padxg_cf_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+                    (h: squash (padxg_cf r s cf1 cf2))
+  : squash (pawf s /\
+            (match cf1.st, cf2.st with
+             | PStep c1 k1, PStep c2 k2 -> padx_comp r s c1 c2 /\ pakrel r s k1 k2
+             | _, _ -> False) /\
+            pasrel r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+(** The empty store is `pasrel` to itself at `pabot`, vacuously: the empty world
+    couples no pair of names. *)
+let cor_padxg_pabot_sto_self ()
+  : Lemma (pasrel fcl_rel pabot ([] <: pstore fv fcl) ([] <: pstore fv fcl))
+  = ()
+
+(** **The source pair of stage 3's step-6 fixture IS a `padx_cf` pair.** PROVED.
+    This is what makes the packaged arm applicable to it: the redexes are the
+    same `PPerform`, the left stack is the right's with the identity frame on
+    top, the stores are related and the two counters sit on `pabot`'s two
+    frontiers. *)
+let cor_padxg_cal_source_padx_cf ()
+  : Lemma (padx_cf fcl_rel pabot cal_x2L cal_x2R)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    cor_padxg_capk_pakrel pabot;
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n pabot (PPerform "Out" "o" ([] <: list (pval fv)))
+                                   (PPerform "Out" "o" ([] <: list (pval fv)))
+    with ();
+    introduce forall (n: nat). padx_top fcl_rel n pabot padx_g_capkx padx_g_capk
+    with (pakrel_unfold fcl_rel pabot padx_g_capk padx_g_capk ())
+
+(** **AND THE PACKAGED ARM FIRES ON IT.** PROVED, by ONE instantiation of
+    `lemma_padxg_perform_cf` at `xapply`: `padx_cf` in, one transition on each
+    side with the empty trace, `padxg_cf` out. *)
+let cor_padxg_cal_cf_fires ()
+  : Lemma (padx_cf fcl_rel pabot cal_x2L cal_x2R /\
+           pstep_tr flook xapply cal_x2L
+             == (cal_outL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0,
+                 ([] <: list string)) /\
+           pstep_tr flook xapply cal_x2R
+             == (cal_outR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0,
+                 ([] <: list string)) /\
+           padxg_cf fcl_rel pabot
+             (cal_outL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0)
+             (cal_outR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_cal_xapply_padx_pres ();
+    cor_padxg_cal_source_padx_cf ();
+    guard_padx_capture_fires ();
+    lemma_padxg_perform_cf fcl_rel flook xapply pabot "Out" "o" "Out" "o"
+      ([] <: list (pval fv)) ([] <: list (pval fv))
+      padx_g_capk padx_g_capR ([PScopeF] <: pstack fv fcl) (fclause FWrap)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ---- STEP 6: DROP THE CONDITION AND THE ARM ITSELF IS FALSE ------- *)
+
+(**
+ * **THE ARM WITH THE CONDITION REMOVED, AS A PROPOSITION ABOUT `apply`.**
+ *
+ * This is `lemma_padxg_perform_core`'s hypothesis set MINUS `padx_apply_pres`,
+ * closed over every variable, with the arm's characteristic conclusion. It is
+ * stated so that "dropping the condition" is a claim the machine can check
+ * rather than a description of one.
+ *)
+let padxg_arm_without_cond (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                           (apply: papply_t v cl) : GTot prop
+  = forall (s: pastate) (eff op: string) (pay1 pay2: list (pval v))
+           (k cap below: pstack v cl) (fc: found_clause cl).
+      pawf s /\ pcl_mono r /\
+      pfind_prompt lk eff op k == Some (cap, fc, below) /\ ~(KScoped? fc.kind) /\
+      pakrel r s cap cap /\ pclrel r s.aw fc.body fc.body /\
+      pvals_rel s.aw pay1 pay2 ==>
+      padx_comp r s (apply fc.body pay1 (pkont_of (PBindF (PVar #v #cl) :: cap)))
+                    (apply fc.body pay2 (pkont_of cap))
+
+(** Its instantiation, in the shape `padx_apply_pres_inst` is in. *)
+let padxg_arm_inst
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff op: string) (pay1 pay2: list (pval v))
+    (k cap below: pstack v cl) (fc: found_clause cl)
+  : Lemma (requires padxg_arm_without_cond r lk apply /\
+                    pawf s /\ pcl_mono r /\
+                    pfind_prompt lk eff op k == Some (cap, fc, below) /\
+                    ~(KScoped? fc.kind) /\
+                    pakrel r s cap cap /\ pclrel r s.aw fc.body fc.body /\
+                    pvals_rel s.aw pay1 pay2)
+          (ensures padx_comp r s
+                     (apply fc.body pay1 (pkont_of (PBindF (PVar #v #cl) :: cap)))
+                     (apply fc.body pay2 (pkont_of cap)))
+  = ()
+
+(** **WITH the condition, the arm holds** -- at every interpreter, every lookup,
+    every state and every search result. PROVED, straight from the core. *)
+let lemma_padxg_arm_from_cond
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+  : Lemma (requires padx_apply_pres r apply)
+          (ensures padxg_arm_without_cond r lk apply)
+  = introduce forall (s: pastate) (eff op: string) (pay1 pay2: list (pval v))
+                     (k cap below: pstack v cl) (fc: found_clause cl).
+      (pawf s /\ pcl_mono r /\
+       pfind_prompt lk eff op k == Some (cap, fc, below) /\ ~(KScoped? fc.kind) /\
+       pakrel r s cap cap /\ pclrel r s.aw fc.body fc.body /\
+       pvals_rel s.aw pay1 pay2 ==>
+       padx_comp r s (apply fc.body pay1 (pkont_of (PBindF (PVar #v #cl) :: cap)))
+                     (apply fc.body pay2 (pkont_of cap)))
+    with (introduce _ ==> _
+          with lemma_padxg_perform_core r lk apply s eff op pay1 pay2 k cap below fc
+                 ([] <: pstore v cl) ([] <: pstore v cl) 0 0)
+
+(**
+ * **WITHOUT it, the arm is FALSE.** REFUTED, and at the instance the machine
+ * actually reaches: `lk := flook`, `apply := xapply2`, the ambient stack
+ * `padx_g_capk` and the search result `guard_padx_capture_fires` computed. The
+ * whole antecedent of `padxg_arm_without_cond` is TRUE there --
+ * `cor_padxg_capk_search` supplies the two relations the antecedent asks for,
+ * from the ambient stack -- and the conclusion fails because `xapply2` answers
+ * `PVar (PV (FI 3))` against `PVar (PV (FI 2))`. So the condition is not a
+ * convenience of the proof above: it is the whole of what the arm rests on.
+ *)
+let guard_padxg_arm_needs_cond ()
+  : Lemma (~(padxg_arm_without_cond fcl_rel flook xapply2))
+  = introduce padxg_arm_without_cond fcl_rel flook xapply2 ==> False
+    with (lemma_pabot_wf ();
+          lemma_fcl_rel_mono ();
+          cor_padxg_capk_search pabot;
+          guard_padx_capture_fires ();
+          padxg_arm_inst fcl_rel flook xapply2 pabot "Out" "o"
+            ([] <: list (pval fv)) ([] <: list (pval fv))
+            padx_g_capk padx_g_capR ([PScopeF] <: pstack fv fcl) (fclause FWrap);
+          guard_cal_xklen_differs ();
+          cal_padx_comp_var_unfold fcl_rel pabot
+            (PV (FI (xklen (cal_kkL (fpv FU)))))
+            (PV (FI (xklen (cal_kkR (fpv FU))))) ();
+          lemma_cal_pvar_int_unrelated pabot 3 2)
+
+(**
+ * **THE SCOPING, MACHINE-CHECKED.** PROVED, at an arbitrary lookup and an
+ * arbitrary stack. ONE search on the ambient stack `k` determines BOTH sides:
+ * the left's captured segment is the right's with the identity frame at the
+ * head, and the clause found and the segment below are IDENTICAL, not merely
+ * related. That is what makes this the DIAGONAL arm -- one program with and
+ * without the frame -- and what a non-diagonal arm would NOT have.
+ *)
+let guard_padxg_one_search_serves_both
+    (#v #cl: Type) (lk: plookup_t cl) (eff op: string)
+    (k cap below: pstack v cl) (fc: found_clause cl)
+  : Lemma (requires pfind_prompt lk eff op k == Some (cap, fc, below))
+          (ensures pfind_prompt lk eff op (PBindF (PVar #v #cl) :: k)
+                   == Some ((PBindF (PVar #v #cl) :: cap <: pstack v cl), fc, below))
+  = lemma_padx_find_prompt_extra lk eff op (PVar #v #cl) k
+
+(** The two successors `xapply2` produces from stage 3's step-6 source pair. *)
+let padxg_x2outL : pconf fv fcl =
+  { st = PStep (xapply2 FWrap ([] <: list (pval fv)) (pkont_of padx_g_capL))
+               ([PScopeF] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+let padxg_x2outR : pconf fv fcl =
+  { st = PStep (xapply2 FWrap ([] <: list (pval fv)) (pkont_of padx_g_capR))
+               ([PScopeF] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(**
+ * **THE PACKAGED CONTRADICTION.** PROVED. The source pair IS `padx_cf`-joined
+ * -- it is `cor_padxg_cal_source_padx_cf` -- and both sides take exactly the
+ * transition `lemma_padx_perform_left`/`_right` describe, with the empty trace.
+ * And the two successors are NOT `padxg_cf`-joined. So `lemma_padxg_perform_cf`
+ * with `padx_apply_pres` deleted from its hypotheses would be FALSE at this
+ * very instance: every remaining hypothesis holds, and the conclusion does not.
+ * Read with `guard_cal_xapply2_observes`, which runs the two configurations to
+ * completion, the failure is not academic -- the two runs end with different
+ * public stores.
+ *)
+let guard_padxg_x2_successors_unrelated ()
+  : Lemma (padx_cf fcl_rel pabot cal_x2L cal_x2R /\
+           pstep_tr flook xapply2 cal_x2L == (padxg_x2outL, ([] <: list string)) /\
+           pstep_tr flook xapply2 cal_x2R == (padxg_x2outR, ([] <: list string)) /\
+           ~(padx_comp fcl_rel pabot (PStep?.c padxg_x2outL.st)
+                                     (PStep?.c padxg_x2outR.st)) /\
+           ~(padxg_cf fcl_rel pabot padxg_x2outL padxg_x2outR))
+  = cor_padxg_cal_source_padx_cf ();
+    guard_padx_capture_fires ();
+    lemma_padx_perform_left flook xapply2 "Out" "o" ([] <: list (pval fv))
+      padx_g_capk padx_g_capR ([PScopeF] <: pstack fv fcl) (fclause FWrap)
+      ([] <: pstore fv fcl) 0;
+    lemma_padx_perform_right flook xapply2 "Out" "o" ([] <: list (pval fv))
+      padx_g_capk padx_g_capR ([PScopeF] <: pstack fv fcl) (fclause FWrap)
+      ([] <: pstore fv fcl) 0;
+    introduce padx_comp fcl_rel pabot (PStep?.c padxg_x2outL.st)
+                                      (PStep?.c padxg_x2outR.st) ==> False
+    with (guard_cal_xklen_differs ();
+          cal_padx_comp_var_unfold fcl_rel pabot
+            (PV (FI (xklen (cal_kkL (fpv FU)))))
+            (PV (FI (xklen (cal_kkR (fpv FU))))) ();
+          lemma_cal_pvar_int_unrelated pabot 3 2);
+    introduce padxg_cf fcl_rel pabot padxg_x2outL padxg_x2outR ==> False
+    with padxg_cf_unfold fcl_rel pabot padxg_x2outL padxg_x2outR ()
+
+(* ================================================================== *)
+(*  B2c STAGE 4 LEDGER                                                 *)
+(*                                                                     *)
+(*  THE QUESTION THE STAGE WAS OPENED TO ADJUDICATE, AND THE ANSWER.   *)
+(*  Does the general `PPerform` arm CLOSE on `padx_apply_pres` alone?  *)
+(*  **YES for the interpreter -- and NO if "alone" is read as "and on  *)
+(*  nothing else at all".**  The arm needs, besides the condition,     *)
+(*  SEVEN hypotheses, and every one of them is either a condition on   *)
+(*  the RELATION and the LOOKUP that the file's boundary record        *)
+(*  already carries, or a side condition of `padx_apply_pres`'s OWN    *)
+(*  antecedent.  Nothing new about `apply` was needed.                 *)
+(*                                                                     *)
+(*  THE HYPOTHESIS SET, EXACTLY (`lemma_padxg_perform_core`):          *)
+(*      pawf s                                                         *)
+(*      pcl_mono r                                                     *)
+(*      padx_apply_pres r apply                                        *)
+(*      pfind_prompt lk eff op k == Some (cap, fc, below)              *)
+(*      ~(KScoped? fc.kind)                                            *)
+(*      pakrel r s cap cap                                             *)
+(*      pclrel r s.aw fc.body fc.body                                  *)
+(*      pvals_rel s.aw pay1 pay2                                       *)
+(*  The last two are the ones the gate's prediction did not list, and  *)
+(*  they are not extra demands on the interpreter: they are the CLAUSE *)
+(*  and PAYLOAD halves of `padx_apply_pres`'s own antecedent, which    *)
+(*  has four conjuncts -- `pawf`, `pclrel`, `pvals_rel`, `padx_fn_at`  *)
+(*  -- of which only the last was already discharged, by               *)
+(*  `lemma_padx_kont_fn_at`.  `pakrel r s below below` -- the ambient  *)
+(*  remainder's self-relation, which the gate predicted -- is NOT      *)
+(*  needed by the arm: the remainder is the SAME list on both sides    *)
+(*  and the transition does not touch it.  It is needed only to        *)
+(*  PACKAGE the conclusion, and `lemma_padxg_perform_cf` DERIVES it.   *)
+(*                                                                     *)
+(*  AND IN THE PACKAGED FORM (`lemma_padxg_perform_cf`) the set is     *)
+(*  smaller still, because the source relation supplies its own side   *)
+(*  conditions:                                                        *)
+(*      pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk           *)
+(*      padx_apply_pres r apply                                        *)
+(*      padx_cf r s cfL cfR                                            *)
+(*      pfind_prompt lk eff1 op1 k == Some (cap, fc, below)            *)
+(*      ~(KScoped? fc.kind)                                            *)
+(*  `pawf s`, the payload relation and `eff1 == eff2`, `op1 == op2`    *)
+(*  come out of `padx_cf`; `pakrel r s k k` comes out of `padx_ktop`   *)
+(*  (`lemma_padxg_ambient_self`); and ONE call to                      *)
+(*  `lemma_pafind_prompt_rel` on the DIAGONAL pair `k`, `k` yields     *)
+(*  `pakrel r s cap cap`, `pakrel r s below below` and                 *)
+(*  `pclrel r s.aw fc.body fc.body` together.  `pcl_down` and          *)
+(*  `plookup_equivariant` are there for that one call and for nothing  *)
+(*  else.                                                              *)
+(*                                                                     *)
+(*  `padx_apply_pres` IS CONSUMED EXACTLY ONCE, at the single          *)
+(*  `padx_apply_pres_inst` call inside `lemma_padxg_perform_core`,     *)
+(*  and it is NOT admitted into any boundary record: it is a           *)
+(*  hypothesis of the two theorems and of `padxg_arm_without_cond`'s   *)
+(*  positive half, and nowhere else.                                   *)
+(*                                                                     *)
+(*  THE SCOPING, AND IT IS THE DIAGONAL ONE.  What is proved is ONE    *)
+(*  program compared WITH and WITHOUT the extra administrative frame.  *)
+(*  `guard_padxg_one_search_serves_both` says exactly how: one         *)
+(*  `pfind_prompt` on `k` determines both sides, the captured segment  *)
+(*  `cap` being LITERALLY THE SAME on the two, with the SAME clause    *)
+(*  and the SAME segment below.  What is NOT proved -- and NOT claimed *)
+(*  -- is the non-diagonal arm, two DIFFERENT but related programs,    *)
+(*  which would take `pakrel r s k1 k2` at two distinct stacks and     *)
+(*  need `pfind_prompt` to return RELATED results on each side, with   *)
+(*  `padx_apply_pres` then applied at two related clauses instead of   *)
+(*  one.  Here `lemma_pafind_prompt_rel` is used only DIAGONALLY, at   *)
+(*  `k` against `k`, as a source of self-relations.                    *)
+(*                                                                     *)
+(*  PROVED.                                                            *)
+(*   1. `padxg_cf` -- the successor relation: `padx_cf` with the       *)
+(*      administrative difference moved out of the STACK and into the  *)
+(*      COMPUTATION, store and both counters pinned as before.         *)
+(*   2. `lemma_padxg_perform_core` -- the arm, every parameter a       *)
+(*      variable, `padx_apply_pres` consumed once.  Trace empty on     *)
+(*      both sides, both stores and both counters carried verbatim,    *)
+(*      the two successors' computations `padx_comp` and their ambient *)
+(*      stacks the SAME `below`.                                       *)
+(*   3. `lemma_padxg_ambient_self` -- the source relation already      *)
+(*      contains `pakrel r s k k`; `lemma_padxg_perform_cf` -- the     *)
+(*      packaged arm, `padx_cf` in and `padxg_cf` out.                 *)
+(*   4. `cor_padxg_capk_search` -- the fixture's search outputs are    *)
+(*      self-related, DERIVED from the ambient stack;                  *)
+(*      `cor_padxg_cal_one_step` -- stage 3's                          *)
+(*      `lemma_cal_perform_one_step`, RE-PROVED as a corollary of the  *)
+(*      general arm; `cor_padxg_cal_source_padx_cf` and               *)
+(*      `cor_padxg_cal_cf_fires` -- the packaged arm fired at a        *)
+(*      concrete `padx_cf` pair.                                       *)
+(*   5. `lemma_padxg_arm_from_cond` -- with the condition, the arm     *)
+(*      holds at every interpreter.                                    *)
+(*   6. `guard_padxg_arm_needs_cond` -- WITHOUT it the arm is FALSE,   *)
+(*      at `xapply2` on the real captured segment; and                 *)
+(*      `guard_padxg_x2_successors_unrelated` -- the same in packaged  *)
+(*      form: the source pair IS `padx_cf`, both sides step, and the   *)
+(*      successors are NOT `padxg_cf`.  So deleting `padx_apply_pres`  *)
+(*      from `lemma_padxg_perform_cf` would make it false at an        *)
+(*      instance where every other hypothesis holds.                   *)
+(*                                                                     *)
+(*  NOT ATTEMPTED, AND NOT CLAIMED.  Admitting `padx_apply_pres` into  *)
+(*  the administrative boundary record (step 7) -- OUT OF SCOPE for    *)
+(*  this gate and not done; widening to the whole dispatcher (step 8)  *)
+(*  -- likewise; the NON-DIAGONAL perform arm, over two different but  *)
+(*  related programs; the other transition rules under `padxg_cf`;     *)
+(*  any claim that the successors can be brought back into `padx_cf`   *)
+(*  -- they cannot in general, because after the capture the frame is  *)
+(*  inside a computation and not on a stack, which is precisely why    *)
+(*  `padxg_cf` had to be a new relation; any claim about interpreters  *)
+(*  other than `xapply` and `xapply2`.                                 *)
+(*                                                                     *)
+(*  WHAT FIRES, AND THE ABLATIONS RUN.  `cor_padxg_cal_one_step`,      *)
+(*  `cor_padxg_cal_cf_fires`, `guard_padxg_arm_needs_cond` and         *)
+(*  `guard_padxg_x2_successors_unrelated` all run on the SHIPPED       *)
+(*  fixture types with the real lookup `flook`, the real tables and    *)
+(*  the segment `pfind_prompt` actually returns.  Each of the eight    *)
+(*  hypotheses of `lemma_padxg_perform_core` was DELETED in turn and   *)
+(*  the proof FAILS every time, so none is redundant; deleting         *)
+(*  `pcl_down` or `plookup_equivariant` from `lemma_padxg_perform_cf`  *)
+(*  FAILS; claiming `padxg_arm_without_cond fcl_rel flook xapply2`     *)
+(*  HOLDS FAILS; claiming `padxg_cf fcl_rel pabot padxg_x2outL         *)
+(*  padxg_x2outR` HOLDS FAILS.                                         *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `#push-options`, no `#set-options`, no *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)
