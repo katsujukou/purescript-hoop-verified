@@ -7463,6 +7463,100 @@ stack relation; when `c` allocates, ordinary `paalloc` and store growth cannot b
 coupled to one successor state on both sides; or a general interpreter needs an
 unchecked purity or linearity condition.
 
+#### The minimal administrative redex is an exact stutter
+
+> The minimal administrative redex is an exact operational stutter: for every
+> interpreter, ambient stack, store, counter and value,
+> `POp (PVar x) PVar` reaches `PVar x` in exactly two left steps against zero
+> right steps, with empty trace and unchanged store and counter.
+
+And of equal standing:
+
+> This is the base administrative stutter, not a weak-simulation theorem for
+> `POp c PVar` with arbitrary `c`.
+
+The two sides do not merely *relate*; they reconverge to the **same
+configuration**, given as an equality. The trace is `[]` as an equality, not a
+bound. There are no hypotheses at all — no `requires`, every parameter
+universally quantified. Re-derived independently with proof body `()`, so this
+is not a consequence of the logical relation or of any boundary discipline: it is
+the two transition rules of the machine, computed.
+
+```text
+PStep (POp (PVar x) PVar) k
+   │  keep, no emission
+   ▼
+PStep (PVar x) (PBindF PVar :: k)
+   │  keep, no emission
+   ▼
+PStep (PVar x) k              ← exactly the right-hand configuration
+```
+
+Claiming one step suffices is rejected, and the intermediate configuration
+differs from both endpoints, so the detour is genuine rather than reflexivity
+restated.
+
+The witness runs with a non-empty store, a non-zero counter, and an ambient
+stack `[PScopeF; PBoundaryF]`. That is worth stating precisely:
+
+> The ambient stack may contain allocating frames, but those frames are not
+> activated during the two administrative steps. This establishes parametricity
+> in the surrounding configuration, not compatibility across an actual
+> allocation.
+
+The conclusion's final conjunct `0 + 2 == 2` is arithmetically trivial and
+carries no information; it is noted here only because it appears in the
+statement, and is not counted among the results.
+
+#### Why this does not extend to general `c`
+
+Not merely "because `c` is effectful". Three specific obligations appear, and
+the third is the hard one:
+
+- `emit` — both sides must produce the same trace;
+- allocation — the two sides' state and store growth must be coupled;
+- `perform` — the captured continuation segment may **include** the extra
+  `PBindF PVar`.
+
+That last one is decisive. The extra bind frame stops being mere control state
+and becomes **data handed to the interpreter**. So the generalisation may need
+more than an ordinary induction: an administrative stack relation, plus a
+boundary discipline saying the interpreter preserves it.
+
+#### The next gate: adjudicate the `perform` branch first
+
+Before general `c`, settle the branch that could turn control into data.
+
+1. formulate an allocation-aware administrative **configuration** relation
+   joining the left intermediate `PStep c (PBindF PVar :: k)` to the right
+   `PStep c k`;
+2. show the extra frame disappears exactly at `PVar`;
+3. show `PEmit` emits the same event while the frame is retained;
+4. show the allocating rules can be coupled to the same `paalloc` and the same
+   actual store growth;
+5. adjudicate whether the two segments `PPerform` captures are joined by the
+   administrative stack relation;
+6. determine whether the interpreter needs an allocation-aware
+   administrative-preservation condition;
+7. if one is needed, pin it from both sides — `xapply` satisfies it, and an
+   interpreter that reads frame length is refused;
+8. only then move to a whole-dispatcher weak simulation.
+
+**Failing to close the `perform` branch for a general interpreter is not by
+itself a stop.** It would most likely be the rediscovery of a legitimate
+boundary condition, in the same way `padm_apply_pres` was. It becomes a stop only if such
+a condition cannot be met by an ordinary higher-order interpreter like `xapply`,
+or if it has to be weakened until it admits one of the existing negative
+specimens.
+
+#### Position
+
+> The machine's primitive administrative stutter is exact, silent and
+> state-preserving. The remaining difficulty begins only when the enclosed
+> computation runs: the extra identity frame must survive ordinary effects and
+> allocation, and may become observable data when a continuation segment is
+> captured.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

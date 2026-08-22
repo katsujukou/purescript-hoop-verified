@@ -41110,3 +41110,261 @@ let guard_padma_srel_is_not_monotone ()
 (*  and no resource-limit or option pragma is issued.  Every proof      *)
 (*  above runs at the file's default settings.                          *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 1: THE MINIMAL ADMINISTRATIVE REDEX                      *)
+(*                                                                     *)
+(*  ONE redex and nothing else:                                        *)
+(*                                                                     *)
+(*      POp (PVar x) PVar        against        PVar x                 *)
+(*                                                                     *)
+(*  The claim is that the left side RECONVERGES on the right side from *)
+(*  UNEQUAL step counts -- two against zero -- and that the two extra   *)
+(*  transitions change NEITHER THE TRACE, NOR THE STORE, NOR THE       *)
+(*  COUNTER.                                                           *)
+(*                                                                     *)
+(*  THE SCOPE IS DELIBERATELY THIS SMALL AND THE GENERALISATION IS     *)
+(*  FALSE.  "An administrative burst changes nothing" does NOT hold    *)
+(*  for `POp c PVar` at an arbitrary `c`: `c` may be a `PEmit`, which  *)
+(*  puts an event on the trace; a `PWeave`/`PEnterCtx`, which reaches  *)
+(*  a floor and ALLOCATES, moving both the store and `next`; or a      *)
+(*  `PPerform`, which dispatches.  What makes the redex here           *)
+(*  administrative is that its subject is ALREADY A VALUE, so the two  *)
+(*  transitions are the bind PUSH and the bind POP and there is no     *)
+(*  third thing between them.  Nothing below is stated at any larger   *)
+(*  `c`, and nothing below should be read as licensing one.            *)
+(*                                                                     *)
+(*  WHY THE COUNTS ARE 2 AND 0.  Reading the two rules that fire:      *)
+(*                                                                     *)
+(*    | POp comp fn      -> keep (PStep comp (PBindF fn :: k))         *)
+(*    | PBindF fn :: rest -> keep (PStep (fn value) rest)              *)
+(*                                                                     *)
+(*  each goes through `keep`, which rebuilds the configuration with a  *)
+(*  new STATE and copies `store` and `next` verbatim; and neither is   *)
+(*  the `PEmit` shape `pstep_tr` intercepts, so both report `[]`.      *)
+(*  With `fn` instantiated to `PVar`, the second rule's `fn value` is  *)
+(*  `PVar x` -- the same node the first rule started from -- and the   *)
+(*  frame it pushed is gone.  Hence: push, pop, and the configuration  *)
+(*  is the right-hand one on the nose.                                 *)
+(*                                                                     *)
+(*  EVERYTHING IS UNIVERSALLY QUANTIFIED.  The interpreter `lk`, the   *)
+(*  clause application `apply`, the value `x`, THE AMBIENT STACK `k`,  *)
+(*  the store and the counter are all variables, and NO lemma below    *)
+(*  carries a `requires`.  That is the content of the word             *)
+(*  "administrative": the redex is free REGARDLESS OF CONTEXT, not     *)
+(*  free at a fixture and not free under a well-formedness side        *)
+(*  condition.                                                         *)
+(* ------------------------------------------------------------------ *)
+
+(** **Step 1: the bind frame goes on.** PROVED, at an arbitrary `lk`, `apply`,
+    `x`, `k`, store and counter. Stated over `pstep_tr` and not `pstep`, so that
+    the empty trace is part of the statement rather than a corollary someone has
+    to look up. *)
+let lemma_arx_step1 (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep_tr lk apply ({ st = PStep (POp (PVar x) PVar) k;
+                                store = sto; next = n0 })
+           == (({ st = PStep (PVar x) (PBindF PVar :: k);
+                  store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = assert_norm (pstep_tr lk apply ({ st = PStep (POp (PVar x) PVar) k;
+                                      store = sto; next = n0 })
+                 == (({ st = PStep (PVar x) (PBindF PVar :: k);
+                        store = sto; next = n0 } <: pconf v cl),
+                     ([] <: list string)))
+
+(** **Step 2: the value meets the frame and the frame is the identity.** PROVED,
+    same generality. `PBindF PVar` applied to `x` is `PVar x`, so the node is
+    unchanged and only the stack moved. *)
+let lemma_arx_step2 (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep_tr lk apply ({ st = PStep (PVar x) (PBindF PVar :: k);
+                                store = sto; next = n0 })
+           == (({ st = PStep (PVar x) k; store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = assert_norm (pstep_tr lk apply ({ st = PStep (PVar x) (PBindF PVar :: k);
+                                      store = sto; next = n0 })
+                 == (({ st = PStep (PVar x) k; store = sto; next = n0 } <: pconf v cl),
+                     ([] <: list string)))
+
+(** **The two steps composed, ON `prun`.** PROVED. This is the form that carries
+    the trace: the right-hand component is `[]`, an EQUALITY and not a bound, so
+    the redex is not merely "quiet enough" -- it emits nothing at all. *)
+let lemma_arx_prun_two (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 2 ({ st = PStep (POp (PVar x) PVar) k;
+                              store = sto; next = n0 })
+           == (({ st = PStep (PVar x) k; store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = assert_norm (prun lk apply 2 ({ st = PStep (POp (PVar x) PVar) k;
+                                    store = sto; next = n0 })
+                 == (({ st = PStep (PVar x) k; store = sto; next = n0 } <: pconf v cl),
+                     ([] <: list string)))
+
+(** **The same two steps on the UNINSTRUMENTED driver.** PROVED. Stated
+    separately because the configuration claim should not have to be read out of
+    a pair: `psteps` lands on the right-hand configuration itself. *)
+let lemma_arx_psteps_two (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (psteps lk apply 2 ({ st = PStep (POp (PVar x) PVar) k;
+                                store = sto; next = n0 })
+           == ({ st = PStep (PVar x) k; store = sto; next = n0 } <: pconf v cl))
+  = assert_norm (psteps lk apply 2 ({ st = PStep (POp (PVar x) PVar) k;
+                                      store = sto; next = n0 })
+                 == ({ st = PStep (PVar x) k; store = sto; next = n0 } <: pconf v cl))
+
+(** **The right-hand side takes ZERO steps**, and it is the fuel-0 clause of
+    `prun` read off. PROVED. It is stated so that the reconvergence below is an
+    equation between two RUNS rather than between a run and a configuration
+    someone asserted was already final. *)
+let lemma_arx_prun_zero (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (prun lk apply 0 ({ st = PStep (PVar x) k; store = sto; next = n0 })
+           == (({ st = PStep (PVar x) k; store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = ()
+
+(**
+ * **STAGE 1's RESULT: the minimal administrative redex reconverges from two
+ * steps against zero, and the detour is free.** PROVED, and with no hypothesis
+ * of any kind -- read the signature: there is no `requires`.
+ *
+ * The conjuncts, and each is stated because each is separately checkable:
+ *
+ *   - the two RUNS are equal, traces included, which is the reconvergence as an
+ *     equation between runs;
+ *   - the left run's configuration IS the right-hand configuration -- an
+ *     EQUALITY, not a relation, so nothing downstream has to know which relation
+ *     was meant;
+ *   - the trace is `[]`;
+ *   - the store is the store it started with;
+ *   - the counter is the counter it started with, so nothing was ALLOCATED;
+ *   - `psteps` agrees, so the claim is not an artefact of the instrument;
+ *   - and the counts really are unequal, stated additively (`nat` subtraction
+ *     truncates, so `2 - 0` would be a worse way to say it): the left side is
+ *     the right side's count PLUS TWO.
+ *)
+let lemma_arx_reconverges (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (let cfl : pconf v cl = { st = PStep (POp (PVar x) PVar) k;
+                                    store = sto; next = n0 } in
+           let cfr : pconf v cl = { st = PStep (PVar x) k;
+                                    store = sto; next = n0 } in
+           prun lk apply 2 cfl == prun lk apply 0 cfr /\
+           fst (prun lk apply 2 cfl) == cfr /\
+           snd (prun lk apply 2 cfl) == [] /\
+           (fst (prun lk apply 2 cfl)).store == cfl.store /\
+           (fst (prun lk apply 2 cfl)).next == cfl.next /\
+           psteps lk apply 2 cfl == cfr /\
+           0 + 2 == 2)
+  = lemma_arx_prun_two lk apply x k sto n0;
+    lemma_arx_psteps_two lk apply x k sto n0
+
+(* ---- B2c GUARD 1: the two steps, READ OUT BY COMPUTATION ----------- *)
+
+(** The instance. The store is NONEMPTY and the counter is NONZERO on purpose:
+    an equality of whole configurations then says the two transitions carried
+    both across untouched, which `store = []` and `next = 0` would have said
+    less convincingly. The ambient stack is a floor under a boundary -- frames
+    whose own rules DO allocate -- and neither fires, because the two steps
+    never reach them. *)
+let arx_g_x : pval nat = PV 5
+let arx_g_k : pstack nat nat = [PScopeF; PBoundaryF]
+let arx_g_sto : pstore nat nat = [(2, PCtxDone (PV 9))]
+let arx_g_cf0 : pconf nat nat =
+  { st = PStep (POp (PVar arx_g_x) PVar) arx_g_k; store = arx_g_sto; next = 3 }
+let arx_g_cf1 : pconf nat nat =
+  { st = PStep (PVar arx_g_x) (PBindF PVar :: arx_g_k);
+    store = arx_g_sto; next = 3 }
+let arx_g_cf2 : pconf nat nat =
+  { st = PStep (PVar arx_g_x) arx_g_k; store = arx_g_sto; next = 3 }
+
+(** **The guard, and it FIRES**: both transitions are run and both are checked
+    against the configuration the general lemmas predict, trace included, and the
+    two runs -- two steps on the left, zero on the right -- land on the same
+    pair. Every conjunct is a computation, not an appeal to a lemma. *)
+let guard_arx_two_steps_fire ()
+  : Lemma (ensures pstep_tr glk gapply arx_g_cf0 == (arx_g_cf1, ([] <: list string)) /\
+                   pstep_tr glk gapply arx_g_cf1 == (arx_g_cf2, ([] <: list string)) /\
+                   prun glk gapply 2 arx_g_cf0 == (arx_g_cf2, ([] <: list string)) /\
+                   prun glk gapply 0 arx_g_cf2 == (arx_g_cf2, ([] <: list string)))
+  = assert_norm (pstep_tr glk gapply arx_g_cf0 == (arx_g_cf1, ([] <: list string)));
+    assert_norm (pstep_tr glk gapply arx_g_cf1 == (arx_g_cf2, ([] <: list string)));
+    assert_norm (prun glk gapply 2 arx_g_cf0 == (arx_g_cf2, ([] <: list string)));
+    assert_norm (prun glk gapply 0 arx_g_cf2 == (arx_g_cf2, ([] <: list string)))
+
+(* ---- B2c GUARD 2: the reconvergence is NOT reflexivity ------------- *)
+
+(**
+ * **The detour is genuine.** PROVED. Without this the stage-1 result could be
+ * read as a restatement of `prun _ _ 0 cf == (cf, [])` dressed up: if the
+ * intermediate configuration were one of the endpoints, "two steps" would be
+ * two names for standing still.
+ *
+ * It is not. The three configurations are PAIRWISE DISTINCT, and for two
+ * different reasons, which is why both are computed:
+ *
+ *   - `cf0` against the other two by the NODE -- `POp` there, `PVar` here;
+ *   - `cf1` against `cf2` by the STACK, which is one frame longer.
+ *
+ * And the last conjunct pins the count: ONE step does not suffice, so `2` is not
+ * an over-count that a smaller number would also have satisfied.
+ *)
+let guard_arx_detour_is_genuine ()
+  : Lemma (ensures ~(arx_g_cf1 == arx_g_cf0) /\
+                   ~(arx_g_cf1 == arx_g_cf2) /\
+                   ~(arx_g_cf0 == arx_g_cf2) /\
+                   ~(prun glk gapply 1 arx_g_cf0 == (arx_g_cf2, ([] <: list string))))
+  = assert_norm (POp? (PStep?.c arx_g_cf0.st));
+    assert_norm (~(POp? (PStep?.c arx_g_cf1.st)));
+    assert_norm (~(POp? (PStep?.c arx_g_cf2.st)));
+    assert_norm (length (PStep?.k arx_g_cf1.st) == 3);
+    assert_norm (length (PStep?.k arx_g_cf2.st) == 2);
+    assert_norm (prun glk gapply 1 arx_g_cf0 == (arx_g_cf1, ([] <: list string)))
+
+(* ================================================================== *)
+(*  B2c STAGE 1 LEDGER                                                 *)
+(*                                                                     *)
+(*  PROVED, AT ARBITRARY `lk`, `apply`, `x`, `k`, STORE AND COUNTER,   *)
+(*  WITH NO HYPOTHESIS ON ANY OF THEM:                                 *)
+(*   - `lemma_arx_step1`, `lemma_arx_step2`: the two transitions, each *)
+(*     over `pstep_tr`, each reporting the EMPTY trace;                *)
+(*   - `lemma_arx_prun_two`, `lemma_arx_psteps_two`: the composite,    *)
+(*     instrumented and uninstrumented;                                *)
+(*   - `lemma_arx_prun_zero`: the right side takes no steps;           *)
+(*   - `lemma_arx_reconverges`: THE STAGE-1 RESULT.  Two steps on the  *)
+(*     left against ZERO on the right land on the SAME CONFIGURATION,  *)
+(*     given as an EQUALITY; the trace is `[]`; the store is           *)
+(*     unchanged; `next` is unchanged, so nothing was allocated.       *)
+(*                                                                     *)
+(*  ALL THREE OF TRACE, STORE AND COUNTER ARE UNCHANGED, AND NONE OF   *)
+(*  THE THREE NEEDED A HYPOTHESIS.  No lemma above has a `requires`.   *)
+(*                                                                     *)
+(*  WHAT FIRES, AND THE ABLATIONS RUN.                                 *)
+(*   - `guard_arx_two_steps_fire` runs both transitions on a concrete  *)
+(*     instance with a NONEMPTY store and a NONZERO counter, and       *)
+(*     checks both against the general prediction;                     *)
+(*   - `guard_arx_detour_is_genuine` shows the three configurations    *)
+(*     pairwise distinct and ONE step insufficient;                    *)
+(*   - claiming step 1 lands on `arx_g_cf2` FAILS; claiming the trace  *)
+(*     is `["e"]` FAILS; claiming `next` becomes `4` FAILS; claiming   *)
+(*     the store becomes `[]` FAILS; asserting `arx_g_cf1 ==           *)
+(*     arx_g_cf2` instead of its negation FAILS, so the disequality    *)
+(*     context is consistent; `prun _ _ 1` reaching the right-hand     *)
+(*     side FAILS; and the general lemma at ONE step instead of two    *)
+(*     FAILS.                                                          *)
+(*                                                                     *)
+(*  NOT ATTEMPTED HERE, AND NOT CLAIMED.  The general-`c` case -- and  *)
+(*  it is FALSE, see the header: `c` may emit, may perform and may     *)
+(*  allocate; the intermediate-phase relation; any separation of an    *)
+(*  allocation burst from a semantic step; weak simulation; finite     *)
+(*  runs; the observation; right identity.  Stage 1 relates exactly    *)
+(*  ONE redex to exactly ONE right-hand side.                          *)
+(*                                                                     *)
+(*  Everything before this line is UNTOUCHED; this section APPENDS.    *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no unproved        *)
+(*  obligation is left standing, no hypothesis is postulated, no       *)
+(*  bodiless `val` is declared, no expected-failure marker is used,    *)
+(*  and no resource-limit or option pragma is issued.  Every proof     *)
+(*  above runs at the file's default settings.                        *)
+(* ================================================================== *)
