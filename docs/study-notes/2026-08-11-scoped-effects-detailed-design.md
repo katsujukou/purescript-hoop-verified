@@ -7937,6 +7937,132 @@ Stop conditions: the relation's direction inverts under a non-diagonal search; a
 new interpreter-side condition beyond `padx_apply_pres` becomes necessary; or
 the generated phase never reconverges and remains permanently in a separate phase.
 
+#### The non-diagonal `PPerform` arm
+
+> The allocation-aware administrative `PPerform` arm is now proved for two
+> distinct, related prompt searches. The two searches agree on success versus
+> failure; when they succeed, their clauses, payloads, captured segments and
+> residual stacks provide exactly the premises needed to invoke
+> `padx_apply_pres` once. No additional condition on the interpreter appears,
+> and the earlier diagonal theorem is recovered as a corollary.
+
+The hypothesis set went from eight to ten, and the difference is exactly: one
+search became two, one `KScoped` exclusion became two, and the two diagonal
+premises became non-diagonal. Nothing else. `padx_apply_pres_inst` occurs once
+in non-comment code — checked directly.
+
+#### Search agreement is derived, not assumed
+
+> Search agreement is derived, not assumed: related source configurations cannot
+> make one side find a prompt while the other fails. The theorem does not
+> require the two successful search results to be equal; it transports their required
+> relational components.
+
+That answers the concern that assuming both searches succeed would smuggle in
+their agreement. It does not.
+
+#### The diagonal theorem is a specialisation, not a look-alike
+
+> The diagonal theorem is a genuine specialisation of the non-diagonal theorem:
+> its corollary has the same argument list and the same eight-premise `requires`
+> block as the previous theorem, with no strengthened side condition.
+
+Compared directly. The proof is one instantiation at `k,k` / `cap,cap` /
+`below,below` / `fc,fc`.
+
+#### The fixture is substantially non-diagonal
+
+Four properties, verified independently of the gate:
+
+- the world is `[(0,1)]` — an **aliasing** world, not the identity;
+- the payload handles are `PCtxKey 0` and `PCtxKey 1`, different as values;
+- the two source stacks are different as values;
+- the left stack is **not** the right with one `PBindF PVar` pushed on top.
+
+The last is what places it outside the previous gate's shape. `PParamF` is not a
+prompt, so the search captures it, and the two captured segments differ while
+having the same length. This is not the diagonal theorem with more variable
+names.
+
+#### What remains unmeasured, and what remains conditional
+
+Two different kinds of gap, kept apart.
+
+> The theorem itself allows distinct residual stacks and returns
+> `pakrel r s b1 b2`. The concrete non-diagonal fixture uses the same residual
+> list on both sides, so non-vacuity of that relational conclusion on unequal
+> residuals remains unmeasured.
+
+What is missing there is evidence, not quantification: the theorem is already
+general in the residuals.
+
+On interpreters, the position is:
+
+- the theorem takes an arbitrary `apply` and holds under `padx_apply_pres`;
+- the only interpreter proved to satisfy that condition is `xapply`;
+- `xapply2` is concretely refused;
+- no other concrete interpreter has been examined.
+
+> No additional concrete interpreter is shown to inhabit the condition; the arm
+> theorem itself remains conditional and interpreter-parametric.
+
+Ablations: ten premises of the arm, five of the search lemma, and one on the
+fixture's own `pakrel`, each in its own file, with three positive controls. No
+premise is redundant.
+
+#### Position
+
+> The perform transition is no longer the missing relational arm: it is proved
+> for genuinely non-diagonal searches under the calibrated boundary condition.
+> The remaining gap is temporal — showing that the generated-computation phase
+> weakly steps back into the stack-administrative phase.
+
+#### The next gate: the generated phase
+
+The decisive first move is translating `padx_comp`'s two branches into
+execution form.
+
+```text
+padxg_cf
+  ├─ plain pacrel branch
+  │      one left step / one right step
+  │      existing allocation-aware compatibility
+  │
+  └─ administrative strip branch
+         one silent left decomposition / zero right steps
+         extra PBindF PVar moves back into the stack
+         successor should become padx_cf
+```
+
+If that closes, the phase transition becomes a cycle rather than a one-way move:
+
+```text
+padx_cf
+   │ PPerform: capture turns frame into computation data
+   ▼
+padxg_cf
+   │ administrative decomposition: computation data becomes frame
+   ▼
+padx_cf
+```
+
+1. an inversion lemma splitting `padx_comp` into plain and strip branches;
+2. send the plain branch to the existing allocation-aware one-step theorem;
+3. for the strip branch, one left step against zero right steps, empty trace,
+   store and counter unchanged;
+4. show that successor really is `padx_cf`;
+5. on the plain branch, carry allocation through the same `paalloc` and the same
+   actual store growth;
+6. bundle both branches as a weak one-step theorem for `padxg_cf`;
+7. connect to the non-diagonal perform theorem and run a concrete
+   `padx_cf → padxg_cf → padx_cf` instance;
+8. only then decide on admission into the boundary record.
+
+Stop conditions: the strip branch's successor is not `padx_cf`; on the plain
+branch `padma_srel` cannot be connected to ordinary store realization; or
+representing zero steps on one side requires discarding trace or state
+information.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
