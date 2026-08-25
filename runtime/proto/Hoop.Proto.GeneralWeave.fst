@@ -45396,3 +45396,703 @@ let guard_gwv_trace_order_fires ()
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 8 -- THE ONE-STEP THEOREM FOR THE INTERMEDIATE PHASE,    *)
+(*  AND THE REFUTATION THAT FORCED IT TO BE AT DEPTH                   *)
+(*                                                                     *)
+(*  WHAT WAS MISSING.  Two pieces existed and did not meet:            *)
+(*  `gwv_finite_closure` / `gwv_terminus_splice` land a `PSplice`      *)
+(*  terminus in `padx_cf`, and `gwv_padx_value_stutter` leaves a       *)
+(*  `padx_cf` value pair in `pacfrel`.  Between them there was NO      *)
+(*  one-step theorem for `padx_cf` at all.  This section supplies a    *)
+(*  PARTIAL one-step theorem, and the first thing it establishes is    *)
+(*  that even that theorem CANNOT be stated solely on `padx_cf`.       *)
+(*                                                                     *)
+(*  STEP 1 -- `padx_cf` IS NOT STEP-CLOSED, AND THE RULE IS `POp`.     *)
+(*  `padx_st` uses `padx_ktop`: the surplus `PBindF PVar` must be the  *)
+(*  HEAD of the left stack.  Any rule that pushes a frame on BOTH      *)
+(*  sides buries it.  `guard_gwy_op_breaks_padx_cf` runs the shipped   *)
+(*  machine on a pair that IS `padx_cf`, takes ONE `POp` transition on *)
+(*  each side, and REFUTES `padx_cf` on the two successors -- the      *)
+(*  refutation is `gwy_ktop_needs_pvar` at the pushed frame, whose     *)
+(*  function is `gwy_g`, and `gwy_g_ne` is the disequality that makes  *)
+(*  it fire.  The SAME guard then shows the successors ARE in the      *)
+(*  at-depth relation `gwy_cf`, so the failure is the top form's and   *)
+(*  not the phase's.                                                   *)
+(*                                                                     *)
+(*  STEP 2 -- THE AT-DEPTH CONFIGURATION RELATION.  `gwy_stk` /        *)
+(*  `gwy_cfk` are `padx_st` / `padx_cf` with `padx_ktop` replaced by   *)
+(*  the file's own `padx_k`, which had FOUR uses and no configuration  *)
+(*  relation built on it.  `gwy_k` / `gwy_st` / `gwy_cf` are the same  *)
+(*  thing with the DISJUNCTION LIFTED OUT OF THE INDEX QUANTIFIER, and *)
+(*  that lifting is not cosmetic: `padx_k` is                          *)
+(*  `forall n. padx_stack r n s k1 k2` and `padx_stack`'s `PBindF`     *)
+(*  clause is a DISJUNCTION, so `padx_k` states                        *)
+(*  `forall n. (A n \/ B n)` and CANNOT be inverted to                 *)
+(*  `(forall n. A n) \/ (forall n. B n)` without downward closure of   *)
+(*  the approximants in the step index, which this file does not have  *)
+(*  for `paframes_rel`.  `gwy_k` states the disjunction ONCE, outside  *)
+(*  the quantifier, and `gwy_k_is_padx_k` proves it REFINES `padx_k`   *)
+(*  -- through `lemma_padx_ktop_is_k` in the deletion disjunct and     *)
+(*  `gwy_deep_step` in the frame-for-frame one.                        *)
+(*                                                                     *)
+(*  STEP 3 -- THE EMBEDDING.  `gwy_padx_cf_is_cfk` is `padx_cf` into   *)
+(*  the `padx_k` form, via `lemma_padx_ktop_is_k` verbatim.            *)
+(*  `gwy_padx_cf_is_cf` is `padx_cf` into the invertible form, and     *)
+(*  `gwy_cf_is_cfk` closes the triangle.                               *)
+(*                                                                     *)
+(*  STEP 4 -- THE ONE-STEP THEOREM, IN THREE EXITS.                    *)
+(*    EXIT 1, `gwy_exit_stutter`: the surplus frame is ON TOP and the  *)
+(*      left computation is a value.  ONE left step against ZERO on    *)
+(*      the right, landing in `pacfrel`.  It REUSES                    *)
+(*      `gwv_padx_value_stutter` -- nothing is re-derived; the work is *)
+(*      recovering `padx_cf` from `gwy_cf` plus `padx_ktop`.           *)
+(*    EXIT 1', `gwy_exit_value_deep`: THE OTHER HORN.  In the at-depth *)
+(*      form a value may meet an ORDINARY RELATED bind frame instead,  *)
+(*      and then the step is LOCKSTEP and the surplus stays buried.    *)
+(*      `gwy_dichotomy` names the alternative explicitly; it is NOT    *)
+(*      assumed that the stutter always fires at a value, and          *)
+(*      `guard_gwy_value_dichotomy_fires` exhibits a value pair at     *)
+(*      which the stutter DOES NOT apply -- `padx_ktop` is REFUTED     *)
+(*      there -- and the lockstep does, returning the pair to          *)
+(*      `padx_cf`.                                                     *)
+(*    EXIT 2, `gwy_exit_perform_top`: the non-diagonal `PPerform` arm, *)
+(*      landing in `padxg_cf`.  It REUSES `gwz_padxg_perform_nd_cf`    *)
+(*      and therefore `lemma_padxg_perform_nd`.                        *)
+(*    EXIT 3, `gwy_exit_lockstep`: the node-driven rules, in lockstep, *)
+(*      preserving the at-depth relation with trace, store, counter    *)
+(*      and allocation state carried.  The trace obligation is stated  *)
+(*      as an EQUALITY of the two `snd`s; store and counter are        *)
+(*      unmoved on both sides, so the state `s` does not have to move  *)
+(*      and no allocation is claimed.  It is proved DIRECTLY from the  *)
+(*      file's `pacrel` inversion lemmas plus `gwy_k_cons` and         *)
+(*      `gwy_k_append`, and NOT through `lemma_pastep_tr_compat`,      *)
+(*      because that theorem wants `pacfrel`, whose stack conjunct is  *)
+(*      `pakrel`, and `pakrel` is exactly what fails here.             *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(* ================================================================== *)
+
+let rec gwy_k (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+              (k1 k2: pstack v cl) : GTot prop (decreases k1)
+  = match k1 with
+    | [] -> False
+    | PBindF f :: t1 ->
+      (f == PVar #v #cl /\ pakrel r s t1 k2)
+      \/
+      (match k2 with
+       | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+       | [] -> False)
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 -> pafrel r s f1 f2 /\ gwy_k r s t1 t2
+       | [] -> False)
+
+let gwy_k_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                 (k1 k2: pstack v cl) (h: squash (gwy_k r s k1 k2))
+  : squash (match k1 with
+            | [] -> False
+            | PBindF f :: t1 ->
+              (f == PVar #v #cl /\ pakrel r s t1 k2)
+              \/
+              (match k2 with
+               | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+               | [] -> False)
+            | f1 :: t1 ->
+              (match k2 with
+               | f2 :: t2 -> pafrel r s f1 f2 /\ gwy_k r s t1 t2
+               | [] -> False))
+  = h
+
+let gwy_ktop_is_gwy_k (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (k1 k2: pstack v cl)
+  : Lemma (requires padx_ktop r s k1 k2) (ensures gwy_k r s k1 k2)
+  = gwz_padx_ktop_shape r s k1 k2
+
+let gwy_deep_step (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (f1 f2: pframe v cl) (t1 t2: pstack v cl)
+  : Lemma (requires pafrel r s f1 f2 /\ padx_k r s t1 t2)
+          (ensures padx_k r s (f1 :: t1) (f2 :: t2))
+  = introduce forall (n: nat). padx_stack r n s (f1 :: t1) (f2 :: t2)
+    with (assert (paframe_rel r n s f1 f2);
+          assert (padx_stack r n s t1 t2))
+
+let rec gwy_k_is_padx_k (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (k1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s k1 k2) (ensures padx_k r s k1 k2) (decreases k1)
+  = gwy_k_unfold r s k1 k2 ();
+    match k1 with
+    | PBindF f :: t1 ->
+      eliminate (f == PVar #v #cl /\ pakrel r s t1 k2)
+             \/ (match k2 with
+                 | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+                 | [] -> False)
+      with (assert (padx_ktop r s k1 k2);
+               lemma_padx_ktop_is_k r s k1 k2)
+      and (match k2 with
+              | f2 :: t2 ->
+                gwy_k_is_padx_k r s t1 t2;
+                gwy_deep_step r s (PBindF f) f2 t1 t2
+              | [] -> ())
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 ->
+         gwy_k_is_padx_k r s t1 t2;
+         gwy_deep_step r s f1 f2 t1 t2
+       | [] -> ())
+
+(* ---- structural closure of the at-depth stack relation ------------ *)
+
+let gwy_k_cons (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+               (f1 f2: pframe v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pafrel r s f1 f2 /\ gwy_k r s k1 k2)
+          (ensures gwy_k r s (f1 :: k1) (f2 :: k2))
+  = match f1 with
+    | PBindF _ -> () | PParamF _ _ -> () | PPromptF _ _ _ -> ()
+    | PBoundaryF -> () | PSiteF _ -> () | PModeF _ _ -> () | PScopeF -> ()
+
+let rec gwy_k_append (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (a1 a2 k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s a1 a2 /\ gwy_k r s k1 k2)
+          (ensures gwy_k r s (a1 @ k1) (a2 @ k2))
+          (decreases a1)
+  = match a1, a2 with
+    | [], [] -> ()
+    | f1 :: b1, f2 :: b2 ->
+      lemma_pakrel_cons_inv r s f1 f2 b1 b2;
+      gwy_k_append r s b1 b2 k1 k2;
+      gwy_k_cons r s f1 f2 (b1 @ k1) (b2 @ k2)
+    | _, _ -> lemma_pakrel_shape r s a1 a2
+
+(* ---- THE DICHOTOMY, NAMED ---------------------------------------- *)
+
+let gwy_dichotomy (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (k1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s k1 k2)
+          (ensures Cons? k1 /\
+                   (padx_ktop r s k1 k2 \/
+                    (Cons? k2 /\
+                     pafrel r s (Cons?.hd k1) (Cons?.hd k2) /\
+                     gwy_k r s (Cons?.tl k1) (Cons?.tl k2))))
+  = gwy_k_unfold r s k1 k2 ();
+    match k1 with
+    | PBindF f :: t1 ->
+      eliminate (f == PVar #v #cl /\ pakrel r s t1 k2)
+             \/ (match k2 with
+                 | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+                 | [] -> False)
+      with (assert (padx_ktop r s k1 k2))
+      and (match k2 with | f2 :: t2 -> () | [] -> ())
+    | f1 :: t1 -> (match k2 with | f2 :: t2 -> () | [] -> ())
+
+(* ---- THE CONFIGURATION RELATIONS --------------------------------- *)
+
+let gwy_stk (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+            (st1 st2: pstate v cl) : GTot prop
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ padx_k r s k1 k2
+    | _, _ -> False
+
+let gwy_cfk (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+            (cf1 cf2: pconf v cl) : GTot prop
+  = pawf s /\ gwy_stk r s cf1.st cf2.st /\ pasrel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+let gwy_cfk_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (cf1 cf2: pconf v cl) (h: squash (gwy_cfk r s cf1 cf2))
+  : squash (pawf s /\ gwy_stk r s cf1.st cf2.st /\
+            pasrel r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+let gwy_stk_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (st1 st2: pstate v cl) (h: squash (gwy_stk r s st1 st2))
+  : squash (match st1, st2 with
+            | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ padx_k r s k1 k2
+            | _, _ -> False)
+  = h
+
+let gwy_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+           (st1 st2: pstate v cl) : GTot prop
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ gwy_k r s k1 k2
+    | _, _ -> False
+
+let gwy_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+           (cf1 cf2: pconf v cl) : GTot prop
+  = pawf s /\ gwy_st r s cf1.st cf2.st /\ pasrel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+let gwy_cf_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (cf1 cf2: pconf v cl) (h: squash (gwy_cf r s cf1 cf2))
+  : squash (pawf s /\ gwy_st r s cf1.st cf2.st /\
+            pasrel r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+let gwy_st_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (st1 st2: pstate v cl) (h: squash (gwy_st r s st1 st2))
+  : squash (match st1, st2 with
+            | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ gwy_k r s k1 k2
+            | _, _ -> False)
+  = h
+
+(* ---- STEP 3: `padx_cf` EMBEDS ------------------------------------ *)
+
+let gwy_padx_cf_is_cfk (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (cf1 cf2: pconf v cl)
+  : Lemma (requires padx_cf r s cf1 cf2) (ensures gwy_cfk r s cf1 cf2)
+  = padx_cf_unfold r s cf1 cf2 ();
+    padx_st_unfold r s cf1.st cf2.st ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 -> lemma_padx_ktop_is_k r s k1 k2
+    | _, _ -> ()
+
+let gwy_padx_cf_is_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (cf1 cf2: pconf v cl)
+  : Lemma (requires padx_cf r s cf1 cf2) (ensures gwy_cf r s cf1 cf2)
+  = padx_cf_unfold r s cf1 cf2 ();
+    padx_st_unfold r s cf1.st cf2.st ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 -> gwy_ktop_is_gwy_k r s k1 k2
+    | _, _ -> ()
+
+let gwy_cf_is_cfk (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (cf1 cf2: pconf v cl)
+  : Lemma (requires gwy_cf r s cf1 cf2) (ensures gwy_cfk r s cf1 cf2)
+  = gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 -> gwy_k_is_padx_k r s k1 k2
+    | _, _ -> ()
+
+(* ---- STEP 4, EXIT 1: THE SURPLUS FRAME IS ON TOP AND THE LEFT IS A
+       VALUE -- the 1:0 stutter, landing in `pacfrel` ----------------- *)
+
+let gwy_value_right_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (x1: pval v) (c2: pcomp v cl)
+  : Lemma (requires pacrel #v #cl r s (PVar x1) c2) (ensures PVar? c2)
+  = lemma_pacrel_shape r s (PVar x1) c2
+
+let gwy_exit_stutter
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    padx_ktop r s k1 k2)
+          (ensures
+            pval_rel s.aw x1 x2 /\
+            Cons? k1 /\ k1 == PBindF (PVar #v #cl) :: Cons?.tl k1 /\
+            pakrel r s (Cons?.tl k1) k2 /\
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep (PVar x1) (Cons?.tl k1);
+                 store = sto1; next = s.an1 } in
+             pstep_tr lk apply cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 0 cf2 == (cf2, ([] <: list string)) /\
+             snd (prun lk apply 1 cf1) == snd (prun lk apply 0 cf2) /\
+             cf1'.store == cf1.store /\ cf1'.next == cf1.next /\
+             pacfrel r s cf1' cf2 /\
+             0 + 1 == 1))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    assert (padx_cf r s cf1 cf2);
+    gwv_padx_value_stutter lk apply r s x1 x2 k1 k2 sto1 sto2
+
+(* ---- STEP 4, EXIT 1': THE OTHER HORN -- the surplus frame is BURIED
+       and the value meets an ORDINARY RELATED BIND FRAME ------------- *)
+
+let gwy_exit_value_deep
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (g1 g2: pval v -> pcomp v cl) (t1 t2: pstack v cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PBindF g1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PBindF g2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pafrel r s (PBindF g1) (PBindF g2) /\
+                    gwy_k r s t1 t2)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PBindF g1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PBindF g2 :: t2);
+                 store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep (g1 x1) t1; store = sto1; next = s.an1 } in
+             let cf2' : pconf v cl =
+               { st = PStep (g2 x2) t2; store = sto2; next = s.an2 } in
+             pstep_tr lk apply cf1 == (cf1', ([] <: list string)) /\
+             pstep_tr lk apply cf2 == (cf2', ([] <: list string)) /\
+             snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+             cf1'.store == cf1.store /\ cf1'.next == cf1.next /\
+             cf2'.store == cf2.store /\ cf2'.next == cf2.next /\
+             gwy_cf r s cf1' cf2'))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PBindF g1 :: t1);
+        store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PBindF g2 :: t2);
+        store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_var_inv r s x1 x2;
+    lemma_pafrel_bind_inv r s g1 g2;
+    lemma_paext_refl_wf s;
+    assert (pacrel r s (g1 x1) (g2 x2))
+
+(* ---- STEP 4, EXIT 3: LOCKSTEP AT THE NODE-DRIVEN RULES ------------ *)
+
+let gwy_lockstep_node (#v #cl: Type) (c: pcomp v cl) : bool
+  = PEmit? c || POp? c || PSplice? c || PHandle? c || PNewP? c
+
+let gwy_exit_lockstep
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires gwy_cf r s cf1 cf2 /\ PStep? cf1.st /\
+                    gwy_lockstep_node (PStep?.c cf1.st))
+          (ensures (let o1 = fst (pstep_tr lk apply cf1) in
+                    let o2 = fst (pstep_tr lk apply cf2) in
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    o1.store == cf1.store /\ o2.store == cf2.store /\
+                    o1.next == cf1.next /\ o2.next == cf2.next /\
+                    gwy_cf r s o1 o2))
+  = gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      lemma_pacrel_shape r s c1 c2;
+      (match c1 with
+       | PEmit e1 b1 ->
+         (match c2 with
+          | PEmit e2 b2 -> lemma_pacrel_emit_inv r s e1 e2 b1 b2
+          | _ -> ())
+       | POp a1 f1 ->
+         (match c2 with
+          | POp a2 f2 ->
+            lemma_pacrel_op_inv r s a1 a2 f1 f2;
+            lemma_pafrel_bind r s f1 f2;
+            gwy_k_cons r s (PBindF f1) (PBindF f2) k1 k2
+          | _ -> ())
+       | PSplice fs1 b1 ->
+         (match c2 with
+          | PSplice fs2 b2 ->
+            lemma_pacrel_splice_inv r s fs1 fs2 b1 b2;
+            gwy_k_append r s fs1 fs2 k1 k2
+          | _ -> ())
+       | PHandle t1 rc1 pv1 b1 ->
+         (match c2 with
+          | PHandle t2 rc2 pv2 b2 ->
+            lemma_pacrel_handle_inv r s t1 t2 rc1 rc2 pv1 pv2 b1 b2;
+            lemma_pafrel_prompt r s t1 t2 rc1 rc2 pv1;
+            gwy_k_cons r s (PPromptF t1 rc1 pv1) (PPromptF t2 rc2 pv2) k1 k2
+          | _ -> ())
+       | PNewP l1 i1 b1 ->
+         (match c2 with
+          | PNewP l2 i2 b2 ->
+            lemma_pacrel_newp_inv r s l1 l2 i1 i2 b1 b2;
+            lemma_pafrel_param r s l1 i1 i2;
+            gwy_k_cons r s (PParamF l1 i1) (PParamF l2 i2) k1 k2
+          | _ -> ())
+       | _ -> ())
+    | _, _ -> ()
+
+(* ---- STEP 4, EXIT 2: `PPerform`, THE NON-DIAGONAL ARM ------------- *)
+
+let gwy_exit_perform_top
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k1 k2 cap1 cap2 bel1 bel2: pstack v cl) (fc1 fc2: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+             padx_apply_pres r apply /\
+             gwy_cf r s
+               ({ st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k1);
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k2;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             padx_ktop r s (PBindF (PVar #v #cl) :: k1) k2 /\
+             pfind_prompt lk eff1 op1 k1 == Some (cap1, fc1, bel1) /\
+             pfind_prompt lk eff1 op1 k2 == Some (cap2, fc2, bel2) /\
+             ~(KScoped? fc1.kind))
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k2;
+                 store = sto2; next = s.an2 } in
+             let outL : pconf v cl =
+               { st = PStep (apply fc1.body pay1
+                               (pkont_of (PBindF (PVar #v #cl) :: cap1))) bel1;
+                 store = sto1; next = s.an1 } in
+             let outR : pconf v cl =
+               { st = PStep (apply fc2.body pay2 (pkont_of cap2)) bel2;
+                 store = sto2; next = s.an2 } in
+             eff1 == eff2 /\ op1 == op2 /\
+             pstep_tr lk apply cfL == (outL, ([] <: list string)) /\
+             pstep_tr lk apply cfR == (outR, ([] <: list string)) /\
+             prun lk apply 1 cfL == (outL, ([] <: list string)) /\
+             prun lk apply 1 cfR == (outR, ([] <: list string)) /\
+             padxg_cf r s outL outR))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k1);
+        store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k2;
+        store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cfL cfR ();
+    gwy_st_unfold r s cfL.st cfR.st ();
+    assert (padx_cf r s cfL cfR);
+    gwz_padxg_perform_nd_cf r lk apply s eff1 op1 eff2 op2 pay1 pay2
+      k1 k2 cap1 cap2 bel1 bel2 fc1 fc2 sto1 sto2
+
+(* ---- STEP 1: `padx_cf` IS NOT STEP-CLOSED ------------------------ *)
+
+let gwy_g (x: pval fv) : pcomp fv fcl = PEmit "e" (PVar x)
+
+let gwy_g_ne () : Lemma (~(gwy_g == PVar #fv #fcl))
+  = introduce gwy_g == PVar #fv #fcl ==> False
+    with assert (gwy_g (fpv FU) == PVar #fv #fcl (fpv FU))
+
+let gwy_g_fn_rel (s0: pastate) : Lemma (pafn_rel_at fcl_rel s0 gwy_g gwy_g)
+  = introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' s0 /\ pval_rel s'.aw y1 y2 ==> pacrel fcl_rel s' (gwy_g y1) (gwy_g y2))
+    with (introduce _ ==> _
+          with introduce forall (n: nat). pacomp_rel fcl_rel n s' (gwy_g y1) (gwy_g y2)
+               with (if n = 0 then ()
+                     else assert (pacomp_rel fcl_rel (n - 1) s'
+                                    (PVar y1 <: pcomp fv fcl)
+                                    (PVar y2 <: pcomp fv fcl))))
+
+let gwy_ktop_needs_pvar (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (f: pval v -> pcomp v cl) (t1 k2: pstack v cl)
+  : Lemma (requires ~(f == PVar #v #cl))
+          (ensures ~(padx_ktop r s (PBindF f :: t1) k2))
+  = introduce padx_ktop r s (PBindF f :: t1) k2 ==> False
+    with (padx_ktop_unfold r s (PBindF f :: t1) k2 ();
+          assert (padx_top r 0 s (PBindF f :: t1) k2))
+
+let gwy_op_c1 : pconf fv fcl =
+  { st = PStep (POp (PVar (fpv FU)) gwy_g) ([PBindF (PVar #fv #fcl)] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwy_op_c2 : pconf fv fcl =
+  { st = PStep (POp (PVar (fpv FU)) gwy_g) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwy_op_c1' : pconf fv fcl =
+  { st = PStep (PVar (fpv FU))
+           ([PBindF gwy_g; PBindF (PVar #fv #fcl)] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwy_op_c2' : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) ([PBindF gwy_g] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+let gwy_op_source () : Lemma (padx_cf fcl_rel pabot gwy_op_c1 gwy_op_c2)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot;
+    assert (pval_rel pabot.aw (fpv FU) (fpv FU));
+    lemma_pacrel_var #fv #fcl fcl_rel pabot (fpv FU) (fpv FU);
+    gwy_g_fn_rel pabot;
+    lemma_pacrel_op fcl_rel pabot
+      (PVar (fpv FU) <: pcomp fv fcl) (PVar (fpv FU) <: pcomp fv fcl) gwy_g gwy_g
+
+let guard_gwy_op_breaks_padx_cf ()
+  : Lemma (padx_cf fcl_rel pabot gwy_op_c1 gwy_op_c2 /\
+           pstep_tr flook xapply gwy_op_c1 == (gwy_op_c1', ([] <: list string)) /\
+           pstep_tr flook xapply gwy_op_c2 == (gwy_op_c2', ([] <: list string)) /\
+           ~(padx_ktop fcl_rel pabot
+               ([PBindF gwy_g; PBindF (PVar #fv #fcl)] <: pstack fv fcl)
+               ([PBindF gwy_g] <: pstack fv fcl)) /\
+           ~(padx_cf fcl_rel pabot gwy_op_c1' gwy_op_c2') /\
+           gwy_cf fcl_rel pabot gwy_op_c1' gwy_op_c2')
+  = gwy_op_source ();
+    gwy_g_ne ();
+    gwy_ktop_needs_pvar fcl_rel pabot gwy_g
+      ([PBindF (PVar #fv #fcl)] <: pstack fv fcl)
+      ([PBindF gwy_g] <: pstack fv fcl);
+    introduce padx_cf fcl_rel pabot gwy_op_c1' gwy_op_c2' ==> False
+    with (padx_cf_unfold fcl_rel pabot gwy_op_c1' gwy_op_c2' ();
+          padx_st_unfold fcl_rel pabot gwy_op_c1'.st gwy_op_c2'.st ());
+    gwy_padx_cf_is_cf fcl_rel pabot gwy_op_c1 gwy_op_c2;
+    gwy_exit_lockstep fcl_rel flook xapply pabot gwy_op_c1 gwy_op_c2
+
+(* ---- STEP 5: ONE INSTANCE PER EXIT ------------------------------- *)
+
+let guard_gwy_exit_stutter_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwv_st_c1 gwv_st_c2 /\
+           padx_ktop fcl_rel pabot gwv_st_k1 ([] <: pstack fv fcl) /\
+           ~(pacfrel fcl_rel pabot gwv_st_c1 gwv_st_c2) /\
+           pstep_tr flook xapply gwv_st_c1 == (gwv_st_c2, ([] <: list string)) /\
+           prun flook xapply 1 gwv_st_c1 == (gwv_st_c2, ([] <: list string)) /\
+           prun flook xapply 0 gwv_st_c2 == (gwv_st_c2, ([] <: list string)) /\
+           pacfrel fcl_rel pabot gwv_st_c2 gwv_st_c2)
+  = guard_gwv_stutter_fires ();
+    gwv_st_source ();
+    guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot;
+    gwy_padx_cf_is_cf fcl_rel pabot gwv_st_c1 gwv_st_c2;
+    gwy_exit_stutter flook xapply fcl_rel pabot (fpv FU) (fpv FU)
+      gwv_st_k1 ([] <: pstack fv fcl)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+let gwy_op_c1'' : pconf fv fcl =
+  { st = PStep (gwy_g (fpv FU)) ([PBindF (PVar #fv #fcl)] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwy_op_c2'' : pconf fv fcl =
+  { st = PStep (gwy_g (fpv FU)) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+let guard_gwy_value_dichotomy_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwy_op_c1' gwy_op_c2' /\
+           ~(padx_ktop fcl_rel pabot
+               ([PBindF gwy_g; PBindF (PVar #fv #fcl)] <: pstack fv fcl)
+               ([PBindF gwy_g] <: pstack fv fcl)) /\
+           ~(padx_cf fcl_rel pabot gwy_op_c1' gwy_op_c2') /\
+           pstep_tr flook xapply gwy_op_c1'
+             == (gwy_op_c1'', ([] <: list string)) /\
+           pstep_tr flook xapply gwy_op_c2'
+             == (gwy_op_c2'', ([] <: list string)) /\
+           gwy_cf fcl_rel pabot gwy_op_c1'' gwy_op_c2'' /\
+           padx_cf fcl_rel pabot gwy_op_c1'' gwy_op_c2'')
+  = guard_gwy_op_breaks_padx_cf ();
+    lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot;
+    gwy_g_fn_rel pabot;
+    lemma_paext_refl_wf pabot;
+    assert (pval_rel pabot.aw (fpv FU) (fpv FU));
+    lemma_pafn_apply fcl_rel pabot pabot gwy_g gwy_g (fpv FU) (fpv FU);
+    lemma_pafrel_bind fcl_rel pabot gwy_g gwy_g;
+    gwy_k_cons fcl_rel pabot (PBindF gwy_g) (PBindF gwy_g)
+      ([PBindF (PVar #fv #fcl)] <: pstack fv fcl) ([] <: pstack fv fcl);
+    gwy_exit_value_deep flook xapply fcl_rel pabot (fpv FU) (fpv FU)
+      gwy_g gwy_g ([PBindF (PVar #fv #fcl)] <: pstack fv fcl) ([] <: pstack fv fcl)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+let guard_gwy_exit_perform_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwz_cyc_c0L gwz_cyc_c0R /\
+           padx_ktop fcl_rel pabot
+             (PBindF (PVar #fv #fcl) :: padx_g_capk) padx_g_capk /\
+           snd (pstep_tr flook xapply gwz_cyc_c0L) == ([] <: list string) /\
+           snd (pstep_tr flook xapply gwz_cyc_c0R) == ([] <: list string) /\
+           padxg_cf fcl_rel pabot (fst (pstep_tr flook xapply gwz_cyc_c0L))
+                                  (fst (pstep_tr flook xapply gwz_cyc_c0R)))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_cal_xapply_padx_pres ();
+    cor_padxg_cal_source_padx_cf ();
+    guard_padx_capture_fires ();
+    gwz_cyc_shapes ();
+    assert_norm (~(KScoped? (fclause FWrap).kind));
+    gwy_padx_cf_is_cf fcl_rel pabot gwz_cyc_c0L gwz_cyc_c0R;
+    padx_cf_unfold fcl_rel pabot gwz_cyc_c0L gwz_cyc_c0R ();
+    padx_st_unfold fcl_rel pabot gwz_cyc_c0L.st gwz_cyc_c0R.st ();
+    gwy_exit_perform_top fcl_rel flook xapply pabot "Out" "o" "Out" "o"
+      ([] <: list (pval fv)) ([] <: list (pval fv))
+      padx_g_capk padx_g_capk padx_g_capR padx_g_capR
+      ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl)
+      (fclause FWrap) (fclause FWrap)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ================================================================== *)
+(*  B2c STAGE 8 -- WHAT THIS SECTION SETTLES (THE LEDGER)              *)
+(*                                                                     *)
+(*  --- PROVED ---                                                     *)
+(*                                                                     *)
+(*  1. `padx_cf` IS NOT STEP-CLOSED.  `guard_gwy_op_breaks_padx_cf`    *)
+(*     is a RUN, not a restatement: the source pair is `padx_cf` at    *)
+(*     `pabot`, each side takes ONE `POp` transition of the shipped    *)
+(*     machine with `flook` and `xapply`, and the successors are       *)
+(*     REFUTED to be `padx_cf`.  The refuted conjunct is named:        *)
+(*     `padx_ktop` at the pushed frame `PBindF gwy_g`, refuted by      *)
+(*     `gwy_ktop_needs_pvar` from `gwy_g_ne`.  The same guard proves   *)
+(*     the successors ARE `gwy_cf`, through `gwy_exit_lockstep`, so    *)
+(*     the phase survives the transition and only the TOP form does    *)
+(*     not.                                                            *)
+(*  2. `gwy_k_is_padx_k`: the at-depth relation REFINES the file's     *)
+(*     `padx_k`.  `gwy_ktop_is_gwy_k`: the top form embeds into it.    *)
+(*     `gwy_k_cons` / `gwy_k_append`: it is closed under pushing       *)
+(*     related frames and related blocks.                              *)
+(*  3. `gwy_padx_cf_is_cfk` / `gwy_padx_cf_is_cf` / `gwy_cf_is_cfk`:   *)
+(*     the one-way embeddings of `padx_cf` into both at-depth forms,   *)
+(*     and of the invertible at-depth form into the `padx_k` form.     *)
+(*  4. `gwy_dichotomy`: from `gwy_k`, EITHER the surplus frame is on   *)
+(*     top -- `padx_ktop` -- OR the two head frames are `pafrel` and   *)
+(*     the tails are again `gwy_k`.  This is the statement that makes  *)
+(*     the value case a DICHOTOMY and not an assumption.               *)
+(*  5. The three exits, `gwy_exit_stutter`, `gwy_exit_perform_top`     *)
+(*     and `gwy_exit_lockstep`, plus the second horn of the value      *)
+(*     case, `gwy_exit_value_deep`.  Exits 1 and 2 REUSE               *)
+(*     `gwv_padx_value_stutter` and `gwz_padxg_perform_nd_cf`; exits   *)
+(*     1' and 3 are new proofs.                                        *)
+(*  6. One instance per exit, all FIRING on the shipped fixture with   *)
+(*     `flook` and `xapply`: `guard_gwy_exit_stutter_fires`,           *)
+(*     `guard_gwy_value_dichotomy_fires`, `guard_gwy_exit_perform_fires`*)
+(*     and, for exit 3, `guard_gwy_op_breaks_padx_cf` itself.          *)
+(*                                                                     *)
+(*  --- REFUTED ---                                                    *)
+(*                                                                     *)
+(*  `~(padx_cf fcl_rel pabot gwy_op_c1' gwy_op_c2')` -- the successor  *)
+(*  of a `padx_cf` pair under `POp` is NOT `padx_cf`.                  *)
+(*  `~(padx_ktop fcl_rel pabot [PBindF gwy_g; PBindF PVar]             *)
+(*      [PBindF gwy_g])` -- the surplus frame is genuinely buried, so  *)
+(*  the stutter exit does NOT apply at that value pair.                *)
+(*  `~(gwy_g == PVar)` -- the pushed frame is not the identity, which  *)
+(*  is what makes the burial irreversible in one step.                 *)
+(*                                                                     *)
+(*  --- NOT ATTEMPTED, AND NOT CLAIMED ---                             *)
+(*                                                                     *)
+(*  EXIT 3 IS NOT TOTAL OVER THE RULES.  `gwy_lockstep_node` names     *)
+(*  exactly what it covers: `PEmit`, `POp`, `PSplice`, `PHandle` and   *)
+(*  `PNewP`.  NOT COVERED, and each for a stated reason:               *)
+(*    - `PPerform` AT DEPTH.  Exit 2 needs the surplus frame ON TOP,   *)
+(*      because `gwz_padxg_perform_nd_cf` does.  With the frame        *)
+(*      buried, `pfind_prompt` puts it either inside the CAPTURED      *)
+(*      segment or inside the remainder below, and neither case is     *)
+(*      covered by any arm in this file.  This is the one rule that    *)
+(*      neither preserves the at-depth relation by the argument given  *)
+(*      here nor lands in one of the two exits.                        *)
+(*    - `PVar` under a `PScopeF` or a `PBoundaryF` head frame.  Both   *)
+(*      may ALLOCATE, so the state `s` would have to move to           *)
+(*      `paalloc s`, and `PBoundaryF` and `PSiteF` additionally        *)
+(*      consult `pfind_mode` on the TAIL, which is where the surplus   *)
+(*      frame sits.  No claim is made about them.  `PParamF`,          *)
+(*      `PModeF` and `PPromptF` head frames are likewise not claimed.  *)
+(*    - `PReadP` / `PWriteP`, which search the stack with              *)
+(*      `pfind_param` / `pset_param`, and `PWeave`, `PEnterCtx`,       *)
+(*      `PExtendC`, `PExtendCtxC`, `PResumeC`.                         *)
+(*  NO MULTI-STEP or fuel-indexed simulation is claimed: each exit is  *)
+(*  ONE transition.  RUNNING TO COMPLETION IS OUT OF SCOPE, as is any  *)
+(*  full weak-simulation statement, and NOTHING is admitted into the   *)
+(*  administrative boundary record -- `padx_apply_pres` remains a      *)
+(*  hypothesis of `gwy_exit_perform_top` and of nothing else here.     *)
+(*  NO DOWNWARD CLOSURE of the `paframes_rel` family in the step index *)
+(*  is proved; the one-step theorem is stated on `gwy_cf` rather than  *)
+(*  on `gwy_cfk` PRECISELY because that lemma is missing, and          *)
+(*  `gwy_cf_is_cfk` is the only bridge offered.                        *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `push-options`, no `set-options`, no   *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)

@@ -8260,6 +8260,93 @@ The generated phase's temporal finiteness is settled. A weak simulation bundling
 all phases is not: what remains is to determine under which conditions a finite
 closure's terminus connects to the 1:0 stutter, and to compose the two.
 
+#### The deep administrative phase: what composition actually needs
+
+This gate did not compose the two halves. It found the shape of the invariant
+that has to sit between them.
+
+> `padx_cf` is not closed under machine steps. A genuine `POp` transition can
+> move the surplus identity-bind frame below ordinary control frames, where the
+> head-only `padx_ktop` relation no longer applies. The successor is not
+> unrelated, but it requires a deep administrative phase relation.
+
+The refutation runs on a working transition: the source pair is in `padx_cf`,
+each side takes one `POp` step with an empty trace, and the successor pair is
+proved **not** to be in `padx_cf`, with the failing conjunct named. The same
+guard shows the successor **is** in the deep form, so what broke is the
+head-only shape, not the phase. Checked independently and structurally: pushing
+**any** non-identity bind frame on both sides makes `padx_top` fail at index 0.
+
+#### A separate finding, about logical shape
+
+> `padx_k` has the pointwise shape `forall n. A n \/ B n`; a step proof needs
+> one stable phase choice outside the index quantifier. `gwy_k` supplies that
+> stronger shape and is proved to refine `padx_k`.
+
+Only the refinement `gwy_k ⟹ padx_k` is proved; no biconditional, so this is a
+**strengthening**, not a reformulation and not an equivalence. The reason a new
+relation was needed at all is that the index quantifier and the disjunction do
+not commute, and the inversion would require an index-downward-closure lemma for
+the `paframes_rel` family which does not exist in the development.
+
+`gwy_dichotomy` names the two exits at a value — surplus on top, or two related
+head frames with the surplus still buried. Both horns have a lemma and a worked
+instance, so the dichotomy is non-vacuous rather than a definitional flourish:
+"a value always stutters" is false, and the guard exhibits a value pair where
+the top-frame form is refuted and the step is lockstep instead.
+
+#### The one-step theorem's status
+
+> The resulting one-step theorem is a theorem over a proper subset of transition
+> forms, not a dispatcher theorem and not yet a weak simulation.
+
+Proved:
+
+- lockstep for exactly five node kinds — `gwy_lockstep_node` is
+  `PEmit? || POp? || PSplice? || PHandle? || PNewP?`;
+- the value case with the surplus **on top** — the 1:0 stutter into `pacfrel`;
+- `PPerform` with the surplus **on top** — into `padxg_cf`, reusing the
+  non-diagonal arm.
+
+Not attempted:
+
+- **`PPerform` at depth.** This is not a to-do item: it is the gate's first stop
+  condition actually firing. When the surplus is buried, `pfind_prompt` puts it
+  either into the captured segment or into the remainder below, and no arm in
+  the development covers either;
+- `PVar` meeting `PScopeF`, `PBoundaryF`, `PSiteF`, `PParamF`, `PModeF` or
+  `PPromptF` — the first two **allocate**, so the state must move to
+  `paalloc s`; the next two search the very tail the surplus sits in;
+- `PReadP`, `PWriteP`, `PWeave`, `PEnterCtx`, `PExtendC`, `PExtendCtxC`,
+  `PResumeC`;
+- the index-downward-closure lemma itself.
+
+#### Why the dispatcher theorem could not be reused
+
+That is a result, not a shortfall of proof engineering. `lemma_pastep_tr_compat`
+concludes through `pacfrel`, whose stack conjunct is `pakrel` — exactly what
+the deep form does not supply. No substitute was invented; the lockstep case was
+closed directly from the `pacrel` inversion lemmas plus new cons and append
+lemmas for the deep relation. That is the right handling.
+
+#### Position
+
+The simple picture — finite closure exits, then the frame is immediately
+discharged — is refuted. What sits between them is a deep administrative phase
+relation, and this gate fixed both its necessity and its logical form.
+
+#### The order from here
+
+Not straight back to composition:
+
+1. the index-downward-closure lemma for the `paframes_rel` family;
+2. `PPerform` at depth;
+3. the allocating `PVar` cases — floor, boundary, site;
+4. the tail-searching cases — mode and prompt;
+5. the remaining computation constructors;
+6. an exhaustive one-step theorem for the whole dispatcher at the deep phase;
+7. only then compose finite closure, the deep phase and the 1:0 stutter.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
