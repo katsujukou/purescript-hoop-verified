@@ -8189,6 +8189,77 @@ concatenation of `PEmit` puts the two sides out of step; or moving from the
 post-`PSplice` `padx_cf` to the identity-frame discharge needs a new interpreter
 condition.
 
+#### Finite spine closure, and the first genuine 1:0 stutter
+
+> The generated wrapper spine now has a finite closure theorem: from a spine of
+> height *h*, both sides take exactly *h* synchronized steps, preserve store
+> and counter, emit exactly the ordered event list computed by `gwv_evs`, and
+> reach a height-zero terminal phase. This closes the previous "one-step
+> closure does not imply eventual exit" gap.
+
+The trace claim is about **order and multiplicity**, not length: `gwv_prefix`
+gives list equality, and `gwv_prefix_evs` fixes *which* list — the one computed
+from the spine's syntax, `PEmit` contributing a cons and `PEnterCtx` nothing. A
+guard on a three-`PEmit` spine emits `["a"; "a"; "b"]` and refutes both a
+reordering and a multiplicity change.
+
+The two terminal cases went into **one** closure statement, and not merely as a
+disjunction: the left computation's `PSplice?` discriminates them, so a caller
+knows which exit was taken. The base case is not one-sided either — that a left
+terminus forces a right terminus is proved separately.
+
+#### The stutter, stated exactly
+
+> `gwv_padx_value_stutter` is the first genuine 1:0 transition in the
+> phase-sensitive development. Its only premise is the administrative
+> configuration relation itself; value relatedness, the surplus `PBindF PVar`,
+> and the relation between the remaining stacks are derived rather than assumed.
+
+So it is **no additional premise**, not "no premise": `padx_cf r s cf1 cf2` is
+needed and does the work. The two values may be unequal and need not be `PV`;
+the ambient stacks are arbitrary and the right one may be empty. No interpreter
+condition is required — the transition is `pstep_tr`'s `PBindF` rule, which
+consults neither `apply` nor `lk`.
+
+And it is the first genuine **1:0** in this line, not the first unequal-step
+result: the 2:0 minimal-redex theorem came earlier. What is new is a stutter
+inside the phase-sensitive development, landing in `pacfrel`.
+
+Non-vacuity is carried by a refutation: before the step the pair is **not**
+`pacfrel`, so 0:0 would discharge nothing, and the two configurations differ, so
+the left really moves.
+
+#### A correction to the gate's own account
+
+> The concrete cycle uses `gwv_prefix` / `gwv_prefix_evs` not because `xapply`
+> lacks allocation-aware equivariance — it has `lemma_xapply_paequivariant` —
+> but because the prefix theorem deliberately requires less. The stronger
+> hypotheses of `gwv_finite_closure` belong to its plain-terminal dispatcher
+> branch.
+
+`gwv_prefix`'s premises are `pcl_down`, the relation, and the height.
+The routing choice was the better one; only the stated reason was wrong.
+
+Step 5 is therefore met in substance: the cycle's two generated-phase
+transitions now come from the prefix theorems rather than from hand-written step
+calls. The entry `PPerform` transition still comes from the non-diagonal arm,
+which is correct — that transition enters the generated phase rather than being
+part of it.
+
+#### Not proved
+
+- the general composition of finite spine closure with the 1:0 value stutter;
+- that an arbitrary `padx_cf` pair reaches the value-stutter point — shown
+  on one concrete instance only;
+- admission into the boundary record;
+- any concrete inhabitant of the conditions other than `xapply`.
+
+#### Position
+
+The generated phase's temporal finiteness is settled. A weak simulation bundling
+all phases is not: what remains is to determine under which conditions a finite
+closure's terminus connects to the 1:0 stutter, and to compose the two.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

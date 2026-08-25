@@ -44634,3 +44634,765 @@ let gwz_cyc_not_pakrel ()
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 7 -- THE FINITE WRAPPER SPINE, AND THE GENUINE STUTTER   *)
+(*                                                                     *)
+(*  Two independent deliveries.  Steps 1-5 close the generated phase   *)
+(*  by INDUCTION ON THE WRAPPER SPINE: every `padxg_cf` pair reaches    *)
+(*  its terminus in exactly `gwv_h` transitions on each side, with the  *)
+(*  two traces EQUAL AS LISTS -- order and multiplicity, not length.    *)
+(*  Step 6 is separate and is the FIRST GENUINELY UNEQUAL-STEP         *)
+(*  transition in this line: one left step against zero right steps.   *)
+(* ================================================================== *)
+
+(* ---- STEP 6: THE GENUINE WEAK STUTTER AT THE VALUE CASE ---------- *)
+
+(**
+ * **THE VALUE CASE, INVERTED.** PROVED, at an arbitrary `r`, `s`, pair of
+ * values, pair of ambient stacks and pair of stores.
+ *
+ * This is what step 6 needs and it is worth reading as an ANSWER to "state what
+ * it needs about the two values and the ambient stacks", because the answer is:
+ * NOTHING BEYOND `padx_cf` ITSELF.
+ *
+ *   - ON THE VALUES: no hypothesis at all. `x1` and `x2` need not be equal and
+ *     need not be `PV`s; `pval_rel s.aw x1 x2` is DERIVED here, by instantiating
+ *     `pacrel`'s approximant quantifier at 1, and it is not used by the step.
+ *   - ON THE STACKS: no hypothesis at all. `k1` is not assumed to have the shape
+ *     `PBindF PVar :: t1`; that shape is DERIVED, because `padx_ktop` at index 0
+ *     already determines it, and `pakrel r s (Cons?.tl k1) k2` comes with it.
+ *
+ * So the stutter below applies to EVERY `padx_cf` pair sitting on two values,
+ * with no side condition whatsoever.
+ *)
+let gwv_padx_value_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires padx_cf r s
+                      ({ st = PStep (PVar x1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures pawf s /\ pval_rel s.aw x1 x2 /\ pasrel r s sto1 sto2 /\
+                   Cons? k1 /\ k1 == PBindF (PVar #v #cl) :: Cons?.tl k1 /\
+                   pakrel r s (Cons?.tl k1) k2)
+  = padx_cf_unfold r s
+      ({ st = PStep (PVar x1) k1; store = sto1; next = s.an1 } <: pconf v cl)
+      ({ st = PStep (PVar x2) k2; store = sto2; next = s.an2 } <: pconf v cl) ();
+    padx_st_unfold r s
+      (PStep (PVar x1) k1 <: pstate v cl) (PStep (PVar x2) k2 <: pstate v cl) ();
+    gwz_padx_ktop_shape r s k1 k2;
+    pacrel_unfold r s (PVar x1 <: pcomp v cl) (PVar x2 <: pcomp v cl) ();
+    assert (pacomp_rel r 1 s (PVar x1 <: pcomp v cl) (PVar x2 <: pcomp v cl))
+
+(**
+ * **THE GENUINE WEAK STUTTER: ONE LEFT STEP AGAINST ZERO RIGHT STEPS.** PROVED,
+ * at an arbitrary `lk`, `apply`, `r`, `s`, values, ambient stacks and stores,
+ * and with NO hypothesis but `padx_cf` itself.
+ *
+ * This is the first genuinely unequal-step transition in this line of work.
+ * Everything before it -- `gwz_splice_is_lockstep`, `gwz_padxg_emit_step`,
+ * `gwz_padxg_enterctx_step`, `gwz_padxg_splice_step`, `gwz_padxg_one_step` --
+ * is 1:1. `lemma_arx_reconverges` is 2:0 but it is the WHOLE administrative
+ * redex, push and pop together, and it fires only on the literal
+ * `POp (PVar x) PVar`. Here the push happened arbitrarily far in the past: the
+ * left is at an arbitrary `PVar x1` under an arbitrary tail, and the surviving
+ * identity frame is discharged by the ONE step `lemma_arx_step2` provides.
+ *
+ * The conjuncts, and each is stated because each is separately checkable:
+ *
+ *   - the derived shape and the derived `pakrel` on the tails, so the reader can
+ *     see that no shape was assumed;
+ *   - `pval_rel s.aw x1 x2`, derived and NOT required;
+ *   - the single left transition, over `pstep_tr` so the EMPTY trace is part of
+ *     the statement rather than a bound on it;
+ *   - the same transition on `prun` at fuel 1, and the right at fuel 0, so the
+ *     unequal counts are an equation between RUNS;
+ *   - the two traces are EQUAL, which is the weak-simulation obligation: a
+ *     stutter must not lose an event, and this one emits none;
+ *   - store and counter untouched, so NOTHING WAS ALLOCATED across the stutter
+ *     and the state `s` does not have to move;
+ *   - the successor and the UNMOVED right are joined by the PLAIN `pacfrel` at
+ *     the SAME `s`: the administrative phase is over, not merely smaller;
+ *   - and the counts are unequal, stated additively: `0 + 1 == 1`.
+ *)
+let gwv_padx_value_stutter
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires padx_cf r s
+                      ({ st = PStep (PVar x1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            pval_rel s.aw x1 x2 /\
+            Cons? k1 /\ k1 == PBindF (PVar #v #cl) :: Cons?.tl k1 /\
+            pakrel r s (Cons?.tl k1) k2 /\
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep (PVar x1) (Cons?.tl k1);
+                 store = sto1; next = s.an1 } in
+             pstep_tr lk apply cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 0 cf2 == (cf2, ([] <: list string)) /\
+             snd (prun lk apply 1 cf1) == snd (prun lk apply 0 cf2) /\
+             cf1'.store == cf1.store /\ cf1'.next == cf1.next /\
+             pacfrel r s cf1' cf2 /\
+             0 + 1 == 1))
+  = gwv_padx_value_shape r s x1 x2 k1 k2 sto1 sto2;
+    lemma_padx_pvar_pops lk apply x1 (Cons?.tl k1) sto1 s.an1;
+    lemma_padx_pvar_step_and_join lk apply r s x1 x2 (Cons?.tl k1) k2 sto1 sto2
+
+(* ---- STEP 6's GUARD: THE STUTTER IS NOT A LOCKSTEP IN DISGUISE ---- *)
+
+(** The instance, on the shipped fixture types and the real `flook` / `xapply`.
+    The left carries the identity frame and the right does not; the stores are
+    empty and the counters sit on `pabot`'s two frontiers. *)
+let gwv_st_k1 : pstack fv fcl = [PBindF (PVar #fv #fcl)]
+let gwv_st_c1 : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) gwv_st_k1; store = ([] <: pstore fv fcl); next = 0 }
+let gwv_st_c2 : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+let gwv_st_source ()
+  : Lemma (padx_cf fcl_rel pabot gwv_st_c1 gwv_st_c2)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot;
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n pabot (PVar (fpv FU) <: pcomp fv fcl)
+                                   (PVar (fpv FU) <: pcomp fv fcl)
+    with ()
+
+(**
+ * **THE GUARD, AND IT FIRES.** PROVED, and the two REFUTATIONS are what make it
+ * a guard rather than a restatement:
+ *
+ *   - `~(pacfrel fcl_rel pabot gwv_st_c1 gwv_st_c2)`: BEFORE the step the pair
+ *     is NOT in the plain relation, because `pastrel`'s `PStep` clause demands
+ *     `pakrel` of the two stacks and `guard_padx_ktop_is_not_pakrel` refutes
+ *     exactly that pair. So the left step is NECESSARY -- zero-against-zero
+ *     would not have discharged anything.
+ *   - `~(gwv_st_c1 == gwv_st_c2)`: the left really MOVED. The stutter is not
+ *     `prun _ _ 0 cf == (cf, [])` under another name.
+ *
+ * And AFTER the step the pair is `pacfrel`, at the SAME state `pabot`, with the
+ * right having taken no step at all.
+ *)
+let guard_gwv_stutter_fires ()
+  : Lemma (padx_cf fcl_rel pabot gwv_st_c1 gwv_st_c2 /\
+           ~(pacfrel fcl_rel pabot gwv_st_c1 gwv_st_c2) /\
+           pstep_tr flook xapply gwv_st_c1 == (gwv_st_c2, ([] <: list string)) /\
+           prun flook xapply 1 gwv_st_c1 == (gwv_st_c2, ([] <: list string)) /\
+           prun flook xapply 0 gwv_st_c2 == (gwv_st_c2, ([] <: list string)) /\
+           ~(gwv_st_c1 == gwv_st_c2) /\
+           pacfrel fcl_rel pabot gwv_st_c2 gwv_st_c2)
+  = gwv_st_source ();
+    gwv_padx_value_stutter flook xapply fcl_rel pabot
+      (fpv FU) (fpv FU) gwv_st_k1 ([] <: pstack fv fcl)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    assert_norm (~(gwv_st_c1 == gwv_st_c2));
+    introduce pacfrel fcl_rel pabot gwv_st_c1 gwv_st_c2 ==> False
+    with (pacfrel_unfold fcl_rel pabot gwv_st_c1 gwv_st_c2 ();
+          pastrel_unfold fcl_rel pabot gwv_st_c1.st gwv_st_c2.st ();
+          guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot)
+
+(* ---- STEP 1: THE WRAPPER SPINE'S HEIGHT -------------------------- *)
+
+(**
+ * **THE HEIGHT OF THE WRAPPER SPINE, ON THE LEFT COMPUTATION.** It counts the
+ * `PEnterCtx` / `PEmit` prefix and stops at the first node that is neither --
+ * which is the terminus, either the `PSplice` pair or the plain fallthrough.
+ * It is `Tot nat` and recurses on the direct subterm, so it is total for the
+ * same reason `padx_comp` is: `pcomp` is inductive and both wrapper nodes carry
+ * their body as a field.
+ *)
+let rec gwv_h (#v #cl: Type) (c: pcomp v cl) : Tot nat (decreases c)
+  = match c with
+    | PEnterCtx _ b -> 1 + gwv_h b
+    | PEmit _ b -> 1 + gwv_h b
+    | _ -> 0
+
+(**
+ * **THE EVENTS THE SPINE WILL EMIT, IN ORDER.** This is the object that makes
+ * step 4's trace claim about ORDER AND MULTIPLICITY rather than about length:
+ * `PEmit e b` CONSES its event onto the front, `PEnterCtx` contributes nothing,
+ * and the terminus contributes nothing. Two runs whose traces are both equal to
+ * this list are equal event for event, at every position.
+ *)
+let rec gwv_evs (#v #cl: Type) (c: pcomp v cl) : Tot (list string) (decreases c)
+  = match c with
+    | PEnterCtx _ b -> gwv_evs b
+    | PEmit e b -> e :: gwv_evs b
+    | _ -> []
+
+(** The spine emits at most once per transition, and strictly less than that
+    when a `PEnterCtx` is in the way. PROVED, and it records that `gwv_evs` is
+    NOT merely `gwv_h` in another notation. *)
+let rec gwv_evs_len (#v #cl: Type) (c: pcomp v cl)
+  : Lemma (ensures length (gwv_evs c) <= gwv_h c) (decreases c)
+  = match c with
+    | PEnterCtx _ b -> gwv_evs_len b
+    | PEmit _ b -> gwv_evs_len b
+    | _ -> ()
+
+(* ---- STEP 2: EACH WRAPPER DECREASES THE HEIGHT BY ONE ------------ *)
+
+(** The two wrapper clauses, read off the definition. PROVED. *)
+let gwv_h_emit (#v #cl: Type) (e: string) (b: pcomp v cl)
+  : Lemma (gwv_h (PEmit e b <: pcomp v cl) == gwv_h b + 1)
+  = ()
+
+let gwv_h_enterctx (#v #cl: Type) (pl: plan v cl) (b: pcomp v cl)
+  : Lemma (gwv_h (PEnterCtx pl b <: pcomp v cl) == gwv_h b + 1)
+  = ()
+
+(** Height zero and positive height are exactly "at the terminus" and "at a
+    wrapper". PROVED, and they are what the induction below case-splits on. *)
+let gwv_h_zero (#v #cl: Type) (c: pcomp v cl)
+  : Lemma (requires gwv_h c == 0) (ensures ~(PEmit? c) /\ ~(PEnterCtx? c))
+  = ()
+
+let gwv_h_succ (#v #cl: Type) (c: pcomp v cl)
+  : Lemma (requires gwv_h c > 0) (ensures PEmit? c \/ PEnterCtx? c)
+  = ()
+
+(**
+ * **AND THE MACHINE DECREASES IT BY ONE, IN ONE TRANSITION ON EACH SIDE.**
+ * PROVED, on `pcl_down r` alone -- the condition `gwz_padxg_enterctx_step`
+ * already needs, and nothing else.
+ *
+ * This is step 2 as a fact about the RUNNING machine and not only about the
+ * syntax: the two sides both step, the two traces are equal, store and counter
+ * are untouched on both sides, the successors are `padxg_cf` at the SAME state,
+ * and the left's height is exactly one smaller. The two calls are
+ * `gwz_padxg_emit_step` and `gwz_padxg_enterctx_step` verbatim; nothing is
+ * re-derived.
+ *)
+let gwv_wrapper_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_down r /\ padxg_cf r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) > 0)
+          (ensures (let o1 = fst (pstep_tr lk apply cf1) in
+                    let o2 = fst (pstep_tr lk apply cf2) in
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    o1.store == cf1.store /\ o2.store == cf2.store /\
+                    o1.next == cf1.next /\ o2.next == cf2.next /\
+                    padxg_cf r s o1 o2 /\ PStep? o1.st /\
+                    gwv_h (PStep?.c o1.st) + 1 == gwv_h (PStep?.c cf1.st)))
+  = padxg_cf_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwz_padx_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PEmit e1 b1 ->
+         (match c2 with
+          | PEmit e2 b2 ->
+            gwz_padxg_emit_step r lk apply s cf1 cf2 e1 e2 b1 b2 k1 k2
+          | _ -> ())
+       | PEnterCtx pl1 b1 ->
+         (match c2 with
+          | PEnterCtx pl2 b2 ->
+            gwz_padxg_enterctx_step r lk apply s cf1 cf2 pl1 pl2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> ())
+
+(**
+ * **AND THE ONE TRANSITION SPENDS EXACTLY THE HEAD OF `gwv_evs`, ON BOTH
+ * SIDES.** PROVED. This is the conjunct that turns step 4 from "the traces have
+ * the same length" into "the traces are the same list": the event the machine
+ * reports at this transition is the one `gwv_evs` predicted, and the remainder
+ * of `gwv_evs` is the remainder of the run. `PEmit`'s clause in `padx_comp`
+ * forces `e1 == e2`, so the two sides spend the SAME head.
+ *)
+let gwv_wrapper_evs
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_down r /\ padxg_cf r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) > 0)
+          (ensures (let o1 = fst (pstep_tr lk apply cf1) in
+                    let o2 = fst (pstep_tr lk apply cf2) in
+                    PStep? cf2.st /\ PStep? o1.st /\ PStep? o2.st /\
+                    gwv_evs (PStep?.c cf1.st)
+                      == snd (pstep_tr lk apply cf1) @ gwv_evs (PStep?.c o1.st) /\
+                    gwv_evs (PStep?.c cf2.st)
+                      == snd (pstep_tr lk apply cf2) @ gwv_evs (PStep?.c o2.st)))
+  = padxg_cf_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwz_padx_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PEmit e1 b1 ->
+         (match c2 with
+          | PEmit e2 b2 ->
+            gwz_padxg_emit_step r lk apply s cf1 cf2 e1 e2 b1 b2 k1 k2
+          | _ -> ())
+       | PEnterCtx pl1 b1 ->
+         (match c2 with
+          | PEnterCtx pl2 b2 ->
+            gwz_padxg_enterctx_step r lk apply s cf1 cf2 pl1 pl2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> ())
+
+(* ---- STEP 3: THE TERMINUS, AND BOTH ITS CASES IN ONE STATEMENT ---- *)
+
+(** Off the wrapper nodes `padx_comp` IS `pacrel`, and `pacrel` at approximant 1
+    already refutes a constructor mismatch. So a left that is not a wrapper
+    forces a right that is not a wrapper. PROVED. *)
+let gwv_pacrel_not_wrapper (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2 /\ ~(PEmit? c1) /\ ~(PEnterCtx? c1))
+          (ensures ~(PEmit? c2) /\ ~(PEnterCtx? c2))
+  = pacrel_unfold r s c1 c2 ();
+    assert (pacomp_rel r 1 s c1 c2)
+
+(** **THE TWO SPINES END TOGETHER.** PROVED. The left being at its terminus
+    forces the right to be at ITS terminus, with both remaining event lists
+    empty -- which is why the induction's base case is not one-sided. *)
+let gwv_padx_comp_terminus (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (c1 c2: pcomp v cl)
+  : Lemma (requires padx_comp r s c1 c2 /\ gwv_h c1 == 0)
+          (ensures gwv_h c2 == 0 /\ gwv_evs c1 == [] /\ gwv_evs c2 == [])
+  = gwz_padx_comp_unfold r s c1 c2 ();
+    match c1 with
+    | PSplice _ _ -> ()
+    | _ -> gwv_pacrel_not_wrapper r s c1 c2
+
+(**
+ * **THE TERMINUS, AND BOTH ITS CASES IN ONE CLOSURE STATEMENT.** The two cases
+ * ARE expressible together, and moreover DISCRIMINATED rather than merely
+ * disjoined: the discriminant is `PSplice?` on the LEFT computation, which the
+ * caller can decide, so the statement tells a caller WHICH exit it took and not
+ * only that it took one.
+ *
+ *   - `PSplice` on the left: the right is a `PSplice` too, the traces are empty,
+ *     store and counter are untouched on both sides, and the two successors are
+ *     joined by `padx_cf` -- the SOURCE relation, so the phase has closed.
+ *   - not `PSplice`: the pair is already `pacfrel` and the transition is the
+ *     file's own allocation-aware `pastep_compat_at`, where allocation lives.
+ *
+ * PROVED, on the dispatcher's four side conditions, which are consumed only on
+ * the second route.
+ *)
+let gwv_terminus_out (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                     (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = PStep? cf1.st /\ PStep? cf2.st /\
+    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    (PSplice? (PStep?.c cf1.st) ==>
+       (PSplice? (PStep?.c cf2.st) /\
+        snd (pstep_tr lk apply cf1) == ([] <: list string) /\
+        (fst (pstep_tr lk apply cf1)).store == cf1.store /\
+        (fst (pstep_tr lk apply cf2)).store == cf2.store /\
+        (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+        (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+        padx_cf r s (fst (pstep_tr lk apply cf1))
+                    (fst (pstep_tr lk apply cf2)))) /\
+    (~(PSplice? (PStep?.c cf1.st)) ==>
+       (pacfrel r s cf1 cf2 /\ pastep_compat_at r lk apply s cf1 cf2))
+
+let gwv_terminus_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\ padxg_cf r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == 0)
+          (ensures gwv_terminus_out r lk apply s cf1 cf2)
+  = padxg_cf_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwz_padx_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PSplice fs1 b1 ->
+         (match c2 with
+          | PSplice fs2 b2 ->
+            gwz_padxg_splice_step r lk apply s cf1 cf2 fs1 fs2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> gwz_padxg_plain_step r lk apply s cf1 cf2 c1 c2 k1 k2)
+
+(* ---- STEP 4: THE SYNCHRONIZED FINITE PREFIX ---------------------- *)
+
+(** `prun` at positive fuel on a `PStep`, read off: one `pstep_tr`, then the
+    rest, with the traces CONCATENATED IN ORDER -- `ev @ tr`, the step's events
+    first. PROVED. This is the equation the induction below is an induction
+    over. *)
+let gwv_prun_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                    (m: nat) (cf: pconf v cl)
+  : Lemma (requires PStep? cf.st)
+          (ensures (let (o, ev) = pstep_tr lk apply cf in
+                    let (d, tr) = prun lk apply m o in
+                    prun lk apply (m + 1) cf == (d, ev @ tr)))
+  = ()
+
+let gwv_prun_one (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                 (cf: pconf v cl)
+  : Lemma (requires PStep? cf.st)
+          (ensures prun lk apply 1 cf == pstep_tr lk apply cf)
+  = append_l_nil (snd (pstep_tr lk apply cf))
+
+(**
+ * **EVERY GENERATED SPINE EXITS, AND IT EXITS IN EXACTLY `gwv_h` STEPS ON EACH
+ * SIDE.** PROVED, by induction on the height, on `pcl_down r` alone.
+ *
+ * This is the theorem the previous gate did not have: `gwz_padxg_one_step` says
+ * a `padxg_cf` pair steps once and stays somewhere sensible; it does NOT say the
+ * erasure is ever reached. This does. After exactly `n = gwv_h` transitions on
+ * EACH SIDE -- the same number on both, so the prefix is synchronized and not
+ * merely simulated -- the pair is still `padxg_cf` at the SAME state, store and
+ * counter untouched throughout, and the left is at height 0, which is the
+ * terminus.
+ *
+ * THE TRACE CLAIM IS `tr1 == tr2`, AN EQUALITY OF LISTS. That is order and
+ * multiplicity, not length: two lists are equal only if they agree at every
+ * position. `gwv_prefix_evs` then says WHAT that common list is.
+ *)
+let rec gwv_prefix
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl) (n: nat)
+  : Lemma (requires pcl_down r /\ padxg_cf r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == n)
+          (ensures (let (d1, tr1) = prun lk apply n cf1 in
+                    let (d2, tr2) = prun lk apply n cf2 in
+                    tr1 == tr2 /\
+                    d1.store == cf1.store /\ d2.store == cf2.store /\
+                    d1.next == cf1.next /\ d2.next == cf2.next /\
+                    padxg_cf r s d1 d2 /\
+                    PStep? d1.st /\ gwv_h (PStep?.c d1.st) == 0))
+          (decreases n)
+  = padxg_cf_unfold r s cf1 cf2 ();
+    if n = 0 then ()
+    else begin
+      gwv_wrapper_step r lk apply s cf1 cf2;
+      gwv_prun_unfold lk apply (n - 1) cf1;
+      gwv_prun_unfold lk apply (n - 1) cf2;
+      gwv_prefix r lk apply s (fst (pstep_tr lk apply cf1))
+                              (fst (pstep_tr lk apply cf2)) (n - 1)
+    end
+
+(**
+ * **AND THE COMMON TRACE IS THE SPINE'S EVENT LIST, IN ORDER AND WITH
+ * MULTIPLICITY.** PROVED, by the same induction.
+ *
+ * `snd (prun lk apply n cf) == gwv_evs (PStep?.c cf.st)` on EACH side
+ * separately. This is strictly stronger than `tr1 == tr2`: it pins the trace to
+ * a list computed from the SYNTAX of the spine, so a reader can see that the
+ * events come out in the order the `PEmit`s occur and as many times as they
+ * occur -- an event emitted twice appears twice, and swapping two `PEmit`s would
+ * change the list. Nothing here is a length or a multiset.
+ *
+ * The base case is `gwv_padx_comp_terminus`: the LEFT being at its terminus
+ * forces the RIGHT to be at its terminus with an empty remaining event list, so
+ * the two sides really do stop together.
+ *)
+let rec gwv_prefix_evs
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl) (n: nat)
+  : Lemma (requires pcl_down r /\ padxg_cf r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == n)
+          (ensures PStep? cf2.st /\
+                   snd (prun lk apply n cf1) == gwv_evs (PStep?.c cf1.st) /\
+                   snd (prun lk apply n cf2) == gwv_evs (PStep?.c cf2.st))
+          (decreases n)
+  = padxg_cf_unfold r s cf1 cf2 ();
+    if n = 0 then
+      (match cf1.st, cf2.st with
+       | PStep c1 k1, PStep c2 k2 -> gwv_padx_comp_terminus r s c1 c2)
+    else begin
+      gwv_wrapper_step r lk apply s cf1 cf2;
+      gwv_wrapper_evs r lk apply s cf1 cf2;
+      gwv_prun_unfold lk apply (n - 1) cf1;
+      gwv_prun_unfold lk apply (n - 1) cf2;
+      gwv_prefix_evs r lk apply s (fst (pstep_tr lk apply cf1))
+                                  (fst (pstep_tr lk apply cf2)) (n - 1)
+    end
+
+(**
+ * **STEPS 1-4's RESULT: THE FINITE CLOSURE THEOREM FOR THE GENERATED PHASE.**
+ * PROVED, at an arbitrary clause relation, lookup, interpreter, allocation
+ * state and pair of configurations, on the dispatcher's four side conditions.
+ *
+ * From ANY `padxg_cf` pair: run exactly `n = gwv_h` transitions on each side.
+ * The two traces are equal AND are the spine's event list, in order and with
+ * multiplicity; store and counter are untouched on both sides across the whole
+ * prefix; the pair is still `padxg_cf` at the SAME state; and the pair that has
+ * been reached is AT THE TERMINUS, where `gwv_terminus_out` says which exit is
+ * taken and takes it.
+ *
+ * So the generated phase does not merely step -- it TERMINATES, in a number of
+ * steps the syntax of the left computation determines.
+ *)
+let gwv_finite_closure
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl) (n: nat)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\ padxg_cf r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == n)
+          (ensures (let d1 = fst (prun lk apply n cf1) in
+                    let d2 = fst (prun lk apply n cf2) in
+                    PStep? cf2.st /\
+                    snd (prun lk apply n cf1) == snd (prun lk apply n cf2) /\
+                    snd (prun lk apply n cf1) == gwv_evs (PStep?.c cf1.st) /\
+                    snd (prun lk apply n cf2) == gwv_evs (PStep?.c cf2.st) /\
+                    d1.store == cf1.store /\ d2.store == cf2.store /\
+                    d1.next == cf1.next /\ d2.next == cf2.next /\
+                    padxg_cf r s d1 d2 /\
+                    PStep? d1.st /\ gwv_h (PStep?.c d1.st) == 0 /\
+                    gwv_terminus_out r lk apply s d1 d2))
+  = gwv_prefix r lk apply s cf1 cf2 n;
+    gwv_prefix_evs r lk apply s cf1 cf2 n;
+    gwv_terminus_step r lk apply s (fst (prun lk apply n cf1))
+                                   (fst (prun lk apply n cf2))
+
+let gwv_terminus_splice
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires padxg_cf r s cf1 cf2 /\ PStep? cf1.st /\
+                    PSplice? (PStep?.c cf1.st))
+          (ensures PStep? cf2.st /\ PSplice? (PStep?.c cf2.st) /\
+                   snd (pstep_tr lk apply cf1) == ([] <: list string) /\
+                   snd (pstep_tr lk apply cf2) == ([] <: list string) /\
+                   (fst (pstep_tr lk apply cf1)).store == cf1.store /\
+                   (fst (pstep_tr lk apply cf2)).store == cf2.store /\
+                   (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+                   (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+                   padx_cf r s (fst (pstep_tr lk apply cf1))
+                               (fst (pstep_tr lk apply cf2)))
+  = padxg_cf_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwz_padx_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PSplice fs1 b1 ->
+         (match c2 with
+          | PSplice fs2 b2 ->
+            gwz_padxg_splice_step r lk apply s cf1 cf2 fs1 fs2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> ())
+
+let gwv_cyc_shape_h ()
+  : Lemma (PStep? gwz_cyc_c1L.st /\ PStep? gwz_cyc_c1R.st /\
+           gwv_h (PStep?.c gwz_cyc_c1L.st) == 1 /\
+           gwv_evs (PStep?.c gwz_cyc_c1L.st) == ([] <: list string) /\
+           PStep? gwz_cyc_c2L.st /\ PSplice? (PStep?.c gwz_cyc_c2L.st) /\
+           gwv_h (PStep?.c gwz_cyc_c2L.st) == 0)
+  = gwz_cyc_shapes ()
+
+let gwv_cyc_steps ()
+  : Lemma (pstep_tr flook xapply gwz_cyc_c1L == (gwz_cyc_c2L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c1R == (gwz_cyc_c2R, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c2L == (gwz_cyc_c3L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c2R == (gwz_cyc_c3R, ([] <: list string)))
+  = gwz_cyc_shapes ()
+
+let gwv_cycle_corollary ()
+  : Lemma (padx_cf fcl_rel pabot gwz_cyc_c0L gwz_cyc_c0R /\
+           prun flook xapply 1 gwz_cyc_c0L == (gwz_cyc_c1L, ([] <: list string)) /\
+           prun flook xapply 1 gwz_cyc_c0R == (gwz_cyc_c1R, ([] <: list string)) /\
+           padxg_cf fcl_rel pabot gwz_cyc_c1L gwz_cyc_c1R /\
+           PStep? gwz_cyc_c1L.st /\ gwv_h (PStep?.c gwz_cyc_c1L.st) == 1 /\
+           prun flook xapply 1 gwz_cyc_c1L == (gwz_cyc_c2L, ([] <: list string)) /\
+           prun flook xapply 1 gwz_cyc_c1R == (gwz_cyc_c2R, ([] <: list string)) /\
+           snd (prun flook xapply 1 gwz_cyc_c1L)
+             == snd (prun flook xapply 1 gwz_cyc_c1R) /\
+           snd (prun flook xapply 1 gwz_cyc_c1L)
+             == gwv_evs (PStep?.c gwz_cyc_c1L.st) /\
+           padxg_cf fcl_rel pabot gwz_cyc_c2L gwz_cyc_c2R /\
+           PStep? gwz_cyc_c2L.st /\ gwv_h (PStep?.c gwz_cyc_c2L.st) == 0 /\
+           prun flook xapply 1 gwz_cyc_c2L == (gwz_cyc_c3L, ([] <: list string)) /\
+           prun flook xapply 1 gwz_cyc_c2R == (gwz_cyc_c3R, ([] <: list string)) /\
+           padx_cf fcl_rel pabot gwz_cyc_c3L gwz_cyc_c3R)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_cal_xapply_padx_pres ();
+    cor_padxg_cal_source_padx_cf ();
+    guard_padx_capture_fires ();
+    gwz_padxg_perform_nd_cf fcl_rel flook xapply pabot "Out" "o" "Out" "o"
+      ([] <: list (pval fv)) ([] <: list (pval fv))
+      padx_g_capk padx_g_capk padx_g_capR padx_g_capR
+      ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl)
+      (fclause FWrap) (fclause FWrap)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwz_cyc_shapes ();
+    gwv_cyc_shape_h ();
+    gwv_cyc_steps ();
+    gwv_prun_one flook xapply gwz_cyc_c0L;
+    gwv_prun_one flook xapply gwz_cyc_c0R;
+    gwv_prun_one flook xapply gwz_cyc_c1L;
+    gwv_prun_one flook xapply gwz_cyc_c1R;
+    gwv_prun_one flook xapply gwz_cyc_c2L;
+    gwv_prun_one flook xapply gwz_cyc_c2R;
+    gwv_prefix fcl_rel flook xapply pabot gwz_cyc_c1L gwz_cyc_c1R 1;
+    gwv_prefix_evs fcl_rel flook xapply pabot gwz_cyc_c1L gwz_cyc_c1R 1;
+    gwv_terminus_splice fcl_rel flook xapply pabot gwz_cyc_c2L gwz_cyc_c2R
+
+let gwv_cycle_instance_from_closure ()
+  : Lemma (padx_cf fcl_rel pabot gwz_cyc_c0L gwz_cyc_c0R /\
+           pstep_tr flook xapply gwz_cyc_c0L == (gwz_cyc_c1L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c0R == (gwz_cyc_c1R, ([] <: list string)) /\
+           padxg_cf fcl_rel pabot gwz_cyc_c1L gwz_cyc_c1R /\
+           pstep_tr flook xapply gwz_cyc_c1L == (gwz_cyc_c2L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c1R == (gwz_cyc_c2R, ([] <: list string)) /\
+           padxg_cf fcl_rel pabot gwz_cyc_c2L gwz_cyc_c2R /\
+           pstep_tr flook xapply gwz_cyc_c2L == (gwz_cyc_c3L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c2R == (gwz_cyc_c3R, ([] <: list string)) /\
+           padx_cf fcl_rel pabot gwz_cyc_c3L gwz_cyc_c3R)
+  = gwv_cycle_corollary ();
+    gwv_cyc_steps ();
+    gwz_cyc_shapes ();
+    gwv_prun_one flook xapply gwz_cyc_c0L;
+    gwv_prun_one flook xapply gwz_cyc_c0R
+
+let gwv_em_body_L : pcomp fv fcl =
+  PEmit "a" (PEmit "a" (PEmit "b" (PSplice padx_g_capL (PVar (fpv FU)))))
+let gwv_em_body_R : pcomp fv fcl =
+  PEmit "a" (PEmit "a" (PEmit "b" (PSplice padx_g_capR (PVar (fpv FU)))))
+let gwv_em_c1 : pconf fv fcl =
+  { gwz_cyc_c2L with st = PStep gwv_em_body_L gwz_cyc_K }
+let gwv_em_c2 : pconf fv fcl =
+  { gwz_cyc_c2R with st = PStep gwv_em_body_R gwz_cyc_K }
+
+let gwv_em_source ()
+  : Lemma (padxg_cf fcl_rel pabot gwv_em_c1 gwv_em_c2)
+  = gwv_cycle_corollary ();
+    padxg_cf_unfold fcl_rel pabot gwz_cyc_c2L gwz_cyc_c2R ();
+    gwz_padx_comp_unfold fcl_rel pabot
+      (PSplice padx_g_capL (PVar (fpv FU)) <: pcomp fv fcl)
+      (PSplice padx_g_capR (PVar (fpv FU)) <: pcomp fv fcl) ()
+
+let guard_gwv_trace_order_fires ()
+  : Lemma (padxg_cf fcl_rel pabot gwv_em_c1 gwv_em_c2 /\
+           PStep? gwv_em_c1.st /\ PStep? gwv_em_c2.st /\
+           gwv_h (PStep?.c gwv_em_c1.st) == 3 /\
+           gwv_evs (PStep?.c gwv_em_c1.st) == (["a"; "a"; "b"] <: list string) /\
+           snd (prun flook xapply 3 gwv_em_c1) == (["a"; "a"; "b"] <: list string) /\
+           snd (prun flook xapply 3 gwv_em_c2) == (["a"; "a"; "b"] <: list string) /\
+           snd (prun flook xapply 3 gwv_em_c1)
+             == snd (prun flook xapply 3 gwv_em_c2) /\
+           ~(snd (prun flook xapply 3 gwv_em_c1)
+               == (["b"; "a"; "a"] <: list string)) /\
+           ~(snd (prun flook xapply 3 gwv_em_c1)
+               == (["a"; "b"] <: list string)) /\
+           padxg_cf fcl_rel pabot (fst (prun flook xapply 3 gwv_em_c1))
+                                  (fst (prun flook xapply 3 gwv_em_c2)) /\
+           (fst (prun flook xapply 3 gwv_em_c1)).store == gwv_em_c1.store /\
+           (fst (prun flook xapply 3 gwv_em_c1)).next == gwv_em_c1.next)
+  = gwv_em_source ();
+    lemma_fcl_rel_down ();
+    gwv_prefix fcl_rel flook xapply pabot gwv_em_c1 gwv_em_c2 3;
+    gwv_prefix_evs fcl_rel flook xapply pabot gwv_em_c1 gwv_em_c2 3;
+    assert_norm (~((["a"; "a"; "b"] <: list string) == (["b"; "a"; "a"] <: list string)));
+    assert_norm (~((["a"; "a"; "b"] <: list string) == (["a"; "b"] <: list string)))
+
+(* ================================================================== *)
+(*  B2c STAGE 7 -- WHAT THIS SECTION SETTLES (THE LEDGER)              *)
+(*                                                                     *)
+(*  --- STEP 6, AND IT IS INDEPENDENT OF STEPS 1-5 ---                 *)
+(*                                                                     *)
+(*  `gwv_padx_value_stutter` IS THE FIRST GENUINELY UNEQUAL-STEP       *)
+(*  TRANSITION IN THIS LINE OF WORK: ONE left step against ZERO right  *)
+(*  steps, at an arbitrary `lk`, `apply`, `r`, `s`, pair of values,    *)
+(*  pair of ambient stacks and pair of stores.  Read the signature:    *)
+(*  the ONLY hypothesis is `padx_cf` itself.                           *)
+(*                                                                     *)
+(*  WHAT IT NEEDS ABOUT THE TWO VALUES: NOTHING.  `x1` and `x2` are    *)
+(*  arbitrary and need not be equal.  `pval_rel s.aw x1 x2` is         *)
+(*  DERIVED, by instantiating `pacrel`'s approximant quantifier at 1,  *)
+(*  and the transition does not consume it -- `lemma_arx_step2` has no *)
+(*  hypotheses at all.                                                 *)
+(*                                                                     *)
+(*  WHAT IT NEEDS ABOUT THE AMBIENT STACKS: NOTHING BEYOND `padx_cf`.  *)
+(*  `k1` is NOT assumed to be `PBindF PVar :: t1`; that shape is       *)
+(*  DERIVED by `gwz_padx_ktop_shape`, because `padx_ktop` at index 0   *)
+(*  already determines it, and `pakrel r s (Cons?.tl k1) k2` comes     *)
+(*  with it and is exactly what `pacfrel` wants afterwards.  `k2` is   *)
+(*  wholly arbitrary and may be empty.                                 *)
+(*                                                                     *)
+(*  NO NEW INTERPRETER CONDITION IS NEEDED to reach `pacfrel`.  The    *)
+(*  step is `pstep_tr`'s `PBindF` rule at the identity function; it    *)
+(*  never consults `apply` or `lk`.                                    *)
+(*                                                                     *)
+(*  `guard_gwv_stutter_fires` makes it non-vacuous by REFUTATION: the  *)
+(*  pair is NOT `pacfrel` BEFORE the step (its stacks are not          *)
+(*  `pakrel`), so zero-against-zero would have discharged nothing, and *)
+(*  the two configurations are DISTINCT, so the left really moved.     *)
+(*                                                                     *)
+(*  --- STEPS 1-5: THE FINITE CLOSURE OF THE GENERATED PHASE ---       *)
+(*                                                                     *)
+(*   1. `gwv_h` -- the wrapper spine's height on the LEFT computation, *)
+(*      counting `PEnterCtx` / `PEmit` and stopping at the terminus.   *)
+(*      `gwv_evs` is its companion: the events the spine will emit, IN *)
+(*      ORDER, with `PEmit` CONSING and `PEnterCtx` contributing       *)
+(*      nothing.  `gwv_evs_len` records that the two are different     *)
+(*      objects and not one in two notations.                          *)
+(*   2. `gwv_h_emit` / `gwv_h_enterctx` and, on the RUNNING MACHINE,   *)
+(*      `gwv_wrapper_step`: each wrapper decreases the height by       *)
+(*      exactly one in ONE transition ON EACH SIDE, with equal traces, *)
+(*      store and counter untouched and the successors `padxg_cf` at   *)
+(*      the SAME state.  `pcl_down r` is the only side condition, and  *)
+(*      it is `gwz_padxg_enterctx_step`'s own.                         *)
+(*   3. `gwv_terminus_out` / `gwv_terminus_step` -- BOTH TERMINUS      *)
+(*      CASES IN ONE CLOSURE STATEMENT, and DISCRIMINATED rather than  *)
+(*      merely disjoined: the discriminant is `PSplice?` on the left   *)
+(*      computation, so a caller is told WHICH exit was taken.         *)
+(*      `PSplice` gives `padx_cf` on the successors; the plain branch  *)
+(*      gives `pacfrel` on the SOURCE pair and hands the transition to *)
+(*      `pastep_compat_at`.  `gwv_terminus_splice` is the `PSplice`    *)
+(*      half alone, on `padxg_cf` and NOTHING ELSE -- no dispatcher    *)
+(*      condition at all -- which is what the concrete corollary uses. *)
+(*   4. `gwv_prefix` / `gwv_prefix_evs` / `gwv_finite_closure` --      *)
+(*      EVERY GENERATED SPINE EXITS, in exactly `gwv_h` transitions on *)
+(*      EACH side, the same number on both.  THE TRACE CLAIM IS ABOUT  *)
+(*      ORDER AND MULTIPLICITY, NOT LENGTH: `gwv_prefix` gives         *)
+(*      `tr1 == tr2`, an EQUALITY OF LISTS, and `gwv_prefix_evs` says  *)
+(*      what that common list IS -- `gwv_evs` of the spine, computed   *)
+(*      from its syntax, so an event emitted twice appears twice and   *)
+(*      swapping two `PEmit`s changes the answer.                      *)
+(*      `guard_gwv_trace_order_fires` exhibits a three-`PEmit` spine   *)
+(*      whose trace is `["a"; "a"; "b"]` and REFUTES both `["b";"a";   *)
+(*      "a"]` (order) and `["a"; "b"]` (multiplicity).                 *)
+(*      The base case is not one-sided: `gwv_padx_comp_terminus`       *)
+(*      proves the RIGHT spine ends when the LEFT does, through        *)
+(*      `gwv_pacrel_not_wrapper`.                                      *)
+(*   5. `gwv_cycle_corollary` / `gwv_cycle_instance_from_closure` --   *)
+(*      the concrete cycle RE-PROVED AS A COROLLARY.  The two          *)
+(*      transitions of the generated phase are no longer obtained by   *)
+(*      calling `gwz_padxg_enterctx_step` and `gwz_padxg_splice_step`  *)
+(*      by hand: they come from `gwv_prefix` / `gwv_prefix_evs` at     *)
+(*      `n = gwv_h = 1` and from `gwv_terminus_splice`.  The entry     *)
+(*      transition is still `gwz_padxg_perform_nd_cf`, because the     *)
+(*      `PPerform` is what ENTERS the generated phase and is not part  *)
+(*      of it.  `gwv_cycle_instance_from_closure` states               *)
+(*      `gwz_cycle_instance`'s conclusion verbatim and derives it.     *)
+(*                                                                     *)
+(*  --- NOT ATTEMPTED, AND NOT CLAIMED ---                             *)
+(*                                                                     *)
+(*  STEPS 1-5 AND STEP 6 ARE NOT COMPOSED.  There is no theorem here   *)
+(*  that runs the spine to its terminus, then the erasure, then the    *)
+(*  stutter, as a single simulation; that composition is out of scope. *)
+(*  NOTHING IS DECIDED about the administrative boundary record:       *)
+(*  `padx_apply_pres` remains a hypothesis of `gwz_padxg_perform_nd_cf`*)
+(*  and is used here only where that lemma is called.                  *)
+(*  `gwv_finite_closure` carries `paapply_equivariant`, and `xapply`   *)
+(*  DOES satisfy it (`lemma_xapply_paequivariant`).  The concrete      *)
+(*  corollary instead routes through the strictly weaker               *)
+(*  `gwv_prefix` / `gwv_terminus_splice` premises because its terminus *)
+(*  is known to be the `PSplice` branch.  NO CLAIM is made that a       *)
+(*  `padx_cf` pair reaches a value, only that a `padxg_cf` pair reaches*)
+(*  its terminus; whether the machine subsequently arrives at the      *)
+(*  `PVar` where step 6 fires is exhibited at one instance and is not  *)
+(*  proved in general.  No claim about any interpreter but `xapply`.   *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `#push-options`, no `#set-options`, no *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)
