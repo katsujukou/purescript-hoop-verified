@@ -43929,3 +43929,708 @@ let guard_padxg_nd_fires ()
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 6 -- THE GENERATED PHASE STEPS, AND THE CYCLE CLOSES     *)
+(*                                                                     *)
+(*  Dispatch leaves the simulation in `padxg_cf`, whose computation    *)
+(*  component is `padx_comp`: a spine of TRANSPARENT WRAPPERS          *)
+(*  (`PEnterCtx`, `PEmit`) ending in either a `PSplice` pair -- the    *)
+(*  erasure, where the administrative frame is put back into the       *)
+(*  stack -- or the plain `pacrel` fallthrough.  This section asks     *)
+(*  what that phase DOES, and whether it comes back.                   *)
+(*                                                                     *)
+(*  THE ANSWER IS YES, and the cycle is                                *)
+(*                                                                     *)
+(*      padx_cf --(PPerform)--> padxg_cf --(wrappers)--> padxg_cf      *)
+(*              --(PSplice)--> padx_cf                                 *)
+(*                                                                     *)
+(*  with the plain case handed to `lemma_pastep_tr_compat`, which is   *)
+(*  where allocation is carried.  Every step is ONE transition on      *)
+(*  EACH side.                                                         *)
+(*                                                                     *)
+(*  TWO CORRECTIONS TO THE SKETCH THIS SECTION WAS DRAWN FROM, both    *)
+(*  recorded in the ledger at the end and both PROVED here:            *)
+(*                                                                     *)
+(*    1. the `PSplice` branch is 1:1, NOT one-left-step against zero   *)
+(*       (`gwz_splice_is_lockstep`);                                   *)
+(*    2. `pakrel r s k1 k2` did NOT have to be assumed -- `padxg_cf`   *)
+(*       already carries it (`gwz_padxg_splice_step`).                 *)
+(*                                                                     *)
+(*  Everything before this line is UNTOUCHED; this section APPENDS.    *)
+(* ================================================================== *)
+
+(* ---- 0. the two facts handed over, under local names -------------- *)
+
+(**
+ * **THE `PSplice` BRANCH IS 1:1, AND THE GATE'S SKETCH SAID 1:0.** PROVED, at
+ * an arbitrary interpreter, lookup, frame lists, bodies, ambient stacks, store
+ * and counter.
+ *
+ * The gate was drafted expecting the generated phase to step ONE on the left
+ * against ZERO on the right, the left spending its extra transition to consume
+ * the administrative frame. It does not. `pstep_tr`'s splice rule
+ * (`PSplice fs body -> keep (PStep body (fs @ k))`) fires on BOTH sides, with
+ * the empty trace on both, the store and the counter untouched on both. The
+ * one-against-zero stutter is elsewhere entirely: it is the bind-pop half,
+ * `lemma_arx_step2`, and it fires LATER, when a value finally meets the
+ * `PBindF PVar` this step has just pushed down into the ambient stack.
+ * `lemma_arx_reconverges` is NOT that stutter: it packages that pop together
+ * with the earlier bind PUSH into the complete 2:0 minimal-redex theorem.
+ *)
+let gwz_splice_is_lockstep (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (t1 fs2 k1 k2: pstack v cl) (b1 b2: pcomp v cl)
+    (sto: pstore v cl) (n0: nat)
+  : Lemma
+    (let cfL : pconf v cl =
+       { st = PStep (PSplice (PBindF (PVar #v #cl) :: t1) b1) k1;
+         store = sto; next = n0 } in
+     let cfR : pconf v cl =
+       { st = PStep (PSplice fs2 b2) k2; store = sto; next = n0 } in
+     fst (pstep_tr lk apply cfL)
+       == ({ st = PStep b1 (PBindF (PVar #v #cl) :: (t1 @ k1));
+             store = sto; next = n0 } <: pconf v cl) /\
+     fst (pstep_tr lk apply cfR)
+       == ({ st = PStep b2 (fs2 @ k2); store = sto; next = n0 } <: pconf v cl) /\
+     snd (pstep_tr lk apply cfL) == [] /\
+     snd (pstep_tr lk apply cfR) == [] /\
+     (fst (pstep_tr lk apply cfL)).store == sto /\
+     (fst (pstep_tr lk apply cfR)).store == sto /\
+     (fst (pstep_tr lk apply cfL)).next == n0 /\
+     (fst (pstep_tr lk apply cfR)).next == n0)
+  = ()
+
+(** **AND THE CYCLE CLOSES ON `pakrel r s k1 k2` ALONE.** PROVED. The left's
+    residual stack is the right's with the identity frame back on top, and the
+    only ambient assumption is that the two stacks the splice lands on were
+    related to begin with. `lemma_pakrel_append` does the work; the frame is put
+    back by `padx_top`'s deletion clause, which is where it belongs. *)
+let gwz_cycle_closes (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (t1 fs2 k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s t1 fs2 /\ pakrel r s k1 k2)
+          (ensures padx_ktop r s (PBindF (PVar #v #cl) :: (t1 @ k1)) (fs2 @ k2))
+  = lemma_pakrel_append r s t1 fs2 k1 k2;
+    pakrel_unfold r s (t1 @ k1) (fs2 @ k2) ();
+    introduce forall (n: nat).
+        padx_top r n s (PBindF (PVar #v #cl) :: (t1 @ k1)) (fs2 @ k2)
+    with ()
+
+(* ---- 1. the two unfolds the inversion needs ---------------------- *)
+
+(** The `squash`-to-`squash` cast for `padx_comp`, accepted BY CONVERSION with
+    no proof obligation: a `GTot prop` applied to arguments is an ATOM in
+    hypothesis position, and the spine cannot be inverted without it. *)
+let gwz_padx_comp_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (c1 c2: pcomp v cl) (h: squash (padx_comp r s c1 c2))
+  : squash (match c1 with
+            | PSplice fs1 b1 ->
+              (match c2 with
+               | PSplice fs2 b2 -> padx_ktop r s fs1 fs2 /\ pacrel r s b1 b2
+               | _ -> False)
+            | PEnterCtx pl1 b1 ->
+              (match c2 with
+               | PEnterCtx pl2 b2 -> paplrel r s pl1 pl2 /\ padx_comp r s b1 b2
+               | _ -> False)
+            | PEmit e1 b1 ->
+              (match c2 with
+               | PEmit e2 b2 -> e1 == e2 /\ padx_comp r s b1 b2
+               | _ -> False)
+            | _ -> pacrel r s c1 c2)
+  = h
+
+(** **INVERSION OF THE NEW STACK RELATION.** PROVED. `padx_ktop` at index 0
+    already determines the SHAPE of the left -- a `PBindF` whose function is
+    `PVar` -- and the remaining indices give the frame-for-frame relation
+    beneath it. This is the one place the extra frame is read off rather than
+    written in. *)
+let gwz_padx_ktop_shape (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (k1 k2: pstack v cl)
+  : Lemma (requires padx_ktop r s k1 k2)
+          (ensures Cons? k1 /\ PBindF? (Cons?.hd k1) /\
+                   k1 == PBindF (PVar #v #cl) :: Cons?.tl k1 /\
+                   pakrel r s (Cons?.tl k1) k2)
+  = padx_ktop_unfold r s k1 k2 ();
+    assert (padx_top r 0 s k1 k2);
+    match k1 with
+    | PBindF f :: t1 -> introduce forall (n: nat). paframes_rel r n s t1 k2 with ()
+    | _ -> ()
+
+(** `gwz_cycle_closes` with the left's shape DERIVED rather than assumed, which
+    is the form the splice step can call. *)
+let gwz_padx_ktop_append (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (fs1 fs2 k1 k2: pstack v cl)
+  : Lemma (requires padx_ktop r s fs1 fs2 /\ pakrel r s k1 k2)
+          (ensures padx_ktop r s (fs1 @ k1) (fs2 @ k2))
+  = gwz_padx_ktop_shape r s fs1 fs2;
+    gwz_cycle_closes r s (Cons?.tl fs1) fs2 k1 k2
+
+(* ---- 2. the inversion of the spine ------------------------------- *)
+
+(**
+ * **THE SPINE, INVERTED.** `padx_comp` is a spine of transparent wrappers
+ * ending in one of two things, and this is that reading made a disjunction:
+ * the `PSplice` pair (the erasure, with the left's shape already extracted),
+ * the two wrapper clauses with their recursive residue, and the plain `pacrel`
+ * fallthrough guarded by the three negations that make it the fallthrough.
+ *
+ * The wrappers do NOT need an extra hypothesis to be inverted: `PEnterCtx`
+ * against anything but `PEnterCtx` is `False` in the definition itself, and
+ * likewise `PEmit`, so the inversion is total.
+ *)
+let gwz_split (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+              (c1 c2: pcomp v cl) : GTot prop
+  = (exists (t1 fs2: pstack v cl) (b1 b2: pcomp v cl).
+       c1 == PSplice (PBindF (PVar #v #cl) :: t1) b1 /\ c2 == PSplice fs2 b2 /\
+       pakrel r s t1 fs2 /\ pacrel r s b1 b2)
+    \/ (exists (pl1 pl2: plan v cl) (b1 b2: pcomp v cl).
+          c1 == PEnterCtx pl1 b1 /\ c2 == PEnterCtx pl2 b2 /\
+          paplrel r s pl1 pl2 /\ padx_comp r s b1 b2)
+    \/ (exists (e: string) (b1 b2: pcomp v cl).
+          c1 == PEmit e b1 /\ c2 == PEmit e b2 /\ padx_comp r s b1 b2)
+    \/ (~(PSplice? c1) /\ ~(PEnterCtx? c1) /\ ~(PEmit? c1) /\ pacrel r s c1 c2)
+
+let gwz_padx_comp_split (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (c1 c2: pcomp v cl)
+  : Lemma (requires padx_comp r s c1 c2) (ensures gwz_split r s c1 c2)
+  = gwz_padx_comp_unfold r s c1 c2 ();
+    match c1 with
+    | PSplice fs1 b1 ->
+      (match c2 with
+       | PSplice fs2 b2 ->
+         gwz_padx_ktop_shape r s fs1 fs2;
+         introduce exists (t1 fs2': pstack v cl) (d1 d2: pcomp v cl).
+             (c1 == PSplice (PBindF (PVar #v #cl) :: t1) d1 /\
+              c2 == PSplice fs2' d2 /\
+              pakrel r s t1 fs2' /\ pacrel r s d1 d2)
+         with (Cons?.tl fs1) fs2 b1 b2 and ()
+       | _ -> ())
+    | PEnterCtx pl1 b1 ->
+      (match c2 with
+       | PEnterCtx pl2 b2 ->
+         introduce exists (q1 q2: plan v cl) (d1 d2: pcomp v cl).
+             (c1 == PEnterCtx q1 d1 /\ c2 == PEnterCtx q2 d2 /\
+              paplrel r s q1 q2 /\ padx_comp r s d1 d2)
+         with pl1 pl2 b1 b2 and ()
+       | _ -> ())
+    | PEmit e1 b1 ->
+      (match c2 with
+       | PEmit e2 b2 ->
+         introduce exists (e: string) (d1 d2: pcomp v cl).
+             (c1 == PEmit e d1 /\ c2 == PEmit e d2 /\ padx_comp r s d1 d2)
+         with e1 b1 b2 and ()
+       | _ -> ())
+    | _ -> ()
+
+(* ---- 3. the PSplice end case, as a step OF THE RELATION ----------- *)
+
+(**
+ * **THE `PSplice` END CASE, AS A STEP OF THE RELATION AND NOT ONLY OF THE
+ * MACHINE.** PROVED, at an arbitrary `r`, `lk`, `apply`, state, frame lists,
+ * bodies, ambient stacks and stores.
+ *
+ * `padxg_cf` in; ONE transition on each side; the empty trace on each side;
+ * store and counter unchanged on each side; and the two successors joined by
+ * `padx_cf` -- the SOURCE relation. That is the cycle, as a statement about the
+ * relations rather than about two configurations that happen to be related.
+ *
+ * **WHERE `pakrel r s k1 k2` CAME FROM.** It is NOT a hypothesis added here.
+ * `padxg_cf`'s state clause is `padx_comp r s c1 c2 /\ pakrel r s k1 k2`, so
+ * the ambient stack relation the cycle needs is already carried by the
+ * generated phase itself, and `padxg_cf_unfold` is the whole of obtaining it.
+ * This is the answer to the gate's fourth question, and it is the favourable
+ * one: the relation was designed with the conjunct the closure needs.
+ *)
+let gwz_padxg_splice_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires padxg_cf r s cf1 cf2 /\
+                    cf1.st == PStep (PSplice fs1 b1) k1 /\
+                    cf2.st == PStep (PSplice fs2 b2) k2)
+          (ensures
+            (let o1 : pconf v cl = { cf1 with st = PStep b1 (fs1 @ k1) } in
+             let o2 : pconf v cl = { cf2 with st = PStep b2 (fs2 @ k2) } in
+             pstep_tr lk apply cf1 == (o1, ([] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([] <: list string)) /\
+             o1.store == cf1.store /\ o2.store == cf2.store /\
+             o1.next == cf1.next /\ o2.next == cf2.next /\
+             padx_cf r s o1 o2))
+  = padxg_cf_unfold r s cf1 cf2 ();
+    gwz_padx_comp_unfold r s (PSplice fs1 b1) (PSplice fs2 b2) ();
+    gwz_padx_ktop_append r s fs1 fs2 k1 k2
+
+(* ---- 4. the plain case, routed to the existing one-step theorem --- *)
+
+(** **THE PLAIN CASE IS `pacfrel`, EXACTLY.** PROVED. Off the three wrapper
+    nodes `padx_comp` IS `pacrel`, and `padxg_cf`'s remaining conjuncts are
+    `pacfrel`'s verbatim -- same store relation, same two pinned counters. So
+    the plain case needs no new theory at all: it is the old relation under a
+    new name. *)
+let gwz_padxg_plain_is_pacfrel
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires padxg_cf r s cf1 cf2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    ~(PSplice? c1) /\ ~(PEnterCtx? c1) /\ ~(PEmit? c1))
+          (ensures pawf s /\ pacfrel r s cf1 cf2)
+  = padxg_cf_unfold r s cf1 cf2 ();
+    gwz_padx_comp_unfold r s c1 c2 ()
+
+(** **AND IT ROUTES TO THE EXISTING ALLOCATION-AWARE ONE-STEP THEOREM.** PROVED,
+    by one call to `lemma_pastep_tr_compat`. Nothing is re-derived: the plain
+    case of the generated phase is discharged by the dispatcher the file already
+    has, on the four conditions that dispatcher already asks for. *)
+let gwz_padxg_plain_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\
+                    padxg_cf r s cf1 cf2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    ~(PSplice? c1) /\ ~(PEnterCtx? c1) /\ ~(PEmit? c1))
+          (ensures pacfrel r s cf1 cf2 /\ pastep_compat_at r lk apply s cf1 cf2)
+  = gwz_padxg_plain_is_pacfrel r s cf1 cf2 c1 c2 k1 k2;
+    lemma_pastep_tr_compat r lk apply s cf1 cf2
+
+(* ---- 5. and the allocation it carries, spelled out --------------- *)
+
+(**
+ * **THE SAME `paalloc` AND THE SAME ACTUAL STORE GROWTH.** PROVED, and it is
+ * `pastep_compat_at` unfolded rather than a second theorem.
+ *
+ * The successor state is either `s` itself with both counters unmoved, or
+ * `paalloc s` with both counters advanced by exactly one AND the two stores
+ * literally those `palloc` produces, at contexts the statement exhibits, with
+ * `s'.aw` the `pwextend` of the two keys `palloc` returned. So allocation on the
+ * plain case is carried through the file's own allocation discipline and not
+ * through a weaker paraphrase of it.
+ *)
+let gwz_padxg_plain_alloc
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\
+                    padxg_cf r s cf1 cf2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    ~(PSplice? c1) /\ ~(PEnterCtx? c1) /\ ~(PEmit? c1))
+          (ensures
+            snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+            (exists (s': pastate).
+               paext s' s /\ pawf s' /\
+               ((s' == s /\
+                 (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+                 (fst (pstep_tr lk apply cf2)).next == cf2.next)
+                \/
+                (s' == paalloc s /\
+                 (fst (pstep_tr lk apply cf1)).next == cf1.next + 1 /\
+                 (fst (pstep_tr lk apply cf2)).next == cf2.next + 1 /\
+                 (exists (cx1: pctx v cl) (cx2: pctx v cl).
+                    (fst (pstep_tr lk apply cf1)).store
+                      == (snd (palloc cx1 cf1)).store /\
+                    (fst (pstep_tr lk apply cf1)).next
+                      == (snd (palloc cx1 cf1)).next /\
+                    (fst (pstep_tr lk apply cf2)).store
+                      == (snd (palloc cx2 cf2)).store /\
+                    (fst (pstep_tr lk apply cf2)).next
+                      == (snd (palloc cx2 cf2)).next /\
+                    s'.aw == pwextend (pkey_id (fst (palloc cx1 cf1)))
+                                      (pkey_id (fst (palloc cx2 cf2))) s.aw))) /\
+               pacfrel r s' (fst (pstep_tr lk apply cf1))
+                            (fst (pstep_tr lk apply cf2))))
+  = gwz_padxg_plain_step r lk apply s cf1 cf2 c1 c2 k1 k2;
+    pastep_compat_unfold r lk apply s cf1 cf2 ()
+
+(* ---- 6a. the two transparent wrappers ---------------------------- *)
+
+(** **WRAPPER 1: `PEmit`.** PROVED. The two events are EQUAL -- that conjunct is
+    in `padx_comp` and this is where it is spent -- so the two traces are the
+    same singleton, and the successors are `padxg_cf` again: the wrapper is
+    transparent to the phase, not an exit from it. *)
+let gwz_padxg_emit_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (e1 e2: string) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires padxg_cf r s cf1 cf2 /\
+                    cf1.st == PStep (PEmit e1 b1) k1 /\
+                    cf2.st == PStep (PEmit e2 b2) k2)
+          (ensures
+            (let o1 : pconf v cl = { cf1 with st = PStep b1 k1 } in
+             let o2 : pconf v cl = { cf2 with st = PStep b2 k2 } in
+             e1 == e2 /\
+             pstep_tr lk apply cf1 == (o1, ([e1] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([e2] <: list string)) /\
+             o1.store == cf1.store /\ o2.store == cf2.store /\
+             o1.next == cf1.next /\ o2.next == cf2.next /\
+             padxg_cf r s o1 o2))
+  = padxg_cf_unfold r s cf1 cf2 ();
+    gwz_padx_comp_unfold r s (PEmit e1 b1) (PEmit e2 b2) ()
+
+(** **WRAPPER 2: `PEnterCtx`, which is the one `xapply` actually builds.**
+    PROVED, on `pcl_down r` -- the same condition `lemma_pastep_enterctx` needs
+    and for the same reason, `lemma_paplan_protocol_frames_rel`. Four frames go
+    on each side, the plan relation carries the middle segment, and the
+    successors are again `padxg_cf`. *)
+let gwz_padxg_enterctx_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (pl1 pl2: plan v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pcl_down r /\ padxg_cf r s cf1 cf2 /\
+                    cf1.st == PStep (PEnterCtx pl1 b1) k1 /\
+                    cf2.st == PStep (PEnterCtx pl2 b2) k2)
+          (ensures
+            (let o1 : pconf v cl =
+               { cf1 with st = PStep b1
+                   (PBoundaryF :: (plan_protocol_frames pl1 @ (PScopeF :: k1))) } in
+             let o2 : pconf v cl =
+               { cf2 with st = PStep b2
+                   (PBoundaryF :: (plan_protocol_frames pl2 @ (PScopeF :: k2))) } in
+             pstep_tr lk apply cf1 == (o1, ([] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([] <: list string)) /\
+             o1.store == cf1.store /\ o2.store == cf2.store /\
+             o1.next == cf1.next /\ o2.next == cf2.next /\
+             padxg_cf r s o1 o2))
+  = padxg_cf_unfold r s cf1 cf2 ();
+    gwz_padx_comp_unfold r s (PEnterCtx pl1 b1) (PEnterCtx pl2 b2) ();
+    lemma_paplan_protocol_frames_rel r s pl1 pl2;
+    lemma_pafrel_scope #v #cl r s;
+    lemma_pakrel_cons r s PScopeF PScopeF k1 k2;
+    lemma_pakrel_append r s (plan_protocol_frames pl1) (plan_protocol_frames pl2)
+                            (PScopeF :: k1) (PScopeF :: k2);
+    lemma_pafrel_boundary #v #cl r s;
+    lemma_pakrel_cons r s PBoundaryF PBoundaryF
+                          (plan_protocol_frames pl1 @ (PScopeF :: k1))
+                          (plan_protocol_frames pl2 @ (PScopeF :: k2))
+
+(* ---- 6b. the weak one-step theorem for `padxg_cf` ----------------- *)
+
+(** The bundled conclusion, and it has THREE exits because the phase has three
+    kinds of node: the erasure exits to `padx_cf`, the wrappers stay in
+    `padxg_cf`, and the plain case hands over to `pastep_compat_at`, which is
+    where allocation lives. The traces agree in every case. *)
+let gwz_step_out (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                 (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    ((snd (pstep_tr lk apply cf1) == ([] <: list string) /\
+      (fst (pstep_tr lk apply cf1)).store == cf1.store /\
+      (fst (pstep_tr lk apply cf2)).store == cf2.store /\
+      (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+      (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+      padx_cf r s (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+     \/
+     ((fst (pstep_tr lk apply cf1)).store == cf1.store /\
+      (fst (pstep_tr lk apply cf2)).store == cf2.store /\
+      (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+      (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+      padxg_cf r s (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+     \/
+     pastep_compat_at r lk apply s cf1 cf2)
+
+(**
+ * **THE WEAK ONE-STEP THEOREM FOR `padxg_cf`.** PROVED, at an arbitrary clause
+ * relation, lookup, interpreter, allocation state and pair of configurations.
+ *
+ * ONE transition on each side, the same trace on each side, and a successor in
+ * one of the three relations `gwz_step_out` names. The wrappers ARE folded into
+ * the bundle -- the question the gate left open -- because they land in
+ * `padxg_cf` at the SAME state with store and counter untouched, which is a
+ * disjunct the statement can carry; only the plain case needs the state to be
+ * allowed to move, and only there does it move.
+ *
+ * The four side conditions are the dispatcher's own and are consumed only on
+ * the plain route; the erasure and the two wrappers use none of them beyond
+ * `pcl_down`.
+ *)
+let gwz_padxg_one_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\ padxg_cf r s cf1 cf2)
+          (ensures gwz_step_out r lk apply s cf1 cf2)
+  = padxg_cf_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwz_padx_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PSplice fs1 b1 ->
+         (match c2 with
+          | PSplice fs2 b2 ->
+            gwz_padxg_splice_step r lk apply s cf1 cf2 fs1 fs2 b1 b2 k1 k2
+          | _ -> ())
+       | PEnterCtx pl1 b1 ->
+         (match c2 with
+          | PEnterCtx pl2 b2 ->
+            gwz_padxg_enterctx_step r lk apply s cf1 cf2 pl1 pl2 b1 b2 k1 k2
+          | _ -> ())
+       | PEmit e1 b1 ->
+         (match c2 with
+          | PEmit e2 b2 ->
+            gwz_padxg_emit_step r lk apply s cf1 cf2 e1 e2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> gwz_padxg_plain_step r lk apply s cf1 cf2 c1 c2 k1 k2)
+    | _, _ -> ()
+
+(* ---- 7a. the entry: `padx_cf` in, ONE step each, `padxg_cf` out --- *)
+
+(**
+ * **THE ENTRY, PACKAGED OFF THE DIAGONAL: `padx_cf` IN, ONE STEP EACH,
+ * `padxg_cf` OUT.** PROVED, through `lemma_padxg_perform_nd_rel` and therefore
+ * through `lemma_padxg_perform_nd`.
+ *
+ * This is `lemma_padxg_perform_cf` with the two ambient stacks no longer forced
+ * to be the SAME list: the left performs under `PBindF PVar :: k1`, the right
+ * under `k2`, and `pakrel r s k1 k2` is DERIVED from the source relation by
+ * `gwz_padx_ktop_shape` rather than assumed. The two searches may return
+ * different captured segments, different clauses and different remainders.
+ *)
+let gwz_padxg_perform_nd_cf
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k1 k2 cap1 cap2 bel1 bel2: pstack v cl) (fc1 fc2: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+             padx_apply_pres r apply /\
+             padx_cf r s
+               ({ st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k1);
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k2;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             pfind_prompt lk eff1 op1 k1 == Some (cap1, fc1, bel1) /\
+             pfind_prompt lk eff1 op1 k2 == Some (cap2, fc2, bel2) /\
+             ~(KScoped? fc1.kind))
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k2;
+                 store = sto2; next = s.an2 } in
+             let outL : pconf v cl =
+               { st = PStep (apply fc1.body pay1
+                               (pkont_of (PBindF (PVar #v #cl) :: cap1))) bel1;
+                 store = sto1; next = s.an1 } in
+             let outR : pconf v cl =
+               { st = PStep (apply fc2.body pay2 (pkont_of cap2)) bel2;
+                 store = sto2; next = s.an2 } in
+             eff1 == eff2 /\ op1 == op2 /\
+             pstep_tr lk apply cfL == (outL, ([] <: list string)) /\
+             pstep_tr lk apply cfR == (outR, ([] <: list string)) /\
+             prun lk apply 1 cfL == (outL, ([] <: list string)) /\
+             prun lk apply 1 cfR == (outR, ([] <: list string)) /\
+             padxg_cf r s outL outR))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) (PBindF (PVar #v #cl) :: k1);
+        store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k2; store = sto2; next = s.an2 } in
+    padx_cf_unfold r s cfL cfR ();
+    padx_st_unfold r s cfL.st cfR.st ();
+    lemma_pacrel_perform_inv r s eff1 op1 eff2 op2 pay1 pay2;
+    gwz_padx_ktop_shape r s (PBindF (PVar #v #cl) :: k1) k2;
+    lemma_padxg_perform_nd_rel r lk apply s eff1 op1 pay1 pay2 k1 k2
+      cap1 cap2 bel1 bel2 fc1 fc2 sto1 sto2 s.an1 s.an2
+
+(* ---- 7b. the concrete instance ----------------------------------- *)
+
+let gwz_cyc_K : pstack fv fcl =
+  PBoundaryF :: (plan_protocol_frames xplan @ (PScopeF :: ([PScopeF] <: pstack fv fcl)))
+
+let gwz_cyc_c0L : pconf fv fcl = cal_x2L
+let gwz_cyc_c0R : pconf fv fcl = cal_x2R
+let gwz_cyc_c1L : pconf fv fcl =
+  cal_outL ([] <: list (pval fv)) ([] <: pstore fv fcl) 0
+let gwz_cyc_c1R : pconf fv fcl =
+  cal_outR ([] <: list (pval fv)) ([] <: pstore fv fcl) 0
+let gwz_cyc_c2L : pconf fv fcl =
+  { gwz_cyc_c1L with st = PStep (PSplice padx_g_capL (PVar (fpv FU))) gwz_cyc_K }
+let gwz_cyc_c2R : pconf fv fcl =
+  { gwz_cyc_c1R with st = PStep (PSplice padx_g_capR (PVar (fpv FU))) gwz_cyc_K }
+let gwz_cyc_c3L : pconf fv fcl =
+  { gwz_cyc_c2L with st = PStep (PVar (fpv FU)) (padx_g_capL @ gwz_cyc_K) }
+let gwz_cyc_c3R : pconf fv fcl =
+  { gwz_cyc_c2R with st = PStep (PVar (fpv FU)) (padx_g_capR @ gwz_cyc_K) }
+
+(** The three configurations of the concrete run, read off. `xapply` is a lambda
+    and `pkont_of` is a definition, so the shape of the dispatched computation is
+    a computation and not an assumption. *)
+let gwz_cyc_shapes ()
+  : Lemma (gwz_cyc_c1L.st
+             == PStep (PEnterCtx xplan (PSplice padx_g_capL (PVar (fpv FU))))
+                      ([PScopeF] <: pstack fv fcl) /\
+           gwz_cyc_c1R.st
+             == PStep (PEnterCtx xplan (PSplice padx_g_capR (PVar (fpv FU))))
+                      ([PScopeF] <: pstack fv fcl) /\
+           gwz_cyc_c0L.st == PStep (PPerform "Out" "o" ([] <: list (pval fv)))
+                                   (PBindF (PVar #fv #fcl) :: padx_g_capk) /\
+           gwz_cyc_c0R.st == PStep (PPerform "Out" "o" ([] <: list (pval fv)))
+                                   padx_g_capk /\
+           gwz_cyc_c0L.store == ([] <: pstore fv fcl) /\ gwz_cyc_c0L.next == 0 /\
+           gwz_cyc_c0R.store == ([] <: pstore fv fcl) /\ gwz_cyc_c0R.next == 0 /\
+           gwz_cyc_c3L.store == ([] <: pstore fv fcl) /\ gwz_cyc_c3L.next == 0 /\
+           gwz_cyc_c3R.store == ([] <: pstore fv fcl) /\ gwz_cyc_c3R.next == 0)
+  = ()
+
+(**
+ * **THE CYCLE, RUN.** PROVED, on the shipped fixture types, the real lookup
+ * `flook`, the real table `ftbl_out` and the real interpreter `xapply`.
+ *
+ * THREE transitions, each with the empty trace, store and counter untouched
+ * throughout:
+ *
+ *     padx_cf  --(PPerform, via the non-diagonal arm)-->  padxg_cf
+ *              --(PEnterCtx, the transparent wrapper)-->  padxg_cf
+ *              --(PSplice, the erasure)---------------->  padx_cf
+ *
+ * The wrapper step is not decoration: `xapply` returns
+ * `PEnterCtx xplan (kk ...)`, so the spine really is traversed before the
+ * erasure is reached, and the instance exercises the bundled theorem's second
+ * disjunct as well as its first. The cycle is DEMONSTRATED here and not
+ * asserted.
+ *)
+let gwz_cycle_instance ()
+  : Lemma (padx_cf fcl_rel pabot gwz_cyc_c0L gwz_cyc_c0R /\
+           pstep_tr flook xapply gwz_cyc_c0L == (gwz_cyc_c1L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c0R == (gwz_cyc_c1R, ([] <: list string)) /\
+           padxg_cf fcl_rel pabot gwz_cyc_c1L gwz_cyc_c1R /\
+           pstep_tr flook xapply gwz_cyc_c1L == (gwz_cyc_c2L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c1R == (gwz_cyc_c2R, ([] <: list string)) /\
+           padxg_cf fcl_rel pabot gwz_cyc_c2L gwz_cyc_c2R /\
+           pstep_tr flook xapply gwz_cyc_c2L == (gwz_cyc_c3L, ([] <: list string)) /\
+           pstep_tr flook xapply gwz_cyc_c2R == (gwz_cyc_c3R, ([] <: list string)) /\
+           padx_cf fcl_rel pabot gwz_cyc_c3L gwz_cyc_c3R)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_cal_xapply_padx_pres ();
+    cor_padxg_cal_source_padx_cf ();
+    guard_padx_capture_fires ();
+    gwz_padxg_perform_nd_cf fcl_rel flook xapply pabot "Out" "o" "Out" "o"
+      ([] <: list (pval fv)) ([] <: list (pval fv))
+      padx_g_capk padx_g_capk padx_g_capR padx_g_capR
+      ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl)
+      (fclause FWrap) (fclause FWrap)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwz_cyc_shapes ();
+    gwz_padxg_enterctx_step fcl_rel flook xapply pabot gwz_cyc_c1L gwz_cyc_c1R
+      xplan xplan
+      (PSplice padx_g_capL (PVar (fpv FU))) (PSplice padx_g_capR (PVar (fpv FU)))
+      ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl);
+    gwz_padxg_splice_step fcl_rel flook xapply pabot gwz_cyc_c2L gwz_cyc_c2R
+      padx_g_capL padx_g_capR (PVar (fpv FU)) (PVar (fpv FU)) gwz_cyc_K gwz_cyc_K
+
+(* ---- 7c. the cycle is not a fixed point -------------------------- *)
+
+(** **AND THE CYCLE DID NOT COLLAPSE.** PROVED, as a refutation: the two
+    configurations it returns to are DIFFERENT, and their stacks are not
+    `pakrel`, so the endpoint is genuinely in `padx_cf` and not in `pacfrel`.
+    The administrative frame is still there, one level deeper, exactly where the
+    next `PVar` will meet it. *)
+let gwz_cyc_not_pakrel ()
+  : Lemma (~(gwz_cyc_c3L.st == gwz_cyc_c3R.st) /\
+           ~(pakrel fcl_rel pabot (padx_g_capL @ gwz_cyc_K)
+                                  (padx_g_capR @ gwz_cyc_K)))
+  = assert_norm (length (padx_g_capL @ gwz_cyc_K) == 7);
+    assert_norm (length (padx_g_capR @ gwz_cyc_K) == 6);
+    introduce pakrel fcl_rel pabot (padx_g_capL @ gwz_cyc_K)
+                                   (padx_g_capR @ gwz_cyc_K) ==> False
+    with (pakrel_unfold fcl_rel pabot (padx_g_capL @ gwz_cyc_K)
+                                      (padx_g_capR @ gwz_cyc_K) ();
+          assert (paframes_rel fcl_rel 2 pabot (padx_g_capL @ gwz_cyc_K)
+                                               (padx_g_capR @ gwz_cyc_K)))
+
+(* ================================================================== *)
+(*  B2c STAGE 6 -- WHAT THIS SECTION SETTLES (THE LEDGER)              *)
+(*                                                                     *)
+(*  --- CORRECTION 1, AND IT IS A CORRECTION TO THE GATE ITSELF ---    *)
+(*                                                                     *)
+(*  THE `PSplice` BRANCH IS 1:1, NOT 1:0.  The gate was sketched with  *)
+(*  the generated phase stepping ONCE on the left against ZERO on the  *)
+(*  right, the left spending an extra transition to consume the        *)
+(*  administrative frame.  THAT IS WRONG, and                          *)
+(*  `gwz_splice_is_lockstep` proves it wrong at every parameter a      *)
+(*  variable: `pstep_tr`'s splice rule fires on BOTH sides             *)
+(*  (`PSplice fs body -> keep (PStep body (fs @ k))`), with the empty  *)
+(*  trace on both, the store unchanged on both and the counter         *)
+(*  unchanged on both.  The one-against-zero stutter EXISTS but is     *)
+(*  ELSEWHERE: it is the bind-pop half `lemma_arx_step2`, firing       *)
+(*  LATER, when a value meets the `PBindF PVar` that the splice step   *)
+(*  has just pushed down into the ambient stack.  `lemma_arx_reconv-   *)
+(*  erges` is NOT that stutter: it packages the pop together with the  *)
+(*  earlier bind PUSH as the complete 2:0 redex.  Nothing here         *)
+(*  claims a stutter.                                                  *)
+(*                                                                     *)
+(*  --- CORRECTION 2: WHERE `pakrel r s k1 k2` CAME FROM ---           *)
+(*                                                                     *)
+(*  IT IS NOT A HYPOTHESIS ADDED HERE.  `padxg_cf`'s state clause is   *)
+(*  literally `padx_comp r s c1 c2 /\ pakrel r s k1 k2`, so the        *)
+(*  ambient stack relation the closure needs is ALREADY CARRIED by     *)
+(*  the generated phase, and `padxg_cf_unfold` is the whole of         *)
+(*  obtaining it.  `gwz_padxg_splice_step` takes `padxg_cf` and        *)
+(*  nothing else.  This is a finding ABOUT THE RELATION'S DESIGN and   *)
+(*  it is the favourable one: the successor relation was built with    *)
+(*  the conjunct its own closure requires.                             *)
+(*                                                                     *)
+(*  --- WHAT IS PROVED, STEP BY STEP ---                               *)
+(*                                                                     *)
+(*   1. `gwz_padx_comp_unfold` / `gwz_padx_ktop_shape` /               *)
+(*      `gwz_split` / `gwz_padx_comp_split` -- the spine INVERTED,     *)
+(*      into the `PSplice` case, the two transparent wrappers and the  *)
+(*      plain `pacrel` fallthrough.  NO EXTRA HYPOTHESIS IS NEEDED to  *)
+(*      invert the wrappers: `PEnterCtx` against anything else is      *)
+(*      `False` in the definition, and likewise `PEmit`.               *)
+(*   2. `gwz_padxg_plain_is_pacfrel` / `gwz_padxg_plain_step` -- the   *)
+(*      plain case IS `pacfrel`, and it is routed to                   *)
+(*      `lemma_pastep_tr_compat`, the file's own allocation-aware      *)
+(*      one-step theorem.  Nothing is re-derived.                      *)
+(*   3. `gwz_padxg_splice_step` -- the erasure as a step OF THE        *)
+(*      RELATION: `padxg_cf` in, ONE transition each, empty traces,    *)
+(*      store and counter unchanged, successors in `padx_cf`.          *)
+(*   4. `gwz_cycle_closes` / `gwz_padx_ktop_append` -- the successor   *)
+(*      stacks, on `pakrel r s k1 k2` alone, which step 3 reads off    *)
+(*      `padxg_cf`.                                                    *)
+(*   5. `gwz_padxg_plain_alloc` -- the plain case carries allocation   *)
+(*      through the SAME `paalloc` and the SAME actual store growth:   *)
+(*      either `s` with both counters unmoved, or `paalloc s` with     *)
+(*      both counters advanced by one AND the two stores literally     *)
+(*      those `palloc` produces, at contexts the statement exhibits.   *)
+(*   6. `gwz_padxg_emit_step` / `gwz_padxg_enterctx_step` /            *)
+(*      `gwz_step_out` / `gwz_padxg_one_step` -- the weak one-step     *)
+(*      theorem, WITH THE WRAPPERS FOLDED IN.  They fold because they  *)
+(*      land in `padxg_cf` at the SAME state with store and counter    *)
+(*      untouched, so they are a disjunct the bundle can carry; only   *)
+(*      the plain case needs the state to be allowed to move.          *)
+(*   7. `gwz_padxg_perform_nd_cf` -- the entry, packaged OFF THE       *)
+(*      DIAGONAL through `lemma_padxg_perform_nd_rel` and therefore    *)
+(*      through `lemma_padxg_perform_nd`; and `gwz_cycle_instance` --  *)
+(*      the cycle RUN, three transitions on the shipped fixture with   *)
+(*      `flook` and `xapply`, exercising the wrapper disjunct as well  *)
+(*      as the erasure.  `gwz_cyc_not_pakrel` refutes collapse: the    *)
+(*      endpoint is genuinely `padx_cf` and not `pacfrel`.             *)
+(*                                                                     *)
+(*  --- NOT ATTEMPTED, AND NOT CLAIMED ---                             *)
+(*                                                                     *)
+(*  ADMISSION OF ANYTHING INTO THE ADMINISTRATIVE BOUNDARY RECORD IS   *)
+(*  NOT DECIDED HERE and is explicitly out of scope; `padx_apply_pres` *)
+(*  remains a hypothesis of `gwz_padxg_perform_nd_cf` and of nothing   *)
+(*  else in this section.  NO MULTI-STEP or fuel-indexed simulation is *)
+(*  claimed: `gwz_padxg_one_step` is ONE transition, and the cycle is  *)
+(*  exhibited at one concrete instance rather than proved to terminate.*)
+(*  NO INDUCTION ON THE WRAPPER SPINE is performed.  The spine of any  *)
+(*  given `pcomp` is finite -- `pcomp` is inductive and `padx_comp`    *)
+(*  recurses on it -- but no theorem here iterates                     *)
+(*  `gwz_padxg_one_step` to say that the erasure is REACHED; that is   *)
+(*  exhibited at one instance only.  The plain case's store side is    *)
+(*  handed to `lemma_pastep_tr_compat` as `pacfrel`; no independent    *)
+(*  account of `padma_srel` is given or needed here.                   *)
+(*  No claim is made about any interpreter other than `xapply`.        *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `#push-options`, no `#set-options`, no *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)

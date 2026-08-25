@@ -8063,6 +8063,132 @@ branch `padma_srel` cannot be connected to ordinary store realization; or
 representing zero steps on one side requires discarding trace or state
 information.
 
+#### The generated phase: one-step closure, and a witnessed cycle
+
+> The generated-computation relation is closed under synchronized one-step
+> execution: every `padxg_cf` pair takes one step on each side into either
+> `padxg_cf`, `padx_cf`, or ordinary `pacfrel`, while preserving the appropriate
+> trace, store, counter and allocation-state obligations. A concrete execution
+> traverses `padx_cf → padxg_cf → padxg_cf → padx_cf`.
+
+And immediately:
+
+> This is phase-sensitive one-step closure, not yet a weak simulation in the
+> usual zero-or-more-step sense. No multi-step theorem proves that every
+> generated spine eventually exits, and the unequal-step identity-frame
+> discharge is not included in this gate.
+
+#### The `PSplice` correction
+
+The gate was originally sketched with the strip branch as one left step against
+zero right steps. That is wrong:
+
+```text
+PSplice left   ──1 step──▶ body under left frames
+PSplice right  ──1 step──▶ body under right frames
+```
+
+The asymmetry is not in the number of transitions but in the **contents of the
+spliced frame list**, and that is exactly why the successor lands back in
+`padx_cf`: the surplus identity frame rides inside `fs1` and reappears on top of
+the left's new stack. Verified generically before the gate ran — arbitrary
+interpreter, frame lists, bodies, stacks, store and counter, proof body `()`.
+
+A second correction, of attribution rather than of a proof. The 1:0 stutter that
+does exist later is the **bind-pop half**:
+
+> The later 1:0 stutter is the bind-pop half proved by `lemma_arx_step2`;
+> `lemma_arx_reconverges` packages that step together with the earlier bind push
+> into the complete 2:0 minimal-redex theorem.
+
+The prototype's own ledger comments said `lemma_arx_reconverges` in both places;
+both have been corrected in the file. No proof body was touched.
+
+#### The ambient assumption was already there
+
+The cycle's closing step needs `pakrel r s k1 k2` on the ambient remainder.
+It is **not** an added hypothesis: `padxg_cf`'s state clause is literally
+
+```fstar
+| PStep c1 k1, PStep c2 k2 -> padx_comp r s c1 c2 /\ pakrel r s k1 k2
+```
+
+so the generated-phase relation already carries the conjunct its own closure
+needs. The other side, `pakrel r s t1 fs2`, is derived from the `padx_ktop`
+erasure in `padx_comp`'s `PSplice` clause, not assumed either.
+
+The transparent wrappers folded into the bundled theorem for a clear reason:
+they land at the **same** state with store and counter unchanged, so they are a
+disjunct the bundled conclusion can carry. Only the plain branch needs the state
+to move, and that is the only branch where it does.
+
+#### The cycle's status, in three layers
+
+- **general theorem** — one step from `padxg_cf` lands in one of the three
+  relations;
+- **general entry** — the non-diagonal `PPerform` arm gives
+  `padx_cf → padxg_cf`;
+- **concrete witness** — one `xapply` execution passes through a wrapper and a
+  splice and returns to `padx_cf`.
+
+"Every generated phase returns" is **not** proved. That the wrapper spine is
+syntactically finite and that a finite-run theorem iterates over it are
+different statements, and only the first is available.
+
+The witness is not degenerate. Its middle step is a real wrapper traversal —
+`xapply` returns `PEnterCtx xplan (kk …)`, so the spine is walked before the
+erasure is reached — which means both disjuncts of the bundled theorem are
+exercised.
+
+And the cycle does not collapse:
+
+> The cycle does not collapse into the ordinary relation: at the concrete exit
+> the stacks differ by exactly one frame, so `pakrel` fails while `padx_cf`
+> holds.
+
+Verified independently by computing the two lengths. That is a fact about this
+exit, not a general strictness claim about `padx_cf` against `pacfrel`.
+
+#### `padma_srel` was not exercised
+
+> The plain branch enters through `pacfrel`, whose `pasrel` realization is
+> already sufficient. Consequently no `padma_srel` bridge is exercised in this
+> gate. This is neither a failure nor a proof of such a bridge.
+
+#### Also not proved
+
+- the non-diagonal fixture was **not** lifted into `padxg_cf` — its store does
+  not satisfy `pasrel` at that world. Non-diagonality is carried by the general
+  theorem; the concrete cycle runs on the diagonal fixture;
+- admission into the boundary record;
+- any statement about interpreters other than `xapply`.
+
+#### Position
+
+> The generated phase is now locally closed and its entry-to-exit cycle is
+> witnessed without collapsing to the ordinary relation. What remains is to turn
+> this one-step phase graph into a finite closure theorem and then discharge the
+> surviving identity frame with the first genuinely unequal-step transition.
+
+#### The next gate: finite closure and the real stutter, kept apart
+
+1. define the wrapper spine's height;
+2. show `PEmit` and `PEnterCtx` each decrease it in one step;
+3. show the spine's terminus gives `padx_cf` when it is a `PSplice` and
+   `pacfrel` on the plain branch;
+4. preserve the trace's order and multiplicity across the synchronized finite
+   prefix;
+5. re-prove the concrete cycle as a corollary of the finite closure theorem;
+6. prove the genuine weak stutter at `padx_cf`'s value case — one left step
+   against zero, via `lemma_arx_step2`;
+7. compose generated closure with the identity-frame discharge;
+8. only then decide admission into the administrative boundary record.
+
+Stop conditions: the wrapper height does not decrease in one step; the trace
+concatenation of `PEmit` puts the two sides out of step; or moving from the
+post-`PSplice` `padx_cf` to the identity-frame discharge needs a new interpreter
+condition.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
