@@ -46648,3 +46648,842 @@ let guard_gwd_inversion_fires (s: pastate)
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 9 -- `PPerform` WITH THE SURPLUS FRAME AT DEPTH:         *)
+(*  THE SEARCH SPLITS THE PHASE IN TWO, AND THE TWO HALVES CONSUME     *)
+(*  DIFFERENT INTERPRETER CONDITIONS                                   *)
+(*                                                                     *)
+(*  The previous gate's deep one-step theorem STOPPED at `PPerform`:   *)
+(*  the perform arm it had, `gwz_padxg_perform_nd_cf`, requires the    *)
+(*  surplus identity frame ON TOP (`padx_ktop`), and at depth that     *)
+(*  hypothesis is false.  This section removes that stop.              *)
+(*                                                                     *)
+(*  THE STRUCTURAL FACT THE SECTION IS BUILT ON.  `pfind_prompt`       *)
+(*  conses every non-prompt frame onto the captured segment and stops  *)
+(*  at a matching prompt, leaving the rest as `below`.  So a surplus   *)
+(*  frame at depth goes to EXACTLY ONE of two places, and the two      *)
+(*  places do not have the same requirements:                          *)
+(*                                                                     *)
+(*    CASE A -- the surplus is ABOVE the prompt the search stops at,   *)
+(*      so it lands in the CAPTURED SEGMENT.  The two segments are     *)
+(*      `gwy_k` and the two remainders are `pakrel`.  The difference   *)
+(*      then moves into the COMPUTATION through `pkont_of`.            *)
+(*                                                                     *)
+(*    CASE B -- the surplus is BELOW that prompt, so it stays in the   *)
+(*      REMAINDER.  The two segments are `pakrel` and the two          *)
+(*      remainders are `gwy_k`.  The difference stays in the STACK.    *)
+(*                                                                     *)
+(*  The case split is EXHAUSTIVE -- `gwe_search_rel` proves it from    *)
+(*  `gwy_k` alone -- and the two cases are genuinely different:        *)
+(*                                                                     *)
+(*    * case B consumes `paapply_equivariant`, the ORDINARY            *)
+(*      allocation-aware condition, and NOT `padx_apply_pres`.  Its    *)
+(*      successor is the deep phase again, `gwy_cf`.  So the           *)
+(*      administrative interpreter condition is LOCALISED to case A.   *)
+(*                                                                     *)
+(*    * case A cannot use `padx_comp` at all.  `padx_comp`'s           *)
+(*      `PSplice` clause is `padx_ktop`, i.e. HEAD-ONLY, and when the  *)
+(*      surplus is at depth WITHIN the captured segment that clause    *)
+(*      is false -- `guard_gwe_case_a_fires` refutes it on the shipped *)
+(*      fixture.  So case A needs a DEEP `padx_comp`.  It is defined   *)
+(*      here, BESIDE the existing one and not in place of it, as       *)
+(*      `gwe_comp`; what changed is the `PSplice` clause and nothing   *)
+(*      else.  `gwe_padx_comp_is_comp` shows the file's relation       *)
+(*      REFINES it, so nothing already proved is disturbed.            *)
+(*                                                                     *)
+(*  The interpreter condition case A consumes is `gwe_apply_pres`,     *)
+(*  which is `padx_apply_pres` at the deep computation relation.  It   *)
+(*  is not vacuous and it is not free: `xapply` satisfies it           *)
+(*  (`gwe_xapply_pres`) and `xapply2` REFUTES it                       *)
+(*  (`gwe_xapply2_not_pres`), although `xapply2` does satisfy          *)
+(*  `paapply_equivariant`.                                            *)
+(*                                                                     *)
+(*  OUT OF SCOPE, and not attempted: the remaining transition forms,   *)
+(*  the exhaustive dispatcher theorem, and any composition.            *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(* ================================================================== *)
+
+(* ---- STEP 1: THE SEARCH LEMMA ------------------------------------ *)
+
+(**
+ * **THE TWO SEARCHES AGREE, AND ON SUCCESS THE RESULT IS CASE A OR CASE B.**
+ * PROVED, by structural recursion on the left stack.
+ *
+ * This is `lemma_pafind_prompt_rel` with `pakrel` replaced by `gwy_k` in the
+ * hypothesis, and it is NOT a corollary of it: `gwy_k` is strictly weaker than
+ * `pakrel` -- the two stacks have different LENGTHS -- so the walk has to be
+ * redone, and the conclusion is a DISJUNCTION rather than the single clause the
+ * `pakrel` version gets.
+ *
+ * The three ways the recursion can go, and which case each produces:
+ *
+ *   - the surplus is at the head of what is left (`gwy_k`'s first disjunct):
+ *     `lemma_padx_find_prompt_extra` moves the frame into the captured segment
+ *     and `lemma_pafind_prompt_rel` relates the rest -- CASE A;
+ *   - the head is a prompt that MATCHES: the segment is the two singletons,
+ *     which are `pakrel` because the two frames are `pafrel`, and the two
+ *     remainders are the two tails, which are `gwy_k` -- CASE B;
+ *   - anything else: recurse, and `gwe_cons_case` carries whichever case came
+ *     back through the cons -- the case does NOT change.
+ *
+ * `plookup_equivariant` and `pcl_down` are needed exactly where the `pakrel`
+ * version needs them, at the matching prompt; `gwy_k` is needed everywhere.
+ * All three are ablated below.
+ *)
+let gwe_ktop_head (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (f: pval v -> pcomp v cl) (cap1 cap2: pstack v cl)
+  : Lemma (requires f == PVar #v #cl /\ pakrel r s cap1 cap2)
+          (ensures gwy_k r s (PBindF f :: cap1) cap2)
+  = ()
+
+let gwe_cons_case (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (f1 f2: pframe v cl) (cap1 cap2 b1 b2: pstack v cl)
+  : Lemma (requires pafrel r s f1 f2 /\
+                    ((gwy_k r s cap1 cap2 /\ pakrel r s b1 b2) \/
+                     (pakrel r s cap1 cap2 /\ gwy_k r s b1 b2)))
+          (ensures (gwy_k r s (f1 :: cap1) (f2 :: cap2) /\ pakrel r s b1 b2) \/
+                   (pakrel r s (f1 :: cap1) (f2 :: cap2) /\ gwy_k r s b1 b2))
+  = eliminate (gwy_k r s cap1 cap2 /\ pakrel r s b1 b2)
+           \/ (pakrel r s cap1 cap2 /\ gwy_k r s b1 b2)
+    with (gwy_k_cons r s f1 f2 cap1 cap2)
+    and  (lemma_pakrel_cons r s f1 f2 cap1 cap2)
+
+let rec gwe_search_rel (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                       (s: pastate) (eff op: string) (k1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s k1 k2 /\ plookup_equivariant r lk /\ pcl_down r)
+          (ensures (match pfind_prompt lk eff op k1, pfind_prompt lk eff op k2 with
+                    | None, None -> True
+                    | Some (cap1, c1, b1), Some (cap2, c2, b2) ->
+                      c1.kind == c2.kind /\ pclrel r s.aw c1.body c2.body /\
+                      ((gwy_k r s cap1 cap2 /\ pakrel r s b1 b2) \/
+                       (pakrel r s cap1 cap2 /\ gwy_k r s b1 b2))
+                    | _, _ -> False))
+          (decreases k1)
+  = gwy_k_unfold r s k1 k2 ();
+    match k1 with
+    | [] -> ()
+    | PBindF f :: t1 ->
+      eliminate (f == PVar #v #cl /\ pakrel r s t1 k2)
+             \/ (match k2 with
+                 | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+                 | [] -> False)
+      with
+        (lemma_padx_find_prompt_extra #v #cl lk eff op f t1;
+         lemma_pafind_prompt_rel r lk s eff op t1 k2;
+         (match pfind_prompt lk eff op t1, pfind_prompt lk eff op k2 with
+          | Some (cap1, _, _), Some (cap2, _, _) -> gwe_ktop_head r s f cap1 cap2
+          | _, _ -> ()))
+      and
+        (match k2 with
+         | f2 :: t2 ->
+           gwe_search_rel r lk s eff op t1 t2;
+           assert (paframe_rel r 1 s (PBindF f) f2);
+           (match pfind_prompt lk eff op t1, pfind_prompt lk eff op t2 with
+            | Some (cap1, _, b1), Some (cap2, _, b2) ->
+              gwe_cons_case r s (PBindF f) f2 cap1 cap2 b1 b2
+            | _, _ -> ())
+         | [] -> ())
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 ->
+         gwe_search_rel r lk s eff op t1 t2;
+         assert (paframe_rel r 1 s f1 f2);
+         (match f1, f2 with
+          | PPromptF tb1 rc1 pv1, PPromptF tb2 rc2 pv2 ->
+            lemma_pafrel_prompt_inv r s tb1 tb2 rc1 rc2 pv1 pv2;
+            lemma_lk_rel r lk s.aw tb1 tb2 eff op;
+            (match lk tb1 eff op, lk tb2 eff op with
+             | Some c1, Some c2 ->
+               lemma_pakrel_nil #v #cl r s;
+               lemma_pakrel_cons r s f1 f2 ([] <: pstack v cl) ([] <: pstack v cl)
+             | None, None ->
+               (match pfind_prompt lk eff op t1, pfind_prompt lk eff op t2 with
+                | Some (cap1, _, b1), Some (cap2, _, b2) ->
+                  gwe_cons_case r s f1 f2 cap1 cap2 b1 b2
+                | _, _ -> ())
+             | _, _ -> ())
+          | _, _ ->
+            (match pfind_prompt lk eff op t1, pfind_prompt lk eff op t2 with
+             | Some (cap1, _, b1), Some (cap2, _, b2) ->
+               gwe_cons_case r s f1 f2 cap1 cap2 b1 b2
+             | _, _ -> ()))
+       | [] -> ())
+
+(* ---- CASE B: the surplus stays in the REMAINDER -------------------- *)
+
+let gwe_perform_case_b
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k1 k2 cap1 cap2 bel1 bel2: pstack v cl) (fc1 fc2: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ paapply_equivariant r apply /\
+             gwy_cf r s
+               ({ st = PStep (PPerform eff1 op1 pay1) k1;
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k2;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             pfind_prompt lk eff1 op1 k1 == Some (cap1, fc1, bel1) /\
+             pfind_prompt lk eff1 op1 k2 == Some (cap2, fc2, bel2) /\
+             ~(KScoped? fc1.kind) /\ fc1.kind == fc2.kind /\
+             pclrel r s.aw fc1.body fc2.body /\
+             pakrel r s cap1 cap2 /\ gwy_k r s bel1 bel2)
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) k1;
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k2;
+                 store = sto2; next = s.an2 } in
+             let outL : pconf v cl =
+               { st = PStep (apply fc1.body pay1 (pkont_of cap1)) bel1;
+                 store = sto1; next = s.an1 } in
+             let outR : pconf v cl =
+               { st = PStep (apply fc2.body pay2 (pkont_of cap2)) bel2;
+                 store = sto2; next = s.an2 } in
+             eff1 == eff2 /\ op1 == op2 /\
+             pstep_tr lk apply cfL == (outL, ([] <: list string)) /\
+             pstep_tr lk apply cfR == (outR, ([] <: list string)) /\
+             prun lk apply 1 cfL == (outL, ([] <: list string)) /\
+             prun lk apply 1 cfR == (outR, ([] <: list string)) /\
+             outL.store == sto1 /\ outR.store == sto2 /\
+             outL.next == s.an1 /\ outR.next == s.an2 /\
+             gwy_cf r s outL outR))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) k1; store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cfL cfR ();
+    gwy_st_unfold r s cfL.st cfR.st ();
+    lemma_pacrel_perform_inv r s eff1 op1 eff2 op2 pay1 pay2;
+    lemma_padx_perform_right lk apply eff1 op1 pay1 k1 cap1 bel1 fc1 sto1 s.an1;
+    lemma_padx_perform_right lk apply eff2 op2 pay2 k2 cap2 bel2 fc2 sto2 s.an2;
+    lemma_pakont_of_rel r s cap1 cap2;
+    lemma_paapply_equivariant_at r apply s fc1.body fc2.body pay1 pay2
+      (pkont_of cap1) (pkont_of cap2)
+
+(* ---- CASE A: the surplus lands in the CAPTURED SEGMENT ------------- *)
+
+let rec gwe_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                 (c1 c2: pcomp v cl) : GTot prop (decreases c1)
+  = match c1 with
+    | PSplice fs1 b1 ->
+      (match c2 with
+       | PSplice fs2 b2 -> gwy_k r s fs1 fs2 /\ pacrel r s b1 b2
+       | _ -> False)
+    | PEnterCtx pl1 b1 ->
+      (match c2 with
+       | PEnterCtx pl2 b2 -> paplrel r s pl1 pl2 /\ gwe_comp r s b1 b2
+       | _ -> False)
+    | PEmit e1 b1 ->
+      (match c2 with
+       | PEmit e2 b2 -> e1 == e2 /\ gwe_comp r s b1 b2
+       | _ -> False)
+    | _ -> pacrel r s c1 c2
+
+let rec gwe_padx_comp_is_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                              (c1 c2: pcomp v cl)
+  : Lemma (requires padx_comp r s c1 c2) (ensures gwe_comp r s c1 c2)
+          (decreases c1)
+  = match c1 with
+    | PSplice fs1 b1 ->
+      (match c2 with
+       | PSplice fs2 b2 -> gwy_ktop_is_gwy_k r s fs1 fs2
+       | _ -> ())
+    | PEnterCtx pl1 b1 ->
+      (match c2 with
+       | PEnterCtx pl2 b2 -> gwe_padx_comp_is_comp r s b1 b2
+       | _ -> ())
+    | PEmit e1 b1 ->
+      (match c2 with
+       | PEmit e2 b2 -> gwe_padx_comp_is_comp r s b1 b2
+       | _ -> ())
+    | _ -> ()
+
+let gwe_fn_at (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+              (f1 f2: pval v -> pcomp v cl) : GTot prop
+  = forall (s: pastate) (y1 y2: pval v).
+      paext s s0 /\ pval_rel s.aw y1 y2 ==> gwe_comp r s (f1 y1) (f2 y2)
+
+let gwe_fn_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s0: pastate)
+                     (f1 f2: pval v -> pcomp v cl)
+                     (h: squash (gwe_fn_at r s0 f1 f2))
+  : squash (forall (s: pastate) (y1 y2: pval v).
+              paext s s0 /\ pval_rel s.aw y1 y2 ==> gwe_comp r s (f1 y1) (f2 y2))
+  = h
+
+let gwe_apply_pres (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl)
+  : GTot prop
+  = forall (s: pastate) (c1 c2: cl) (p1 p2: list (pval v))
+           (kk1 kk2: pval v -> pcomp v cl).
+      pawf s /\ pclrel r s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+      gwe_fn_at r s kk1 kk2 ==>
+      gwe_comp r s (apply c1 p1 kk1) (apply c2 p2 kk2)
+
+let gwe_apply_pres_inst
+    (#v #cl: Type) (r: pcl_rel_t cl) (apply: papply_t v cl) (s: pastate)
+    (c1 c2: cl) (p1 p2: list (pval v)) (kk1 kk2: pval v -> pcomp v cl)
+  : Lemma (requires gwe_apply_pres r apply /\ pawf s /\ pclrel r s.aw c1 c2 /\
+                    pvals_rel s.aw p1 p2 /\ gwe_fn_at r s kk1 kk2)
+          (ensures gwe_comp r s (apply c1 p1 kk1) (apply c2 p2 kk2))
+  = ()
+
+(* the deep stack relation travels along `paext`, exactly as `pakrel` does *)
+
+let gwe_frel_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                  (f1 f2: pframe v cl)
+  : Lemma (requires pafrel r s f1 f2 /\ paext s1 s /\ pcl_mono r)
+          (ensures pafrel r s1 f1 f2)
+  = introduce forall (n: nat). paframe_rel r n s1 f1 f2
+    with lemma_paframe_rel_mono r n s1 s f1 f2
+
+let rec gwe_k_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                   (k1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s k1 k2 /\ paext s1 s /\ pcl_mono r)
+          (ensures gwy_k r s1 k1 k2) (decreases k1)
+  = gwy_k_unfold r s k1 k2 ();
+    match k1 with
+    | [] -> ()
+    | PBindF f :: t1 ->
+      eliminate (f == PVar #v #cl /\ pakrel r s t1 k2)
+             \/ (match k2 with
+                 | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+                 | [] -> False)
+      with (lemma_pakrel_mono r s1 s t1 k2)
+      and  (match k2 with
+            | f2 :: t2 ->
+              gwe_frel_mono r s1 s (PBindF f) f2;
+              gwe_k_mono r s1 s t1 t2;
+              gwy_k_cons r s1 (PBindF f) f2 t1 t2
+            | [] -> ())
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 ->
+         gwe_frel_mono r s1 s f1 f2;
+         gwe_k_mono r s1 s t1 t2;
+         gwy_k_cons r s1 f1 f2 t1 t2
+       | [] -> ())
+
+(** The condition's hypothesis is MET by the pair the perform rule builds in
+    case A: the two captured segments are `gwy_k`, so the two `pkont_of`s are
+    `gwe_fn_at`. This is `lemma_padx_kont_fn_at` at the DEEP relation, and the
+    surplus frame is no longer required to be at the head of the segment. *)
+let gwe_kont_fn_at (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (cap1 cap2: pstack v cl)
+  : Lemma (requires gwy_k r s cap1 cap2 /\ pawf s /\ pcl_mono r)
+          (ensures gwe_fn_at r s (pkont_of cap1) (pkont_of cap2))
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        paext s' s /\ pval_rel s'.aw y1 y2 ==>
+        gwe_comp r s' (pkont_of cap1 y1) (pkont_of cap2 y2)
+    with (introduce _ ==> _
+          with (gwe_k_mono r s' s cap1 cap2;
+                lemma_pacrel_var r s' y1 y2))
+
+(** The successor relation for case A: `padxg_cf` with the head-only
+    computation relation replaced by the deep one. Nothing else moves --
+    stacks are `pakrel`, store is `pasrel`, the two counters are pinned. *)
+let gwe_cfg (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+            (cf1 cf2: pconf v cl) : GTot prop
+  = pawf s /\
+    (match cf1.st, cf2.st with
+     | PStep c1 k1, PStep c2 k2 -> gwe_comp r s c1 c2 /\ pakrel r s k1 k2
+     | _, _ -> False) /\
+    pasrel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+let gwe_padxg_cf_is_cfg (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (cf1 cf2: pconf v cl)
+  : Lemma (requires padxg_cf r s cf1 cf2) (ensures gwe_cfg r s cf1 cf2)
+  = match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 -> gwe_padx_comp_is_comp r s c1 c2
+    | _, _ -> ()
+
+let gwe_perform_case_a
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k1 k2 cap1 cap2 bel1 bel2: pstack v cl) (fc1 fc2: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ gwe_apply_pres r apply /\
+             gwy_cf r s
+               ({ st = PStep (PPerform eff1 op1 pay1) k1;
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k2;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             pfind_prompt lk eff1 op1 k1 == Some (cap1, fc1, bel1) /\
+             pfind_prompt lk eff1 op1 k2 == Some (cap2, fc2, bel2) /\
+             ~(KScoped? fc1.kind) /\ fc1.kind == fc2.kind /\
+             pclrel r s.aw fc1.body fc2.body /\
+             gwy_k r s cap1 cap2 /\ pakrel r s bel1 bel2)
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) k1;
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k2;
+                 store = sto2; next = s.an2 } in
+             let outL : pconf v cl =
+               { st = PStep (apply fc1.body pay1 (pkont_of cap1)) bel1;
+                 store = sto1; next = s.an1 } in
+             let outR : pconf v cl =
+               { st = PStep (apply fc2.body pay2 (pkont_of cap2)) bel2;
+                 store = sto2; next = s.an2 } in
+             eff1 == eff2 /\ op1 == op2 /\
+             pstep_tr lk apply cfL == (outL, ([] <: list string)) /\
+             pstep_tr lk apply cfR == (outR, ([] <: list string)) /\
+             prun lk apply 1 cfL == (outL, ([] <: list string)) /\
+             prun lk apply 1 cfR == (outR, ([] <: list string)) /\
+             outL.store == sto1 /\ outR.store == sto2 /\
+             outL.next == s.an1 /\ outR.next == s.an2 /\
+             gwe_cfg r s outL outR))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) k1; store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cfL cfR ();
+    gwy_st_unfold r s cfL.st cfR.st ();
+    lemma_pacrel_perform_inv r s eff1 op1 eff2 op2 pay1 pay2;
+    lemma_padx_perform_right lk apply eff1 op1 pay1 k1 cap1 bel1 fc1 sto1 s.an1;
+    lemma_padx_perform_right lk apply eff2 op2 pay2 k2 cap2 bel2 fc2 sto2 s.an2;
+    gwe_kont_fn_at r s cap1 cap2;
+    gwe_apply_pres_inst r apply s fc1.body fc2.body pay1 pay2
+      (pkont_of cap1) (pkont_of cap2)
+
+(* ---- and the shipped interpreter satisfies the deep condition ----- *)
+
+let gwe_fn_self (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                (kk1 kk2: pval v -> pcomp v cl) (y1 y2: pval v)
+  : Lemma (requires pwf_world s.aw /\ gwe_fn_at r s kk1 kk2 /\ pval_rel s.aw y1 y2)
+          (ensures gwe_comp r s (kk1 y1) (kk2 y2))
+  = lemma_paext_refl s;
+    gwe_fn_at_unfold r s kk1 kk2 ()
+
+let gwe_xapply_at (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+                  (kk1 kk2: pval fv -> pcomp fv fcl)
+  : Lemma (requires pawf s /\ gwe_fn_at fcl_rel s kk1 kk2)
+          (ensures gwe_comp fcl_rel s (xapply c1 p1 kk1) (xapply c2 p2 kk2))
+  = assert (pval_rel #fv s.aw (fpv FU) (fpv FU));
+    gwe_fn_self fcl_rel s kk1 kk2 (fpv FU) (fpv FU);
+    introduce forall (n: nat). paplan_rel fcl_rel n s xplan xplan
+    with lemma_xplan_paselfrel n s
+
+let gwe_xapply_pres () : Lemma (gwe_apply_pres fcl_rel xapply)
+  = introduce forall (s: pastate) (c1 c2: fcl) (p1 p2: list (pval fv))
+                     (kk1 kk2: pval fv -> pcomp fv fcl).
+      (pawf s /\ pclrel fcl_rel s.aw c1 c2 /\ pvals_rel s.aw p1 p2 /\
+       gwe_fn_at fcl_rel s kk1 kk2 ==>
+       gwe_comp fcl_rel s (xapply c1 p1 kk1) (xapply c2 p2 kk2))
+    with (introduce _ ==> _
+          with gwe_xapply_at s c1 c2 p1 p2 kk1 kk2)
+
+(* ---- the two cases, PACKAGED on the deep stack relation ------------ *)
+
+let gwe_search_agrees (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                      (s: pastate) (eff op: string) (k1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s k1 k2 /\ plookup_equivariant r lk /\ pcl_down r)
+          (ensures Some? (pfind_prompt lk eff op k1)
+                   <==> Some? (pfind_prompt lk eff op k2))
+  = gwe_search_rel r lk s eff op k1 k2
+
+let gwe_perform_deep
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k1 k2 cap1 cap2 bel1 bel2: pstack v cl) (fc1 fc2: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+             paapply_equivariant r apply /\ gwe_apply_pres r apply /\
+             gwy_cf r s
+               ({ st = PStep (PPerform eff1 op1 pay1) k1;
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k2;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             pfind_prompt lk eff1 op1 k1 == Some (cap1, fc1, bel1) /\
+             pfind_prompt lk eff1 op1 k2 == Some (cap2, fc2, bel2) /\
+             ~(KScoped? fc1.kind))
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) k1;
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k2;
+                 store = sto2; next = s.an2 } in
+             let outL : pconf v cl =
+               { st = PStep (apply fc1.body pay1 (pkont_of cap1)) bel1;
+                 store = sto1; next = s.an1 } in
+             let outR : pconf v cl =
+               { st = PStep (apply fc2.body pay2 (pkont_of cap2)) bel2;
+                 store = sto2; next = s.an2 } in
+             eff1 == eff2 /\ op1 == op2 /\
+             pstep_tr lk apply cfL == (outL, ([] <: list string)) /\
+             pstep_tr lk apply cfR == (outR, ([] <: list string)) /\
+             prun lk apply 1 cfL == (outL, ([] <: list string)) /\
+             prun lk apply 1 cfR == (outR, ([] <: list string)) /\
+             outL.store == sto1 /\ outR.store == sto2 /\
+             outL.next == s.an1 /\ outR.next == s.an2 /\
+             (gwe_cfg r s outL outR \/ gwy_cf r s outL outR)))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) k1; store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cfL cfR ();
+    gwy_st_unfold r s cfL.st cfR.st ();
+    gwe_search_rel r lk s eff1 op1 k1 k2;
+    eliminate (gwy_k r s cap1 cap2 /\ pakrel r s bel1 bel2)
+           \/ (pakrel r s cap1 cap2 /\ gwy_k r s bel1 bel2)
+    with (gwe_perform_case_a r lk apply s eff1 op1 eff2 op2 pay1 pay2
+            k1 k2 cap1 cap2 bel1 bel2 fc1 fc2 sto1 sto2)
+    and  (gwe_perform_case_b r lk apply s eff1 op1 eff2 op2 pay1 pay2
+            k1 k2 cap1 cap2 bel1 bel2 fc1 fc2 sto1 sto2)
+
+(* ---- the deep condition DISCRIMINATES, exactly as the head-only one -- *)
+
+let gwe_comp_var_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (x1 x2: pval v) (h: squash (gwe_comp r s (PVar #v #cl x1) (PVar #v #cl x2)))
+  : squash (pacrel r s (PVar #v #cl x1) (PVar #v #cl x2))
+  = h
+
+(** The antecedent of `gwe_apply_pres` is TRUE at the witness below, so the
+    refutation bites on a real instance -- and the continuation pair it bites
+    at is `pkont_of` of two segments that are `gwy_k` but not `pakrel`. *)
+let gwe_hyp_inhabited ()
+  : Lemma (pawf pabot /\ pclrel fcl_rel pabot.aw FEcho FEcho /\
+           pvals_rel pabot.aw ([] <: list (pval fv)) ([] <: list (pval fv)) /\
+           gwe_fn_at fcl_rel pabot cal_kkL cal_kkR)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_cal_cap_pakrel pabot;
+    gwe_ktop_head fcl_rel pabot (PVar #fv #fcl) padx_g_capR padx_g_capR;
+    gwe_kont_fn_at fcl_rel pabot
+      (PBindF (PVar #fv #fcl) :: padx_g_capR) padx_g_capR
+
+(** `xapply2` -- the interpreter that reads the LENGTH of the continuation it
+    is handed -- refutes the deep condition too. So `gwe_apply_pres` is not
+    implied by `paapply_equivariant`, which `xapply2` does satisfy. *)
+let gwe_xapply2_not_pres () : Lemma (~(gwe_apply_pres fcl_rel xapply2))
+  = introduce gwe_apply_pres fcl_rel xapply2 ==> False
+    with (lemma_pabot_wf ();
+          lemma_fcl_rel_mono ();
+          lemma_cal_cap_pakrel pabot;
+          gwe_ktop_head fcl_rel pabot (PVar #fv #fcl) padx_g_capR padx_g_capR;
+          gwe_kont_fn_at fcl_rel pabot
+            (PBindF (PVar #fv #fcl) :: padx_g_capR) padx_g_capR;
+          gwe_apply_pres_inst fcl_rel xapply2 pabot FEcho FEcho
+            ([] <: list (pval fv)) ([] <: list (pval fv)) cal_kkL cal_kkR;
+          guard_cal_xklen_differs ();
+          gwe_comp_var_unfold fcl_rel pabot
+            (PV (FI (xklen (cal_kkL (fpv FU)))))
+            (PV (FI (xklen (cal_kkR (fpv FU))))) ();
+          lemma_cal_pvar_int_unrelated pabot 3 2)
+
+let guard_gwe_apply_pres_separates ()
+  : Lemma (gwe_apply_pres fcl_rel xapply /\
+           paapply_equivariant fcl_rel xapply2 /\
+           ~(gwe_apply_pres fcl_rel xapply2))
+  = gwe_xapply_pres ();
+    lemma_cal_xapply2_paequivariant ();
+    gwe_xapply2_not_pres ()
+
+(* ---- GUARDS: one instance per case, surplus GENUINELY AT DEPTH ----- *)
+
+let gwe_gB_bel1 : pstack fv fcl = [PBindF (PVar #fv #fcl); PScopeF]
+let gwe_gB_k1 : pstack fv fcl =
+  [PBindF (PVar #fv #fcl); PPromptF ftbl_out None PFamily;
+   PBindF (PVar #fv #fcl); PScopeF]
+let gwe_gB_k2 : pstack fv fcl = padx_g_capk
+
+let gwe_gB_shapes ()
+  : Lemma (padx_g_capR @ gwe_gB_bel1 == gwe_gB_k1 /\
+           padx_g_capR @ ([PScopeF] <: pstack fv fcl) == gwe_gB_k2)
+  = assert_norm (padx_g_capR @ gwe_gB_bel1 == gwe_gB_k1);
+    assert_norm (padx_g_capR @ ([PScopeF] <: pstack fv fcl) == gwe_gB_k2)
+
+let gwe_gB_stacks_deep ()
+  : Lemma (gwy_k fcl_rel pabot gwe_gB_k1 gwe_gB_k2)
+  = cor_padxg_capk_search pabot;
+    gwe_ktop_head fcl_rel pabot (PVar #fv #fcl)
+      ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl);
+    gwe_gB_shapes ();
+    gwy_k_append fcl_rel pabot padx_g_capR padx_g_capR
+      gwe_gB_bel1 ([PScopeF] <: pstack fv fcl)
+
+let gwe_gB_search ()
+  : Lemma (pfind_prompt flook "Out" "o" gwe_gB_k1
+             == Some (padx_g_capR, fclause FWrap, gwe_gB_bel1) /\
+           pfind_prompt flook "Out" "o" gwe_gB_k2
+             == Some (padx_g_capR, fclause FWrap, ([PScopeF] <: pstack fv fcl)))
+  = assert_norm (pfind_prompt flook "Out" "o" gwe_gB_k1
+                 == Some (padx_g_capR, fclause FWrap, gwe_gB_bel1));
+    assert_norm (pfind_prompt flook "Out" "o" gwe_gB_k2
+                 == Some (padx_g_capR, fclause FWrap,
+                          ([PScopeF] <: pstack fv fcl)))
+
+let gwe_gB_cfL : pconf fv fcl =
+  { st = PStep (PPerform "Out" "o" ([] <: list (pval fv))) gwe_gB_k1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwe_gB_cfR : pconf fv fcl =
+  { st = PStep (PPerform "Out" "o" ([] <: list (pval fv))) gwe_gB_k2;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwe_gB_outL : pconf fv fcl =
+  { st = PStep (xapply FWrap ([] <: list (pval fv)) (pkont_of padx_g_capR))
+               gwe_gB_bel1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwe_gB_outR : pconf fv fcl =
+  { st = PStep (xapply FWrap ([] <: list (pval fv)) (pkont_of padx_g_capR))
+               ([PScopeF] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+let gwe_gB_source () : Lemma (gwy_cf fcl_rel pabot gwe_gB_cfL gwe_gB_cfR)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwe_gB_stacks_deep ();
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n pabot (PPerform "Out" "o" ([] <: list (pval fv)))
+                                   (PPerform "Out" "o" ([] <: list (pval fv)))
+    with ()
+
+(**
+ * **CASE B FIRES, AND IT CONSUMES ONLY `paapply_equivariant`.** The surplus
+ * identity frame sits at DEPTH THREE of the left stack -- below the prompt the
+ * search stops at -- so `padx_ktop` is refuted at the source and the file's
+ * head-only perform arm does not apply. The successor is the DEEP PHASE again:
+ * the two remainders are `gwy_k` and NOT `pakrel`, so the pair is not a
+ * `padxg_cf` pair either.
+ *)
+let guard_gwe_case_b_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwe_gB_cfL gwe_gB_cfR /\
+           ~(padx_ktop fcl_rel pabot gwe_gB_k1 gwe_gB_k2) /\
+           pfind_prompt flook "Out" "o" gwe_gB_k1
+             == Some (padx_g_capR, fclause FWrap, gwe_gB_bel1) /\
+           pfind_prompt flook "Out" "o" gwe_gB_k2
+             == Some (padx_g_capR, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+           pstep_tr flook xapply gwe_gB_cfL == (gwe_gB_outL, ([] <: list string)) /\
+           pstep_tr flook xapply gwe_gB_cfR == (gwe_gB_outR, ([] <: list string)) /\
+           prun flook xapply 1 gwe_gB_cfL == (gwe_gB_outL, ([] <: list string)) /\
+           prun flook xapply 1 gwe_gB_cfR == (gwe_gB_outR, ([] <: list string)) /\
+           gwy_cf fcl_rel pabot gwe_gB_outL gwe_gB_outR /\
+           ~(pakrel fcl_rel pabot gwe_gB_bel1 ([PScopeF] <: pstack fv fcl)))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_xapply_paequivariant ();
+    gwe_gB_source ();
+    gwe_gB_search ();
+    cor_padxg_capk_search pabot;
+    gwe_ktop_head fcl_rel pabot (PVar #fv #fcl)
+      ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl);
+    assert_norm (~(KScoped? (fclause FWrap).kind));
+    introduce padx_ktop fcl_rel pabot gwe_gB_k1 gwe_gB_k2 ==> False
+    with (padx_ktop_unfold fcl_rel pabot gwe_gB_k1 gwe_gB_k2 ();
+          assert (padx_top fcl_rel 1 pabot gwe_gB_k1 gwe_gB_k2));
+    introduce pakrel fcl_rel pabot gwe_gB_bel1 ([PScopeF] <: pstack fv fcl) ==> False
+    with (pakrel_unfold fcl_rel pabot gwe_gB_bel1 ([PScopeF] <: pstack fv fcl) ();
+          assert (paframes_rel fcl_rel 1 pabot gwe_gB_bel1
+                    ([PScopeF] <: pstack fv fcl)));
+    gwe_perform_case_b fcl_rel flook xapply pabot "Out" "o" "Out" "o"
+      ([] <: list (pval fv)) ([] <: list (pval fv))
+      gwe_gB_k1 gwe_gB_k2 padx_g_capR padx_g_capR
+      gwe_gB_bel1 ([PScopeF] <: pstack fv fcl)
+      (fclause FWrap) (fclause FWrap)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ---- case A: the surplus is INSIDE the captured segment ------------ *)
+
+let gwe_gA_k2 : pstack fv fcl = PParamF "p" (fpv FU) :: padx_g_capk
+let gwe_gA_k1 : pstack fv fcl =
+  PParamF "p" (fpv FU) :: PBindF (PVar #fv #fcl) :: padx_g_capk
+let gwe_gA_cap2 : pstack fv fcl = PParamF "p" (fpv FU) :: padx_g_capR
+let gwe_gA_cap1 : pstack fv fcl =
+  PParamF "p" (fpv FU) :: PBindF (PVar #fv #fcl) :: padx_g_capR
+
+let gwe_gA_stacks_deep ()
+  : Lemma (gwy_k fcl_rel pabot gwe_gA_k1 gwe_gA_k2 /\
+           gwy_k fcl_rel pabot gwe_gA_cap1 gwe_gA_cap2)
+  = cor_padxg_capk_pakrel pabot;
+    cor_padxg_capk_search pabot;
+    assert (pval_rel pabot.aw (fpv FU) (fpv FU));
+    lemma_pafrel_param #fv #fcl fcl_rel pabot "p" (fpv FU) (fpv FU);
+    gwe_ktop_head fcl_rel pabot (PVar #fv #fcl) padx_g_capk padx_g_capk;
+    gwe_ktop_head fcl_rel pabot (PVar #fv #fcl) padx_g_capR padx_g_capR;
+    gwy_k_cons fcl_rel pabot (PParamF "p" (fpv FU)) (PParamF "p" (fpv FU))
+      (PBindF (PVar #fv #fcl) :: padx_g_capk) padx_g_capk;
+    gwy_k_cons fcl_rel pabot (PParamF "p" (fpv FU)) (PParamF "p" (fpv FU))
+      (PBindF (PVar #fv #fcl) :: padx_g_capR) padx_g_capR
+
+let gwe_gA_search ()
+  : Lemma (pfind_prompt flook "Out" "o" gwe_gA_k1
+             == Some (gwe_gA_cap1, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+           pfind_prompt flook "Out" "o" gwe_gA_k2
+             == Some (gwe_gA_cap2, fclause FWrap, ([PScopeF] <: pstack fv fcl)))
+  = assert_norm (pfind_prompt flook "Out" "o" gwe_gA_k1
+                 == Some (gwe_gA_cap1, fclause FWrap,
+                          ([PScopeF] <: pstack fv fcl)));
+    assert_norm (pfind_prompt flook "Out" "o" gwe_gA_k2
+                 == Some (gwe_gA_cap2, fclause FWrap,
+                          ([PScopeF] <: pstack fv fcl)))
+
+let gwe_gA_cfL : pconf fv fcl =
+  { st = PStep (PPerform "Out" "o" ([] <: list (pval fv))) gwe_gA_k1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwe_gA_cfR : pconf fv fcl =
+  { st = PStep (PPerform "Out" "o" ([] <: list (pval fv))) gwe_gA_k2;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwe_gA_outL : pconf fv fcl =
+  { st = PStep (xapply FWrap ([] <: list (pval fv)) (pkont_of gwe_gA_cap1))
+               ([PScopeF] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwe_gA_outR : pconf fv fcl =
+  { st = PStep (xapply FWrap ([] <: list (pval fv)) (pkont_of gwe_gA_cap2))
+               ([PScopeF] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+let gwe_gA_source () : Lemma (gwy_cf fcl_rel pabot gwe_gA_cfL gwe_gA_cfR)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwe_gA_stacks_deep ();
+    introduce forall (n: nat).
+        pacomp_rel fcl_rel n pabot (PPerform "Out" "o" ([] <: list (pval fv)))
+                                   (PPerform "Out" "o" ([] <: list (pval fv)))
+    with ()
+
+(**
+ * **CASE A FIRES, AND IT NEEDS THE DEEP COMPUTATION RELATION.** The surplus
+ * frame is at depth in the left stack AND at depth in the captured segment, so
+ * `padx_ktop` is refuted on the two segments; `padx_comp`'s `PSplice` clause is
+ * head-only and therefore does not hold of the two continuations, and the
+ * successor pair is NOT a `padxg_cf` pair. It IS a `gwe_cfg` pair.
+ *)
+let guard_gwe_case_a_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwe_gA_cfL gwe_gA_cfR /\
+           ~(padx_ktop fcl_rel pabot gwe_gA_k1 gwe_gA_k2) /\
+           gwy_k fcl_rel pabot gwe_gA_cap1 gwe_gA_cap2 /\
+           ~(padx_ktop fcl_rel pabot gwe_gA_cap1 gwe_gA_cap2) /\
+           pfind_prompt flook "Out" "o" gwe_gA_k1
+             == Some (gwe_gA_cap1, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+           pfind_prompt flook "Out" "o" gwe_gA_k2
+             == Some (gwe_gA_cap2, fclause FWrap, ([PScopeF] <: pstack fv fcl)) /\
+           pstep_tr flook xapply gwe_gA_cfL == (gwe_gA_outL, ([] <: list string)) /\
+           pstep_tr flook xapply gwe_gA_cfR == (gwe_gA_outR, ([] <: list string)) /\
+           prun flook xapply 1 gwe_gA_cfL == (gwe_gA_outL, ([] <: list string)) /\
+           prun flook xapply 1 gwe_gA_cfR == (gwe_gA_outR, ([] <: list string)) /\
+           gwe_cfg fcl_rel pabot gwe_gA_outL gwe_gA_outR /\
+           ~(padxg_cf fcl_rel pabot gwe_gA_outL gwe_gA_outR))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    gwe_xapply_pres ();
+    gwe_gA_source ();
+    gwe_gA_search ();
+    gwe_gA_stacks_deep ();
+    cor_padxg_capk_search pabot;
+    assert_norm (~(KScoped? (fclause FWrap).kind));
+    introduce padx_ktop fcl_rel pabot gwe_gA_k1 gwe_gA_k2 ==> False
+    with (padx_ktop_unfold fcl_rel pabot gwe_gA_k1 gwe_gA_k2 ();
+          assert (padx_top fcl_rel 0 pabot gwe_gA_k1 gwe_gA_k2));
+    introduce padx_ktop fcl_rel pabot gwe_gA_cap1 gwe_gA_cap2 ==> False
+    with (padx_ktop_unfold fcl_rel pabot gwe_gA_cap1 gwe_gA_cap2 ();
+          assert (padx_top fcl_rel 0 pabot gwe_gA_cap1 gwe_gA_cap2));
+    introduce padxg_cf fcl_rel pabot gwe_gA_outL gwe_gA_outR ==> False
+    with (padxg_cf_unfold fcl_rel pabot gwe_gA_outL gwe_gA_outR ();
+          assert_norm (xapply FWrap ([] <: list (pval fv)) (pkont_of gwe_gA_cap1)
+                       == PEnterCtx xplan (PSplice gwe_gA_cap1 (PVar (fpv FU))));
+          assert_norm (xapply FWrap ([] <: list (pval fv)) (pkont_of gwe_gA_cap2)
+                       == PEnterCtx xplan (PSplice gwe_gA_cap2 (PVar (fpv FU))));
+          padx_ktop_unfold fcl_rel pabot gwe_gA_cap1 gwe_gA_cap2 ();
+          assert (padx_top fcl_rel 0 pabot gwe_gA_cap1 gwe_gA_cap2));
+    gwe_perform_case_a fcl_rel flook xapply pabot "Out" "o" "Out" "o"
+      ([] <: list (pval fv)) ([] <: list (pval fv))
+      gwe_gA_k1 gwe_gA_k2 gwe_gA_cap1 gwe_gA_cap2
+      ([PScopeF] <: pstack fv fcl) ([PScopeF] <: pstack fv fcl)
+      (fclause FWrap) (fclause FWrap)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ================================================================== *)
+(*  B2c STAGE 9 -- WHAT THIS SECTION SETTLES (THE LEDGER)              *)
+(*                                                                     *)
+(*  --- PROVED ---                                                     *)
+(*                                                                     *)
+(*  1. `gwe_search_rel`: from `gwy_k` alone (plus                      *)
+(*     `plookup_equivariant` and `pcl_down`), the two `pfind_prompt`   *)
+(*     walks agree on success and failure -- the `| _, _ -> False`     *)
+(*     clause, read as a biconditional in `gwe_search_agrees` -- and   *)
+(*     on success the clause kinds are EQUAL, the clause bodies are    *)
+(*     `pclrel`, and the three outputs fall into AT LEAST ONE of       *)
+(*       CASE A: `gwy_k cap1 cap2 /\ pakrel b1 b2`                     *)
+(*       CASE B: `pakrel cap1 cap2 /\ gwy_k b1 b2`.                    *)
+(*     The split is EXHAUSTIVE: there is no third placement.  Mutual   *)
+(*     exclusivity of the two relational clauses is not claimed.       *)
+(*                                                                     *)
+(*  2. `gwe_perform_case_b`: case B in full.  One step each, trace     *)
+(*     `[]` on both sides, store and counter UNMOVED, allocation state *)
+(*     `s` UNMOVED, and the successor is `gwy_cf` -- THE DEEP PHASE    *)
+(*     AGAIN.  The interpreter condition it consumes is               *)
+(*     `paapply_equivariant`, through `lemma_pakont_of_rel` and        *)
+(*     `lemma_paapply_equivariant_at`.  `padx_apply_pres` is NOT among *)
+(*     its hypotheses and is not used in its proof.                    *)
+(*                                                                     *)
+(*  3. `gwe_comp` / `gwe_fn_at` / `gwe_apply_pres` / `gwe_cfg`: the    *)
+(*     deep computation relation and the interpreter condition and     *)
+(*     successor relation built on it.  `gwe_comp` is `padx_comp`      *)
+(*     with ONE clause changed -- `PSplice` asks `gwy_k` where         *)
+(*     `padx_comp` asks `padx_ktop` -- and nothing else.               *)
+(*     `gwe_padx_comp_is_comp` and `gwe_padxg_cf_is_cfg`: the file's   *)
+(*     relations REFINE the new ones, so no existing proof is          *)
+(*     disturbed; `guard_gwe_case_a_fires` later witnesses that the    *)
+(*     new computation relation admits a case the old one refuses.     *)
+(*                                                                     *)
+(*  4. `gwe_k_mono`: the deep stack relation travels along `paext`,    *)
+(*     which is what `gwe_kont_fn_at` needs to meet                    *)
+(*     `gwe_apply_pres`'s antecedent at the pair the perform rule      *)
+(*     actually builds.                                                *)
+(*                                                                     *)
+(*  5. `gwe_perform_case_a`: case A in full, at the deep condition.    *)
+(*     Same trace, same store, same counters, same `s`; the successor  *)
+(*     is `gwe_cfg`.                                                   *)
+(*                                                                     *)
+(*  6. `gwe_perform_deep`: the two packaged together.  From `gwy_cf`   *)
+(*     and two successful searches, ONE step each and the successor is *)
+(*     `gwe_cfg` OR `gwy_cf`.  The packaged proof consumes both        *)
+(*     interpreter conditions.  Paired ablations show that neither can *)
+(*     simply be dropped or substituted with the proof body unchanged; *)
+(*     logical minimality or independence is not claimed.              *)
+(*                                                                     *)
+(*  7. `gwe_xapply_pres`: the shipped interpreter satisfies the deep   *)
+(*     condition.  `gwe_xapply2_not_pres`: `xapply2` refutes it,       *)
+(*     although it satisfies `paapply_equivariant` -- so the deep      *)
+(*     condition is a real restriction and not a re-labelling of the   *)
+(*     ordinary one.  `gwe_hyp_inhabited`: the antecedent is TRUE at   *)
+(*     the witness the refutation bites at.                            *)
+(*                                                                     *)
+(*  8. `guard_gwe_case_b_fires`: an instance with the surplus at       *)
+(*     DEPTH THREE of the left stack, below the prompt.  `padx_ktop`   *)
+(*     is REFUTED at the source, so the file's head-only perform arm   *)
+(*     does not apply; the successor's two stacks are `gwy_k` and NOT  *)
+(*     `pakrel`, so the successor is not a `padxg_cf` pair either.     *)
+(*                                                                     *)
+(*  9. `guard_gwe_case_a_fires`: an instance with the surplus at depth *)
+(*     INSIDE the captured segment.  `padx_ktop` is REFUTED on the two *)
+(*     segments AND on the two source stacks, and the successor is     *)
+(*     REFUTED to be `padxg_cf` -- it is `gwe_cfg`.  This is the       *)
+(*     section's main finding, discharged on the shipped fixture types *)
+(*     with the real `flook` and the real `xapply`.                    *)
+(*                                                                     *)
+(*  --- NOT PROVED, AND NOT CLAIMED ---                                *)
+(*                                                                     *)
+(*  * The remaining transition forms at depth are untouched; only      *)
+(*    `PPerform` is treated here.                                      *)
+(*  * There is no exhaustive dispatcher theorem: `gwe_perform_deep`    *)
+(*    assumes the two searches SUCCEED.  What happens when they both   *)
+(*    fail is not developed, only that they cannot disagree.           *)
+(*  * Nothing here composes two steps.  The successor of case A is     *)
+(*    `gwe_cfg` and the successor of case B is `gwy_cf`; that these    *)
+(*    two phases can be stepped again is not shown.                    *)
+(*  * `gwe_cfg` and `gwy_cf` are NOT unified.  The one-step theorem    *)
+(*    concludes a DISJUNCTION because the two successors have          *)
+(*    genuinely different shapes, and no common refinement is offered. *)
+(*                                                                     *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `push-options`, no `set-options`, no   *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)

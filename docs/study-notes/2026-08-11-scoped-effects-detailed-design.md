@@ -8416,6 +8416,88 @@ The previous gate's logical obstruction is cleared. For the deep `PPerform`
 work, `gwy_k` can now be used not as a new semantic relation but as `padx_k`'s
 invertible normal form — under `pcl_down`.
 
+#### Deep `PPerform`: the capture position splits the discipline
+
+> Deep `PPerform` splits into two exhaustive capture cases. When the surplus
+> identity frame enters the captured continuation, the generated computation
+> requires a deep administrative relation and the new condition
+> `gwe_apply_pres`. When the surplus remains in the residual stack, the
+> successor stays in the deep stack phase and no administrative apply
+> condition is consumed.
+
+`pfind_prompt` conses every non-prompt frame onto the captured segment and stops
+at a matching prompt, so a buried surplus goes to exactly one of two places:
+
+| | surplus lands in | relations obtained | condition consumed |
+|---|---|---|---|
+| A | the captured segment | `gwy_k cap1 cap2` and `pakrel bel1 bel2` | the deep administrative one |
+| B | the residual | `pakrel cap1 cap2` and `gwy_k bel1 bel2` | ordinary equivariance only |
+
+Case B's statement contains **no** occurrence of `padx_apply_pres` — checked
+directly. That is the localisation: the administrative discipline is needed only
+where the frame is actually captured.
+
+#### What the paired ablations do and do not show
+
+> The paired ablations establish dependency of the present proof paths: the
+> top-only condition cannot replace `gwe_apply_pres` in case A, and adding an
+> administrative condition does not repair the wrong treatment of case B. They
+> do not yet prove logical independence or minimality of the conditions.
+
+Eighteen ablations fired, one assertion per file, with positive controls.
+
+#### Case A needed a deeper relation, and got one without damage
+
+The prediction held: `padx_comp`'s `PSplice` clause is head-only, so a surplus
+buried *inside* the captured segment escapes it — refuted on the shipping
+fixture. `gwe_comp` changes **that one clause** (`padx_ktop` → `gwy_k`) and
+nothing else, and the containments `padx_comp ==> gwe_comp` and
+`padxg_cf ==> gwe_cfg` show it is a genuine coarsening, so nothing already
+proved is disturbed.
+
+#### Three roles, not a final count of three
+
+The candidate interface has divided into three roles, which is not the same as
+having established that three are needed:
+
+- `paapply_equivariant` — ordinary name- and allocation-aware preservation;
+- `padx_apply_pres` — capture of a surplus identity frame **at the head**;
+- `gwe_apply_pres` — capture of one **buried at depth**.
+
+> `xapply` inhabits all three, while `xapply2` inhabits only ordinary
+> allocation-aware equivariance. Thus the deep condition is not a restatement of
+> ordinary equivariance. No implication between the two administrative
+> conditions has been proved in either direction.
+
+The separation by `xapply2` was reproduced independently.
+
+#### The successor disjunction
+
+> The theorem ends in `gwe_cfg \/ gwy_cf`. This is not yet one simulation
+> invariant: the capture-inside case moves the administrative difference into
+> generated computation, while the capture-below case leaves it in the stack. No
+> closure theorem for their union is proved.
+
+The disjunction is a limitation and an honest reading of the machine's phase
+structure at once.
+
+#### Not proved
+
+- the case where both searches fail;
+- deep transitions other than `PPerform`;
+- closure or unification of `gwe_cfg` and `gwy_cf`;
+- any implication between the two administrative conditions;
+- admission into the boundary record;
+- composition with finite runs or observation.
+
+#### Position
+
+The stop condition that fired here was not a breakdown. It was the discovery
+that a single deep relation cannot express the difference in capture position,
+and the gate closed by refining into two exhaustive cases. The next step is not
+to collapse the successor disjunction into one definition, but to adjudicate
+one-step closure on the `gwe_cfg` side first.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
