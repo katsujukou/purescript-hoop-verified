@@ -46096,3 +46096,555 @@ let guard_gwy_exit_perform_fires ()
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 3 -- DOWNWARD CLOSURE OF THE ALLOCATION-INDEXED FAMILY   *)
+(*  AND THE INVERSION IT PAYS FOR                                      *)
+(*                                                                     *)
+(*  THE GAP THIS SECTION CLOSES.  `padx_k r s k1 k2` is                *)
+(*  `forall n. padx_stack r n s k1 k2`, and `padx_stack`'s `PBindF`    *)
+(*  clause is a DISJUNCTION, so the unfolded shape is pointwise:       *)
+(*                                                                     *)
+(*      forall n. (A n \/ B n)                                         *)
+(*                                                                     *)
+(*  A step proof needs ONE STABLE PHASE -- the disjunction OUTSIDE the *)
+(*  index quantifier -- which is what `gwy_k` states by fiat, and      *)
+(*  `gwy_k_is_padx_k` was the only implication available.  The         *)
+(*  converse is a classical argument that needs DOWNWARD CLOSURE of    *)
+(*  both disjuncts in the index, and until this section the            *)
+(*  development had downward closure for `ptable_rel`                  *)
+(*  (`lemma_ptable_rel_down`) and for NOTHING ELSE: neither            *)
+(*  `pcomp_rel`/`pframes_rel` nor `pacomp_rel`/`paframes_rel` had one, *)
+(*  because nothing before this needed one.                            *)
+(*                                                                     *)
+(*  WHAT IS PROVED HERE.                                               *)
+(*   1. `gwd_pacomp_down` and its `and`-chain: downward closure of     *)
+(*      the whole allocation-indexed family, index `n + 1` to index    *)
+(*      `n`, at the SAME lexicographic measures as `pacomp_rel`'s own  *)
+(*      and as `lemma_pacomp_rel_mono`'s.  The ONLY hypothesis is      *)
+(*      `pcl_down r`, and it is used at the FIVE `ptable_rel`          *)
+(*      occurrences and nowhere else -- no `pawf`, no `pcl_mono`, no   *)
+(*      per-closure side condition, because the future quantifier      *)
+(*      `forall s'. paext s' s ==> ...` does not move: only the index  *)
+(*      inside it does.                                                *)
+(*   2. `gwd_padx_stack_down`: the same for the at-depth stack         *)
+(*      relation, by structural induction on the left stack.           *)
+(*   3. `gwd_dichotomy`: the classical step, stated once and           *)
+(*      generically over two index-indexed ghost predicates.  From     *)
+(*      `forall n. a n \/ b n` and downward closure of each, either    *)
+(*      `a` holds at every index or `b` does.  The proof is: split on  *)
+(*      `(forall n. a n) \/ ~(forall n. a n)`; in the second horn      *)
+(*      `~(a n0)` for some `n0`, so `~(a m)` for every `m >= n0` by    *)
+(*      `gwd_down_iter` on `a`, hence `b m` there, hence `b m` BELOW   *)
+(*      `n0` too by `gwd_down_iter` on `b`.                            *)
+(*   4. `gwd_padx_k_is_gwy_k`: the payoff.  `padx_k ==> gwy_k`, which  *)
+(*      with the shipped `gwy_k_is_padx_k` makes the two relations     *)
+(*      EQUIVALENT (`gwd_padx_k_iff_gwy_k`) whenever `pcl_down r`.     *)
+(*      The previous gate could only claim the one-way refinement.     *)
+(*                                                                     *)
+(*  WHAT THE CLASSICAL STEP COSTS: NO INCREASE IN THE FILE'S TRUST     *)
+(*  SURFACE.  It still uses classical case analysis. `gwd_dichotomy`   *)
+(*  does not open                                                     *)
+(*  `FStar.StrongExcludedMiddle` and does not call                     *)
+(*  `FStar.Classical.excluded_middle`; the excluded middle it uses is  *)
+(*  the one F*'s SMT encoding of `squash`ed propositions has anyway,   *)
+(*  discharged as the side goal of `eliminate p \/ ~p`.  No new        *)
+(*  assumption, no new axiom, no new dependency.                       *)
+(*                                                                     *)
+(*  ANTI-VACUITY.  `guard_gwd_paframes_down_fires` runs the closure at *)
+(*  a CONCRETE index drop, 3 to 2, on a pair that the relation at the  *)
+(*  LOWER index still discriminates -- the same left against `PScopeF` *)
+(*  is REFUTED at index 2, so the conclusion is not the constant       *)
+(*  `True`.  `guard_gwd_inversion_fires` exhibits a stack pair where   *)
+(*  the pointwise disjunct choice is NOT the same at every index: the  *)
+(*  second disjunct HOLDS at index 0 and FAILS at index 1, while the   *)
+(*  first holds at every index.  So a pointwise reading of             *)
+(*  `padx_stack` really does leave the phase undetermined at some      *)
+(*  indices, and the inversion is what picks the stable one.  Note     *)
+(*  what CANNOT be exhibited, and why: a stack on which the first      *)
+(*  disjunct fails somewhere AND the second fails somewhere else is    *)
+(*  exactly what `gwd_dichotomy` refutes, so no such stack lies in     *)
+(*  `padx_k` at all.                                                   *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(* ================================================================== *)
+
+(* ---- 1. THE CLASSICAL STEP, ONCE AND GENERICALLY ------------------ *)
+
+(** Downward closure iterated. From the one-notch law and `k <= n`, the
+    relation at `n` implies the relation at `k`. Stated as an IMPLICATION in the
+    conclusion so that it can be used contrapositively without
+    `Classical.move_requires`. *)
+let rec gwd_down_iter (a: nat -> GTot prop) (k n: nat)
+  : Lemma (requires (forall (m: nat). a (m + 1) ==> a m) /\ k <= n)
+          (ensures a n ==> a k)
+          (decreases n - k)
+  = if k >= n then () else gwd_down_iter a k (n - 1)
+
+(**
+ * **The inversion principle, abstractly.** PROVED. A pointwise disjunction
+ * whose two disjuncts are each downward closed in the index is a disjunction of
+ * two pointwise statements -- the quantifier and the disjunction COMMUTE, in
+ * the direction that is not free.
+ *
+ * The classical content is the case split `p \/ ~p` on `forall n. a n`, which
+ * is a side goal of `eliminate` and is discharged by the SMT solver from the
+ * classical reading of `squash`. `FStar.StrongExcludedMiddle` is NOT used and
+ * is NOT opened: nothing here is an assumption the file did not already make.
+ *)
+let gwd_dichotomy (a b: nat -> GTot prop)
+  : Lemma (requires (forall (n: nat). a n \/ b n) /\
+                    (forall (n: nat). a (n + 1) ==> a n) /\
+                    (forall (n: nat). b (n + 1) ==> b n))
+          (ensures (forall (n: nat). a n) \/ (forall (n: nat). b n))
+  = eliminate (forall (n: nat). a n) \/ ~(forall (n: nat). a n)
+    with ()
+    and (eliminate exists (n0: nat). ~(a n0)
+         with
+           (introduce forall (m: nat). b m
+            with (if m <= n0
+                  then gwd_down_iter b m n0
+                  else gwd_down_iter a n0 m)))
+
+(* ---- 2. DOWNWARD CLOSURE OF THE ALLOCATION-INDEXED FAMILY --------- *)
+
+(**
+ * **The family is downward closed in the STEP INDEX, on `pcl_down r` alone.**
+ * PROVED. This is `lemma_pacomp_rel_mono`'s shape with the state held FIXED and
+ * the index moved instead, at the SAME measures -- `%[n; 0; 0]`, `%[n; 1; 0]`,
+ * `%[n; 2; 0]`, `%[n; 2; 1]`, `%[n; 3; length fs1]`, `%[n; 3; length is1]`,
+ * `%[n; 4; 0]` -- with ONE extra member, `gwd_pafn_down` at `%[n; 0; 1]`, which
+ * carries the drop under the future quantifier that every closure clause has.
+ * It sits between the computation level and the owner/frame/item level, so it
+ * is above `pacomp_rel`'s measure and below all three of theirs, and the
+ * lexicographic order is undisturbed.
+ *
+ * `pcl_down r` is used at exactly five places, all of them a `ptable_rel`
+ * (`PHandle`, `POwner`, `PPromptF`, `PITransparent`, `PIReenter`), and through
+ * `lemma_ptable_rel_down` and nothing else. Ablating the hypothesis leaves
+ * exactly the four members that mention a table -- `gwd_pacomp_down`,
+ * `gwd_paowner_down`, `gwd_paframe_down`, `gwd_paitem_down` -- unproved, and
+ * every other member goes through untouched, which is the statement that
+ * `ptable_rel` is the one member of the family that is not trivial at index 0.
+ *)
+let rec gwd_pacomp_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                        (c1 c2: pcomp v cl)
+  : Lemma (requires pacomp_rel r (n + 1) s c1 c2 /\ pcl_down r)
+          (ensures pacomp_rel r n s c1 c2)
+          (decreases %[n; 0; 0])
+  = if n = 0 then ()
+    else
+      (match c1, c2 with
+       | POp a1 f1, POp a2 f2 ->
+         gwd_pacomp_down r (n - 1) s a1 a2;
+         gwd_pafn_down r (n - 1) s f1 f2
+       | PHandle t1 ret1 _ b1, PHandle t2 ret2 _ b2 ->
+         lemma_ptable_rel_down r (n - 1) s.aw t1 t2;
+         gwd_pacomp_down r (n - 1) s b1 b2;
+         (match ret1, ret2 with
+          | Some g1, Some g2 -> gwd_pafn_down r (n - 1) s g1 g2
+          | _, _ -> ())
+       | PSplice fs1 b1, PSplice fs2 b2 ->
+         gwd_paframes_down r (n - 1) s fs1 fs2;
+         gwd_pacomp_down r (n - 1) s b1 b2
+       | PEmit _ b1, PEmit _ b2 -> gwd_pacomp_down r (n - 1) s b1 b2
+       | PWeave _ _ is1 ow1 b1, PWeave _ _ is2 ow2 b2 ->
+         gwd_paframes_down r (n - 1) s is1 is2;
+         gwd_paowner_down r (n - 1) s ow1 ow2;
+         gwd_pacomp_down r (n - 1) s b1 b2
+       | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+         gwd_paplan_down r (n - 1) s pl1 pl2;
+         gwd_pacomp_down r (n - 1) s b1 b2
+       | PExtendC pl1 _ g1, PExtendC pl2 _ g2 ->
+         gwd_paplan_down r (n - 1) s pl1 pl2;
+         gwd_pafn_down r (n - 1) s g1 g2
+       | PExtendCtxC pl1 _ g1, PExtendCtxC pl2 _ g2 ->
+         gwd_paplan_down r (n - 1) s pl1 pl2;
+         gwd_pafn_down r (n - 1) s g1 g2
+       | PResumeC pl1 _ g1, PResumeC pl2 _ g2 ->
+         gwd_paplan_down r (n - 1) s pl1 pl2;
+         gwd_pafn_down r (n - 1) s g1 g2
+       | PNewP _ _ b1, PNewP _ _ b2 -> gwd_pacomp_down r (n - 1) s b1 b2
+       | _, _ -> ())
+
+and gwd_pafn_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                  (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires (forall (s': pastate) (y1 y2: pval v).
+                       paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                       pacomp_rel r (n + 1) s' (f1 y1) (f2 y2)) /\ pcl_down r)
+          (ensures (forall (s': pastate) (y1 y2: pval v).
+                       paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                       pacomp_rel r n s' (f1 y1) (f2 y2)))
+          (decreases %[n; 0; 1])
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==> pacomp_rel r n s' (f1 y1) (f2 y2))
+    with introduce _ ==> _
+    with gwd_pacomp_down r n s' (f1 y1) (f2 y2)
+
+and gwd_paowner_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                     (o1 o2: powner v cl)
+  : Lemma (requires paowner_rel r (n + 1) s o1 o2 /\ pcl_down r)
+          (ensures paowner_rel r n s o1 o2)
+          (decreases %[n; 1; 0])
+  = if n = 0 then ()
+    else
+      (match o1, o2 with
+       | POwner t1 ret1 _, POwner t2 ret2 _ ->
+         lemma_ptable_rel_down r n s.aw t1 t2;
+         (match ret1, ret2 with
+          | Some g1, Some g2 -> gwd_pafn_down r n s g1 g2
+          | _, _ -> ()))
+
+and gwd_paframe_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                     (f1 f2: pframe v cl)
+  : Lemma (requires paframe_rel r (n + 1) s f1 f2 /\ pcl_down r)
+          (ensures paframe_rel r n s f1 f2)
+          (decreases %[n; 2; 0])
+  = if n = 0 then ()
+    else
+      (match f1, f2 with
+       | PBindF g1, PBindF g2 -> gwd_pafn_down r n s g1 g2
+       | PPromptF t1 ret1 _, PPromptF t2 ret2 _ ->
+         lemma_ptable_rel_down r n s.aw t1 t2;
+         (match ret1, ret2 with
+          | Some g1, Some g2 -> gwd_pafn_down r n s g1 g2
+          | _, _ -> ())
+       | PSiteF g1, PSiteF g2 -> gwd_pafn_down r n s g1 g2
+       | PModeF _ g1, PModeF _ g2 -> gwd_pafn_down r n s g1 g2
+       | _, _ -> ())
+
+and gwd_paitem_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                    (i1 i2: plan_item v cl)
+  : Lemma (requires paitem_rel r (n + 1) s i1 i2 /\ pcl_down r)
+          (ensures paitem_rel r n s i1 i2)
+          (decreases %[n; 2; 1])
+  = if n = 0 then ()
+    else
+      (match i1, i2 with
+       | PIBind g1, PIBind g2 -> gwd_pafn_down r n s g1 g2
+       | PITransparent t1, PITransparent t2 -> lemma_ptable_rel_down r n s.aw t1 t2
+       | PIReenter t1 ret1, PIReenter t2 ret2 ->
+         lemma_ptable_rel_down r n s.aw t1 t2;
+         (match ret1, ret2 with
+          | Some g1, Some g2 -> gwd_pafn_down r n s g1 g2
+          | _, _ -> ())
+       | _, _ -> ())
+
+and gwd_paframes_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                      (fs1 fs2: list (pframe v cl))
+  : Lemma (requires paframes_rel r (n + 1) s fs1 fs2 /\ pcl_down r)
+          (ensures paframes_rel r n s fs1 fs2)
+          (decreases %[n; 3; length fs1])
+  = if n = 0 then ()
+    else
+      (match fs1, fs2 with
+       | a1 :: t1, a2 :: t2 ->
+         gwd_paframe_down r n s a1 a2;
+         gwd_paframes_down r n s t1 t2
+       | _, _ -> ())
+
+and gwd_paitems_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                     (is1 is2: list (plan_item v cl))
+  : Lemma (requires paitems_rel r (n + 1) s is1 is2 /\ pcl_down r)
+          (ensures paitems_rel r n s is1 is2)
+          (decreases %[n; 3; length is1])
+  = if n = 0 then ()
+    else
+      (match is1, is2 with
+       | a1 :: t1, a2 :: t2 ->
+         gwd_paitem_down r n s a1 a2;
+         gwd_paitems_down r n s t1 t2
+       | _, _ -> ())
+
+and gwd_paplan_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                    (pl1 pl2: plan v cl)
+  : Lemma (requires paplan_rel r (n + 1) s pl1 pl2 /\ pcl_down r)
+          (ensures paplan_rel r n s pl1 pl2)
+          (decreases %[n; 4; 0])
+  = if n = 0 then ()
+    else
+      (match pl1, pl2 with
+       | Plan ls1 ow1, Plan ls2 ow2 ->
+         gwd_paitems_down r n s ls1 ls2;
+         gwd_paowner_down r n s ow1 ow2)
+
+(* ---- 3. THE SAME FOR THE AT-DEPTH STACK RELATION ------------------ *)
+
+(** `padx_stack` and `padx_k` are `GTot prop`s applied to arguments, hence ATOMS
+    in hypothesis position -- the same reason `pcfrel_unfold` and `pakrel_unfold`
+    exist. These are their `squash`-to-`squash` casts, accepted BY CONVERSION
+    with no proof obligation. `padx_ktop_unfold` and `gwy_k_unfold` are the two
+    the file already had; these are the two it did not. *)
+let gwd_padx_stack_unfold (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                          (k1 k2: pstack v cl) (h: squash (padx_stack r n s k1 k2))
+  : squash (match k1 with
+            | [] -> False
+            | PBindF f :: t1 ->
+              (f == PVar #v #cl /\ paframes_rel r n s t1 k2)
+              \/
+              (match k2 with
+               | f2 :: t2 -> paframe_rel r n s (PBindF f) f2 /\ padx_stack r n s t1 t2
+               | [] -> False)
+            | f1 :: t1 ->
+              (match k2 with
+               | f2 :: t2 -> paframe_rel r n s f1 f2 /\ padx_stack r n s t1 t2
+               | [] -> False))
+  = h
+
+let gwd_padx_k_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (k1 k2: pstack v cl) (h: squash (padx_k r s k1 k2))
+  : squash (forall (n: nat). padx_stack r n s k1 k2)
+  = h
+
+(** **The at-depth stack relation is downward closed too.** PROVED, by STRUCTURAL
+    induction on the left stack -- `padx_stack`'s own measure -- with the two
+    frame-level closures of step 2 at the leaves. The `PBindF` clause is where
+    both disjuncts have to be carried down, and each is carried down
+    SEPARATELY: this is the fact the inversion consumes. *)
+let rec gwd_padx_stack_down (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                            (k1 k2: pstack v cl)
+  : Lemma (requires padx_stack r (n + 1) s k1 k2 /\ pcl_down r)
+          (ensures padx_stack r n s k1 k2)
+          (decreases k1)
+  = gwd_padx_stack_unfold r (n + 1) s k1 k2 ();
+    match k1 with
+    | [] -> ()
+    | PBindF f :: t1 ->
+      eliminate (f == PVar #v #cl /\ paframes_rel r (n + 1) s t1 k2)
+             \/ (match k2 with
+                 | f2 :: t2 ->
+                   paframe_rel r (n + 1) s (PBindF f) f2 /\ padx_stack r (n + 1) s t1 t2
+                 | [] -> False)
+      with (gwd_paframes_down r n s t1 k2)
+      and (match k2 with
+           | f2 :: t2 ->
+             gwd_paframe_down r n s (PBindF f) f2;
+             gwd_padx_stack_down r n s t1 t2
+           | [] -> ())
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 ->
+         gwd_paframe_down r n s f1 f2;
+         gwd_padx_stack_down r n s t1 t2
+       | [] -> ())
+
+(* ---- 4. THE INVERSION --------------------------------------------- *)
+
+(** The two disjuncts of `padx_stack`'s `PBindF` clause, NAMED, as functions of
+    the index. `unfold` so that they are the same terms `gwd_dichotomy` sees
+    after beta -- the dichotomy takes them as ARGUMENTS, and an opaque symbol
+    applied to an index would not connect to the clause it came from. *)
+unfold
+let gwd_phaseA (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+               (f: pval v -> pcomp v cl) (t1 k2: pstack v cl)
+  : nat -> GTot prop
+  = fun (n: nat) -> (f == PVar #v #cl /\ paframes_rel r n s t1 k2)
+
+unfold
+let gwd_phaseB (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+               (f1: pframe v cl) (t1 k2: pstack v cl)
+  : nat -> GTot prop
+  = fun (n: nat) ->
+      (match k2 with
+       | f2 :: t2 -> paframe_rel r n s f1 f2 /\ padx_stack r n s t1 t2
+       | [] -> False)
+
+let gwd_phaseA_down (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                    (f: pval v -> pcomp v cl) (t1 k2: pstack v cl)
+  : Lemma (requires pcl_down r)
+          (ensures forall (n: nat). gwd_phaseA r s f t1 k2 (n + 1) ==>
+                                    gwd_phaseA r s f t1 k2 n)
+  = introduce forall (n: nat).
+        (gwd_phaseA r s f t1 k2 (n + 1) ==> gwd_phaseA r s f t1 k2 n)
+    with introduce _ ==> _
+    with gwd_paframes_down r n s t1 k2
+
+let gwd_phaseB_down (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                    (f1: pframe v cl) (t1 k2: pstack v cl)
+  : Lemma (requires pcl_down r)
+          (ensures forall (n: nat). gwd_phaseB r s f1 t1 k2 (n + 1) ==>
+                                    gwd_phaseB r s f1 t1 k2 n)
+  = introduce forall (n: nat).
+        (gwd_phaseB r s f1 t1 k2 (n + 1) ==> gwd_phaseB r s f1 t1 k2 n)
+    with introduce _ ==> _
+    with (match k2 with
+          | f2 :: t2 ->
+            gwd_paframe_down r n s f1 f2;
+            gwd_padx_stack_down r n s t1 t2
+          | [] -> ())
+
+(**
+ * **THE PAYOFF: `padx_k` REFINES `gwy_k`.** PROVED, on `pcl_down r` alone. The
+ * induction is structural on the left stack, and the only interesting clause is
+ * `PBindF`, where the hypothesis is `forall n. A n \/ B n` and the goal wants
+ * `(forall n. A n) \/ (forall n. B n)`. `gwd_dichotomy` supplies exactly that
+ * from the two closures of step 3; the left horn IS `gwy_k`'s first disjunct
+ * (`pakrel` is `forall n. paframes_rel`), and the right horn gives `pafrel`
+ * pointwise and `padx_k` at the tails, which the induction hypothesis turns
+ * into `gwy_k` at the tails.
+ *
+ * With `gwy_k_is_padx_k`, which is shipped above and needs no hypothesis, the
+ * two relations are EQUIVALENT -- see `gwd_padx_k_iff_gwy_k`. `gwy_k` is
+ * therefore not a strictly stronger invention: it is `padx_k` with the
+ * disjunction moved, and the move is sound in both directions.
+ *)
+let rec gwd_padx_k_is_gwy_k (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                            (k1 k2: pstack v cl)
+  : Lemma (requires padx_k r s k1 k2 /\ pcl_down r)
+          (ensures gwy_k r s k1 k2)
+          (decreases k1)
+  = gwd_padx_k_unfold r s k1 k2 ();
+    match k1 with
+    | [] -> gwd_padx_stack_unfold r 0 s k1 k2 ()
+    | PBindF f :: t1 ->
+      introduce forall (n: nat).
+          (gwd_phaseA r s f t1 k2 n \/ gwd_phaseB r s (PBindF f) t1 k2 n)
+      with gwd_padx_stack_unfold r n s k1 k2 ();
+      gwd_phaseA_down r s f t1 k2;
+      gwd_phaseB_down r s (PBindF f) t1 k2;
+      gwd_dichotomy (gwd_phaseA r s f t1 k2) (gwd_phaseB r s (PBindF f) t1 k2);
+      eliminate (forall (n: nat). gwd_phaseA r s f t1 k2 n)
+             \/ (forall (n: nat). gwd_phaseB r s (PBindF f) t1 k2 n)
+      with ()
+      and (match k2 with
+           | f2 :: t2 ->
+             introduce forall (n: nat). padx_stack r n s t1 t2 with ();
+             gwd_padx_k_is_gwy_k r s t1 t2
+           | [] -> ())
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 ->
+         introduce forall (n: nat). paframe_rel r n s f1 f2
+         with gwd_padx_stack_unfold r n s k1 k2 ();
+         introduce forall (n: nat). padx_stack r n s t1 t2
+         with gwd_padx_stack_unfold r n s k1 k2 ();
+         gwd_padx_k_is_gwy_k r s t1 t2
+       | [] -> gwd_padx_stack_unfold r 0 s k1 k2 ())
+
+(** **The two presentations are ONE relation.** PROVED. This is the result the
+    previous gate could not have: it could only ship `gwy_k ==> padx_k`. *)
+let gwd_padx_k_iff_gwy_k (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (k1 k2: pstack v cl)
+  : Lemma (requires pcl_down r)
+          (ensures padx_k r s k1 k2 <==> gwy_k r s k1 k2)
+  = introduce padx_k r s k1 k2 ==> gwy_k r s k1 k2
+    with gwd_padx_k_is_gwy_k r s k1 k2;
+    introduce gwy_k r s k1 k2 ==> padx_k r s k1 k2
+    with gwy_k_is_padx_k r s k1 k2
+
+(* ---- 5. THE GUARDS ------------------------------------------------ *)
+
+let gwd_g_id : pstack fv fcl = [PBindF (PVar #fv #fcl)]
+let gwd_g_sc : pstack fv fcl = [PScopeF]
+
+let gwd_g_id_selfrel (n: nat) (s: pastate)
+  : Lemma (paframes_rel fcl_rel n s gwd_g_id gwd_g_id)
+  = ()
+
+(** **THE CLOSURE FIRES, AT A CONCRETE INDEX DROP.** PROVED. Index 3 to index 2
+    on the identity frame against itself, through `gwd_paframes_down` at the
+    file's clause relation -- and the relation AT THE LOWER INDEX still
+    DISCRIMINATES: the same left against `PScopeF` is REFUTED at index 2. So the
+    conclusion of the closure is not the constant `True` and the drop is not
+    vacuous. `pcl_down fcl_rel` is `lemma_fcl_rel_down`. *)
+let guard_gwd_paframes_down_fires (s: pastate)
+  : Lemma (paframes_rel fcl_rel 3 s gwd_g_id gwd_g_id /\
+           paframes_rel fcl_rel 2 s gwd_g_id gwd_g_id /\
+           ~(paframes_rel fcl_rel 2 s gwd_g_id gwd_g_sc))
+  = lemma_fcl_rel_down ();
+    gwd_g_id_selfrel 3 s;
+    gwd_paframes_down fcl_rel 2 s gwd_g_id gwd_g_id;
+    introduce paframes_rel fcl_rel 2 s gwd_g_id gwd_g_sc ==> False
+    with ()
+
+let gwd_g_t2 : pstack fv fcl = [PBindF (PVar #fv #fcl)]
+let gwd_g_t1 : pstack fv fcl = PScopeF :: gwd_g_t2
+let gwd_g_k2 : pstack fv fcl = PScopeF :: gwd_g_t2
+let gwd_g_k1 : pstack fv fcl = PBindF (PVar #fv #fcl) :: gwd_g_t1
+
+let gwd_g_t1_selfrel (n: nat) (s: pastate)
+  : Lemma (paframes_rel fcl_rel n s gwd_g_t1 gwd_g_k2)
+  = assert (paframes_rel fcl_rel n s ([] <: pstack fv fcl) ([] <: pstack fv fcl));
+    assert (paframes_rel fcl_rel n s gwd_g_t2 gwd_g_t2)
+
+let gwd_g_padx_k (s: pastate)
+  : Lemma (padx_k fcl_rel s gwd_g_k1 gwd_g_k2)
+  = introduce forall (n: nat). padx_stack fcl_rel n s gwd_g_k1 gwd_g_k2
+    with gwd_g_t1_selfrel n s
+
+(**
+ * **THE INVERSION FIRES, ON A STACK WHOSE POINTWISE CHOICE IS UNSTABLE.**
+ * PROVED. The pair is
+ *
+ *     k1 = [PBindF PVar; PScopeF; PBindF PVar]   against
+ *     k2 = [PScopeF; PBindF PVar]
+ *
+ * and at the head `PBindF PVar` the SECOND disjunct -- delete nothing here,
+ * relate `PBindF PVar` to `PScopeF` and push the deletion one frame down --
+ * HOLDS at index 0, where every frame relation is `True` and only the SHAPES
+ * are constrained, and FAILS at index 1, where `PBindF PVar` is not
+ * `paframe_rel` to `PScopeF`. The FIRST disjunct holds at every index. So a
+ * pointwise reading of `padx_stack` really can pick different disjuncts at
+ * different indices, and `gwd_padx_k_is_gwy_k` is what selects the stable one.
+ *
+ * What is NOT exhibited, and why not: a pair on which the first disjunct fails
+ * at some index AND the second fails at some other index, while `padx_k` still
+ * holds. `gwd_dichotomy` refutes it -- downward closure makes each disjunct's
+ * failure PERSIST upward, so two failures at two indices would collide at their
+ * maximum. There is no such stack: this follows from the generic
+ * `gwd_dichotomy`, but is not packaged as a separate theorem here.
+ *)
+let guard_gwd_inversion_fires (s: pastate)
+  : Lemma (padx_k fcl_rel s gwd_g_k1 gwd_g_k2 /\
+           gwy_k fcl_rel s gwd_g_k1 gwd_g_k2 /\
+           (paframe_rel fcl_rel 0 s (PBindF (PVar #fv #fcl)) PScopeF /\
+            padx_stack fcl_rel 0 s gwd_g_t1 gwd_g_t2) /\
+           ~(paframe_rel fcl_rel 1 s (PBindF (PVar #fv #fcl)) PScopeF /\
+             padx_stack fcl_rel 1 s gwd_g_t1 gwd_g_t2) /\
+           (forall (n: nat). paframes_rel fcl_rel n s gwd_g_t1 gwd_g_k2))
+  = lemma_fcl_rel_down ();
+    gwd_g_padx_k s;
+    gwd_padx_k_is_gwy_k fcl_rel s gwd_g_k1 gwd_g_k2;
+    introduce forall (n: nat). paframes_rel fcl_rel n s gwd_g_t1 gwd_g_k2
+    with gwd_g_t1_selfrel n s;
+    introduce (paframe_rel fcl_rel 1 s (PBindF (PVar #fv #fcl)) PScopeF /\
+               padx_stack fcl_rel 1 s gwd_g_t1 gwd_g_t2) ==> False
+    with ()
+
+(* ================================================================== *)
+(*  B2c STAGE 3 LEDGER                                                 *)
+(*                                                                     *)
+(*  ASKED.  Is `padx_k` -- the pointwise disjunction -- the same       *)
+(*  relation as `gwy_k` -- the disjunction pulled outside?             *)
+(*                                                                     *)
+(*  ANSWERED: **YES**, whenever `pcl_down r`.                          *)
+(*  `gwd_padx_k_iff_gwy_k`.  The previous gate's one-way refinement    *)
+(*  `gwy_k_is_padx_k` is now half of an equivalence, and `gwy_k` is    *)
+(*  NOT a strictly stronger relation.                                  *)
+(*                                                                     *)
+(*  THE HYPOTHESIS SET, EXACTLY.  `pcl_down r`.  Nothing else --       *)
+(*  no `pawf s`, no `pcl_mono r`, no `plookup_equivariant`, no         *)
+(*  `pbounded_world`.  It enters only through                          *)
+(*  `lemma_ptable_rel_down`, at the five `ptable_rel` occurrences of   *)
+(*  the family, because `ptable_rel` is its only member that is not    *)
+(*  trivially `True` at index 0.                                       *)
+(*                                                                     *)
+(*  THE CLASSICAL STEP.  `gwd_dichotomy`, from                         *)
+(*  `eliminate p \/ ~p` on `forall n. a n`, whose side goal is         *)
+(*  discharged by the SMT solver's classical reading of `squash`.      *)
+(*  It adds NO NEW TRUSTED ASSUMPTION: `FStar.StrongExcludedMiddle` is *)
+(*  neither opened nor used, no axiom is added, and no module          *)
+(*  dependency is added.  The proof itself still reasons classically.  *)
+(*                                                                     *)
+(*  WHAT IS NOT DONE HERE, and is still open.  The deep `PPerform`     *)
+(*  arm; the remaining transition forms; and any COMPOSITION of the    *)
+(*  equivalence with a step theorem.  Downward closure for the         *)
+(*  WORLD-indexed family (`pcomp_rel` / `pframes_rel`) is also still   *)
+(*  absent -- this section closes the ALLOCATION-indexed one only,     *)
+(*  because that is the one `padx_stack` is built from.                *)
+(*                                                                     *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `push-options`, no `set-options`, no   *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)

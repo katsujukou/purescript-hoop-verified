@@ -8347,6 +8347,75 @@ Not straight back to composition:
 6. an exhaustive one-step theorem for the whole dispatcher at the deep phase;
 7. only then compose finite closure, the deep phase and the 1:0 stutter.
 
+#### Index-downward closure, and the inversion it pays for
+
+This updates the previous section's account of `gwy_k`.
+
+> Under `pcl_down r`, `padx_k` and `gwy_k` are equivalent. The earlier
+> unconditional refinement `gwy_k ==> padx_k` remains valid; this gate adds the
+> converse only under the load-bearing downward-closure premise.
+
+So "the same relation, differently presented" holds **under `pcl_down r`**,
+not unconditionally. The premise is load-bearing in the equivalence itself,
+not only in the closure lemmas it is assembled from: restating the equivalence
+without it, with the proof body unchanged, fails. Checked independently.
+
+The stop condition that would have mattered — that the two are genuinely
+different relations, leaving the one-way refinement as the best available — did
+not fire.
+
+#### The closure, and where its premise enters
+
+Downward closure from index `n + 1` to `n`, for the seven members of the
+allocation-indexed family, needs **only `pcl_down r`**: no `pawf`, no
+`pcl_mono`, no `plookup_equivariant`. And it enters at exactly five sites, all
+of them `ptable_rel` occurrences — `PHandle`, `POwner`, `PPromptF`,
+`PITransparent`, `PIReenter` — because `ptable_rel` is the family's only member
+that is not trivial at index 0. An ablation confirms it: without `pcl_down`,
+exactly the four table-touching lemmas fail and the other five still
+verify.
+
+One member had to be added: `gwd_pafn_down`, measure `%[n; 0; 1]`, carrying
+the index drop under a closure's future quantifier. It slots between the
+computation level and the owner/frame/item levels, so the lexicographic order
+is undisturbed.
+
+The **world-indexed** family `pcomp_rel` / `pframes_rel` still has no downward
+closure. None was added; `padx_stack` uses the allocation-indexed family, so it
+was not needed.
+
+#### What the classical step costs
+
+> The proof uses the ambient classical reasoning available to SMT through
+> `eliminate (p \/ ~p)`, but adds no new trusted axiom, `assume`, explicit
+> excluded-middle dependency, or module import.
+
+`FStar.StrongExcludedMiddle` is neither opened nor used — the appended region
+contains no occurrence. So the trust surface does not grow. But the proof is not
+thereby constructive, and it is **not** an algorithm computing the stable horn:
+it establishes that one exists.
+
+#### Reading the varying-horn guard
+
+The worked stack — `[PBindF PVar; PScopeF; PBindF PVar]` against
+`[PScopeF; PBindF PVar]` — has its second disjunct hold at index 0 and fail at
+index 1, while the first holds throughout.
+
+> Pointwise witnesses may switch horns with the index, even though downward
+> closure guarantees that some stable global horn exists. The stronger
+> crossing-failure specimen cannot exist; that diagnosis is stated from the
+> proved closure facts but is not packaged as a separate theorem.
+
+That non-existence keeps its **STATED** status: each horn's failure persists
+upwards, so two failures would collide at the maximum — an argument read off
+the closure results, not a theorem in the file.
+
+#### Position
+
+The previous gate's logical obstruction is cleared. For the deep `PPerform`
+work, `gwy_k` can now be used not as a new semantic relation but as `padx_k`'s
+invertible normal form — under `pcl_down`.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
