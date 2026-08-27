@@ -8587,6 +8587,108 @@ dispatcher coverage for `gwy_cf`, the phase this one returns to. The first
 substantive test there is the allocating `PVar` branch, which measures whether
 the deep relation and `paalloc` are preserved together.
 
+#### Deep `PVar`: the difference reaches a stored residual
+
+Most of the `PVar` branch closed. The result that matters is narrower and worse:
+this is the first path on which the administrative difference leaves the stack
+and lands in a **stored residual context**.
+
+A prediction of this gate's brief was wrong and is corrected here:
+
+> The `PScopeF` branch did require Kripke transport, but not a new monotonicity
+> theorem: `gwe_k_mono` already supplied exactly the needed result. The correct
+> action was reuse through a thin wrapper.
+
+#### `PScopeF` carries the deep relation across an allocation
+
+Three things together, so the state change is not a formal re-indexing:
+
+- the **actual** `palloc` result is used, not a reconstructed key;
+- `paprov_step_at` retains the allocation's provenance;
+- the pair lands in `gwy_cf r (paalloc s)`, and the reverse `paext` is refuted.
+
+Beyond `gwy_cf` itself the only premise is `pcl_mono r`.
+
+#### The asymmetry is about persistence, not about seeing
+
+> Both `pfind_mode` and `pcut_scope` traverse `PBindF` without branching on it.
+> The difference is in their outputs: `pfind_mode` discards that traversal
+> detail, whereas `pcut_scope` accumulates the traversed frame into `above`,
+> which is subsequently stored as a residual context.
+
+So `pfind_mode` lifts with **no case split at all** — its hypothesis is `gwy_k`
+alone and its conclusion is the existing lemma verbatim, a clean contrast with
+the perform arm. The problem is not that `pcut_scope` distinguishes the frame;
+it is that it **persists** what it traversed.
+
+```text
+deep stack difference
+        │ pcut_scope
+        ▼
+stored residual-context difference
+```
+
+That is the same shape as `PPerform` moving a stack difference into a generated
+computation, but the landing site is different — and this one has no landing
+site at all:
+
+> Within the current relation architecture, the cut-inside horn has no target
+> phase: ordinary `pactx_rel` rejects the residual-length difference, and
+> neither a deep context relation nor its store-realisation lifting currently
+> exists.
+
+Verified independently, and the failure is robust: at index 1, `pactx_rel`
+rejects `PCtxRequests u [PBoundaryF; PBindF PVar] PVar` against
+`PCtxRequests u [PBoundaryF] PVar` for **any** state. No choice of world or
+allocation frontier repairs it. The obstruction is in the residual's frame
+structure, not in names.
+
+#### The covered branch is conditional
+
+> `gwp_cut_below` is assumed positively. No exclusivity theorem proves that it
+> is the negation of the cut-inside horn, so the covered branch is conditional
+> and the complete cut dichotomy remains STATED.
+
+#### `gwp_cf` is a local widening, not a unification
+
+The landing relation was widened once, by a `PPaused` clause, because `PPaused`
+is a real terminal form that `gwy_cf`'s `PStep`-only state clause cannot admit.
+That is accommodation of an existing shape, not a step toward one dispatcher
+invariant.
+
+#### What did close
+
+Eleven head-frame exits, tabulated in the file. `PParamF` and `PModeF` pop with
+no premise beyond the relation; `PSiteF`'s `MExtend` exit and the responder exit
+of `PBoundaryF` likewise leave the state alone; `PPromptF` needs `pcl_down`;
+`PScopeF` is the one that moves the state. The bundled theorem **cites** the
+stutter horn and the `PBindF` horn rather than re-proving them.
+
+Seven ablations, one premise per file, all fired, after a positive control.
+
+#### Not proved
+
+- the cut-inside horn — it lands in no phase in the development;
+- exclusivity of the two cut horns;
+- the remaining computation forms — `PReadP`, `PWriteP`, `PWeave`, `PEnterCtx`,
+  `PExtendC`, `PExtendCtxC`, `PResumeC`;
+- unification of the phases, composition, the boundary record.
+
+#### The order from here
+
+Not the remaining constructors — the stored-residual phase first:
+
+1. a context relation deepened in the **residual** only;
+2. today's specimen related by it;
+3. the existing semantically-different residual negatives still refused;
+4. the lifting to a store relation;
+5. preservation of allocation and store realisation;
+6. a landing site for the cut-inside horn;
+7. only then resume dispatcher coverage.
+
+The gate's finding is that the deep `PVar` obstruction is not in the search but
+at the boundary where a cut result is persisted.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
