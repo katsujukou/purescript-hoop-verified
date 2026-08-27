@@ -8689,6 +8689,94 @@ Not the remaining constructors — the stored-residual phase first:
 The gate's finding is that the deep `PVar` obstruction is not in the search but
 at the boundary where a cut result is persisted.
 
+#### The stored-residual phase exists, and is not yet wired to the machine
+
+> A residual-deepened context and store relation now admits exactly the
+> administrative residual specimen that ordinary `pactx_rel` / `pasrel` reject,
+> while preserving the existing negative specimens. The missing semantic landing
+> phase has been constructed; its operational connection to `pstep_tr` has not.
+
+The horn that the previous gate recorded as landing in **no phase** now has one.
+
+#### The change is local
+
+> The context relation is changed only at the residual-frame component of
+> `PCtxRequests`; payload, stored post, and all other context structure remain
+> under the existing relations.
+
+```fstar
+let gwr_resid r n s rs1 rs2 = paframes_rel r n s rs1 rs2 \/ gwy_k r s rs1 rs2
+```
+
+Keeping the matching disjunct intact makes the layer a genuine **coarsening** of
+`pactx_rel`, so every pair the shipped relation accepted is still accepted and
+the existing positive fixtures transport for free. That locality is also why all
+three residual negatives could be re-proved **without changing a character** of
+their proofs.
+
+The alternative — replacing the matching conjunct with `pakrel` — was rejected
+with a reason worth keeping: `pakrel` is *stronger* than what it would replace,
+so the layer would become **incomparable** with `pactx_rel` and would lose
+positive instances for reasons unrelated to the hole being filled.
+
+#### The bound on the coarsening, credited in two parts
+
+> The equal-length biconditional proves that no new equal-length residual pair
+> is admitted. The one-frame bound on unequal pairs is a separate shape fact
+> and should be credited separately.
+
+Both halves are in the file, and they are different theorems:
+
+- at equal lengths the layer **coincides** with the shipped relation —
+  `gwr_resid <==> paframes_rel`, verified independently here;
+- the deep disjunct forces the left to be longer by exactly one —
+  `gwr_gwy_k_length`.
+
+Their conjunction — "equal, or the left exactly one longer" — is **not packaged
+as a single lemma**, and one caveat belongs with it: at index 0 the matching
+conjunct is vacuously true, so nothing is forced there. That is inherited from
+`pactx_rel`, which is also `True` at index 0, so it is not new coarsening; but
+the bound should be read as applying from index 1.
+
+#### Store lifting and allocation
+
+The store relation copies `pasrel` verbatim with only `paxrel` replaced, keeping
+the `{:pattern}` discipline, and the allocation lemma matches
+`lemma_pasrel_alloc`'s conclusion structure — the actual `palloc` result, the
+`pwextend`, the frontier increment.
+
+Identical structure is **not** a regression to `pasrel`. The concrete horn is
+exactly where they differ: the guard proves the new store relation holds at
+`paalloc pabot` where `pasrel` does not.
+
+#### Where this leaves the phase graph
+
+```text
+cut-inside residual
+        │
+        ▼
+gwr context/store relation     PROVED
+        │
+        ▼
+pstep_tr / gwp_step_at         NOT CONNECTED
+```
+
+#### Not proved
+
+- a configuration relation carrying `gwr_srel`;
+- identification of `gwr_cut_inside_lands` with an actual `pstep_tr`
+  successor — it speaks about `pyield`'s result;
+- a one-step theorem bundling the two cut horns;
+- removal or derivation of `gwp_cut_below`, which remains a positive assumption;
+- connection to `prun` and to observation.
+
+#### Next
+
+Not widening the new relation. A minimal `gwr_cf`, and landing the cut-inside
+horn's actual `pyield` / `pstep_tr` successor in it. After that, whether the two
+horns together let `gwp_cut_below` be demoted from an assumption to a
+consequence of the dichotomy.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

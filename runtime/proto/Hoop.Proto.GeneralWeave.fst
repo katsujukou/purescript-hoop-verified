@@ -49933,3 +49933,659 @@ let guard_gwp_var_deep_fires ()
                       (PScopeF <: pframe fv fcl) (PScopeF <: pframe fv fcl)
                       gwp_g_t1 gwp_g_t2
                       ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ================================================================== *)
+(*  B2b.PVarDEEP-R -- THE RESIDUAL LAYER                               *)
+(*                                                                     *)
+(*  WHAT THIS SECTION IS FOR.  `gwp_cut_deep` splits into two horns.   *)
+(*  `gwp_cut_below` names the one the deep `PVar` phase covers -- the  *)
+(*  surplus BELOW the cut -- and EXCLUDES the other, because in the    *)
+(*  other the surplus identity-bind frame ends up inside the segment   *)
+(*  `pcut_scope` hands to the store.  There the two residuals DIFFER   *)
+(*  IN LENGTH, `pactx_rel` matches residuals FRAME FOR FRAME through   *)
+(*  `paframes_rel`, and so `guard_gwp_cut_sees_surplus` refutes        *)
+(*                                                                     *)
+(*      paxrel fcl_rel pabot                                           *)
+(*        (PCtxRequests u [PBoundaryF; PBindF PVar] PVar)              *)
+(*        (PCtxRequests u [PBoundaryF] PVar)                           *)
+(*                                                                     *)
+(*  outright.  The horn lands in NO PHASE.  This section builds the    *)
+(*  missing layer: `pactx_rel` with the RESIDUAL CONJUNCT AND NOTHING  *)
+(*  ELSE deepened, its lifting to a store, its allocation law, and a   *)
+(*  landing site for the horn.                                         *)
+(*                                                                     *)
+(*  --- WHAT WAS CHANGED, AND WHAT WAS NOT ---                         *)
+(*                                                                     *)
+(*  `gwr_ctx` is `pactx_rel` (31096) COPIED, with ONE edit:            *)
+(*                                                                     *)
+(*      paframes_rel r n s rs1 rs2      becomes    gwr_resid r n s rs1 rs2 *)
+(*                                                                     *)
+(*  in the `PCtxRequests` arm.  The `n = 0` guard, the `PCtxDone` arm, *)
+(*  the `pval_rel s.aw x1 x2` conjunct, the `post` quantifier with its *)
+(*  `paext s' s` domain and its `pacomp_rel r n s'` body, and the      *)
+(*  `| _, _ -> False` fallthrough are VERBATIM.                        *)
+(*                                                                     *)
+(*  --- THE DESIGN DECISION: INDEX SENSITIVITY ---                     *)
+(*                                                                     *)
+(*  `gwy_k` is the ALL-INDEX deep stack relation: it recurses over     *)
+(*  stacks using `pakrel` and `pafrel`, and carries no `n`.  The       *)
+(*  conjunct it would replace is at index `n`.  Two readings were      *)
+(*  available:                                                         *)
+(*                                                                     *)
+(*    (A)  gwr_resid r n s rs1 rs2  =  paframes_rel r n s rs1 rs2      *)
+(*                                     \/ gwy_k r s rs1 rs2           *)
+(*    (B)  gwr_resid r n s rs1 rs2  =  pakrel r s rs1 rs2             *)
+(*                                     \/ gwy_k r s rs1 rs2           *)
+(*                                                                     *)
+(*  (A) IS THE ONE TAKEN, and the reason is that the layer has to be   *)
+(*  a COARSENING of `pactx_rel` and nothing else.  Under (A) the       *)
+(*  matched horn is the shipped conjunct UNTOUCHED, so every pair      *)
+(*  `pactx_rel` accepted at index `n` is accepted here -- that is      *)
+(*  `gwr_ctx_of_pactx_rel`, and it is what makes                       *)
+(*  `gwr_xrel_of_paxrel` and `gwr_srel_of_pasrel` one-liners and       *)
+(*  every positive fixture in the file transportable for free.  Under  *)
+(*  (B) the matched horn would be STRICTLY STRONGER than the one it    *)
+(*  replaces (`pakrel` is `forall n. paframes_rel r n`), the layer     *)
+(*  would be INCOMPARABLE to `pactx_rel` rather than coarser, and any  *)
+(*  positive that holds at some index but not at all of them would be  *)
+(*  lost for a reason that has nothing to do with the gap being        *)
+(*  closed.                                                            *)
+(*                                                                     *)
+(*  THE CONSEQUENCE, STATED.  The ADDED horn is still index-           *)
+(*  insensitive, because `gwy_k` has no index and this file has no     *)
+(*  index-`n` deep stack relation to use instead.  So the layer        *)
+(*  accepts STRICTLY LESS than an index-`n` deep residual would.  A    *)
+(*  stronger added horn is SAFE for discrimination -- it can only      *)
+(*  make the negatives easier -- but it could have been too strong     *)
+(*  for the specimen.  It is not: `guard_gwr_specimen_relates` proves  *)
+(*  the specimen relates at EVERY index, because `gwp_g_t_deep` gives  *)
+(*  `gwy_k` at `pabot` outright and `gwy_k` carries no index to lose.  *)
+(*                                                                     *)
+(*  --- THE CRUX, DECIDED ---                                          *)
+(*                                                                     *)
+(*  Deepening the residual makes the relation COARSER, and the layer   *)
+(*  is worth nothing if it becomes coarse enough to accept what the    *)
+(*  development already refuses.  ALL THREE shipped residual           *)
+(*  negatives were ported and ALL THREE ARE STILL REFUSED:             *)
+(*  `guard_gwr_residual_discriminates` (31504 ported),                 *)
+(*  `guard_gwr_refuses_a_changed_residual` (40252 ported) and          *)
+(*  `guard_gwr_srel_refuses_a_changed_residual` (40323 ported), the    *)
+(*  last carrying `guard_gwr_refuses_a_changed_answer` with it.  The   *)
+(*  reason they survive is split across TWO facts.                     *)
+(*  `gwr_gwy_k_length`: the deep horn FORCES                           *)
+(*  `length k1 == length k2 + 1`.  `gwr_resid_at_equal_length`: at     *)
+(*  EQUAL RESIDUAL LENGTH the layer collapses onto the shipped         *)
+(*  conjunct.  All three negatives are equal-length pairs, so all      *)
+(*  three refutations are the shipped ones, unmodified.  No combined  *)
+(*  equal-or-plus-one lemma is packaged here.  At index 0 the matching *)
+(*  conjunct is already `True`, exactly as in `pactx_rel`, so the      *)
+(*  shape bound describes the genuinely added deep horn from index 1.  *)
+(*                                                                     *)
+(*  --- NOT ATTEMPTED, AND NOT CLAIMED ---                             *)
+(*                                                                     *)
+(*  The phases are still not unified: `gwr_cut_inside_lands` says      *)
+(*  what the yield does to the STORE and what the two remainders are,  *)
+(*  it does NOT rebuild `gwp_step_at` on the deepened relation, and    *)
+(*  `gwp_cut_below` is still a hypothesis of the shipped bundle.  No   *)
+(*  configuration relation is built on `gwr_srel`, dispatcher          *)
+(*  coverage is not resumed, the remaining computation forms are not   *)
+(*  touched, nothing is composed, and there is no boundary record.     *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(*  NOTHING HERE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no      *)
+(*  `assume`, no `z3rlimit`, no `push-options`, no `set-options`, no   *)
+(*  `expect_failure`, no bodiless `val`.                               *)
+(* ================================================================== *)
+
+(* ---- 1. THE CONTEXT RELATION, DEEPENED IN THE RESIDUAL ONLY ------- *)
+let gwr_resid (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+              (rs1 rs2: pstack v cl) : GTot prop
+  = paframes_rel r n s rs1 rs2 \/ gwy_k r s rs1 rs2
+
+let gwr_resid_unfold (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                     (rs1 rs2: pstack v cl) (h: squash (gwr_resid r n s rs1 rs2))
+  : squash (paframes_rel r n s rs1 rs2 \/ gwy_k r s rs1 rs2)
+  = h
+
+let gwr_ctx (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+            (cx1 cx2: pctx v cl) : GTot prop
+  = if n = 0 then True
+    else
+      match cx1, cx2 with
+      | PCtxDone y1, PCtxDone y2 -> pval_rel s.aw y1 y2
+      | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+        pval_rel s.aw x1 x2 /\ gwr_resid r n s rs1 rs2 /\
+        (forall (s': pastate) (y1 y2: pval v).
+           paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           pacomp_rel r n s' (p1 y1) (p2 y2))
+      | _, _ -> False
+
+let gwr_ctx_unfold (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                   (cx1 cx2: pctx v cl) (h: squash (gwr_ctx r n s cx1 cx2))
+  : squash (if n = 0 then True
+            else
+              match cx1, cx2 with
+              | PCtxDone y1, PCtxDone y2 -> pval_rel s.aw y1 y2
+              | PCtxRequests x1 rs1 p1, PCtxRequests x2 rs2 p2 ->
+                pval_rel s.aw x1 x2 /\ gwr_resid r n s rs1 rs2 /\
+                (forall (s': pastate) (y1 y2: pval v).
+                   paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                   pacomp_rel r n s' (p1 y1) (p2 y2))
+              | _, _ -> False)
+  = h
+
+let gwr_ctx_of_pactx_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                         (cx1 cx2: pctx v cl)
+  : Lemma (requires pactx_rel r n s cx1 cx2) (ensures gwr_ctx r n s cx1 cx2)
+  = ()
+
+let gwr_xrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cx1 cx2: pctx v cl)
+  : GTot prop
+  = forall (n: nat). gwr_ctx r n s cx1 cx2
+
+let gwr_xrel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                    (cx1 cx2: pctx v cl) (h: squash (gwr_xrel r s cx1 cx2))
+  : squash (forall (n: nat). gwr_ctx r n s cx1 cx2)
+  = h
+
+let gwr_xrel_of_paxrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (cx1 cx2: pctx v cl)
+  : Lemma (requires paxrel r s cx1 cx2) (ensures gwr_xrel r s cx1 cx2)
+  = paxrel_unfold r s cx1 cx2 ();
+    introduce forall (n: nat). gwr_ctx r n s cx1 cx2
+    with gwr_ctx_of_pactx_rel r n s cx1 cx2
+
+(* ---- 2. THE DEEP DISJUNCT COSTS EXACTLY ONE FRAME ---------------- *)
+
+let rec gwr_pakrel_length (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2) (ensures length k1 == length k2)
+          (decreases k1)
+  = lemma_pakrel_shape r s k1 k2;
+    match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      gwr_pakrel_length r s t1 t2
+    | _, _ -> ()
+
+let rec gwr_gwy_k_length (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (k1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s k1 k2) (ensures length k1 == length k2 + 1)
+          (decreases k1)
+  = gwy_k_unfold r s k1 k2 ();
+    match k1 with
+    | [] -> ()
+    | PBindF f :: t1 ->
+      eliminate (f == PVar #v #cl /\ pakrel r s t1 k2)
+             \/ (match k2 with
+                 | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+                 | [] -> False)
+      with gwr_pakrel_length r s t1 k2
+      and  (match k2 with
+            | f2 :: t2 -> gwr_gwy_k_length r s t1 t2
+            | [] -> ())
+    | f1 :: t1 ->
+      (match k2 with
+       | f2 :: t2 -> gwr_gwy_k_length r s t1 t2
+       | [] -> ())
+
+(** Equal-length residual pairs get NOTHING from the deep disjunct. *)
+let gwr_gwy_k_refused_at_equal_length
+      (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (requires length k1 == length k2) (ensures ~(gwy_k r s k1 k2))
+  = introduce gwy_k r s k1 k2 ==> False
+    with gwr_gwy_k_length r s k1 k2
+
+(** So at equal length the layer collapses onto the shipped conjunct. *)
+let gwr_resid_at_equal_length
+      (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (requires gwr_resid r n s k1 k2 /\ length k1 == length k2)
+          (ensures paframes_rel r n s k1 k2)
+  = gwr_resid_unfold r n s k1 k2 ();
+    gwr_gwy_k_refused_at_equal_length r s k1 k2
+
+(* ---- 3. THE SPECIMEN, RELATED --------------------------------- *)
+
+let gwr_above1 : pstack fv fcl = [PBindF (PVar #fv #fcl)]
+let gwr_above2 : pstack fv fcl = []
+
+let gwr_spec1 : pctx fv fcl =
+  PCtxRequests gwp_g_u (PBoundaryF :: gwr_above1) (PVar #fv #fcl)
+let gwr_spec2 : pctx fv fcl =
+  PCtxRequests gwp_g_u (PBoundaryF :: gwr_above2) (PVar #fv #fcl)
+
+let gwr_spec_deep ()
+  : Lemma (gwy_k fcl_rel pabot (PBoundaryF :: gwr_above1) (PBoundaryF :: gwr_above2))
+  = lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    gwe_ktop_head fcl_rel pabot (PVar #fv #fcl)
+                  ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+    lemma_pafrel_boundary #fv #fcl fcl_rel pabot;
+    gwy_k_cons fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+               (PBoundaryF <: pframe fv fcl) gwr_above1 gwr_above2
+
+let guard_gwr_specimen_relates ()
+  : Lemma (gwr_xrel fcl_rel pabot gwr_spec1 gwr_spec2 /\
+           ~(paxrel fcl_rel pabot gwr_spec1 gwr_spec2))
+  = lemma_pabot_wf ();
+    gwr_spec_deep ();
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    introduce forall (n: nat). gwr_ctx fcl_rel n pabot gwr_spec1 gwr_spec2
+    with (if n = 0 then ()
+          else begin
+            assert (gwr_resid fcl_rel n pabot
+                      (PBoundaryF :: gwr_above1) (PBoundaryF :: gwr_above2));
+            introduce forall (s': pastate) (y1 y2: pval fv).
+                (paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+                 pacomp_rel fcl_rel n s' (PVar y1) (PVar y2))
+            with (introduce _ ==> _ with ())
+          end);
+    guard_gwp_cut_sees_surplus ()
+
+(* ---- 4. THE CRUX: THE SHIPPED RESIDUAL NEGATIVES, PORTED ------- *)
+
+let gwr_ctx_resid_inv (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+      (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires n > 0 /\
+                    gwr_ctx r n s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2))
+          (ensures gwr_resid r n s rs1 rs2)
+  = gwr_ctx_unfold r n s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2) ()
+
+(** **THE BRIDGE THE NEGATIVES RUN ON.** At EQUAL RESIDUAL LENGTH the deep
+    disjunct is unavailable, so the layer hands back exactly the shipped
+    all-index stack relation and every refutation the file already has applies
+    verbatim. *)
+let gwr_xrel_resid_pakrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires gwr_xrel r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2) /\
+                    length rs1 == length rs2)
+          (ensures pakrel r s rs1 rs2)
+  = gwr_xrel_unfold r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2) ();
+    introduce forall (n: nat). paframes_rel r n s rs1 rs2
+    with (if n = 0 then ()
+          else (gwr_ctx_resid_inv r n s x1 x2 rs1 rs2 p1 p2;
+                gwr_resid_at_equal_length r n s rs1 rs2))
+
+(** 31504, ported to the deepened residual: STILL REFUSED. *)
+let guard_gwr_residual_discriminates (n: nat)
+  : Lemma (requires n > 0)
+          (ensures gwr_resid fcl_rel n (pastate_of qw012) qares0 qares1 /\
+                   gwr_resid fcl_rel n (pastate_of qw012) qares1 qares2 /\
+                   ~(gwr_resid fcl_rel n (pastate_of qw012) qares0 qares2))
+  = guard_pa_residual_discriminates n;
+    assert_norm (length qares0 == length qares2);
+    introduce gwr_resid fcl_rel n (pastate_of qw012) qares0 qares2 ==> False
+    with gwr_resid_at_equal_length fcl_rel n (pastate_of qw012) qares0 qares2
+
+(** 40252, ported to the deepened residual: STILL REFUSED. *)
+let guard_gwr_refuses_a_changed_residual (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures ~(gwr_xrel fcl_rel s qctxL qctxR))
+  = lemma_paext_refl s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (qctxL == PCtxRequests fone qresidL (PVar #fv #fcl));
+    assert_norm (qctxR == PCtxRequests fone qresidR (PVar #fv #fcl));
+    assert_norm (length qresidL == length qresidR);
+    assert_norm (qsiteL fone == PEmit "left"  (PVar (fpv (FI 7))));
+    assert_norm (qsiteR fone == PEmit "right" (PVar (fpv (FI 8))));
+    introduce gwr_xrel fcl_rel s qctxL qctxR ==> False
+    with begin
+      gwr_xrel_resid_pakrel fcl_rel s fone fone qresidL qresidR
+        (PVar #fv #fcl) (PVar #fv #fcl);
+      lemma_pakrel_cons_inv fcl_rel s
+        (PBoundaryF #fv #fcl) (PBoundaryF #fv #fcl)
+        [PSiteF qsiteL; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PSiteF qsiteR; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pakrel_cons_inv fcl_rel s
+        (PSiteF qsiteL) (PSiteF qsiteR)
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pafrel_site_inv fcl_rel s qsiteL qsiteR;
+      lemma_pafn_at_self fcl_rel s qsiteL qsiteR fone fone;
+      lemma_pacrel_shape fcl_rel s (qsiteL fone) (qsiteR fone)
+    end
+
+(** 40295, ported alongside it: the changed ANSWER is still refused too. *)
+let guard_gwr_refuses_a_changed_answer (s: pastate)
+  : Lemma (requires pwf_world s.aw)
+          (ensures ~(gwr_xrel fcl_rel s qctxL qctxV))
+  = lemma_paext_refl s;
+    assert_norm (pval_rel #fv s.aw fone fone);
+    assert_norm (~(pval_rel #fv s.aw (fpv (FI 7)) (fpv (FI 8))));
+    assert_norm (qctxL == PCtxRequests fone qresidL (PVar #fv #fcl));
+    assert_norm (qctxV == PCtxRequests fone qresidV (PVar #fv #fcl));
+    assert_norm (length qresidL == length qresidV);
+    assert_norm (qsiteL fone == PEmit "left" (PVar (fpv (FI 7))));
+    assert_norm (qsiteV fone == PEmit "left" (PVar (fpv (FI 8))));
+    introduce gwr_xrel fcl_rel s qctxL qctxV ==> False
+    with begin
+      gwr_xrel_resid_pakrel fcl_rel s fone fone qresidL qresidV
+        (PVar #fv #fcl) (PVar #fv #fcl);
+      lemma_pakrel_cons_inv fcl_rel s
+        (PBoundaryF #fv #fcl) (PBoundaryF #fv #fcl)
+        [PSiteF qsiteL; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PSiteF qsiteV; PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pakrel_cons_inv fcl_rel s
+        (PSiteF qsiteL) (PSiteF qsiteV)
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily]
+        [PPromptF xltbl None PFamily; PPromptF xtbl0 None PFamily];
+      lemma_pafrel_site_inv fcl_rel s qsiteL qsiteV;
+      lemma_pafn_at_self fcl_rel s qsiteL qsiteV fone fone;
+      assert (pacomp_rel fcl_rel 2 s (qsiteL fone) (qsiteV fone))
+    end
+
+(* ---- 5. THE LIFTING TO A STORE, AND THE STORE NEGATIVE --------- *)
+
+let gwr_srel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (s1 s2: pstore v cl)
+  : GTot prop
+  = forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+      pwlookup_l i s.aw == Some j ==>
+      (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+       gwr_xrel r s (psget i s1) (psget j s2))
+
+let gwr_srel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                    (s1 s2: pstore v cl) (h: squash (gwr_srel r s s1 s2))
+  : squash (forall (i j: nat). {:pattern (pstore_lookup i s1); (pstore_lookup j s2)}
+              pwlookup_l i s.aw == Some j ==>
+              (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+               gwr_xrel r s (psget i s1) (psget j s2)))
+  = h
+
+let gwr_srel_of_pasrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (s1 s2: pstore v cl)
+  : Lemma (requires pasrel r s s1 s2) (ensures gwr_srel r s s1 s2)
+  = pasrel_unfold r s s1 s2 ();
+    introduce forall (i j: nat).
+        (pwlookup_l i s.aw == Some j ==>
+         (Some? (pstore_lookup i s1) /\ Some? (pstore_lookup j s2) /\
+          gwr_xrel r s (psget i s1) (psget j s2)))
+    with (introduce _ ==> _
+          with gwr_xrel_of_paxrel r s (psget i s1) (psget j s2))
+
+(** 40323, ported to the deepened residual: STILL REFUSED. *)
+let guard_gwr_srel_refuses_a_changed_residual ()
+  : Lemma (pwf_world qas00.aw /\
+           gwr_srel fcl_rel qas00 qstoreL qstoreL /\
+           ~(gwr_srel fcl_rel qas00 qstoreL qstoreR) /\
+           ~(gwr_srel fcl_rel qas00 qstoreL qstoreV))
+  = lemma_pwextend_wf 0 0 [];
+    assert_norm (qas00.aw == qw00);
+    assert_norm (pwlookup_l 0 qw00 == Some 0);
+    assert_norm (psget 0 qstoreL == qctxL);
+    assert_norm (psget 0 qstoreR == qctxR);
+    assert_norm (psget 0 qstoreV == qctxV);
+    assert_norm (Some? (pstore_lookup 0 qstoreL));
+    assert_norm (Some? (pstore_lookup 0 qstoreR));
+    assert_norm (Some? (pstore_lookup 0 qstoreV));
+    guard_padma_relates_the_matched_residual qas00;
+    gwr_xrel_of_paxrel fcl_rel qas00 qctxL qctxL;
+    introduce forall (i j: nat).
+        (pwlookup_l i qas00.aw == Some j ==>
+         (Some? (pstore_lookup i qstoreL) /\ Some? (pstore_lookup j qstoreL) /\
+          gwr_xrel fcl_rel qas00 (psget i qstoreL) (psget j qstoreL)))
+    with (introduce _ ==> _ with assert (i == 0 /\ j == 0));
+    introduce gwr_srel fcl_rel qas00 qstoreL qstoreR ==> False
+    with begin
+      gwr_srel_unfold fcl_rel qas00 qstoreL qstoreR ();
+      assert (gwr_xrel fcl_rel qas00 (psget 0 qstoreL) (psget 0 qstoreR));
+      guard_gwr_refuses_a_changed_residual qas00
+    end;
+    introduce gwr_srel fcl_rel qas00 qstoreL qstoreV ==> False
+    with begin
+      gwr_srel_unfold fcl_rel qas00 qstoreL qstoreV ();
+      assert (gwr_xrel fcl_rel qas00 (psget 0 qstoreL) (psget 0 qstoreV));
+      guard_gwr_refuses_a_changed_answer qas00
+    end
+
+(* ---- 6. MONOTONICITY AND THE ALLOCATION LAW -------------------- *)
+
+let gwr_resid_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                   (rs1 rs2: pstack v cl)
+  : Lemma (requires gwr_resid r n s rs1 rs2 /\ paext s1 s /\ pcl_mono r)
+          (ensures gwr_resid r n s1 rs1 rs2)
+  = gwr_resid_unfold r n s rs1 rs2 ();
+    eliminate (paframes_rel r n s rs1 rs2) \/ (gwy_k r s rs1 rs2)
+    with lemma_paframes_rel_mono r n s1 s rs1 rs2
+    and  gwe_k_mono r s1 s rs1 rs2
+
+let gwr_ctx_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                 (cx1 cx2: pctx v cl)
+  : Lemma (requires gwr_ctx r n s cx1 cx2 /\ paext s1 s /\ pcl_mono r)
+          (ensures gwr_ctx r n s1 cx1 cx2)
+  = if n = 0 then ()
+    else
+      (lemma_paext_future_shrinks s1 s;
+       gwr_ctx_unfold r n s cx1 cx2 ();
+       match cx1, cx2 with
+       | PCtxDone y1, PCtxDone y2 -> lemma_paval_rel_mono s1 s y1 y2
+       | PCtxRequests x1 rs1 _, PCtxRequests x2 rs2 _ ->
+         lemma_paval_rel_mono s1 s x1 x2;
+         gwr_resid_mono r n s1 s rs1 rs2
+       | _, _ -> ())
+
+let gwr_xrel_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                  (cx1 cx2: pctx v cl)
+  : Lemma (requires gwr_xrel r s cx1 cx2 /\ paext s1 s /\ pcl_mono r)
+          (ensures gwr_xrel r s1 cx1 cx2)
+  = gwr_xrel_unfold r s cx1 cx2 ();
+    introduce forall (n: nat). gwr_ctx r n s1 cx1 cx2
+    with gwr_ctx_mono r n s1 s cx1 cx2
+
+(** `lemma_pasrel_alloc`, at the deepened residual: the SAME statement, the
+    SAME proof, with `paxrel`/`pasrel` replaced by `gwr_xrel`/`gwr_srel` and
+    `lemma_paxrel_mono` by `gwr_xrel_mono`. *)
+let lemma_gwr_srel_alloc (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (cf1 cf2: pconf v cl) (cx1 cx2: pctx v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\
+                    gwr_srel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    gwr_xrel r s cx1 cx2)
+          (ensures (let s' = paalloc s in
+                    let h1 = fst (palloc cx1 cf1) in
+                    let h2 = fst (palloc cx2 cf2) in
+                    let cf1' = snd (palloc cx1 cf1) in
+                    let cf2' = snd (palloc cx2 cf2) in
+                    paext s' s /\ pawf s' /\
+                    s'.aw == pwextend s.an1 s.an2 s.aw /\
+                    s'.an1 == s.an1 + 1 /\ s'.an2 == s.an2 + 1 /\
+                    h1 == PCtxKey s.an1 /\ h2 == PCtxKey s.an2 /\
+                    pval_rel s'.aw h1 h2 /\
+                    cf1'.store == (s.an1, cx1) :: cf1.store /\
+                    cf2'.store == (s.an2, cx2) :: cf2.store /\
+                    cf1'.next == s'.an1 /\ cf2'.next == s'.an2 /\
+                    gwr_srel r s' cf1'.store cf2'.store))
+  = let s' = paalloc s in
+    let m1 = s.an1 in
+    let m2 = s.an2 in
+    lemma_paext_of_alloc s;
+    lemma_pwbound_fresh s.aw m1 m2;
+    lemma_pwextend_wf m1 m2 s.aw;
+    lemma_pwl_cons m1 m2 s.aw;
+    lemma_pstore_lookup_cons m1 cx1 cf1.store;
+    lemma_pstore_lookup_cons m2 cx2 cf2.store;
+    gwr_srel_unfold r s cf1.store cf2.store ();
+    introduce forall (i j: nat).
+        (pwlookup_l i s'.aw == Some j ==>
+         (Some? (pstore_lookup i ((m1, cx1) :: cf1.store)) /\
+          Some? (pstore_lookup j ((m2, cx2) :: cf2.store)) /\
+          gwr_xrel r s' (psget i ((m1, cx1) :: cf1.store))
+                        (psget j ((m2, cx2) :: cf2.store))))
+    with (introduce _ ==> _
+          with (if i = m1
+                then begin
+                  assert (j == m2);
+                  assert (psget i ((m1, cx1) :: cf1.store) == cx1);
+                  assert (psget j ((m2, cx2) :: cf2.store) == cx2);
+                  gwr_xrel_mono r s' s cx1 cx2
+                end
+                else begin
+                  assert (pwlookup_l i s.aw == Some j);
+                  assert (j < m2);
+                  assert (pstore_lookup i ((m1, cx1) :: cf1.store)
+                            == pstore_lookup i cf1.store);
+                  assert (pstore_lookup j ((m2, cx2) :: cf2.store)
+                            == pstore_lookup j cf2.store);
+                  assert (psget i ((m1, cx1) :: cf1.store) == psget i cf1.store);
+                  assert (psget j ((m2, cx2) :: cf2.store) == psget j cf2.store);
+                  assert (gwr_xrel r s (psget i cf1.store) (psget j cf2.store));
+                  gwr_xrel_mono r s' s (psget i cf1.store) (psget j cf2.store)
+                end))
+
+(* ---- 7. THE LANDING SITE FOR THE CUT-INSIDE HORN --------------- *)
+
+let gwr_resid_of_either (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (rs1 rs2: pstack v cl)
+  : Lemma (requires pakrel r s rs1 rs2 \/ gwy_k r s rs1 rs2)
+          (ensures forall (n: nat). gwr_resid r n s rs1 rs2)
+  = eliminate (pakrel r s rs1 rs2) \/ (gwy_k r s rs1 rs2)
+    with (pakrel_unfold r s rs1 rs2 ();
+          introduce forall (n: nat). gwr_resid r n s rs1 rs2 with ())
+    and  (introduce forall (n: nat). gwr_resid r n s rs1 rs2 with ())
+
+let gwr_xrel_requests (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires pval_rel s.aw x1 x2 /\
+                    (pakrel r s rs1 rs2 \/ gwy_k r s rs1 rs2) /\
+                    pafn_rel_at r s p1 p2)
+          (ensures gwr_xrel r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2))
+  = gwr_resid_of_either r s rs1 rs2;
+    pafn_rel_at_unfold r s p1 p2 ();
+    introduce forall (n: nat).
+        gwr_ctx r n s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2)
+    with (if n = 0 then ()
+          else
+            introduce forall (s': pastate) (y1 y2: pval v).
+              (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+               pacomp_rel r n s' (p1 y1) (p2 y2))
+            with (introduce (paext s' s /\ pval_rel s'.aw y1 y2) ==>
+                            (pacomp_rel r n s' (p1 y1) (p2 y2))
+                  with pacrel_unfold r s' (p1 y1) (p2 y2) ()))
+
+(** **THE LANDING SITE.** `gwp_cut_deep` splits; BOTH horns -- including the
+    one that had no phase, the surplus INSIDE the cut segment -- produce a
+    residual pair related by the deepened context relation. *)
+let gwr_cut_resid_related
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (hd1 hd2: pframe v cl) (t1 t2: pstack v cl)
+  : Lemma (requires gwy_k r s t1 t2 /\ pafrel r s hd1 hd2 /\
+                    pval_rel s.aw x1 x2 /\ Some? (pcut_scope t1))
+          (ensures (match pcut_scope t1, pcut_scope t2 with
+                    | Some (a1, b1), Some (a2, b2) ->
+                      gwr_xrel r s (PCtxRequests x1 (hd1 :: a1) (PVar #v #cl))
+                                   (PCtxRequests x2 (hd2 :: a2) (PVar #v #cl)) /\
+                      (pakrel r s b1 b2 \/ gwy_k r s b1 b2)
+                    | _, _ -> False))
+  = gwp_cut_deep r s t1 t2;
+    lemma_pafn_rel_at_pvar #v #cl r s;
+    match pcut_scope t1, pcut_scope t2 with
+    | Some (a1, b1), Some (a2, b2) ->
+      gwe_cons_case r s hd1 hd2 a1 a2 b1 b2;
+      gwr_xrel_requests r s x1 x2 (hd1 :: a1) (hd2 :: a2)
+                        (PVar #v #cl) (PVar #v #cl)
+    | _, _ -> ()
+
+let gwr_cut_inside_lands
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (hd1 hd2: pframe v cl) (t1 t2: pstack v cl)
+    (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    pafrel r s hd1 hd2 /\ gwy_k r s t1 t2 /\
+                    Some? (pcut_scope t1) /\
+                    gwr_srel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2)
+          (ensures
+            (let s' = paalloc s in
+             let cf1' = pyield x1 hd1 t1 cf1 in
+             let cf2' = pyield x2 hd2 t2 cf2 in
+             paext s' s /\ pawf s' /\
+             cf1'.next == s'.an1 /\ cf2'.next == s'.an2 /\
+             pval_rel s'.aw (PCtxKey #v s.an1) (PCtxKey #v s.an2) /\
+             gwr_srel r s' cf1'.store cf2'.store /\
+             (match pcut_scope t1, pcut_scope t2 with
+              | Some (a1, b1), Some (a2, b2) ->
+                cf1'.st == PStep (PVar (PCtxKey #v s.an1)) b1 /\
+                cf2'.st == PStep (PVar (PCtxKey #v s.an2)) b2 /\
+                (pakrel r s' b1 b2 \/ gwy_k r s' b1 b2)
+              | _, _ -> False)))
+  = gwr_cut_resid_related r s x1 x2 hd1 hd2 t1 t2;
+    match pcut_scope t1, pcut_scope t2 with
+    | Some (a1, b1), Some (a2, b2) ->
+      lemma_gwr_srel_alloc r s cf1 cf2
+        (PCtxRequests x1 (hd1 :: a1) (PVar #v #cl))
+        (PCtxRequests x2 (hd2 :: a2) (PVar #v #cl));
+      eliminate (pakrel r s b1 b2) \/ (gwy_k r s b1 b2)
+      with lemma_pakrel_mono r (paalloc s) s b1 b2
+      and  gwe_k_mono r (paalloc s) s b1 b2
+    | _, _ -> ()
+
+(* ---- 8. THE LANDING SITE, FIRED ------------------------------- *)
+
+let gwr_paxrel_resid_pakrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires paxrel r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2))
+          (ensures pakrel r s rs1 rs2)
+  = paxrel_unfold r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2) ();
+    introduce forall (n: nat). paframes_rel r n s rs1 rs2
+    with (if n = 0 then ()
+          else assert (pactx_rel r n s (PCtxRequests x1 rs1 p1)
+                                       (PCtxRequests x2 rs2 p2)))
+
+let gwr_paxrel_refuses_unequal_length (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (x1 x2: pval v) (rs1 rs2: pstack v cl) (p1 p2: pval v -> pcomp v cl)
+  : Lemma (requires ~(length rs1 == length rs2))
+          (ensures ~(paxrel r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2)))
+  = introduce paxrel r s (PCtxRequests x1 rs1 p1) (PCtxRequests x2 rs2 p2) ==> False
+    with (gwr_paxrel_resid_pakrel r s x1 x2 rs1 rs2 p1 p2;
+          gwr_pakrel_length r s rs1 rs2)
+
+let gwr_gcf1 : pconf fv fcl =
+  { st = PStep (PVar gwp_g_u) (PBoundaryF :: gwp_g_t1);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwr_gcf2 : pconf fv fcl =
+  { st = PStep (PVar gwp_g_u) (PBoundaryF :: gwp_g_t2);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwr_gsto1 : pstore fv fcl = [(0, gwr_spec1)]
+let gwr_gsto2 : pstore fv fcl = [(0, gwr_spec2)]
+
+(** **THE LANDING SITE, FIRED.** The two `pyield`s store the two residuals of
+    `guard_gwr_specimen_relates`; the deepened store relation HOLDS on them and
+    the shipped one does NOT. *)
+let guard_gwr_cut_inside_lands_fires ()
+  : Lemma ((pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_t1 gwr_gcf1).store
+             == gwr_gsto1 /\
+           (pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_t2 gwr_gcf2).store
+             == gwr_gsto2 /\
+           gwr_srel fcl_rel (paalloc pabot) gwr_gsto1 gwr_gsto2 /\
+           ~(pasrel fcl_rel (paalloc pabot) gwr_gsto1 gwr_gsto2))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    cor_padxg_pabot_sto_self ();
+    gwr_srel_of_pasrel fcl_rel pabot ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwp_g_t_deep ();
+    lemma_pafrel_boundary #fv #fcl fcl_rel pabot;
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    assert_norm (pcut_scope gwp_g_t1
+                 == Some (([PBindF (PVar #fv #fcl)] <: pstack fv fcl),
+                          ([] <: pstack fv fcl)));
+    gwr_cut_inside_lands fcl_rel pabot gwp_g_u gwp_g_u
+                         (PBoundaryF <: pframe fv fcl) (PBoundaryF <: pframe fv fcl)
+                         gwp_g_t1 gwp_g_t2 gwr_gcf1 gwr_gcf2;
+    assert_norm ((pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_t1 gwr_gcf1).store
+                 == gwr_gsto1);
+    assert_norm ((pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_t2 gwr_gcf2).store
+                 == gwr_gsto2);
+    lemma_pwl_cons 0 0 ([] <: pworld);
+    assert_norm ((paalloc pabot).aw == pwextend 0 0 ([] <: pworld));
+    assert_norm (psget 0 gwr_gsto1 == gwr_spec1);
+    assert_norm (psget 0 gwr_gsto2 == gwr_spec2);
+    assert_norm (Some? (pstore_lookup 0 gwr_gsto1));
+    assert_norm (Some? (pstore_lookup 0 gwr_gsto2));
+    assert_norm (~(length (PBoundaryF :: gwr_above1)
+                   == length (PBoundaryF :: gwr_above2)));
+    gwr_paxrel_refuses_unequal_length fcl_rel (paalloc pabot) gwp_g_u gwp_g_u
+      (PBoundaryF :: gwr_above1) (PBoundaryF :: gwr_above2)
+      (PVar #fv #fcl) (PVar #fv #fcl);
+    introduce pasrel fcl_rel (paalloc pabot) gwr_gsto1 gwr_gsto2 ==> False
+    with (pasrel_unfold fcl_rel (paalloc pabot) gwr_gsto1 gwr_gsto2 ();
+          assert (paxrel fcl_rel (paalloc pabot)
+                    (psget 0 gwr_gsto1) (psget 0 gwr_gsto2)))
