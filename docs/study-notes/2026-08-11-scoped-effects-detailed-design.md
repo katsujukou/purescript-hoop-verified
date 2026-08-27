@@ -8498,6 +8498,95 @@ and the gate closed by refining into two exhaustive cases. The next step is not
 to collapse the successor disjunction into one definition, but to adjudicate
 one-step closure on the `gwe_cfg` side first.
 
+#### The deep generated phase closes, and returns to `gwy_cf`
+
+> The deep generated-computation phase has the same finite wrapper-spine
+> discipline as the head-only phase. Its wrappers advance in synchronized
+> lockstep, preserve store and counter, preserve the complete event list, and
+> its `PSplice` terminus returns the pair to `gwy_cf`.
+
+Only one thing had to be newly proved. The wrappers lifted unchanged: `PEmit`
+reproduces the two stacks verbatim, so the ordinary half of the relation carries
+over; `PEnterCtx` pushes frames that are all ordinarily related, so the ordinary
+append suffices; and the fallthrough is literally `pacrel`, so the existing
+one-step compatibility applies directly.
+
+```text
+gwe_cfg ──generated wrappers* / PSplice──▶ gwy_cf
+```
+
+That is a finite phase transition from one to the other, **not** a
+unification of `gwe_cfg` and `gwy_cf`. The new edge is not a restatement of
+the existing `padxg_cf -> padx_cf`: on the shipping fixture with the surplus
+genuinely at depth, the successor is refuted for `padx_cf`.
+
+#### The append lemma's asymmetry is about the frame's position
+
+> The append proof is not the mirror image of ordinary related-stack append.
+> Recursion stops when it reaches the surplus identity-frame branch; from that
+> point the remaining suffix is discharged by the ordinary relation.
+> Reversing the two arguments would move the distinguished surplus to the
+> wrong side, and is refuted by a pair satisfying `gwy_k` but not `pakrel`.
+
+Checked independently: `[PBindF PVar]` against `[]` satisfies `gwy_k` and not
+`pakrel`, so the existing `gwy_k_append` — ordinary prefix, deep suffix —
+cannot do this job. The new lemma needs only its two hypotheses; no
+`pcl_down`, no `pawf`.
+
+This says the two orientations are not interchangeable **for the present
+oriented relation**, not that a reversed lemma is impossible in general.
+
+#### Trace agreement is unconditional
+
+> `gwf_step_out` factors trace equality outside the three successor
+> alternatives. Therefore trace agreement is unconditional across the step
+> theorem; it is not recovered separately after learning which phase exit was
+> taken.
+
+Confirmed by reading the predicate: the equality is its first conjunct, and the
+disjunction of the three exits follows it.
+
+#### The finite closure, at its actual scope
+
+The height machinery was **checked**, not assumed, to lift: `gwv_h` never
+inspects a `PSplice`'s frames, and `gwe_comp` differs from `padx_comp` only
+inside that clause, so the two induce the same spines: `gwe_comp` admits no
+spine that `padx_comp` does not.
+
+The finite closure came with it. Two properties are worth naming: the right
+side's height being equal is **derived from the relation**, not assumed; and the
+trace claim is list equality, so order and multiplicity, not length. Its scope
+is the `gwe_cfg` wrapper spine — not a finite closure for any weak simulation.
+
+#### Ablations
+
+Two, of unequal strength, and the weaker one is recorded as such:
+
+> `needs_deep_prefix` confirms a necessary shape invariant — `gwy_k` requires a
+> nonempty left stack — but it does not independently exercise the semantic
+> contents of the deep-prefix relation.
+
+The other, dropping the ordinary suffix, is substantive: it walks past the
+surplus and collapses on a shape mismatch.
+
+#### Not proved
+
+- the one-step theorem's three exits are not unified;
+- no two-step composition — whether a `gwy_cf` successor can be stepped again
+  is not shown;
+- deep `PPerform` is not handled by this closure theorem; it is reached only
+  through the fallthrough where `gwe_comp` degenerates to `pacrel`, so nothing
+  here depends on the previous gate's unclaimed mutual
+  exclusivity;
+- other deep transition forms, the boundary record, and observation.
+
+#### Position
+
+The next step is not to generalise `gwe_cfg` further. It is to complete
+dispatcher coverage for `gwy_cf`, the phase this one returns to. The first
+substantive test there is the allocating `PVar` branch, which measures whether
+the deep relation and `paalloc` are preserved together.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

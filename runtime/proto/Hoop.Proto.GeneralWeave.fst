@@ -47487,3 +47487,928 @@ let guard_gwe_case_a_fires ()
 (*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
 (*  the file's default settings.                                       *)
 (* ================================================================== *)
+
+(* ================================================================== *)
+(*  B2c STAGE 10 -- `gwe_cfg`: HOW MUCH OF THE GENERATED PHASE'S       *)
+(*  ONE-STEP AND FINITE-CLOSURE MACHINERY SURVIVES MOVING THE SURPLUS  *)
+(*  FROM THE HEAD TO DEPTH                                            *)
+(*                                                                     *)
+(*  `gwe_cfg` is `padxg_cf` with `padx_comp` replaced by `gwe_comp`.   *)
+(*  The two computation relations differ in EXACTLY ONE clause: at     *)
+(*  `PSplice fs b`, `padx_comp` asks `padx_ktop r s fs1 fs2` -- the    *)
+(*  surplus identity frame sits ON TOP of the spliced segment --       *)
+(*  whereas `gwe_comp` asks `gwy_k r s fs1 fs2`, which allows the      *)
+(*  surplus AT ANY DEPTH inside it.  Everywhere else, including both   *)
+(*  wrapper nodes and the plain fallthrough, the two are the same      *)
+(*  text.  This section measures what that single clause costs.        *)
+(*                                                                     *)
+(*  THE ANSWER, IN ONE LINE.  It costs exactly one lemma -- the        *)
+(*  append lemma in the OPPOSITE ORIENTATION -- and one edge in the    *)
+(*  phase graph: the `PSplice` terminus of `gwe_cfg` lands in          *)
+(*  `gwy_cf`, not in `padx_cf`.  Everything else lifts verbatim,       *)
+(*  including the whole height machinery and the finite closure.       *)
+(* ================================================================== *)
+
+(* ---- 0. THE TWO SQUASH CASTS -------------------------------------- *)
+
+(**
+ * A `GTot prop` applied to arguments is an ATOM in hypothesis position: the
+ * solver will not look inside `gwe_comp r s c1 c2` on its own. These two
+ * casts are the ONLY way the sections below see the clause structure. Each
+ * is accepted by conversion -- the body is the hypothesis, unchanged -- so
+ * neither is an axiom and neither costs a solver query about the relation
+ * itself.
+ *)
+let gwf_comp_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                    (c1 c2: pcomp v cl) (h: squash (gwe_comp r s c1 c2))
+  : squash (match c1 with
+            | PSplice fs1 b1 ->
+              (match c2 with
+               | PSplice fs2 b2 -> gwy_k r s fs1 fs2 /\ pacrel r s b1 b2
+               | _ -> False)
+            | PEnterCtx pl1 b1 ->
+              (match c2 with
+               | PEnterCtx pl2 b2 -> paplrel r s pl1 pl2 /\ gwe_comp r s b1 b2
+               | _ -> False)
+            | PEmit e1 b1 ->
+              (match c2 with
+               | PEmit e2 b2 -> e1 == e2 /\ gwe_comp r s b1 b2
+               | _ -> False)
+            | _ -> pacrel r s c1 c2)
+  = h
+
+let gwf_cfg_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (cf1 cf2: pconf v cl) (h: squash (gwe_cfg r s cf1 cf2))
+  : squash (pawf s /\
+            (match cf1.st, cf2.st with
+             | PStep c1 k1, PStep c2 k2 -> gwe_comp r s c1 c2 /\ pakrel r s k1 k2
+             | _, _ -> False) /\
+            pasrel r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+(* ---- 1. THE APPEND LEMMA, IN THE DEEP-PREFIX ORIENTATION ---------- *)
+
+(**
+ * **THE ONE LEMMA THE MOVE TO DEPTH ACTUALLY COSTS.** `gwy_k_append` above
+ * is
+ *
+ *     `pakrel r s a1 a2 /\ gwy_k r s k1 k2 ==> gwy_k r s (a1 @ k1) (a2 @ k2)`
+ *
+ * -- ORDINARY prefix, DEEP suffix. That is the orientation a `padxg_cf`
+ * `PSplice` terminus wants, because there the surplus is on top of `fs1` and
+ * the ordinary part is what precedes it. At a `gwe_cfg` `PSplice` terminus
+ * the shape is the MIRROR IMAGE: the surplus is somewhere inside `fs1`, the
+ * PREFIX, and the two remainders `k1`, `k2` are only ordinarily related.
+ * So the lemma needed is
+ *
+ *     `gwy_k r s a1 a2 /\ pakrel r s k1 k2 ==> gwy_k r s (a1 @ k1) (a2 @ k2)`
+ *
+ * and it is NOT an instance of the existing one, in either direction.
+ *
+ * **IS THE INDUCTION SYMMETRIC TO THE EXISTING ONE? NO.** `gwy_k_append`
+ * recurses UNIFORMLY: every step inverts a `pakrel` cons with
+ * `lemma_pakrel_cons_inv`, recurses on the tail, and rebuilds with
+ * `gwy_k_cons`; the recursion runs the whole length of `a1` and only then
+ * meets the deep hypothesis. Here the prefix is the DEEP one, so each step
+ * must first split on `gwy_k`'s own dichotomy at the head, and one of the
+ * two branches -- the head is `PBindF PVar` and it IS the surplus -- does
+ * NOT recurse: it EXITS the induction into the all-ordinary append
+ * (`lemma_pakrel_append`), because past the surplus there is nothing deep
+ * left. The recursion is therefore shorter than `a1` in general, and the
+ * proof has a second, non-structural exit the existing one does not have.
+ * The two are mirror statements but not mirror proofs.
+ *)
+let rec gwf_k_append_deep (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (a1 a2 k1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s a1 a2 /\ pakrel r s k1 k2)
+          (ensures gwy_k r s (a1 @ k1) (a2 @ k2))
+          (decreases a1)
+  = gwy_k_unfold r s a1 a2 ();
+    match a1 with
+    | PBindF f :: t1 ->
+      eliminate (f == PVar #v #cl /\ pakrel r s t1 a2)
+             \/ (match a2 with
+                 | f2 :: t2 -> pafrel r s (PBindF f) f2 /\ gwy_k r s t1 t2
+                 | [] -> False)
+      with (lemma_pakrel_append r s t1 a2 k1 k2)
+      and (match a2 with
+           | f2 :: t2 ->
+             gwf_k_append_deep r s t1 t2 k1 k2;
+             gwy_k_cons r s (PBindF f) f2 (t1 @ k1) (t2 @ k2)
+           | [] -> ())
+    | f1 :: t1 ->
+      (match a2 with
+       | f2 :: t2 ->
+         gwf_k_append_deep r s t1 t2 k1 k2;
+         gwy_k_cons r s f1 f2 (t1 @ k1) (t2 @ k2)
+       | [] -> ())
+
+(** Two inversions the guards below need, so that the REFUTATIONS are proved
+    and not merely asserted: a non-`PBindF` head forces the deep step, and a
+    `PBindF` head against an EMPTY right stack forces the surplus case. Both
+    are the squash cast and nothing else. *)
+
+let gwf_k_deep_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                   (f1: pframe v cl) (t1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s (f1 :: t1) k2 /\ ~(PBindF? f1))
+          (ensures Cons? k2 /\ pafrel r s f1 (Cons?.hd k2) /\
+                   gwy_k r s t1 (Cons?.tl k2))
+  = gwy_k_unfold r s (f1 :: t1) k2 ()
+
+let gwf_k_bind_nil_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (f: pval v -> pcomp v cl) (t1: pstack v cl)
+  : Lemma (requires gwy_k r s (PBindF f :: t1) ([] <: pstack v cl))
+          (ensures f == PVar #v #cl /\ pakrel r s t1 ([] <: pstack v cl))
+  = gwy_k_unfold r s (PBindF f :: t1) ([] <: pstack v cl) ()
+
+(* ---- 2. THE `PSplice` TERMINUS: IT LANDS IN `gwy_cf` -------------- *)
+
+(**
+ * **THE PREDICTED EDGE, CONFIRMED.** Splice is
+ * `PSplice fs body -> keep (PStep body (fs @ k))`, and `pstep_tr` emits
+ * nothing for it. At `padxg_cf` the surplus is on top of `fs1`, so it is
+ * still on top of `fs1 @ k1` and the successor is `padx_cf`. At `gwe_cfg`
+ * the surplus is at DEPTH inside `fs1`, so it is at depth inside `fs1 @ k1`
+ * -- `padx_ktop` is false there -- and the successor is `gwy_cf`. The phase
+ * graph therefore gains an edge
+ *
+ *     `gwe_cfg -> gwy_cf`      parallel to      `padxg_cf -> padx_cf`.
+ *
+ * The store and the allocation counter are untouched, which is what lets
+ * the successor satisfy `gwy_cf`'s own `pasrel` and `next` obligations from
+ * the source's. The single new ingredient is `gwf_k_append_deep`.
+ *)
+let gwf_splice_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires gwe_cfg r s cf1 cf2 /\
+                    cf1.st == PStep (PSplice fs1 b1) k1 /\
+                    cf2.st == PStep (PSplice fs2 b2) k2)
+          (ensures
+            (let o1 : pconf v cl = { cf1 with st = PStep b1 (fs1 @ k1) } in
+             let o2 : pconf v cl = { cf2 with st = PStep b2 (fs2 @ k2) } in
+             pstep_tr lk apply cf1 == (o1, ([] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([] <: list string)) /\
+             o1.store == cf1.store /\ o2.store == cf2.store /\
+             o1.next == cf1.next /\ o2.next == cf2.next /\
+             gwy_cf r s o1 o2))
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    gwf_comp_unfold r s (PSplice fs1 b1) (PSplice fs2 b2) ();
+    gwf_k_append_deep r s fs1 fs2 k1 k2
+
+(* ---- 3. THE TWO WRAPPERS, AND THE PLAIN FALLTHROUGH --------------- *)
+
+(**
+ * These three lift UNCHANGED, and the reason is structural rather than
+ * lucky: neither wrapper clause of `gwe_comp` mentions the stack at all,
+ * and the fallthrough clause is literally `pacrel`. `PEmit` reproduces the
+ * source's own `k1`, `k2`, so the `pakrel` half of `gwe_cfg` is carried
+ * over verbatim and the successor is again `gwe_cfg` -- the phase does not
+ * change. The events agree because the clause forces `e1 == e2`.
+ *)
+let gwf_emit_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (e1 e2: string) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires gwe_cfg r s cf1 cf2 /\
+                    cf1.st == PStep (PEmit e1 b1) k1 /\
+                    cf2.st == PStep (PEmit e2 b2) k2)
+          (ensures
+            (let o1 : pconf v cl = { cf1 with st = PStep b1 k1 } in
+             let o2 : pconf v cl = { cf2 with st = PStep b2 k2 } in
+             e1 == e2 /\
+             pstep_tr lk apply cf1 == (o1, ([e1] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([e2] <: list string)) /\
+             o1.store == cf1.store /\ o2.store == cf2.store /\
+             o1.next == cf1.next /\ o2.next == cf2.next /\
+             gwe_cfg r s o1 o2))
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    gwf_comp_unfold r s (PEmit e1 b1) (PEmit e2 b2) ()
+
+(**
+ * `PEnterCtx` PUSHES onto the stack -- a boundary frame, the plan's protocol
+ * frames, and a scope frame -- and the successor's stack obligation is
+ * therefore a `pakrel` about an APPEND, not about the source stacks. It is
+ * discharged by the ORDINARY append (`lemma_pakrel_append`), because
+ * everything being pushed is ordinarily related; the deep append is not
+ * needed and the phase stays `gwe_cfg`. `pcl_down r` enters ONLY through
+ * `lemma_paplan_protocol_frames_rel`.
+ *)
+let gwf_enterctx_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (pl1 pl2: plan v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pcl_down r /\ gwe_cfg r s cf1 cf2 /\
+                    cf1.st == PStep (PEnterCtx pl1 b1) k1 /\
+                    cf2.st == PStep (PEnterCtx pl2 b2) k2)
+          (ensures
+            (let o1 : pconf v cl =
+               { cf1 with st = PStep b1
+                   (PBoundaryF :: (plan_protocol_frames pl1 @ (PScopeF :: k1))) } in
+             let o2 : pconf v cl =
+               { cf2 with st = PStep b2
+                   (PBoundaryF :: (plan_protocol_frames pl2 @ (PScopeF :: k2))) } in
+             pstep_tr lk apply cf1 == (o1, ([] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([] <: list string)) /\
+             o1.store == cf1.store /\ o2.store == cf2.store /\
+             o1.next == cf1.next /\ o2.next == cf2.next /\
+             gwe_cfg r s o1 o2))
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    gwf_comp_unfold r s (PEnterCtx pl1 b1) (PEnterCtx pl2 b2) ();
+    lemma_paplan_protocol_frames_rel r s pl1 pl2;
+    lemma_pafrel_scope #v #cl r s;
+    lemma_pakrel_cons r s PScopeF PScopeF k1 k2;
+    lemma_pakrel_append r s (plan_protocol_frames pl1) (plan_protocol_frames pl2)
+                            (PScopeF :: k1) (PScopeF :: k2);
+    lemma_pafrel_boundary #v #cl r s;
+    lemma_pakrel_cons r s PBoundaryF PBoundaryF
+                          (plan_protocol_frames pl1 @ (PScopeF :: k1))
+                          (plan_protocol_frames pl2 @ (PScopeF :: k2))
+
+(**
+ * The plain fallthrough is where `gwe_cfg` COLLAPSES to the ordinary
+ * configuration relation: outside the three named nodes the clause is
+ * `pacrel`, so the pair is a `pacfrel` pair outright and the ordinary
+ * one-step compatibility lemma applies with no adaptation whatever. This is
+ * the exit that consumes the full interpreter condition set.
+ *)
+let gwf_plain_is_pacfrel
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires gwe_cfg r s cf1 cf2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    ~(PSplice? c1) /\ ~(PEnterCtx? c1) /\ ~(PEmit? c1))
+          (ensures pawf s /\ pacfrel r s cf1 cf2)
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    gwf_comp_unfold r s c1 c2 ()
+
+let gwf_plain_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\
+                    gwe_cfg r s cf1 cf2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    ~(PSplice? c1) /\ ~(PEnterCtx? c1) /\ ~(PEmit? c1))
+          (ensures pacfrel r s cf1 cf2 /\ pastep_compat_at r lk apply s cf1 cf2)
+  = gwf_plain_is_pacfrel r s cf1 cf2 c1 c2 k1 k2;
+    lemma_pastep_tr_compat r lk apply s cf1 cf2
+
+(* ---- 4. THE ONE-STEP THEOREM FOR `gwe_cfg` ----------------------- *)
+
+(**
+ * **THE DISJUNCTION IS THE POINT, NOT A WEAKNESS.** The three exits have
+ * genuinely different successors -- `gwy_cf`, `gwe_cfg`, and the ordinary
+ * step compatibility -- and no common refinement is offered here, exactly as
+ * in the `padxg_cf` one-step theorem. What IS uniform across all three, and
+ * is therefore hoisted OUT of the disjunction, is the trace agreement
+ * `snd (...) == snd (...)`: whatever exit is taken, the two runs emit the
+ * same events. The store and the counter are preserved on the two exits
+ * that step structurally; the third exit says nothing about them because
+ * `pastep_compat_at` is the object that owns that question.
+ *)
+let gwf_step_out (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                 (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    ((snd (pstep_tr lk apply cf1) == ([] <: list string) /\
+      (fst (pstep_tr lk apply cf1)).store == cf1.store /\
+      (fst (pstep_tr lk apply cf2)).store == cf2.store /\
+      (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+      (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+      gwy_cf r s (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+     \/
+     ((fst (pstep_tr lk apply cf1)).store == cf1.store /\
+      (fst (pstep_tr lk apply cf2)).store == cf2.store /\
+      (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+      (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+      gwe_cfg r s (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)))
+     \/
+     pastep_compat_at r lk apply s cf1 cf2)
+
+let gwf_one_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\ gwe_cfg r s cf1 cf2)
+          (ensures gwf_step_out r lk apply s cf1 cf2)
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwf_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PSplice fs1 b1 ->
+         (match c2 with
+          | PSplice fs2 b2 ->
+            gwf_splice_step r lk apply s cf1 cf2 fs1 fs2 b1 b2 k1 k2
+          | _ -> ())
+       | PEnterCtx pl1 b1 ->
+         (match c2 with
+          | PEnterCtx pl2 b2 ->
+            gwf_enterctx_step r lk apply s cf1 cf2 pl1 pl2 b1 b2 k1 k2
+          | _ -> ())
+       | PEmit e1 b1 ->
+         (match c2 with
+          | PEmit e2 b2 ->
+            gwf_emit_step r lk apply s cf1 cf2 e1 e2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> gwf_plain_step r lk apply s cf1 cf2 c1 c2 k1 k2)
+    | _, _ -> ()
+
+(* ---- 5. THE HEIGHT MACHINERY LIFTS VERBATIM ---------------------- *)
+
+(**
+ * **WHY IT LIFTS, CHECKED RATHER THAN ASSUMED.** `gwv_h` counts `PEnterCtx`
+ * and `PEmit` nodes and returns `0` on everything else; it NEVER inspects a
+ * `PSplice`'s frame list. `gwv_evs` is the same shape. Since `gwe_comp` and
+ * `padx_comp` differ ONLY inside the `PSplice` clause, and `PSplice` is a
+ * height-zero terminus for both, the two relations induce the SAME spine --
+ * `gwe_comp` admits no spine `padx_comp` does not, which is the precise
+ * condition under which the machinery transfers. `gwf_comp_spine` proves
+ * that positively: related computations have equal height AND equal event
+ * lists, by induction through the wrapper nodes with the terminus cases
+ * discharged by the fallthrough's `pacrel` (`gwv_pacrel_not_wrapper`).
+ *)
+let gwf_wrapper_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_down r /\ gwe_cfg r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) > 0)
+          (ensures (let o1 = fst (pstep_tr lk apply cf1) in
+                    let o2 = fst (pstep_tr lk apply cf2) in
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    o1.store == cf1.store /\ o2.store == cf2.store /\
+                    o1.next == cf1.next /\ o2.next == cf2.next /\
+                    gwe_cfg r s o1 o2 /\ PStep? o1.st /\
+                    gwv_h (PStep?.c o1.st) + 1 == gwv_h (PStep?.c cf1.st)))
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwf_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PEmit e1 b1 ->
+         (match c2 with
+          | PEmit e2 b2 -> gwf_emit_step r lk apply s cf1 cf2 e1 e2 b1 b2 k1 k2
+          | _ -> ())
+       | PEnterCtx pl1 b1 ->
+         (match c2 with
+          | PEnterCtx pl2 b2 ->
+            gwf_enterctx_step r lk apply s cf1 cf2 pl1 pl2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> ())
+
+let gwf_wrapper_evs
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_down r /\ gwe_cfg r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) > 0)
+          (ensures (let o1 = fst (pstep_tr lk apply cf1) in
+                    let o2 = fst (pstep_tr lk apply cf2) in
+                    PStep? cf2.st /\ PStep? o1.st /\ PStep? o2.st /\
+                    gwv_evs (PStep?.c cf1.st)
+                      == snd (pstep_tr lk apply cf1) @ gwv_evs (PStep?.c o1.st) /\
+                    gwv_evs (PStep?.c cf2.st)
+                      == snd (pstep_tr lk apply cf2) @ gwv_evs (PStep?.c o2.st)))
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwf_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PEmit e1 b1 ->
+         (match c2 with
+          | PEmit e2 b2 -> gwf_emit_step r lk apply s cf1 cf2 e1 e2 b1 b2 k1 k2
+          | _ -> ())
+       | PEnterCtx pl1 b1 ->
+         (match c2 with
+          | PEnterCtx pl2 b2 ->
+            gwf_enterctx_step r lk apply s cf1 cf2 pl1 pl2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> ())
+
+let rec gwf_comp_spine (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (c1 c2: pcomp v cl)
+  : Lemma (requires gwe_comp r s c1 c2)
+          (ensures gwv_h c1 == gwv_h c2 /\ gwv_evs c1 == gwv_evs c2)
+          (decreases c1)
+  = gwf_comp_unfold r s c1 c2 ();
+    match c1 with
+    | PSplice fs1 b1 -> (match c2 with | PSplice fs2 b2 -> () | _ -> ())
+    | PEnterCtx pl1 b1 ->
+      (match c2 with
+       | PEnterCtx pl2 b2 -> gwf_comp_spine r s b1 b2
+       | _ -> ())
+    | PEmit e1 b1 ->
+      (match c2 with
+       | PEmit e2 b2 -> gwf_comp_spine r s b1 b2
+       | _ -> ())
+    | _ -> gwv_pacrel_not_wrapper r s c1 c2
+
+let gwf_cfg_spine (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (cf1 cf2: pconf v cl)
+  : Lemma (requires gwe_cfg r s cf1 cf2 /\ PStep? cf1.st)
+          (ensures PStep? cf2.st /\
+                   gwv_h (PStep?.c cf1.st) == gwv_h (PStep?.c cf2.st) /\
+                   gwv_evs (PStep?.c cf1.st) == gwv_evs (PStep?.c cf2.st))
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 -> gwf_comp_spine r s c1 c2
+    | _, _ -> ()
+
+let gwf_comp_terminus (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (c1 c2: pcomp v cl)
+  : Lemma (requires gwe_comp r s c1 c2 /\ gwv_h c1 == 0)
+          (ensures gwv_h c2 == 0 /\ gwv_evs c1 == [] /\ gwv_evs c2 == [])
+  = gwf_comp_unfold r s c1 c2 ();
+    match c1 with
+    | PSplice _ _ -> ()
+    | _ -> gwv_pacrel_not_wrapper r s c1 c2
+
+(**
+ * The terminus, packaged. Note what it does NOT say: it does not claim the
+ * `PSplice` case and the non-`PSplice` case are mutually exclusive as
+ * hypotheses about the pair -- they are stated as two implications guarded
+ * by a DECIDABLE discriminator on `cf1`'s computation, so exhaustiveness is
+ * all that is used and exclusivity is never appealed to.
+ *)
+let gwf_terminus_out (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                     (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : GTot prop
+  = PStep? cf1.st /\ PStep? cf2.st /\
+    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+    (PSplice? (PStep?.c cf1.st) ==>
+       (PSplice? (PStep?.c cf2.st) /\
+        snd (pstep_tr lk apply cf1) == ([] <: list string) /\
+        (fst (pstep_tr lk apply cf1)).store == cf1.store /\
+        (fst (pstep_tr lk apply cf2)).store == cf2.store /\
+        (fst (pstep_tr lk apply cf1)).next == cf1.next /\
+        (fst (pstep_tr lk apply cf2)).next == cf2.next /\
+        gwy_cf r s (fst (pstep_tr lk apply cf1))
+                   (fst (pstep_tr lk apply cf2)))) /\
+    (~(PSplice? (PStep?.c cf1.st)) ==>
+       (pacfrel r s cf1 cf2 /\ pastep_compat_at r lk apply s cf1 cf2))
+
+let gwf_terminus_step
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\ gwe_cfg r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == 0)
+          (ensures gwf_terminus_out r lk apply s cf1 cf2)
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwf_comp_unfold r s c1 c2 ();
+      (match c1 with
+       | PSplice fs1 b1 ->
+         (match c2 with
+          | PSplice fs2 b2 ->
+            gwf_splice_step r lk apply s cf1 cf2 fs1 fs2 b1 b2 k1 k2
+          | _ -> ())
+       | _ -> gwf_plain_step r lk apply s cf1 cf2 c1 c2 k1 k2)
+
+(* ---- 6. THE FINITE CLOSURE, FOR `gwe_cfg` ------------------------ *)
+
+(**
+ * **IT COMES TOO.** Running the spine out is `gwf_prefix` -- `n` wrapper
+ * steps, staying inside `gwe_cfg` the whole way, arriving at height `0` with
+ * the store and the counter untouched -- and `gwf_prefix_evs`, which says
+ * the trace of those `n` steps is EXACTLY `gwv_evs` of the source spine, so
+ * the claim is about ORDER AND MULTIPLICITY, not about length. Composing the
+ * two with `gwf_terminus_step` gives the closure. The height hypothesis is
+ * `gwv_h (PStep?.c cf1.st) == n` on the LEFT only; that the right has the
+ * same height is a CONCLUSION, via `gwf_cfg_spine`, not an assumption.
+ *)
+let rec gwf_prefix
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl) (n: nat)
+  : Lemma (requires pcl_down r /\ gwe_cfg r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == n)
+          (ensures (let (d1, tr1) = prun lk apply n cf1 in
+                    let (d2, tr2) = prun lk apply n cf2 in
+                    tr1 == tr2 /\
+                    d1.store == cf1.store /\ d2.store == cf2.store /\
+                    d1.next == cf1.next /\ d2.next == cf2.next /\
+                    gwe_cfg r s d1 d2 /\
+                    PStep? d1.st /\ gwv_h (PStep?.c d1.st) == 0))
+          (decreases n)
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    if n = 0 then ()
+    else begin
+      gwf_wrapper_step r lk apply s cf1 cf2;
+      gwv_prun_unfold lk apply (n - 1) cf1;
+      gwv_prun_unfold lk apply (n - 1) cf2;
+      gwf_prefix r lk apply s (fst (pstep_tr lk apply cf1))
+                              (fst (pstep_tr lk apply cf2)) (n - 1)
+    end
+
+let rec gwf_prefix_evs
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl) (n: nat)
+  : Lemma (requires pcl_down r /\ gwe_cfg r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == n)
+          (ensures PStep? cf2.st /\
+                   snd (prun lk apply n cf1) == gwv_evs (PStep?.c cf1.st) /\
+                   snd (prun lk apply n cf2) == gwv_evs (PStep?.c cf2.st))
+          (decreases n)
+  = gwf_cfg_unfold r s cf1 cf2 ();
+    if n = 0 then
+      (match cf1.st, cf2.st with
+       | PStep c1 k1, PStep c2 k2 -> gwf_comp_terminus r s c1 c2)
+    else begin
+      gwf_wrapper_step r lk apply s cf1 cf2;
+      gwf_wrapper_evs r lk apply s cf1 cf2;
+      gwv_prun_unfold lk apply (n - 1) cf1;
+      gwv_prun_unfold lk apply (n - 1) cf2;
+      gwf_prefix_evs r lk apply s (fst (pstep_tr lk apply cf1))
+                                  (fst (pstep_tr lk apply cf2)) (n - 1)
+    end
+
+let gwf_finite_closure
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl) (n: nat)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ plookup_equivariant r lk /\
+                    paapply_equivariant r apply /\ gwe_cfg r s cf1 cf2 /\
+                    PStep? cf1.st /\ gwv_h (PStep?.c cf1.st) == n)
+          (ensures (let d1 = fst (prun lk apply n cf1) in
+                    let d2 = fst (prun lk apply n cf2) in
+                    PStep? cf2.st /\
+                    snd (prun lk apply n cf1) == snd (prun lk apply n cf2) /\
+                    snd (prun lk apply n cf1) == gwv_evs (PStep?.c cf1.st) /\
+                    snd (prun lk apply n cf2) == gwv_evs (PStep?.c cf2.st) /\
+                    d1.store == cf1.store /\ d2.store == cf2.store /\
+                    d1.next == cf1.next /\ d2.next == cf2.next /\
+                    gwe_cfg r s d1 d2 /\
+                    PStep? d1.st /\ gwv_h (PStep?.c d1.st) == 0 /\
+                    gwf_terminus_out r lk apply s d1 d2))
+  = gwf_prefix r lk apply s cf1 cf2 n;
+    gwf_prefix_evs r lk apply s cf1 cf2 n;
+    gwf_terminus_step r lk apply s (fst (prun lk apply n cf1))
+                                   (fst (prun lk apply n cf2))
+
+(* ================================================================== *)
+(*  THE GUARDS.  Everything above is a conditional.  What follows      *)
+(*  discharges the hypotheses on the shipped fixture types, with the   *)
+(*  REAL `flook` and the REAL `xapply`, at a pair where the surplus    *)
+(*  frame is GENUINELY AT DEPTH -- so none of the exits is vacuous     *)
+(*  and none is secretly an instance of the head-surplus theory.       *)
+(* ================================================================== *)
+
+(* ---- the fixture: the surplus frame is GENUINELY AT DEPTH --------- *)
+
+(**
+ * `gwf_a1` is `[PScopeF; PBindF PVar]` against `gwf_a2 = [PScopeF]`. The
+ * surplus identity bind is the SECOND frame, not the first, so `padx_ktop`
+ * is FALSE on this pair -- refuted below, not merely unproved -- and it is
+ * still the second frame after appending `gwf_kk`, so `padx_ktop` is false
+ * on the appended pair too. This is what makes every guard below a genuine
+ * test of the depth theory.
+ *)
+let gwf_a1 : pstack fv fcl = [PScopeF; PBindF (PVar #fv #fcl)]
+let gwf_a2 : pstack fv fcl = [PScopeF]
+let gwf_kk : pstack fv fcl = [PScopeF]
+let gwf_bad1 : pstack fv fcl = [PBoundaryF]
+let gwf_bad2 : pstack fv fcl = []
+
+let gwf_kk_rel () : Lemma (pakrel fcl_rel pabot gwf_kk gwf_kk)
+  = lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    lemma_pafrel_scope #fv #fcl fcl_rel pabot;
+    lemma_pakrel_cons fcl_rel pabot (PScopeF #fv #fcl) PScopeF
+      ([] <: pstack fv fcl) ([] <: pstack fv fcl)
+
+let gwf_a_deep () : Lemma (gwy_k fcl_rel pabot gwf_a1 gwf_a2)
+  = lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    gwe_ktop_head fcl_rel pabot (PVar #fv #fcl)
+      ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+    lemma_pafrel_scope #fv #fcl fcl_rel pabot;
+    gwy_k_cons fcl_rel pabot (PScopeF #fv #fcl) PScopeF
+      ([PBindF (PVar #fv #fcl)] <: pstack fv fcl) ([] <: pstack fv fcl)
+
+let gwf_a_not_pakrel () : Lemma (~(pakrel fcl_rel pabot gwf_a1 gwf_a2))
+  = introduce pakrel fcl_rel pabot gwf_a1 gwf_a2 ==> False
+    with (lemma_pakrel_cons_inv fcl_rel pabot (PScopeF #fv #fcl) PScopeF
+            ([PBindF (PVar #fv #fcl)] <: pstack fv fcl) ([] <: pstack fv fcl);
+          lemma_pakrel_shape fcl_rel pabot
+            ([PBindF (PVar #fv #fcl)] <: pstack fv fcl) ([] <: pstack fv fcl))
+
+let gwf_a_not_ktop () : Lemma (~(padx_ktop fcl_rel pabot gwf_a1 gwf_a2))
+  = introduce padx_ktop fcl_rel pabot gwf_a1 gwf_a2 ==> False
+    with (padx_ktop_unfold fcl_rel pabot gwf_a1 gwf_a2 ();
+          assert (padx_top fcl_rel 0 pabot gwf_a1 gwf_a2))
+
+let gwf_ak_not_ktop ()
+  : Lemma (~(padx_ktop fcl_rel pabot (gwf_a1 @ gwf_kk) (gwf_a2 @ gwf_kk)))
+  = introduce padx_ktop fcl_rel pabot (gwf_a1 @ gwf_kk) (gwf_a2 @ gwf_kk) ==> False
+    with (padx_ktop_unfold fcl_rel pabot (gwf_a1 @ gwf_kk) (gwf_a2 @ gwf_kk) ();
+          assert (padx_top fcl_rel 0 pabot (gwf_a1 @ gwf_kk) (gwf_a2 @ gwf_kk)))
+
+(* ---- GUARD 1: the deep-prefix append FIRES, and the existing
+       orientation does NOT apply at this pair ---------------------- *)
+
+(**
+ * The prefix is deep and NOT ordinary, so `gwy_k_append` -- which wants an
+ * ORDINARY prefix -- cannot be applied to this pair at all; and the surplus
+ * is not on top, before or after the append, so the head-surplus theory
+ * does not reach it either. `gwf_k_append_deep` does.
+ *)
+let guard_gwf_append_deep_fires ()
+  : Lemma (gwy_k fcl_rel pabot gwf_a1 gwf_a2 /\
+           ~(pakrel fcl_rel pabot gwf_a1 gwf_a2) /\
+           ~(padx_ktop fcl_rel pabot gwf_a1 gwf_a2) /\
+           pakrel fcl_rel pabot gwf_kk gwf_kk /\
+           gwy_k fcl_rel pabot (gwf_a1 @ gwf_kk) (gwf_a2 @ gwf_kk) /\
+           ~(padx_ktop fcl_rel pabot (gwf_a1 @ gwf_kk) (gwf_a2 @ gwf_kk)))
+  = gwf_a_deep ();
+    gwf_kk_rel ();
+    gwf_a_not_pakrel ();
+    gwf_a_not_ktop ();
+    gwf_ak_not_ktop ();
+    gwf_k_append_deep fcl_rel pabot gwf_a1 gwf_a2 gwf_kk gwf_kk
+
+(* ---- ABLATION 1: drop `pakrel r s k1 k2` -- the conclusion FAILS -- *)
+
+(**
+ * A REFUTATION, not a failed proof attempt: with the suffix hypothesis
+ * dropped the conclusion is provably FALSE at `gwf_bad1`/`gwf_bad2`. The
+ * witness is walked out by the two inversions -- past `PScopeF`, past the
+ * surplus bind -- to `pakrel [PBoundaryF] []`, which `lemma_pakrel_shape`
+ * refutes.
+ *)
+let guard_gwf_append_needs_pakrel_suffix ()
+  : Lemma (gwy_k fcl_rel pabot gwf_a1 gwf_a2 /\
+           ~(pakrel fcl_rel pabot gwf_bad1 gwf_bad2) /\
+           ~(gwy_k fcl_rel pabot (gwf_a1 @ gwf_bad1) (gwf_a2 @ gwf_bad2)))
+  = gwf_a_deep ();
+    introduce pakrel fcl_rel pabot gwf_bad1 gwf_bad2 ==> False
+    with lemma_pakrel_shape fcl_rel pabot gwf_bad1 gwf_bad2;
+    introduce gwy_k fcl_rel pabot (gwf_a1 @ gwf_bad1) (gwf_a2 @ gwf_bad2) ==> False
+    with (gwf_k_deep_inv fcl_rel pabot (PScopeF #fv #fcl)
+            ([PBindF (PVar #fv #fcl); PBoundaryF] <: pstack fv fcl)
+            ([PScopeF] <: pstack fv fcl);
+          gwf_k_bind_nil_inv fcl_rel pabot (PVar #fv #fcl)
+            ([PBoundaryF] <: pstack fv fcl);
+          lemma_pakrel_shape fcl_rel pabot
+            ([PBoundaryF] <: pstack fv fcl) ([] <: pstack fv fcl))
+
+(* ---- ABLATION 2: weaken `gwy_k r s a1 a2` to `pakrel` -- FAILS ---- *)
+
+(**
+ * Also a REFUTATION. The empty pair is `pakrel`-related and the suffix
+ * hypothesis holds, yet the conclusion `gwy_k [] []` is FALSE: `gwy_k`
+ * demands a `Cons`, because the surplus frame has to BE somewhere. So the
+ * deep prefix hypothesis cannot be weakened to the ordinary one.
+ *)
+let guard_gwf_append_needs_deep_prefix ()
+  : Lemma (pakrel fcl_rel pabot ([] <: pstack fv fcl) ([] <: pstack fv fcl) /\
+           pakrel fcl_rel pabot gwf_kk gwf_kk /\
+           ~(gwy_k fcl_rel pabot ([] <: pstack fv fcl) ([] <: pstack fv fcl)) /\
+           ~(gwy_k fcl_rel pabot
+               (([] <: pstack fv fcl) @ ([] <: pstack fv fcl))
+               (([] <: pstack fv fcl) @ ([] <: pstack fv fcl))))
+  = lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    gwf_kk_rel ();
+    introduce gwy_k fcl_rel pabot ([] <: pstack fv fcl) ([] <: pstack fv fcl) ==> False
+    with gwy_k_unfold fcl_rel pabot
+           ([] <: pstack fv fcl) ([] <: pstack fv fcl) ()
+
+(* ---- the three configurations, one per exit ---------------------- *)
+
+let gwf_body : pcomp fv fcl = PVar (fpv FU)
+
+let gwf_sp_cf1 : pconf fv fcl =
+  { st = PStep (PSplice gwf_a1 gwf_body) gwf_kk;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwf_sp_cf2 : pconf fv fcl =
+  { st = PStep (PSplice gwf_a2 gwf_body) gwf_kk;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwf_sp_o1 : pconf fv fcl =
+  { st = PStep gwf_body (gwf_a1 @ gwf_kk);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwf_sp_o2 : pconf fv fcl =
+  { st = PStep gwf_body (gwf_a2 @ gwf_kk);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+let gwf_em_cf1 : pconf fv fcl =
+  { st = PStep (PEmit "a" (PSplice gwf_a1 gwf_body)) gwf_kk;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwf_em_cf2 : pconf fv fcl =
+  { st = PStep (PEmit "a" (PSplice gwf_a2 gwf_body)) gwf_kk;
+    store = ([] <: pstore fv fcl); next = 0 }
+
+let gwf_pl_cf : pconf fv fcl =
+  { st = PStep gwf_body gwf_kk; store = ([] <: pstore fv fcl); next = 0 }
+
+let gwf_body_rel () : Lemma (pacrel fcl_rel pabot gwf_body gwf_body)
+  = assert (pval_rel pabot.aw (fpv FU) (fpv FU));
+    lemma_pacrel_var #fv #fcl fcl_rel pabot (fpv FU) (fpv FU)
+
+let gwf_sp_source () : Lemma (gwe_cfg fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwf_a_deep ();
+    gwf_kk_rel ();
+    gwf_body_rel ()
+
+let gwf_sp_not_padxg () : Lemma (~(padxg_cf fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2))
+  = introduce padxg_cf fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2 ==> False
+    with (padxg_cf_unfold fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2 ();
+          gwz_padx_comp_unfold fcl_rel pabot
+            (PSplice gwf_a1 gwf_body) (PSplice gwf_a2 gwf_body) ();
+          gwf_a_not_ktop ())
+
+let gwf_sp_out_not_padx () : Lemma (~(padx_cf fcl_rel pabot gwf_sp_o1 gwf_sp_o2))
+  = introduce padx_cf fcl_rel pabot gwf_sp_o1 gwf_sp_o2 ==> False
+    with (padx_cf_unfold fcl_rel pabot gwf_sp_o1 gwf_sp_o2 ();
+          padx_st_unfold fcl_rel pabot gwf_sp_o1.st gwf_sp_o2.st ();
+          gwf_ak_not_ktop ())
+
+(* ---- GUARD 2 (EXIT 1): the `PSplice` terminus lands in `gwy_cf`,
+       and NOT in `padx_cf` --------------------------------------- *)
+
+(**
+ * The section's main finding, discharged concretely. The source is
+ * `gwe_cfg` and is REFUTED to be `padxg_cf`; one real step of the real
+ * interpreter emits nothing and lands in `gwy_cf`, and the successor is
+ * REFUTED to be `padx_cf`. The edge `gwe_cfg -> gwy_cf` is therefore not
+ * an artefact of a weak statement -- the parallel edge to `padx_cf` is
+ * unavailable at this pair.
+ *)
+let guard_gwf_splice_exit_fires ()
+  : Lemma (gwe_cfg fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2 /\
+           ~(padxg_cf fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2) /\
+           gwv_h (PStep?.c gwf_sp_cf1.st) == 0 /\
+           pstep_tr flook xapply gwf_sp_cf1 == (gwf_sp_o1, ([] <: list string)) /\
+           pstep_tr flook xapply gwf_sp_cf2 == (gwf_sp_o2, ([] <: list string)) /\
+           prun flook xapply 1 gwf_sp_cf1 == (gwf_sp_o1, ([] <: list string)) /\
+           prun flook xapply 1 gwf_sp_cf2 == (gwf_sp_o2, ([] <: list string)) /\
+           gwy_cf fcl_rel pabot gwf_sp_o1 gwf_sp_o2 /\
+           ~(padx_cf fcl_rel pabot gwf_sp_o1 gwf_sp_o2) /\
+           gwf_terminus_out fcl_rel flook xapply pabot gwf_sp_cf1 gwf_sp_cf2 /\
+           gwf_step_out fcl_rel flook xapply pabot gwf_sp_cf1 gwf_sp_cf2)
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_xapply_paequivariant ();
+    gwf_sp_source ();
+    gwf_sp_not_padxg ();
+    gwf_sp_out_not_padx ();
+    gwf_splice_step fcl_rel flook xapply pabot gwf_sp_cf1 gwf_sp_cf2
+      gwf_a1 gwf_a2 gwf_body gwf_body gwf_kk gwf_kk;
+    gwv_prun_one flook xapply gwf_sp_cf1;
+    gwv_prun_one flook xapply gwf_sp_cf2;
+    gwf_terminus_step fcl_rel flook xapply pabot gwf_sp_cf1 gwf_sp_cf2;
+    gwf_one_step fcl_rel flook xapply pabot gwf_sp_cf1 gwf_sp_cf2
+
+(* ---- GUARD 3 (EXIT 2): the `PEmit` wrapper stays in `gwe_cfg`,
+       and the FINITE CLOSURE runs the spine out to the terminus --- *)
+
+let gwf_em_source () : Lemma (gwe_cfg fcl_rel pabot gwf_em_cf1 gwf_em_cf2)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwf_a_deep ();
+    gwf_kk_rel ();
+    gwf_body_rel ()
+
+(**
+ * The wrapper exit, on a spine of height one whose TERMINUS is the deep
+ * `PSplice` pair. The step emits `"a"` on BOTH sides and stays in
+ * `gwe_cfg`; the successor is again refuted to be `padxg_cf`, so the
+ * wrapper does not smuggle the pair back into the head-surplus phase.
+ *)
+let guard_gwf_wrapper_exit_fires ()
+  : Lemma (gwe_cfg fcl_rel pabot gwf_em_cf1 gwf_em_cf2 /\
+           gwv_h (PStep?.c gwf_em_cf1.st) == 1 /\
+           gwv_evs (PStep?.c gwf_em_cf1.st) == (["a"] <: list string) /\
+           pstep_tr flook xapply gwf_em_cf1 == (gwf_sp_cf1, (["a"] <: list string)) /\
+           pstep_tr flook xapply gwf_em_cf2 == (gwf_sp_cf2, (["a"] <: list string)) /\
+           prun flook xapply 1 gwf_em_cf1 == (gwf_sp_cf1, (["a"] <: list string)) /\
+           prun flook xapply 1 gwf_em_cf2 == (gwf_sp_cf2, (["a"] <: list string)) /\
+           gwe_cfg fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2 /\
+           ~(padxg_cf fcl_rel pabot gwf_sp_cf1 gwf_sp_cf2) /\
+           gwf_step_out fcl_rel flook xapply pabot gwf_em_cf1 gwf_em_cf2)
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_xapply_paequivariant ();
+    gwf_em_source ();
+    gwf_sp_source ();
+    gwf_sp_not_padxg ();
+    gwf_emit_step fcl_rel flook xapply pabot gwf_em_cf1 gwf_em_cf2
+      "a" "a" (PSplice gwf_a1 gwf_body) (PSplice gwf_a2 gwf_body) gwf_kk gwf_kk;
+    gwv_prun_one flook xapply gwf_em_cf1;
+    gwv_prun_one flook xapply gwf_em_cf2;
+    gwf_one_step fcl_rel flook xapply pabot gwf_em_cf1 gwf_em_cf2
+
+(**
+ * The finite closure FIRES on that same spine: `prun` of the exact height
+ * reaches the deep `PSplice` terminus, with the trace equal to the source
+ * spine's event list event-for-event, and the terminus package then hands
+ * back the `gwy_cf` successor -- which is, once more, refuted to be
+ * `padx_cf`.
+ *)
+let guard_gwf_finite_closure_fires ()
+  : Lemma (gwe_cfg fcl_rel pabot gwf_em_cf1 gwf_em_cf2 /\
+           gwv_h (PStep?.c gwf_em_cf1.st) == 1 /\
+           fst (prun flook xapply 1 gwf_em_cf1) == gwf_sp_cf1 /\
+           fst (prun flook xapply 1 gwf_em_cf2) == gwf_sp_cf2 /\
+           snd (prun flook xapply 1 gwf_em_cf1) == (["a"] <: list string) /\
+           snd (prun flook xapply 1 gwf_em_cf2) == (["a"] <: list string) /\
+           gwf_terminus_out fcl_rel flook xapply pabot gwf_sp_cf1 gwf_sp_cf2 /\
+           gwy_cf fcl_rel pabot gwf_sp_o1 gwf_sp_o2 /\
+           ~(padx_cf fcl_rel pabot gwf_sp_o1 gwf_sp_o2))
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_xapply_paequivariant ();
+    guard_gwf_wrapper_exit_fires ();
+    gwf_sp_out_not_padx ();
+    gwf_splice_step fcl_rel flook xapply pabot gwf_sp_cf1 gwf_sp_cf2
+      gwf_a1 gwf_a2 gwf_body gwf_body gwf_kk gwf_kk;
+    gwf_finite_closure fcl_rel flook xapply pabot gwf_em_cf1 gwf_em_cf2 1
+
+(* ---- GUARD 4 (EXIT 3): the plain fallthrough IS `pacfrel` -------- *)
+
+let guard_gwf_plain_exit_fires ()
+  : Lemma (gwe_cfg fcl_rel pabot gwf_pl_cf gwf_pl_cf /\
+           gwv_h (PStep?.c gwf_pl_cf.st) == 0 /\
+           pacfrel fcl_rel pabot gwf_pl_cf gwf_pl_cf /\
+           pastep_compat_at fcl_rel flook xapply pabot gwf_pl_cf gwf_pl_cf /\
+           gwf_terminus_out fcl_rel flook xapply pabot gwf_pl_cf gwf_pl_cf /\
+           gwf_step_out fcl_rel flook xapply pabot gwf_pl_cf gwf_pl_cf)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    lemma_flook_equivariant ();
+    lemma_xapply_paequivariant ();
+    cor_padxg_pabot_sto_self ();
+    gwf_kk_rel ();
+    gwf_body_rel ();
+    gwf_plain_step fcl_rel flook xapply pabot gwf_pl_cf gwf_pl_cf
+      gwf_body gwf_body gwf_kk gwf_kk;
+    gwf_terminus_step fcl_rel flook xapply pabot gwf_pl_cf gwf_pl_cf;
+    gwf_one_step fcl_rel flook xapply pabot gwf_pl_cf gwf_pl_cf
+
+(* ================================================================== *)
+(*  B2c STAGE 10 -- WHAT THIS SECTION SETTLED                          *)
+(*                                                                     *)
+(*  --- PROVED ---                                                     *)
+(*                                                                     *)
+(*  * `gwf_k_append_deep`: the append lemma in the DEEP-PREFIX         *)
+(*    orientation, `gwy_k a1 a2 /\ pakrel k1 k2 ==> gwy_k (a1 @ k1)    *)
+(*    (a2 @ k2)`.  Its induction is NOT symmetric to `gwy_k_append`'s: *)
+(*    the surplus branch EXITS the recursion into `lemma_pakrel_append`*)
+(*    instead of recursing.  Hypotheses: none beyond the two shown --  *)
+(*    no `pcl_down`, no `pawf`.                                        *)
+(*  * `gwf_splice_step`: the `PSplice` terminus of `gwe_cfg` lands in  *)
+(*    `gwy_cf`.  The phase graph gains `gwe_cfg -> gwy_cf`, parallel   *)
+(*    to `padxg_cf -> padx_cf`.  Hypotheses: `gwe_cfg` alone.          *)
+(*  * `gwf_emit_step`, `gwf_enterctx_step`, `gwf_plain_step`: the two  *)
+(*    wrapper cases and the fallthrough LIFT UNCHANGED, the wrappers   *)
+(*    staying inside `gwe_cfg` and the fallthrough collapsing to       *)
+(*    `pacfrel`.  `PEnterCtx` needs `pcl_down r`; the fallthrough      *)
+(*    needs the full interpreter condition set; `PEmit` needs neither. *)
+(*  * `gwf_one_step`: the one-step theorem for `gwe_cfg`, concluding   *)
+(*    a three-way disjunction with the trace agreement HOISTED OUT.    *)
+(*  * `gwf_comp_spine` / `gwf_cfg_spine`: `gwe_comp` admits NO spine   *)
+(*    `padx_comp` does not -- related computations have equal `gwv_h`  *)
+(*    and equal `gwv_evs` -- which is why the height machinery         *)
+(*    transfers.  Checked, not assumed.                                *)
+(*  * `gwf_prefix`, `gwf_prefix_evs`, `gwf_finite_closure`: the finite *)
+(*    closure comes too, with the trace equal to `gwv_evs` of the      *)
+(*    source spine event for event, not merely equal in length.        *)
+(*                                                                     *)
+(*  --- REFUTED (on the shipped fixture, at a pair whose surplus is    *)
+(*      genuinely at depth) ---                                        *)
+(*                                                                     *)
+(*  * `padx_ktop` on the source segment pair, and on the APPENDED      *)
+(*    pair -- so no guard below is an instance of the head-surplus     *)
+(*    theory.                                                          *)
+(*  * `padxg_cf` on the `PSplice` source pair, and `padx_cf` on its    *)
+(*    successor: the parallel edge is UNAVAILABLE here, so the new     *)
+(*    edge is not a restatement of the old one.                        *)
+(*  * Both premises of `gwf_k_append_deep` are NECESSARY, each by a    *)
+(*    REFUTATION rather than a failed proof: dropping the ordinary     *)
+(*    suffix makes the conclusion false at `[PBoundaryF]`/`[]`, and    *)
+(*    weakening the deep prefix to an ordinary one makes it false at   *)
+(*    the empty pair, where `gwy_k` demands a `Cons`.                  *)
+(*                                                                     *)
+(*  --- NOT PROVED, AND NOT CLAIMED ---                                *)
+(*                                                                     *)
+(*  * `gwe_cfg` and `gwy_cf` are NOT unified.  The one-step theorem    *)
+(*    concludes a DISJUNCTION, and no common refinement is offered.    *)
+(*  * Nothing here composes two steps.  That the `gwy_cf` successor    *)
+(*    of the `PSplice` exit can be stepped AGAIN is not shown.         *)
+(*  * The deep `PPerform` arm is untouched by this section; the exits  *)
+(*    treated here are the two wrappers, `PSplice`, and the plain      *)
+(*    fallthrough, and `PPerform` reaches `gwf_one_step` only through  *)
+(*    that fallthrough, i.e. only when `gwe_comp` degenerates to       *)
+(*    `pacrel` on it.                                                  *)
+(*  * The boundary record is not touched.                              *)
+(*                                                                     *)
+(*  NOTHING ABOVE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no     *)
+(*  `assume`, no `z3rlimit`, no `push-options`, no `set-options`, no   *)
+(*  `expect_failure`, no bodiless `val`.  Every proof above runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)
