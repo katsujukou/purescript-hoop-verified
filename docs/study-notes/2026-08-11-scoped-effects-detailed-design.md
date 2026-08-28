@@ -8777,6 +8777,83 @@ horn's actual `pyield` / `pstep_tr` successor in it. After that, whether the two
 horns together let `gwp_cut_below` be demoted from an assumption to a
 consequence of the dichotomy.
 
+#### Widening the target, not sharpening the horns
+
+> `gwp_cut_below` was needed because the old target relation admitted only one
+> cut horn. After widening the target to `gwr_cf`, both horns establish the same
+> conclusion, so the proof can eliminate the exhaustive disjunction without
+> deciding which horn holds and without proving exclusivity.
+
+```text
+A ──▶ gwr_cf
+B ──▶ gwr_cf
+────────────
+A ∨ B ──▶ gwr_cf
+```
+
+What is needed is exhaustiveness plus a common landing site — **not** the
+impossibility of `A ∧ B`. Exclusivity remains unproved, and remains unneeded.
+
+Confirmed by reading the statement: `gwr_cut_below_demoted`'s `requires`
+contains neither `gwp_cut_below` nor any horn selector. And the demoted premise
+is not one that was harmlessly true anyway — it is refuted on the shipping
+fixture.
+
+#### What `gwr_cf` changes, and at what scope
+
+> `gwr_cf` copies `gwp_cf` and weakens exactly the two components crossed by the
+> cut: the live stack relation and store realisation. Values, computations,
+> worlds, counters, and terminal shapes are unchanged.
+
+That is the shape actually taken, not a claim that it is the unique minimal
+repair. The reverse refutation shows the widening is strict **as a whole**; with
+no external ablation, the individual necessity of each of the two weakenings is
+not credited.
+
+#### The union is a genuine carrier
+
+> Ordinary `pakrel` accepts the equal-length horn and rejects the one-frame-deep
+> horn; `gwy_k` accepts the latter and rejects the former. Their union is
+> therefore a genuine common carrier rather than a renaming of either input
+> phase.
+
+Verified independently, and read off the two length facts — `pakrel` forces
+equal length, `gwy_k` forces a difference of exactly one — rather than from
+any exclusivity theorem.
+
+#### The `pyield` identification, at its actual strength
+
+`fst (pstep_tr …)` is identified with `pyield …` **under the branch premises
+`pstep` already reaches `pyield` at**, needing no additional semantic
+hypothesis — not unconditionally for all configurations. `pstep_tr` intercepts
+only `PEmit`, so the trace is `[]` here by computation.
+
+#### The demotion is juxtaposed, not adopted
+
+> The side condition is eliminated in the new parallel theorem only. The
+> existing `gwp_var_deep_step` and its callers remain unchanged and continue to
+> require `gwp_cut_below`.
+
+So this is a proof that the side condition **can** be removed, not a codebase in
+which it has been.
+
+#### Ablations, this time in a different form
+
+- relation strictness and each horn's discrimination: proved as **in-file
+  refutation lemmas**;
+- an exhaustive per-premise load-bearing check: **not performed** this gate, for
+  cost reasons — each would need a full-file copy and run.
+
+The in-file refutations are stronger statements than an ablation, but they do
+not substitute for the exhaustive check, and are not counted as one.
+
+#### Next
+
+Juxtapose a `gwr_cf`-based `PVar` bundle and repackage every head-frame branch
+into the same conclusion. That is where a complete deep-`PVar` theorem free of
+`gwp_cut_below` first exists. Deleting or replacing the old bundle is a decision
+to take afterwards, on the comparison.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

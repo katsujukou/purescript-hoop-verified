@@ -50589,3 +50589,562 @@ let guard_gwr_cut_inside_lands_fires ()
     with (pasrel_unfold fcl_rel (paalloc pabot) gwr_gsto1 gwr_gsto2 ();
           assert (paxrel fcl_rel (paalloc pabot)
                     (psget 0 gwr_gsto1) (psget 0 gwr_gsto2)))
+
+(* ================================================================== *)
+(*  B2b.PVarDEEP-RCF -- THE RESIDUAL CONFIGURATION RELATION            *)
+(*                                                                     *)
+(*  WHAT THIS SECTION IS FOR.  `gwr_cut_inside_lands` gives the         *)
+(*  cut-inside horn a semantic landing site, but it speaks about        *)
+(*  `pyield x1 hd1 t1 cf1` -- a FUNCTION RESULT -- and nothing          *)
+(*  identifies that with a `pstep_tr` successor, and no configuration   *)
+(*  relation in the file carries `gwr_srel`.  Both are closed here.     *)
+(*                                                                     *)
+(*  `gwr_cf` is `gwp_cf` with exactly two weakenings, and no more:      *)
+(*                                                                     *)
+(*    - the STACK conjunct becomes `pakrel \/ gwy_k` (`gwr_kd`),        *)
+(*      because that disjunction is what `gwp_cut_deep` hands back for  *)
+(*      the remainder below the cut, on BOTH horns: in the cut-below    *)
+(*      horn the remainder is the deep one, in the cut-inside horn the  *)
+(*      surplus went into the residual and the remainder is ordinary;   *)
+(*    - the STORE conjunct becomes `gwr_srel`, because the cut-inside   *)
+(*      horn stores a residual pair whose request stacks have DIFFERENT *)
+(*      LENGTHS, which `pasrel` refuses -- that refusal is              *)
+(*      `guard_gwr_cut_inside_lands_fires`, already proved.             *)
+(*                                                                     *)
+(*  Everything else -- `pawf`, the counters pinned to the two           *)
+(*  frontiers -- is verbatim `gwp_cf`, as every configuration relation  *)
+(*  in this file has it.  The `PPaused` clause is kept because `pyield` *)
+(*  HAS a `PPaused` branch and the landing has to cover it;             *)
+(*  `guard_gwr_yield_paused_fires` is the check that the clause is      *)
+(*  inhabited on a shipping fixture and not decoration.                 *)
+(*                                                                     *)
+(*  `gwr_cf_of_gwp_cf` is the check that the widening is a WIDENING:    *)
+(*  every pair the shipped landing relates is related here.             *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS.  *)
+(* ================================================================== *)
+
+(* ---- 1. THE RELATION --------------------------------------------- *)
+
+let gwr_kd (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+           (k1 k2: pstack v cl) : GTot prop
+  = pakrel r s k1 k2 \/ gwy_k r s k1 k2
+
+let gwr_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+           (st1 st2: pstate v cl) : GTot prop
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ gwr_kd r s k1 k2
+    | PPaused x1 rs1, PPaused x2 rs2 -> pval_rel s.aw x1 x2 /\ gwr_kd r s rs1 rs2
+    | _, _ -> False
+
+let gwr_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+           (cf1 cf2: pconf v cl) : GTot prop
+  = pawf s /\ gwr_st r s cf1.st cf2.st /\ gwr_srel r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+(** The three `squash`-to-`squash` casts, accepted BY CONVERSION, for the same
+    reason `pcfrel_unfold` records: a `GTot prop` applied to arguments is an
+    ATOM in hypothesis position. *)
+let gwr_kd_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (k1 k2: pstack v cl) (h: squash (gwr_kd r s k1 k2))
+  : squash (pakrel r s k1 k2 \/ gwy_k r s k1 k2)
+  = h
+
+let gwr_st_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (st1 st2: pstate v cl) (h: squash (gwr_st r s st1 st2))
+  : squash (match st1, st2 with
+            | PStep c1 k1, PStep c2 k2 -> pacrel r s c1 c2 /\ gwr_kd r s k1 k2
+            | PPaused x1 rs1, PPaused x2 rs2 ->
+              pval_rel s.aw x1 x2 /\ gwr_kd r s rs1 rs2
+            | _, _ -> False)
+  = h
+
+let gwr_cf_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (cf1 cf2: pconf v cl) (h: squash (gwr_cf r s cf1 cf2))
+  : squash (pawf s /\ gwr_st r s cf1.st cf2.st /\
+            gwr_srel r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+(** **THE WIDENING IS A WIDENING.** PROVED. Both weakenings are in the same
+    direction: `gwy_k` is the right disjunct of `gwr_kd`, and `pasrel` implies
+    `gwr_srel` by `gwr_srel_of_pasrel`. So nothing the shipped landing relation
+    accepts is lost, and `gwr_cf` is a common target for the two horns rather
+    than a replacement for one of them. *)
+let gwr_cf_of_gwp_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (cf1 cf2: pconf v cl)
+  : Lemma (requires gwp_cf r s cf1 cf2) (ensures gwr_cf r s cf1 cf2)
+  = gwp_cf_unfold r s cf1 cf2 ();
+    gwp_st_unfold r s cf1.st cf2.st ();
+    gwr_srel_of_pasrel r s cf1.store cf2.store
+
+(* ---- 2. `pstep_tr` IS `pyield` AT THE TWO YIELDING EXITS ---------- *)
+
+(**
+ * **THE COMPUTATIONAL IDENTIFICATION, AND IT NEEDS NO EXTRA HYPOTHESIS.**
+ * PROVED.
+ *
+ * `lemma_pstep_yield_guard` already says `pstep lk apply cf == pyield x hd rest
+ * cf` under exactly the two branch conditions the `PBoundaryF` and `PSiteF`
+ * value rules reach `pyield` at. `pstep_tr` wraps `pstep` with ONE interception,
+ * at `PStep (PEmit ev body) k`, and the redex here is `PVar x`, so the wrapper
+ * falls through to `pstep` and the emitted trace is `[]`. The hypotheses are
+ * therefore the SAME two guards and nothing further: no well-bracketing, no
+ * shape assumption on `rest`, no relation.
+ *)
+let gwr_pstep_tr_yield
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (x: pval v) (hd: pframe v cl) (rest: pstack v cl)
+  : Lemma (requires (PBoundaryF? hd \/ PSiteF? hd) /\
+                    pfind_mode rest == None /\
+                    cf.st == PStep (PVar x) (hd :: rest))
+          (ensures pstep_tr lk apply cf == (pyield x hd rest cf, ([] <: list string)) /\
+                   fst (pstep_tr lk apply cf) == pyield x hd rest cf /\
+                   snd (pstep_tr lk apply cf) == ([] <: list string))
+  = lemma_pstep_yield_guard lk apply cf x hd rest
+
+(* ---- 3. THE LANDING, BRANCH BY BRANCH ---------------------------- *)
+
+(**
+ * **THE `PPaused` BRANCH IS RELATED.** PROVED. With no floor to cut at, the two
+ * `pyield`s answer `PPaused` with the head frame put back, the store is
+ * untouched and the state does not move; `gwy_k_cons` puts the head frame back
+ * on the deep stack relation and the right disjunct of `gwr_kd` accepts it.
+ *)
+let gwr_yield_lands_paused
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (hd1 hd2: pframe v cl) (t1 t2: pstack v cl)
+    (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x1 x2 /\ pafrel r s hd1 hd2 /\
+                    gwy_k r s t1 t2 /\ pcut_scope t1 == None /\
+                    gwr_srel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2)
+          (ensures (let o1 = pyield x1 hd1 t1 cf1 in
+                    let o2 = pyield x2 hd2 t2 cf2 in
+                    pcut_scope t2 == None /\
+                    o1 == ({ cf1 with st = PPaused x1 (hd1 :: t1) } <: pconf v cl) /\
+                    o2 == ({ cf2 with st = PPaused x2 (hd2 :: t2) } <: pconf v cl) /\
+                    paext s s /\
+                    paprov_step_at s s cf1 cf2 o1 o2 /\
+                    gwr_cf r s o1 o2))
+  = gwp_cut_deep r s t1 t2;
+    gwy_k_cons r s hd1 hd2 t1 t2;
+    lemma_paext_refl_wf s
+
+(**
+ * **THE ALLOCATING BRANCH IS RELATED, AND ON BOTH HORNS AT ONCE.** PROVED.
+ *
+ * This is `gwr_cut_inside_lands` repackaged as a statement about a
+ * CONFIGURATION: the trace is not touched (that is step 2), the store is carried
+ * by `gwr_srel`, the counters land on the two frontiers of `paalloc s`, and the
+ * allocation state is witnessed by `paprov_step_at (paalloc s) s`, whose
+ * existential is discharged with the two residuals the machine ACTUALLY stored.
+ *
+ * The hypothesis is `gwy_k r s t1 t2` and `Some? (pcut_scope t1)` -- and NOT a
+ * choice of horn. `gwp_cut_deep` splits inside `gwr_cut_resid_related`, and both
+ * halves of the split produce the same two facts: a `gwr_xrel`-related residual
+ * pair and a `gwr_kd`-related remainder. That is why the two horns share one
+ * target.
+ *)
+let gwr_yield_lands_alloc
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (hd1 hd2: pframe v cl) (t1 t2: pstack v cl)
+    (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    pafrel r s hd1 hd2 /\ gwy_k r s t1 t2 /\
+                    Some? (pcut_scope t1) /\
+                    gwr_srel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2)
+          (ensures (let s' = paalloc s in
+                    let o1 = pyield x1 hd1 t1 cf1 in
+                    let o2 = pyield x2 hd2 t2 cf2 in
+                    paext s' s /\ pawf s' /\
+                    o1.next == cf1.next + 1 /\ o2.next == cf2.next + 1 /\
+                    paprov_step_at s' s cf1 cf2 o1 o2 /\
+                    gwr_cf r s' o1 o2))
+  = let o1 = pyield x1 hd1 t1 cf1 in
+    let o2 = pyield x2 hd2 t2 cf2 in
+    gwr_cut_inside_lands r s x1 x2 hd1 hd2 t1 t2 cf1 cf2;
+    lemma_pacrel_var #v #cl r (paalloc s) (PCtxKey #v s.an1) (PCtxKey #v s.an2);
+    match pcut_scope t1, pcut_scope t2 with
+    | Some (a1, b1), Some (a2, b2) ->
+      lemma_paprov_alloc_intro s cf1 cf2 o1 o2
+        (PCtxRequests x1 (hd1 :: a1) (PVar #v #cl))
+        (PCtxRequests x2 (hd2 :: a2) (PVar #v #cl))
+    | _, _ -> ()
+
+(** The two branches, bundled into the shape `gwp_step_at` uses: one state,
+    either standing still or advanced by exactly one allocation. *)
+let gwr_yield_lands
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (hd1 hd2: pframe v cl) (t1 t2: pstack v cl)
+    (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    pafrel r s hd1 hd2 /\ gwy_k r s t1 t2 /\
+                    gwr_srel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2)
+          (ensures (let o1 = pyield x1 hd1 t1 cf1 in
+                    let o2 = pyield x2 hd2 t2 cf2 in
+                    (exists (s': pastate).
+                       paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+                       paprov_step_at s' s cf1 cf2 o1 o2 /\
+                       gwr_cf r s' o1 o2)))
+  = let o1 = pyield x1 hd1 t1 cf1 in
+    let o2 = pyield x2 hd2 t2 cf2 in
+    match pcut_scope t1 with
+    | None ->
+      gwr_yield_lands_paused r s x1 x2 hd1 hd2 t1 t2 cf1 cf2;
+      introduce exists (s': pastate).
+          (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+           paprov_step_at s' s cf1 cf2 o1 o2 /\ gwr_cf r s' o1 o2)
+      with s and ()
+    | Some _ ->
+      gwr_yield_lands_alloc r s x1 x2 hd1 hd2 t1 t2 cf1 cf2;
+      introduce exists (s': pastate).
+          (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+           paprov_step_at s' s cf1 cf2 o1 o2 /\ gwr_cf r s' o1 o2)
+      with (paalloc s) and ()
+
+(* ---- 4. THE YIELDING EXITS, AT THE ACTUAL SUCCESSOR --------------- *)
+
+(**
+ * **THE CUT-INSIDE HORN'S ACTUAL `pstep_tr` SUCCESSOR LANDS IN `gwr_cf`, AND SO
+ * DOES THE CUT-BELOW HORN'S.** PROVED, and it is ONE lemma for both, because
+ * the hypothesis list contains no horn selector.
+ *
+ * Read the conclusion in five parts: the mode search agrees on the two sides;
+ * the successor IS the yield, on both sides; the TRACE is `[]` on both sides and
+ * therefore equal; the ALLOCATION STATE moved by nothing or by one pair, and
+ * `paprov_step_at` says which; and the STORE and the two COUNTERS are carried by
+ * `gwr_cf`.
+ *
+ * `PBoundaryF? hd2 \/ PSiteF? hd2` is a premise and not a derived fact only
+ * because the two specialisations below fix `hd2` outright; it is discharged at
+ * every call site by the frame relation.
+ *)
+let gwr_exit_yield_step
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (hd1 hd2: pframe v cl) (t1 t2: pstack v cl)
+    (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    pafrel r s hd1 hd2 /\ gwy_k r s t1 t2 /\
+                    (PBoundaryF? hd1 \/ PSiteF? hd1) /\
+                    (PBoundaryF? hd2 \/ PSiteF? hd2) /\
+                    pfind_mode t1 == None /\
+                    gwr_srel r s cf1.store cf2.store /\
+                    cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    cf1.st == PStep (PVar x1) (hd1 :: t1) /\
+                    cf2.st == PStep (PVar x2) (hd2 :: t2))
+          (ensures (let o1 = pyield x1 hd1 t1 cf1 in
+                    let o2 = pyield x2 hd2 t2 cf2 in
+                    pfind_mode t2 == None /\
+                    pstep_tr lk apply cf1 == (o1, ([] <: list string)) /\
+                    pstep_tr lk apply cf2 == (o2, ([] <: list string)) /\
+                    snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+                    (exists (s': pastate).
+                       paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+                       paprov_step_at s' s cf1 cf2
+                         (fst (pstep_tr lk apply cf1))
+                         (fst (pstep_tr lk apply cf2)) /\
+                       gwr_cf r s' (fst (pstep_tr lk apply cf1))
+                                   (fst (pstep_tr lk apply cf2)))))
+  = gwp_find_mode_deep r s t1 t2;
+    gwr_pstep_tr_yield lk apply cf1 x1 hd1 t1;
+    gwr_pstep_tr_yield lk apply cf2 x2 hd2 t2;
+    gwr_yield_lands r s x1 x2 hd1 hd2 t1 t2 cf1 cf2
+
+(** The boundary specialisation -- `gwp_exit_boundary_yield`'s statement with
+    `gwp_cut_below` DROPPED from the hypotheses and `gwr_cf` in place of
+    `gwp_cf`. *)
+let gwr_exit_boundary_yield
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    gwy_k r s t1 t2 /\ pfind_mode t1 == None /\
+                    gwr_srel r s sto1 sto2)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PBoundaryF :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PBoundaryF :: t2);
+                 store = sto2; next = s.an2 } in
+             let o1 = pyield x1 (PBoundaryF <: pframe v cl) t1 cf1 in
+             let o2 = pyield x2 (PBoundaryF <: pframe v cl) t2 cf2 in
+             pfind_mode t2 == None /\
+             pstep_tr lk apply cf1 == (o1, ([] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([] <: list string)) /\
+             snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+             (exists (s': pastate).
+                paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+                paprov_step_at s' s cf1 cf2 o1 o2 /\
+                gwr_cf r s' o1 o2)))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PBoundaryF :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PBoundaryF :: t2); store = sto2; next = s.an2 } in
+    lemma_pafrel_boundary #v #cl r s;
+    gwr_exit_yield_step lk apply r s x1 x2 (PBoundaryF <: pframe v cl)
+                        (PBoundaryF <: pframe v cl) t1 t2 cf1 cf2
+
+(** The recorded-site specialisation, likewise. *)
+let gwr_exit_site_yield
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (g1 g2: pval v -> pcomp v cl)
+    (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    pafn_rel_at r s g1 g2 /\
+                    gwy_k r s t1 t2 /\ pfind_mode t1 == None /\
+                    gwr_srel r s sto1 sto2)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PSiteF g1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PSiteF g2 :: t2);
+                 store = sto2; next = s.an2 } in
+             let o1 = pyield x1 (PSiteF g1 <: pframe v cl) t1 cf1 in
+             let o2 = pyield x2 (PSiteF g2 <: pframe v cl) t2 cf2 in
+             pfind_mode t2 == None /\
+             pstep_tr lk apply cf1 == (o1, ([] <: list string)) /\
+             pstep_tr lk apply cf2 == (o2, ([] <: list string)) /\
+             snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+             (exists (s': pastate).
+                paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+                paprov_step_at s' s cf1 cf2 o1 o2 /\
+                gwr_cf r s' o1 o2)))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PSiteF g1 :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PSiteF g2 :: t2); store = sto2; next = s.an2 } in
+    lemma_pafrel_site r s g1 g2;
+    gwr_exit_yield_step lk apply r s x1 x2 (PSiteF g1 <: pframe v cl)
+                        (PSiteF g2 <: pframe v cl) t1 t2 cf1 cf2
+
+(* ---- 5. `gwp_cut_below` IS DEMOTED ------------------------------- *)
+
+(**
+ * `gwp_cut_below` is an ATOM in hypothesis position like every other `GTot prop`
+ * here; this is its `squash`-to-`squash` cast, and it is what lets the guard
+ * below REFUTE it rather than merely fail to prove it.
+ *)
+let gwr_cut_below_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+      (f1: pframe v cl) (t1 t2: pstack v cl)
+      (h: squash (gwp_cut_below r s f1 t1 t2))
+  : squash (((PBoundaryF? f1 \/ PSiteF? f1) /\ pfind_mode t1 == None) ==>
+            (match pcut_scope t1, pcut_scope t2 with
+             | Some (a1, b1), Some (a2, b2) -> pakrel r s a1 a2 /\ gwy_k r s b1 b2
+             | _, _ -> True))
+  = h
+
+(**
+ * **THE DEMOTION, STATED AS A LEMMA AND NOT AS A CLAIM.** PROVED.
+ *
+ * `gwp_var_deep_step` takes `gwp_cut_below` POSITIVELY, and has to, because its
+ * target is `gwp_cf`: on the cut-inside horn the stored residual pair is refused
+ * by `pasrel` and the remainder below the cut is `pakrel` and not `gwy_k`, so
+ * neither conjunct of `gwp_cf` survives. Widen the target to `gwr_cf` and the
+ * premise is no longer needed: this lemma has the SAME conclusion shape as
+ * `gwp_exit_boundary_yield` and `gwp_exit_site_yield` -- successor, trace,
+ * provenance, landing -- and its hypothesis list does not mention
+ * `gwp_cut_below`, any horn, or any exclusivity between horns.
+ *
+ * The reason it can be dropped is not that it is true: it is that the split
+ * `gwp_cut_deep` performs is EXHAUSTIVE, both halves of it reach the same
+ * `gwr_xrel`/`gwr_kd` pair through `gwr_cut_resid_related`, and a case analysis
+ * that lands in one place does not have to be told which case it is in.
+ * EXCLUSIVITY of the two horns is therefore not needed either, and is still not
+ * proved anywhere in this file.
+ *)
+let gwr_cut_below_demoted
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pcl_mono r /\ pval_rel s.aw x1 x2 /\
+                    gwy_k r s t1 t2 /\ pfind_mode t1 == None /\
+                    gwr_srel r s sto1 sto2)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PBoundaryF :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PBoundaryF :: t2);
+                 store = sto2; next = s.an2 } in
+             snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+             (exists (s': pastate).
+                paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+                paprov_step_at s' s cf1 cf2
+                  (fst (pstep_tr lk apply cf1)) (fst (pstep_tr lk apply cf2)) /\
+                gwr_cf r s' (fst (pstep_tr lk apply cf1))
+                            (fst (pstep_tr lk apply cf2)))))
+  = gwr_exit_boundary_yield lk apply r s x1 x2 t1 t2 sto1 sto2
+
+(* ---- 6. THE GUARDS ----------------------------------------------- *)
+
+(** **AND THE DEMOTED PREMISE IS FALSE ON A SHIPPING FIXTURE.** REFUTED.
+    `gwp_g_t1`/`gwp_g_t2` is the cut-INSIDE fixture: the cut takes the surplus
+    `PBindF PVar` into the residual, so the two segments above the floor have
+    lengths 1 and 0 and `pakrel` -- which forces equal length by
+    `gwr_pakrel_length` -- cannot hold of them. So `gwp_cut_below` is not a
+    harmless premise that happens to be provable; dropping it is a real
+    weakening, and `guard_gwr_exit_boundary_yield_inside_fires` below shows the
+    weakened lemma still fires exactly there. *)
+let guard_gwr_cut_below_is_refuted ()
+  : Lemma (pfind_mode gwp_g_t1
+             == (None <: option (weave_mode & (pval fv -> pcomp fv fcl))) /\
+           pcut_scope gwp_g_t1 == Some (gwr_above1, ([] <: pstack fv fcl)) /\
+           pcut_scope gwp_g_t2
+             == Some (([] <: pstack fv fcl), ([] <: pstack fv fcl)) /\
+           ~(gwp_cut_below fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+                           gwp_g_t1 gwp_g_t2))
+  = assert_norm (pfind_mode gwp_g_t1
+                 == (None <: option (weave_mode & (pval fv -> pcomp fv fcl))));
+    assert_norm (pcut_scope gwp_g_t1 == Some (gwr_above1, ([] <: pstack fv fcl)));
+    assert_norm (pcut_scope gwp_g_t2
+                 == Some (([] <: pstack fv fcl), ([] <: pstack fv fcl)));
+    assert_norm (~(length gwr_above1 == length gwr_above2));
+    introduce gwp_cut_below fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+                            gwp_g_t1 gwp_g_t2 ==> False
+    with (gwr_cut_below_unfold fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+                               gwp_g_t1 gwp_g_t2 ();
+          gwr_pakrel_length fcl_rel pabot gwr_above1 gwr_above2)
+
+(** The shipped landing relation refuses whatever the shipped store relation
+    refuses; this is the cast that turns `guard_gwr_cut_inside_lands_fires`'s
+    `~(pasrel ...)` into a `~(gwp_cf ...)`. *)
+let gwr_g_not_gwp_cf (s: pastate) (cf1 cf2: pconf fv fcl)
+  : Lemma (requires ~(pasrel fcl_rel s cf1.store cf2.store))
+          (ensures ~(gwp_cf fcl_rel s cf1 cf2))
+  = introduce gwp_cf fcl_rel s cf1 cf2 ==> False
+    with gwp_cf_unfold fcl_rel s cf1 cf2 ()
+
+let gwr_gout1 : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) ([] <: pstack fv fcl);
+    store = gwr_gsto1; next = 1 }
+let gwr_gout2 : pconf fv fcl =
+  { st = PStep (PVar (PCtxKey 0)) ([] <: pstack fv fcl);
+    store = gwr_gsto2; next = 1 }
+
+(**
+ * **HORN 1, THE CUT-INSIDE HORN, FIRED ON THE MACHINE.** PROVED.
+ *
+ * The premise `gwp_var_deep_step` would have needed is FALSE here, the step is
+ * the real `pstep_tr` of the real configuration, the trace is empty on both
+ * sides, one pair is allocated and `paprov_step_at` says so, the successors land
+ * in `gwr_cf` -- and they are NOT in `gwp_cf`, so the widening is doing work and
+ * is not `gwp_cf` under another name.
+ *)
+let guard_gwr_exit_boundary_yield_inside_fires ()
+  : Lemma (~(gwp_cut_below fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+                           gwp_g_t1 gwp_g_t2) /\
+           pstep_tr flook xapply gwr_gcf1 == (gwr_gout1, ([] <: list string)) /\
+           pstep_tr flook xapply gwr_gcf2 == (gwr_gout2, ([] <: list string)) /\
+           paprov_step_at (paalloc pabot) pabot gwr_gcf1 gwr_gcf2
+                          gwr_gout1 gwr_gout2 /\
+           gwr_cf fcl_rel (paalloc pabot) gwr_gout1 gwr_gout2 /\
+           ~(gwp_cf fcl_rel (paalloc pabot) gwr_gout1 gwr_gout2))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    cor_padxg_pabot_sto_self ();
+    guard_gwr_cut_below_is_refuted ();
+    guard_gwr_cut_inside_lands_fires ();
+    gwr_srel_of_pasrel fcl_rel pabot ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwp_g_t_deep ();
+    lemma_pafrel_boundary #fv #fcl fcl_rel pabot;
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    assert_norm (pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_t1 gwr_gcf1
+                 == gwr_gout1);
+    assert_norm (pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_t2 gwr_gcf2
+                 == gwr_gout2);
+    gwr_pstep_tr_yield flook xapply gwr_gcf1 gwp_g_u
+                       (PBoundaryF <: pframe fv fcl) gwp_g_t1;
+    gwr_pstep_tr_yield flook xapply gwr_gcf2 gwp_g_u
+                       (PBoundaryF <: pframe fv fcl) gwp_g_t2;
+    gwr_yield_lands_alloc fcl_rel pabot gwp_g_u gwp_g_u
+                          (PBoundaryF <: pframe fv fcl)
+                          (PBoundaryF <: pframe fv fcl)
+                          gwp_g_t1 gwp_g_t2 gwr_gcf1 gwr_gcf2;
+    gwr_g_not_gwp_cf (paalloc pabot) gwr_gout1 gwr_gout2
+
+(**
+ * **HORN 2, THE CUT-BELOW HORN, FIRED ON THE MACHINE, AT THE SAME TARGET.**
+ * PROVED. `gwp_g_z1`/`gwp_g_z2` is the fixture
+ * `guard_gwp_exit_site_yield_alloc_fires` runs: the cut takes NOTHING above the
+ * floor and the surplus stays in the remainder, which is the other horn. The
+ * successors are `gwp_gZ_out1`/`gwp_gZ_out2` -- literally the configurations the
+ * shipped guard names -- and they land in `gwr_cf` too. So the two horns share
+ * one target, and the sharing is exhibited and not merely typed.
+ *)
+let guard_gwr_exit_site_yield_below_fires ()
+  : Lemma (pstep_tr flook xapply gwp_gZ_cf1 == (gwp_gZ_out1, ([] <: list string)) /\
+           pstep_tr flook xapply gwp_gZ_cf2 == (gwp_gZ_out2, ([] <: list string)) /\
+           paprov_step_at (paalloc pabot) pabot gwp_gZ_cf1 gwp_gZ_cf2
+                          gwp_gZ_out1 gwp_gZ_out2 /\
+           gwr_cf fcl_rel (paalloc pabot) gwp_gZ_out1 gwp_gZ_out2)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    cor_padxg_pabot_sto_self ();
+    gwr_srel_of_pasrel fcl_rel pabot ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwp_g_y_deep ();
+    gwy_g_fn_rel pabot;
+    lemma_pafrel_scope #fv #fcl fcl_rel pabot;
+    gwy_k_cons fcl_rel pabot (PScopeF <: pframe fv fcl) (PScopeF <: pframe fv fcl)
+               gwp_g_y1 gwp_g_y2;
+    lemma_pafrel_site fcl_rel pabot gwy_g gwy_g;
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    assert_norm (pfind_mode gwp_g_z1
+                 == (None <: option (weave_mode & (pval fv -> pcomp fv fcl))));
+    assert_norm (pcut_scope gwp_g_z1 == Some (([] <: pstack fv fcl), gwp_g_y1));
+    assert_norm (pyield gwp_g_u (PSiteF gwy_g <: pframe fv fcl) gwp_g_z1 gwp_gZ_cf1
+                 == gwp_gZ_out1);
+    assert_norm (pyield gwp_g_u (PSiteF gwy_g <: pframe fv fcl) gwp_g_z2 gwp_gZ_cf2
+                 == gwp_gZ_out2);
+    gwr_pstep_tr_yield flook xapply gwp_gZ_cf1 gwp_g_u
+                       (PSiteF gwy_g <: pframe fv fcl) gwp_g_z1;
+    gwr_pstep_tr_yield flook xapply gwp_gZ_cf2 gwp_g_u
+                       (PSiteF gwy_g <: pframe fv fcl) gwp_g_z2;
+    gwr_yield_lands_alloc fcl_rel pabot gwp_g_u gwp_g_u
+                          (PSiteF gwy_g <: pframe fv fcl)
+                          (PSiteF gwy_g <: pframe fv fcl)
+                          gwp_g_z1 gwp_g_z2 gwp_gZ_cf1 gwp_gZ_cf2
+
+(**
+ * **AND THE `PPaused` CLAUSE IS INHABITED.** PROVED, on
+ * `guard_gwp_exit_boundary_yield_paused_fires`'s own fixture: with no floor to
+ * cut at the two `pyield`s answer `PPaused`, nothing is allocated, the state
+ * stands still, and the pair is in `gwr_cf`. The clause therefore carries an
+ * actual one-step successor of the machine and is not decoration; reachability
+ * from a closed initial program is not claimed here.
+ *)
+let guard_gwr_yield_paused_fires ()
+  : Lemma (pstep_tr flook xapply gwp_gY_cf1 == (gwp_gY_out1, ([] <: list string)) /\
+           pstep_tr flook xapply gwp_gY_cf2 == (gwp_gY_out2, ([] <: list string)) /\
+           paprov_step_at pabot pabot gwp_gY_cf1 gwp_gY_cf2
+                          gwp_gY_out1 gwp_gY_out2 /\
+           gwr_cf fcl_rel pabot gwp_gY_out1 gwp_gY_out2)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    cor_padxg_pabot_sto_self ();
+    gwr_srel_of_pasrel fcl_rel pabot ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwp_g_y_deep ();
+    lemma_pafrel_boundary #fv #fcl fcl_rel pabot;
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    assert_norm (pfind_mode gwp_g_y1
+                 == (None <: option (weave_mode & (pval fv -> pcomp fv fcl))));
+    assert_norm (pcut_scope gwp_g_y1
+                 == (None <: option (pstack fv fcl & pstack fv fcl)));
+    assert_norm (pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_y1 gwp_gY_cf1
+                 == gwp_gY_out1);
+    assert_norm (pyield gwp_g_u (PBoundaryF <: pframe fv fcl) gwp_g_y2 gwp_gY_cf2
+                 == gwp_gY_out2);
+    gwr_pstep_tr_yield flook xapply gwp_gY_cf1 gwp_g_u
+                       (PBoundaryF <: pframe fv fcl) gwp_g_y1;
+    gwr_pstep_tr_yield flook xapply gwp_gY_cf2 gwp_g_u
+                       (PBoundaryF <: pframe fv fcl) gwp_g_y2;
+    gwr_yield_lands_paused fcl_rel pabot gwp_g_u gwp_g_u
+                           (PBoundaryF <: pframe fv fcl)
+                           (PBoundaryF <: pframe fv fcl)
+                           gwp_g_y1 gwp_g_y2 gwp_gY_cf1 gwp_gY_cf2
