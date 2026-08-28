@@ -51996,3 +51996,905 @@ let gwb_vs_gwp_var_deep_step ()
     guard_gwb_var_deep_yield_fires ();
     guard_gwb_var_deep_scope_fires ();
     guard_gwp_var_deep_fires ()
+
+
+(* ================================================================== *)
+(*  B1.7 -- THE PHASE CARRIER                                          *)
+(*                                                                     *)
+(*  An INTERFACE gate.  It adds no coverage: every relation named      *)
+(*  below already exists, and every inclusion below is already proved  *)
+(*  somewhere above.  What is new is that the seven configuration      *)
+(*  relations are presented as ONE relation indexed by a TAG, so that  *)
+(*  a transition form can DECLARE the phase it departs from and the    *)
+(*  phase it lands in instead of having them guessed from the shape    *)
+(*  of its `requires`.                                                 *)
+(*                                                                     *)
+(*  Nothing above this line is touched.  This section APPENDS.         *)
+(* ================================================================== *)
+
+(* ---- 1. THE TAG AND THE FOUR COMPONENT SELECTORS ------------------ *)
+
+(**
+ * How far up the `pstate` constructors a phase reaches.  This is the ONE
+ * genuinely non-uniform datum among the seven relations and it is why the
+ * carrier needs it as a separate selector rather than folding it into the
+ * stack relation: `pacfrel` speaks about halted states, `gwp_cf`/`gwr_cf`
+ * speak about `PPaused` and nothing halted, and the four remaining phases
+ * speak about `PStep` and nothing else.
+ *)
+type gwc_reach =
+  | GWCRStep
+  | GWCRPaused
+  | GWCRAll
+
+(** The seven phases, five over the STACK and two over the frames a
+    `PPerform` has SPLICED. *)
+type gwc_phase =
+  | GWCPacf                      (* `pacfrel`   -- the plain relation          *)
+  | GWCPadx                      (* `padx_cf`   -- surplus at the stack head   *)
+  | GWCGwy                       (* `gwy_cf`    -- surplus at depth            *)
+  | GWCGwp                       (* `gwp_cf`    -- `gwy_cf` plus `PPaused`     *)
+  | GWCGwr                       (* `gwr_cf`    -- `gwp_cf` weakened           *)
+  | GWCPadxg                     (* `padxg_cf`  -- surplus at the spliced head *)
+  | GWCGwe                       (* `gwe_cfg`   -- surplus at spliced depth    *)
+
+let gwc_reach_of (p: gwc_phase) : gwc_reach
+  = match p with
+    | GWCPacf -> GWCRAll
+    | GWCGwp -> GWCRPaused
+    | GWCGwr -> GWCRPaused
+    | _ -> GWCRStep
+
+(** The computation relation of a phase.  The two GENERATED phases are the
+    only ones that move it. *)
+let gwc_comp (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+             (c1 c2: pcomp v cl) : GTot prop
+  = match p with
+    | GWCPadxg -> padx_comp r s c1 c2
+    | GWCGwe -> gwe_comp r s c1 c2
+    | _ -> pacrel r s c1 c2
+
+(** The stack relation of a phase.  The two GENERATED phases sit at PLAIN
+    `pakrel`, because the surplus has moved into the computation. *)
+let gwc_kd (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+           (k1 k2: pstack v cl) : GTot prop
+  = match p with
+    | GWCPadx -> padx_ktop r s k1 k2
+    | GWCGwy -> gwy_k r s k1 k2
+    | GWCGwp -> gwy_k r s k1 k2
+    | GWCGwr -> gwr_kd r s k1 k2
+    | _ -> pakrel r s k1 k2
+
+(** The store relation of a phase.  `gwr_cf` is the only weakening. *)
+let gwc_sr (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+           (t1 t2: pstore v cl) : GTot prop
+  = match p with
+    | GWCGwr -> gwr_srel r s t1 t2
+    | _ -> pasrel r s t1 t2
+
+(** Whether the phase carries `pawf s` inside itself.  `pacfrel` does not;
+    the six later relations all do. *)
+let gwc_wf (p: gwc_phase) (s: pastate) : prop
+  = match p with
+    | GWCPacf -> True
+    | _ -> pawf s
+
+(* ---- 2. THE CARRIER ---------------------------------------------- *)
+
+let gwc_st (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+           (st1 st2: pstate v cl) : GTot prop
+  = match st1, st2 with
+    | PDone x1, PDone x2 ->
+      (match gwc_reach_of p with
+       | GWCRAll -> pval_rel s.aw x1 x2
+       | _ -> False)
+    | PStep c1 k1, PStep c2 k2 -> gwc_comp p r s c1 c2 /\ gwc_kd p r s k1 k2
+    | PPaused x1 rs1, PPaused x2 rs2 ->
+      (match gwc_reach_of p with
+       | GWCRStep -> False
+       | _ -> pval_rel s.aw x1 x2 /\ gwc_kd p r s rs1 rs2)
+    | PStuck e1 o1, PStuck e2 o2 ->
+      (match gwc_reach_of p with
+       | GWCRAll -> e1 == e2 /\ o1 == o2
+       | _ -> False)
+    | PRejected j1, PRejected j2 ->
+      (match gwc_reach_of p with
+       | GWCRAll -> prej_rel j1 j2
+       | _ -> False)
+    | _, _ -> False
+
+(** **THE CARRIER.**  One relation, one tag, and the two counters PINNED to
+    the two frontiers of `s` exactly as every relation above pins them. *)
+let gwc_cf (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+           (cf1 cf2: pconf v cl) : GTot prop
+  = gwc_wf p s /\ gwc_st p r s cf1.st cf2.st /\
+    gwc_sr p r s cf1.store cf2.store /\
+    cf1.next == s.an1 /\ cf2.next == s.an2
+
+(** The two `squash`-to-`squash` casts, accepted BY CONVERSION, for the same
+    reason `pcfrel_unfold` records: a `GTot prop` applied to arguments is an
+    ATOM in hypothesis position. *)
+let gwc_cf_unfold (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                  (cf1 cf2: pconf v cl) (h: squash (gwc_cf p r s cf1 cf2))
+  : squash (gwc_wf p s /\ gwc_st p r s cf1.st cf2.st /\
+            gwc_sr p r s cf1.store cf2.store /\
+            cf1.next == s.an1 /\ cf2.next == s.an2)
+  = h
+
+let gwc_st_unfold (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                  (st1 st2: pstate v cl) (h: squash (gwc_st p r s st1 st2))
+  : squash (match st1, st2 with
+            | PDone x1, PDone x2 ->
+              (match gwc_reach_of p with
+               | GWCRAll -> pval_rel s.aw x1 x2
+               | _ -> False)
+            | PStep c1 k1, PStep c2 k2 -> gwc_comp p r s c1 c2 /\ gwc_kd p r s k1 k2
+            | PPaused x1 rs1, PPaused x2 rs2 ->
+              (match gwc_reach_of p with
+               | GWCRStep -> False
+               | _ -> pval_rel s.aw x1 x2 /\ gwc_kd p r s rs1 rs2)
+            | PStuck e1 o1, PStuck e2 o2 ->
+              (match gwc_reach_of p with
+               | GWCRAll -> e1 == e2 /\ o1 == o2
+               | _ -> False)
+            | PRejected j1, PRejected j2 ->
+              (match gwc_reach_of p with
+               | GWCRAll -> prej_rel j1 j2
+               | _ -> False)
+            | _, _ -> False)
+  = h
+
+(* ---- 3. EACH TAG *IS* THE RELATION IT NAMES ---------------------- *)
+
+(** The component equations, each at a CONCRETE tag, each by conversion. *)
+let gwc_comp_at_pacf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (gwc_comp GWCPacf r s c1 c2 == pacrel r s c1 c2) = ()
+let gwc_comp_at_padx (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (gwc_comp GWCPadx r s c1 c2 == pacrel r s c1 c2) = ()
+let gwc_comp_at_gwy (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (gwc_comp GWCGwy r s c1 c2 == pacrel r s c1 c2) = ()
+let gwc_comp_at_gwp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (gwc_comp GWCGwp r s c1 c2 == pacrel r s c1 c2) = ()
+let gwc_comp_at_gwr (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (gwc_comp GWCGwr r s c1 c2 == pacrel r s c1 c2) = ()
+let gwc_comp_at_padxg (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (gwc_comp GWCPadxg r s c1 c2 == padx_comp r s c1 c2) = ()
+let gwc_comp_at_gwe (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (gwc_comp GWCGwe r s c1 c2 == gwe_comp r s c1 c2) = ()
+
+let gwc_kd_at_pacf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (gwc_kd GWCPacf r s k1 k2 == pakrel r s k1 k2) = ()
+let gwc_kd_at_padx (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (gwc_kd GWCPadx r s k1 k2 == padx_ktop r s k1 k2) = ()
+let gwc_kd_at_gwy (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (gwc_kd GWCGwy r s k1 k2 == gwy_k r s k1 k2) = ()
+let gwc_kd_at_gwp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (gwc_kd GWCGwp r s k1 k2 == gwy_k r s k1 k2) = ()
+let gwc_kd_at_gwr (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (gwc_kd GWCGwr r s k1 k2 == gwr_kd r s k1 k2) = ()
+let gwc_kd_at_padxg (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (gwc_kd GWCPadxg r s k1 k2 == pakrel r s k1 k2) = ()
+let gwc_kd_at_gwe (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (gwc_kd GWCGwe r s k1 k2 == pakrel r s k1 k2) = ()
+
+let gwc_sr_plain (#v #cl: Type) (p: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                 (t1 t2: pstore v cl)
+  : Lemma (requires ~(GWCGwr? p))
+          (ensures gwc_sr p r s t1 t2 == pasrel r s t1 t2)
+  = ()
+
+let gwc_sr_at_gwr (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (t1 t2: pstore v cl)
+  : Lemma (gwc_sr GWCGwr r s t1 t2 == gwr_srel r s t1 t2) = ()
+
+let gwc_wf_at_pacf (s: pastate) : Lemma (gwc_wf GWCPacf s == True) = ()
+
+let gwc_wf_plain (p: gwc_phase) (s: pastate)
+  : Lemma (requires ~(GWCPacf? p)) (ensures gwc_wf p s == pawf s) = ()
+
+(** **TAG 1 IS `pacfrel`.** PROVED, both ways. *)
+let gwc_st_is_pastrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (st1 st2: pstate v cl)
+  : Lemma (gwc_st GWCPacf r s st1 st2 <==> pastrel r s st1 st2)
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwc_comp_at_pacf r s c1 c2; gwc_kd_at_pacf r s k1 k2
+    | PPaused x1 rs1, PPaused x2 rs2 -> gwc_kd_at_pacf r s rs1 rs2
+    | _, _ -> ()
+
+let gwc_cf_is_pacfrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (cf1 cf2: pconf v cl)
+  : Lemma (gwc_cf GWCPacf r s cf1 cf2 <==> pacfrel r s cf1 cf2)
+  = gwc_st_is_pastrel r s cf1.st cf2.st;
+    gwc_sr_plain GWCPacf r s cf1.store cf2.store;
+    gwc_wf_at_pacf s
+
+(** **TAG 2 IS `padx_cf`.** PROVED, both ways. *)
+let gwc_st_is_padx_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (st1 st2: pstate v cl)
+  : Lemma (gwc_st GWCPadx r s st1 st2 <==> padx_st r s st1 st2)
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwc_comp_at_padx r s c1 c2; gwc_kd_at_padx r s k1 k2
+    | _, _ -> ()
+
+let gwc_cf_is_padx_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (cf1 cf2: pconf v cl)
+  : Lemma (gwc_cf GWCPadx r s cf1 cf2 <==> padx_cf r s cf1 cf2)
+  = gwc_st_is_padx_st r s cf1.st cf2.st;
+    gwc_sr_plain GWCPadx r s cf1.store cf2.store;
+    gwc_wf_plain GWCPadx s
+
+(** **TAG 3 IS `gwy_cf`.** PROVED, both ways. *)
+let gwc_st_is_gwy_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (st1 st2: pstate v cl)
+  : Lemma (gwc_st GWCGwy r s st1 st2 <==> gwy_st r s st1 st2)
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwc_comp_at_gwy r s c1 c2; gwc_kd_at_gwy r s k1 k2
+    | _, _ -> ()
+
+let gwc_cf_is_gwy_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (cf1 cf2: pconf v cl)
+  : Lemma (gwc_cf GWCGwy r s cf1 cf2 <==> gwy_cf r s cf1 cf2)
+  = gwc_st_is_gwy_st r s cf1.st cf2.st;
+    gwc_sr_plain GWCGwy r s cf1.store cf2.store;
+    gwc_wf_plain GWCGwy s
+
+(** **TAG 4 IS `gwp_cf`.** PROVED, both ways. *)
+let gwc_st_is_gwp_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (st1 st2: pstate v cl)
+  : Lemma (gwc_st GWCGwp r s st1 st2 <==> gwp_st r s st1 st2)
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwc_comp_at_gwp r s c1 c2; gwc_kd_at_gwp r s k1 k2
+    | PPaused x1 rs1, PPaused x2 rs2 -> gwc_kd_at_gwp r s rs1 rs2
+    | _, _ -> ()
+
+let gwc_cf_is_gwp_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (cf1 cf2: pconf v cl)
+  : Lemma (gwc_cf GWCGwp r s cf1 cf2 <==> gwp_cf r s cf1 cf2)
+  = gwc_st_is_gwp_st r s cf1.st cf2.st;
+    gwc_sr_plain GWCGwp r s cf1.store cf2.store;
+    gwc_wf_plain GWCGwp s
+
+(** **TAG 5 IS `gwr_cf`.** PROVED, both ways. *)
+let gwc_st_is_gwr_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (st1 st2: pstate v cl)
+  : Lemma (gwc_st GWCGwr r s st1 st2 <==> gwr_st r s st1 st2)
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwc_comp_at_gwr r s c1 c2; gwc_kd_at_gwr r s k1 k2
+    | PPaused x1 rs1, PPaused x2 rs2 -> gwc_kd_at_gwr r s rs1 rs2
+    | _, _ -> ()
+
+let gwc_cf_is_gwr_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (cf1 cf2: pconf v cl)
+  : Lemma (gwc_cf GWCGwr r s cf1 cf2 <==> gwr_cf r s cf1 cf2)
+  = gwc_st_is_gwr_st r s cf1.st cf2.st;
+    gwc_sr_at_gwr r s cf1.store cf2.store;
+    gwc_wf_plain GWCGwr s
+
+(** **TAG 6 IS `padxg_cf`.** PROVED, both ways. *)
+let gwc_st_is_padxg_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (st1 st2: pstate v cl)
+  : Lemma (gwc_st GWCPadxg r s st1 st2 <==>
+           (match st1, st2 with
+            | PStep c1 k1, PStep c2 k2 -> padx_comp r s c1 c2 /\ pakrel r s k1 k2
+            | _, _ -> False))
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwc_comp_at_padxg r s c1 c2; gwc_kd_at_padxg r s k1 k2
+    | _, _ -> ()
+
+let gwc_cf_is_padxg_cf (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (cf1 cf2: pconf v cl)
+  : Lemma (gwc_cf GWCPadxg r s cf1 cf2 <==> padxg_cf r s cf1 cf2)
+  = gwc_st_is_padxg_st r s cf1.st cf2.st;
+    gwc_sr_plain GWCPadxg r s cf1.store cf2.store;
+    gwc_wf_plain GWCPadxg s
+
+(** **TAG 7 IS `gwe_cfg`.** PROVED, both ways. *)
+let gwc_st_is_gwe_st (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (st1 st2: pstate v cl)
+  : Lemma (gwc_st GWCGwe r s st1 st2 <==>
+           (match st1, st2 with
+            | PStep c1 k1, PStep c2 k2 -> gwe_comp r s c1 c2 /\ pakrel r s k1 k2
+            | _, _ -> False))
+  = match st1, st2 with
+    | PStep c1 k1, PStep c2 k2 ->
+      gwc_comp_at_gwe r s c1 c2; gwc_kd_at_gwe r s k1 k2
+    | _, _ -> ()
+
+let gwc_cf_is_gwe_cfg (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (cf1 cf2: pconf v cl)
+  : Lemma (gwc_cf GWCGwe r s cf1 cf2 <==> gwe_cfg r s cf1 cf2)
+  = gwc_st_is_gwe_st r s cf1.st cf2.st;
+    gwc_sr_plain GWCGwe r s cf1.store cf2.store;
+    gwc_wf_plain GWCGwe s
+
+(* ---- 4. THE INCLUSION LATTICE, AT THE CARRIER -------------------- *)
+
+(**
+ * `padx_cf ==> gwy_cf` DOES already exist: it is `gwy_padx_cf_is_cf`, proved
+ * from `gwy_ktop_is_gwy_k` (which is `gwz_padx_ktop_shape`), and it needs NO
+ * hypothesis beyond the source relation -- in particular NOT `pcl_down`.  So
+ * the route through `lemma_padx_ktop_is_k` and `gwd_padx_k_iff_gwy_k` is not
+ * the one the file takes and is not needed.  Recorded here at the carrier.
+ *)
+let gwc_incl_padx_gwy (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_cf GWCPadx r s cf1 cf2)
+          (ensures gwc_cf GWCGwy r s cf1 cf2)
+  = gwc_cf_is_padx_cf r s cf1 cf2;
+    gwy_padx_cf_is_cf r s cf1 cf2;
+    gwc_cf_is_gwy_cf r s cf1 cf2
+
+(** `gwp_cf_of_gwy_cf`, at the carrier.  No hypothesis. *)
+let gwc_incl_gwy_gwp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_cf GWCGwy r s cf1 cf2)
+          (ensures gwc_cf GWCGwp r s cf1 cf2)
+  = gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwp_cf_of_gwy_cf r s cf1 cf2;
+    gwc_cf_is_gwp_cf r s cf1 cf2
+
+(** `gwr_cf_of_gwp_cf`, at the carrier.  No hypothesis. *)
+let gwc_incl_gwp_gwr (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                     (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_cf GWCGwp r s cf1 cf2)
+          (ensures gwc_cf GWCGwr r s cf1 cf2)
+  = gwc_cf_is_gwp_cf r s cf1 cf2;
+    gwr_cf_of_gwp_cf r s cf1 cf2;
+    gwc_cf_is_gwr_cf r s cf1 cf2
+
+(** `gwe_padxg_cf_is_cfg`, at the carrier.  No hypothesis.  This is the ONLY
+    inclusion inside the generated family. *)
+let gwc_incl_padxg_gwe (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_cf GWCPadxg r s cf1 cf2)
+          (ensures gwc_cf GWCGwe r s cf1 cf2)
+  = gwc_cf_is_padxg_cf r s cf1 cf2;
+    gwe_padxg_cf_is_cfg r s cf1 cf2;
+    gwc_cf_is_gwe_cfg r s cf1 cf2
+
+(**
+ * **AND THE ONE INCLUSION THAT IS NOT UNIFORM.**  `gwb_gwr_cf_of_pacfrel_step`,
+ * at the carrier, WITH ITS TWO EXTRA HYPOTHESES INTACT: `pawf s`, because
+ * `pacfrel` does not carry it, and `PStep? /\ PStep?`, because `gwr_st` has no
+ * halted clause.  `guard_gwc_pacf_not_gwr_fires` below shows the second is not
+ * decoration.
+ *)
+let gwc_incl_pacf_gwr_step (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ gwc_cf GWCPacf r s cf1 cf2 /\
+                    PStep? cf1.st /\ PStep? cf2.st)
+          (ensures gwc_cf GWCGwr r s cf1 cf2)
+  = gwc_cf_is_pacfrel r s cf1 cf2;
+    gwb_gwr_cf_of_pacfrel_step r s cf1 cf2;
+    gwc_cf_is_gwr_cf r s cf1 cf2
+
+(* ---- 5. THE TRANSITION SHAPE ------------------------------------- *)
+
+(**
+ * **THE SHAPE.**  `gwb_run_at` with the landing relation made a PARAMETER: a
+ * count on each side, the two traces equal, and one allocation state `s'` --
+ * either `s` itself or its single successor -- at which the two successors are
+ * related AT TAG `q`.  Every other conjunct is `gwb_run_at`'s, verbatim.
+ *)
+let gwc_lands (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+              (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate) (n1 n2: nat)
+              (cf1 cf2: pconf v cl) : GTot prop
+  = snd (prun lk apply n1 cf1) == snd (prun lk apply n2 cf2) /\
+    (exists (s': pastate).
+       paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+       paprov_step_at s' s cf1 cf2 (fst (prun lk apply n1 cf1))
+                                   (fst (prun lk apply n2 cf2)) /\
+       gwc_cf q r s' (fst (prun lk apply n1 cf1)) (fst (prun lk apply n2 cf2)))
+
+let gwc_lands_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                     (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate) (n1 n2: nat)
+                     (cf1 cf2: pconf v cl)
+                     (h: squash (gwc_lands lk apply q r s n1 n2 cf1 cf2))
+  : squash (snd (prun lk apply n1 cf1) == snd (prun lk apply n2 cf2) /\
+            (exists (s': pastate).
+               paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+               paprov_step_at s' s cf1 cf2 (fst (prun lk apply n1 cf1))
+                                           (fst (prun lk apply n2 cf2)) /\
+               gwc_cf q r s' (fst (prun lk apply n1 cf1))
+                             (fst (prun lk apply n2 cf2))))
+  = h
+
+(** The SET-OF-TAGS form, for a branch whose landing phase depends on which
+    horn of a dichotomy it took. *)
+let gwc_lands_set (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                  (qs: gwc_phase -> bool) (r: pcl_rel_t cl) (s: pastate)
+                  (n1 n2: nat) (cf1 cf2: pconf v cl) : GTot prop
+  = exists (q: gwc_phase). qs q /\ gwc_lands lk apply q r s n1 n2 cf1 cf2
+
+let gwc_lands_set_intro (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                        (qs: gwc_phase -> bool) (q: gwc_phase)
+                        (r: pcl_rel_t cl) (s: pastate) (n1 n2: nat)
+                        (cf1 cf2: pconf v cl)
+  : Lemma (requires qs q /\ gwc_lands lk apply q r s n1 n2 cf1 cf2)
+          (ensures gwc_lands_set lk apply qs r s n1 n2 cf1 cf2)
+  = introduce exists (q': gwc_phase).
+        (qs q' /\ gwc_lands lk apply q' r s n1 n2 cf1 cf2)
+    with q and ()
+
+(* ---- 6. THE ALREADY-PROVED BRANCHES FIT, BY CITATION -------------- *)
+
+let gwc_cf_gwr_all (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (forall (s: pastate) (a b: pconf v cl).
+             gwc_cf GWCGwr r s a b <==> gwr_cf r s a b)
+  = introduce forall (s: pastate) (a b: pconf v cl).
+      (gwc_cf GWCGwr r s a b <==> gwr_cf r s a b)
+    with gwc_cf_is_gwr_cf r s a b
+
+(**
+ * **`gwb_run_at` IS THE SHAPE AT `q == GWCGwr`.**  PROVED, both ways.  This is
+ * what makes step 4 a CITATION rather than a re-proof: every lemma in the
+ * `gwb_*` family concludes `gwb_run_at`, so every one of them already
+ * concludes `gwc_lands ... GWCGwr ...` and none of their proofs is restated.
+ *)
+let gwc_lands_is_gwb_run_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                            (r: pcl_rel_t cl) (s: pastate) (n1 n2: nat)
+                            (cf1 cf2: pconf v cl)
+  : Lemma (gwc_lands lk apply GWCGwr r s n1 n2 cf1 cf2 <==>
+           gwb_run_at lk apply r s n1 n2 cf1 cf2)
+  = gwc_cf_gwr_all #v #cl r;
+    introduce gwc_lands lk apply GWCGwr r s n1 n2 cf1 cf2 ==>
+              gwb_run_at lk apply r s n1 n2 cf1 cf2
+    with (gwc_lands_unfold lk apply GWCGwr r s n1 n2 cf1 cf2 ());
+    introduce gwb_run_at lk apply r s n1 n2 cf1 cf2 ==>
+              gwc_lands lk apply GWCGwr r s n1 n2 cf1 cf2
+    with (gwb_run_at_unfold lk apply r s n1 n2 cf1 cf2 ())
+
+(** **A 1:1 STACK-PHASE BRANCH FITS.**  `gwb_exit_param`, cited.  Departure tag
+    `GWCGwy`, landing tag `GWCGwr`, counts `1 1`. *)
+let gwc_fit_exit_param
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (l1 l2: string) (y1 y2: pval v)
+    (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwc_cf GWCGwy r s
+                      ({ st = PStep (PVar x1) (PParamF l1 y1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PParamF l2 y2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PParamF l1 y1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PParamF l2 y2 :: t2);
+                 store = sto2; next = s.an2 } in
+             gwc_lands lk apply GWCGwr r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PParamF l1 y1 :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PParamF l2 y2 :: t2); store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwb_exit_param lk apply r s x1 x2 l1 l2 y1 y2 t1 t2 sto1 sto2;
+    gwc_lands_is_gwb_run_at lk apply r s 1 1 cf1 cf2
+
+(**
+ * **THE 1:1 AND 1:0 BRANCHES TOGETHER FIT.**  `gwb_var_deep`, cited.  Departure
+ * tag `GWCGwy`, landing tag `GWCGwr`, count pair EXISTENTIAL because the
+ * stutter horn moves only the left.  This is the answer to "or the count pair
+ * where a branch needs it": the shape carries `n1` and `n2` separately and the
+ * branch quantifies them, so the 1:1 and the 1:0 horn are the SAME statement.
+ *)
+let gwc_fit_var_deep
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwc_cf GWCGwy r s
+                      ({ st = PStep (PVar x1) k1; store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) k2; store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pcl_mono r /\ pcl_down r)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+             Cons? k1 /\
+             (exists (n1: nat) (n2: nat).
+                n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\
+                (n2 == 1 ==> Cons? k2) /\
+                gwc_lands lk apply GWCGwr r s n1 n2 cf1 cf2)))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwb_var_deep lk apply r s x1 x2 k1 k2 sto1 sto2;
+    introduce forall (n1: nat) (n2: nat).
+        (gwb_run_at lk apply r s n1 n2 cf1 cf2 ==>
+         gwc_lands lk apply GWCGwr r s n1 n2 cf1 cf2)
+    with (introduce _ ==> _
+          with (gwc_lands_is_gwb_run_at lk apply r s n1 n2 cf1 cf2))
+
+(**
+ * **THE `PPerform` TRANSITION FITS, AND IT CROSSES THE TWO FAMILIES.**
+ * `gwe_perform_case_a`, cited.  Departure tag `GWCGwy` (a STACK phase), landing
+ * tag `GWCGwe` (a GENERATED phase), counts `1 1`, allocation state UNMOVED --
+ * the left disjunct of `paprov_step_at` is the one that fires, because the two
+ * successors' counters are the source's.
+ *)
+let gwc_fit_perform
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k1 k2 cap1 cap2 bel1 bel2: pstack v cl) (fc1 fc2: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ gwe_apply_pres r apply /\
+             gwc_cf GWCGwy r s
+               ({ st = PStep (PPerform eff1 op1 pay1) k1;
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k2;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             pfind_prompt lk eff1 op1 k1 == Some (cap1, fc1, bel1) /\
+             pfind_prompt lk eff1 op1 k2 == Some (cap2, fc2, bel2) /\
+             ~(KScoped? fc1.kind) /\ fc1.kind == fc2.kind /\
+             pclrel r s.aw fc1.body fc2.body /\
+             gwy_k r s cap1 cap2 /\ pakrel r s bel1 bel2)
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) k1;
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k2;
+                 store = sto2; next = s.an2 } in
+             gwc_lands lk apply GWCGwe r s 1 1 cfL cfR))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) k1; store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k2; store = sto2; next = s.an2 } in
+    let outL : pconf v cl =
+      { st = PStep (apply fc1.body pay1 (pkont_of cap1)) bel1;
+        store = sto1; next = s.an1 } in
+    let outR : pconf v cl =
+      { st = PStep (apply fc2.body pay2 (pkont_of cap2)) bel2;
+        store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cfL cfR;
+    gwy_cf_unfold r s cfL cfR ();
+    gwe_perform_case_a r lk apply s eff1 op1 eff2 op2 pay1 pay2
+      k1 k2 cap1 cap2 bel1 bel2 fc1 fc2 sto1 sto2;
+    gwc_cf_is_gwe_cfg r s outL outR;
+    lemma_paext_refl_wf s;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cfL cfR outL outR /\ gwc_cf GWCGwe r s' outL outR)
+    with s and ()
+
+(**
+ * **THE `PSplice` TRANSITION FITS, AND IT CROSSES BACK.**  `gwf_splice_step`,
+ * cited.  Departure tag `GWCGwe`, landing tag `GWCGwy`, counts `1 1`, and again
+ * the allocation state does not move.  With `gwc_fit_perform` this closes the
+ * round trip between the two families AT THE CARRIER.
+ *)
+let gwc_fit_splice
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (cf1 cf2: pconf v cl)
+    (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl) (k1 k2: pstack v cl)
+  : Lemma (requires gwc_cf GWCGwe r s cf1 cf2 /\
+                    cf1.st == PStep (PSplice fs1 b1) k1 /\
+                    cf2.st == PStep (PSplice fs2 b2) k2)
+          (ensures gwc_lands lk apply GWCGwy r s 1 1 cf1 cf2)
+  = let o1 : pconf v cl = { cf1 with st = PStep b1 (fs1 @ k1) } in
+    let o2 : pconf v cl = { cf2 with st = PStep b2 (fs2 @ k2) } in
+    gwc_cf_is_gwe_cfg r s cf1 cf2;
+    gwf_splice_step r lk apply s cf1 cf2 fs1 fs2 b1 b2 k1 k2;
+    lemma_prun_one lk apply cf1 o1;
+    lemma_prun_one lk apply cf2 o2;
+    gwc_cf_is_gwy_cf r s o1 o2;
+    gwy_cf_unfold r s o1 o2 ();
+    lemma_paext_refl_wf s;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cf1 cf2 o1 o2 /\ gwc_cf GWCGwy r s' o1 o2)
+    with s and ()
+
+(* ---- 7. THE LATTICE DOES NOT COLLAPSE ---------------------------- *)
+
+(** The `squash`-to-`squash` cast for `padx_comp` at a `PSplice` pair, accepted
+    BY CONVERSION: the recursive definition is applied to a constructor, so it
+    iota-reduces, and without the cast the surplus condition inside it is
+    invisible in hypothesis position. *)
+let gwc_padx_comp_splice_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl)
+                                (h: squash (padx_comp r s (PSplice fs1 b1)
+                                                          (PSplice fs2 b2)))
+  : squash (padx_ktop r s fs1 fs2 /\ pacrel r s b1 b2)
+  = h
+
+let gwc_pafrel_boundary (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (pafrel #v #cl r s PBoundaryF PBoundaryF)
+  = introduce forall (n: nat). paframe_rel #v #cl r n s PBoundaryF PBoundaryF
+    with ()
+
+let gwc_g_surplus_deep_1 : pstack fv fcl = [PBoundaryF; PBindF (PVar #fv #fcl)]
+let gwc_g_surplus_deep_2 : pstack fv fcl = [PBoundaryF]
+let gwc_g_surplus_top_1 : pstack fv fcl = [PBindF (PVar #fv #fcl)]
+
+(** The at-DEPTH surplus pair is `gwy_k` and is NOT `padx_ktop`: `padx_top`
+    demands a `PBindF` at the head and the head here is a boundary. *)
+let gwc_g_deep_is_gwy_not_padx (s: pastate)
+  : Lemma (gwy_k fcl_rel s gwc_g_surplus_deep_1 gwc_g_surplus_deep_2 /\
+           ~(padx_ktop fcl_rel s gwc_g_surplus_deep_1 gwc_g_surplus_deep_2))
+  = guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel s;
+    gwy_ktop_is_gwy_k fcl_rel s gwc_g_surplus_top_1 ([] <: pstack fv fcl);
+    gwc_pafrel_boundary #fv #fcl fcl_rel s;
+    gwy_k_cons fcl_rel s (PBoundaryF <: pframe fv fcl) (PBoundaryF <: pframe fv fcl)
+               gwc_g_surplus_top_1 ([] <: pstack fv fcl);
+    introduce padx_ktop fcl_rel s gwc_g_surplus_deep_1 gwc_g_surplus_deep_2 ==> False
+    with (padx_ktop_unfold fcl_rel s gwc_g_surplus_deep_1 gwc_g_surplus_deep_2 ();
+          assert (padx_top fcl_rel 0 s gwc_g_surplus_deep_1 gwc_g_surplus_deep_2))
+
+let gwc_gA_cf1 : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) gwc_g_surplus_deep_1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_gA_cf2 : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) gwc_g_surplus_deep_2;
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(** **`GWCPadx` IS STRICTLY BELOW `GWCGwy`.** REFUTED at the narrower tag. *)
+let guard_gwc_padx_gwy_is_strict ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2 /\
+           ~(gwc_cf GWCPadx fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2))
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    assert (pval_rel #fv pabot.aw (fpv FU) (fpv FU));
+    lemma_pacrel_var #fv #fcl fcl_rel pabot (fpv FU) (fpv FU);
+    gwc_g_deep_is_gwy_not_padx pabot;
+    gwy_cf_unfold fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2 ();
+    gwc_cf_is_gwy_cf fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2;
+    gwc_cf_is_padx_cf fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2;
+    introduce padx_cf fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2 ==> False
+    with (padx_cf_unfold fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2 ();
+          padx_st_unfold fcl_rel pabot gwc_gA_cf1.st gwc_gA_cf2.st ())
+
+let gwc_gB_cf1 : pconf fv fcl =
+  { st = PPaused (fpv FU) gwc_g_surplus_top_1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_gB_cf2 : pconf fv fcl =
+  { st = PPaused (fpv FU) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(** **`GWCGwy` IS STRICTLY BELOW `GWCGwp`.** REFUTED at the narrower tag: the
+    difference is exactly the `PPaused` clause. *)
+let guard_gwc_gwy_gwp_is_strict ()
+  : Lemma (gwc_cf GWCGwp fcl_rel pabot gwc_gB_cf1 gwc_gB_cf2 /\
+           ~(gwc_cf GWCGwy fcl_rel pabot gwc_gB_cf1 gwc_gB_cf2))
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    assert (pval_rel #fv pabot.aw (fpv FU) (fpv FU));
+    guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot;
+    gwy_ktop_is_gwy_k fcl_rel pabot gwc_g_surplus_top_1 ([] <: pstack fv fcl);
+    gwc_kd_at_gwp #fv #fcl fcl_rel pabot gwc_g_surplus_top_1 ([] <: pstack fv fcl);
+    introduce gwc_cf GWCGwy fcl_rel pabot gwc_gB_cf1 gwc_gB_cf2 ==> False
+    with (gwc_cf_unfold GWCGwy fcl_rel pabot gwc_gB_cf1 gwc_gB_cf2 ();
+          gwc_st_unfold GWCGwy fcl_rel pabot gwc_gB_cf1.st gwc_gB_cf2.st ())
+
+let gwc_gC_cf : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(** **`GWCGwp` IS STRICTLY BELOW `GWCGwr`.** REFUTED at the narrower tag: two
+    EQUAL empty stacks are `pakrel`, hence `gwr_kd`, and `gwy_k` forces a length
+    difference of exactly one, so it refuses them. *)
+let guard_gwc_gwp_gwr_is_strict ()
+  : Lemma (gwc_cf GWCGwr fcl_rel pabot gwc_gC_cf gwc_gC_cf /\
+           ~(gwc_cf GWCGwp fcl_rel pabot gwc_gC_cf gwc_gC_cf))
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwr_srel_of_pasrel fcl_rel pabot ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    assert (pval_rel #fv pabot.aw (fpv FU) (fpv FU));
+    lemma_pacrel_var #fv #fcl fcl_rel pabot (fpv FU) (fpv FU);
+    lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    gwc_kd_at_gwr #fv #fcl fcl_rel pabot ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+    gwc_kd_at_gwp #fv #fcl fcl_rel pabot ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+    gwc_comp_at_gwr #fv #fcl fcl_rel pabot (PVar (fpv FU)) (PVar (fpv FU));
+    gwc_sr_at_gwr #fv #fcl fcl_rel pabot ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    introduce gwc_cf GWCGwp fcl_rel pabot gwc_gC_cf gwc_gC_cf ==> False
+    with (gwc_cf_unfold GWCGwp fcl_rel pabot gwc_gC_cf gwc_gC_cf ();
+          gwc_st_unfold GWCGwp fcl_rel pabot gwc_gC_cf.st gwc_gC_cf.st ();
+          gwy_k_unfold fcl_rel pabot ([] <: pstack fv fcl) ([] <: pstack fv fcl) ())
+
+let gwc_gD_cf1 : pconf fv fcl =
+  { st = PStep (PSplice gwc_g_surplus_deep_1 (PVar (fpv FU))) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_gD_cf2 : pconf fv fcl =
+  { st = PStep (PSplice gwc_g_surplus_deep_2 (PVar (fpv FU))) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(** **`GWCPadxg` IS STRICTLY BELOW `GWCGwe`.** REFUTED at the narrower tag: the
+    two spliced frame lists differ at DEPTH, which `gwe_comp` accepts through
+    `gwy_k` and `padx_comp` refuses through `padx_ktop`. *)
+let guard_gwc_padxg_gwe_is_strict ()
+  : Lemma (gwc_cf GWCGwe fcl_rel pabot gwc_gD_cf1 gwc_gD_cf2 /\
+           ~(gwc_cf GWCPadxg fcl_rel pabot gwc_gD_cf1 gwc_gD_cf2))
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    assert (pval_rel #fv pabot.aw (fpv FU) (fpv FU));
+    lemma_pacrel_var #fv #fcl fcl_rel pabot (fpv FU) (fpv FU);
+    lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    gwc_g_deep_is_gwy_not_padx pabot;
+    gwc_kd_at_gwe #fv #fcl fcl_rel pabot ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+    gwc_comp_at_gwe #fv #fcl fcl_rel pabot
+      (PSplice gwc_g_surplus_deep_1 (PVar (fpv FU)))
+      (PSplice gwc_g_surplus_deep_2 (PVar (fpv FU)));
+    gwc_comp_at_padxg #fv #fcl fcl_rel pabot
+      (PSplice gwc_g_surplus_deep_1 (PVar (fpv FU)))
+      (PSplice gwc_g_surplus_deep_2 (PVar (fpv FU)));
+    introduce gwc_cf GWCPadxg fcl_rel pabot gwc_gD_cf1 gwc_gD_cf2 ==> False
+    with (gwc_cf_unfold GWCPadxg fcl_rel pabot gwc_gD_cf1 gwc_gD_cf2 ();
+          gwc_st_unfold GWCPadxg fcl_rel pabot gwc_gD_cf1.st gwc_gD_cf2.st ();
+          gwc_padx_comp_splice_unfold #fv #fcl fcl_rel pabot
+            gwc_g_surplus_deep_1 gwc_g_surplus_deep_2
+            (PVar (fpv FU)) (PVar (fpv FU)) ())
+
+let gwc_gE_cf : pconf fv fcl =
+  { st = PDone (fpv FU); store = ([] <: pstore fv fcl); next = 0 }
+
+(**
+ * **`GWCPacf` IS NOT BELOW `GWCGwr` WITHOUT THE `PStep` RESTRICTION.** REFUTED.
+ * The pair is a `PDone` against itself: `pacfrel` has a `PDone` clause and
+ * `gwr_st` has none, so `gwc_incl_pacf_gwr_step`'s `PStep? /\ PStep?` premise
+ * is LOAD-BEARING.  This is the one place the lattice is not uniform, and it is
+ * why the carrier's `gwc_reach_of` selector exists.
+ *)
+let guard_gwc_pacf_not_gwr_fires ()
+  : Lemma (gwc_cf GWCPacf fcl_rel pabot gwc_gE_cf gwc_gE_cf /\
+           ~(gwc_cf GWCGwr fcl_rel pabot gwc_gE_cf gwc_gE_cf))
+  = cor_padxg_pabot_sto_self ();
+    assert (pval_rel #fv pabot.aw (fpv FU) (fpv FU));
+    introduce gwc_cf GWCGwr fcl_rel pabot gwc_gE_cf gwc_gE_cf ==> False
+    with (gwc_cf_unfold GWCGwr fcl_rel pabot gwc_gE_cf gwc_gE_cf ();
+          gwc_st_unfold GWCGwr fcl_rel pabot gwc_gE_cf.st gwc_gE_cf.st ())
+
+(**
+ * **THE FIVE STRICTNESS FACTS, IN ONE STATEMENT.**  No two of the seven tags
+ * that stand in an inclusion are equal, so the carrier's index is not carrying
+ * a redundant distinction anywhere.
+ *)
+let guard_gwc_lattice_does_not_collapse ()
+  : Lemma (~(gwc_cf GWCPadx fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2) /\
+           gwc_cf GWCGwy fcl_rel pabot gwc_gA_cf1 gwc_gA_cf2 /\
+           ~(gwc_cf GWCGwy fcl_rel pabot gwc_gB_cf1 gwc_gB_cf2) /\
+           gwc_cf GWCGwp fcl_rel pabot gwc_gB_cf1 gwc_gB_cf2 /\
+           ~(gwc_cf GWCGwp fcl_rel pabot gwc_gC_cf gwc_gC_cf) /\
+           gwc_cf GWCGwr fcl_rel pabot gwc_gC_cf gwc_gC_cf /\
+           ~(gwc_cf GWCPadxg fcl_rel pabot gwc_gD_cf1 gwc_gD_cf2) /\
+           gwc_cf GWCGwe fcl_rel pabot gwc_gD_cf1 gwc_gD_cf2 /\
+           ~(gwc_cf GWCGwr fcl_rel pabot gwc_gE_cf gwc_gE_cf) /\
+           gwc_cf GWCPacf fcl_rel pabot gwc_gE_cf gwc_gE_cf)
+  = guard_gwc_padx_gwy_is_strict ();
+    guard_gwc_gwy_gwp_is_strict ();
+    guard_gwc_gwp_gwr_is_strict ();
+    guard_gwc_padxg_gwe_is_strict ();
+    guard_gwc_pacf_not_gwr_fires ()
+
+(* ---- 8. THE NON-UNIFORM EDGE NEEDS *BOTH* OF ITS HYPOTHESES ------- *)
+
+(**
+ * `guard_gwc_pacf_not_gwr_fires` above shows the `PStep? /\ PStep?` premise of
+ * `gwc_incl_pacf_gwr_step` is load-bearing.  Its OTHER premise, `pawf s`, is
+ * load-bearing too, and independently so: the two are not one condition wearing
+ * two names.  The witness state is `pa_unb0`, which the file already carries and
+ * already knows is not admissible; what is new here is a CONFIGURATION pair over
+ * it, which needs a store, because `pa_unb0`'s world couples the name 3 and
+ * `pasrel` then demands both sides bind it.
+ *)
+
+(** A context that is `paxrel` to itself at EVERY state: `PCtxDone` of a plain
+    value, whose only obligation is `pval_rel` of a `PV` against itself, and that
+    does not read the world. *)
+let gwc_ctx_self : pctx fv fcl = PCtxDone (fpv FU)
+
+let gwc_paxrel_ctx_self (s: pastate)
+  : Lemma (paxrel fcl_rel s gwc_ctx_self gwc_ctx_self)
+  = introduce forall (n: nat). pactx_rel fcl_rel n s gwc_ctx_self gwc_ctx_self
+    with ()
+
+(** The store that binds the ONE name `pa_unb0`'s world couples. *)
+let gwc_nwf_sto : pstore fv fcl = [(3, gwc_ctx_self)]
+
+let gwc_unb0_only_binds_three ()
+  : Lemma (forall (i j: nat). pwlookup_l i pa_unb0.aw == Some j ==> i == 3 /\ j == 3)
+  = lemma_pwl_cons 3 3 ([] <: pworld)
+
+(** `pa_unb0` speaks about a name at 3 under frontiers `(0, 0)`, so `pwbound`
+    refuses it and `pawf` therefore does. *)
+let gwc_unb0_is_not_wf () : Lemma (~(pawf pa_unb0))
+  = lemma_pwl_cons 3 3 ([] <: pworld)
+
+let gwc_nwf_sto_pasrel ()
+  : Lemma (pasrel fcl_rel pa_unb0 gwc_nwf_sto gwc_nwf_sto)
+  = gwc_paxrel_ctx_self pa_unb0;
+    gwc_unb0_only_binds_three ();
+    assert_norm (pstore_lookup 3 gwc_nwf_sto == Some gwc_ctx_self);
+    assert_norm (psget 3 gwc_nwf_sto == gwc_ctx_self);
+    introduce forall (i j: nat).
+        (pwlookup_l i pa_unb0.aw == Some j ==>
+         (Some? (pstore_lookup i gwc_nwf_sto) /\
+          Some? (pstore_lookup j gwc_nwf_sto) /\
+          paxrel fcl_rel pa_unb0 (psget i gwc_nwf_sto) (psget j gwc_nwf_sto)))
+    with (introduce _ ==> _ with ())
+
+let gwc_gF_cf : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) ([] <: pstack fv fcl);
+    store = gwc_nwf_sto; next = 0 }
+
+(**
+ * **THE `pawf s` PREMISE OF `gwc_incl_pacf_gwr_step` IS LOAD-BEARING.** REFUTED.
+ * The pair is a `PStep` against itself -- so the OTHER premise is satisfied --
+ * and every conjunct of `gwr_cf` other than `pawf s` holds of it, as the two
+ * middle conclusions record.  What fails is exactly the well-formedness of the
+ * index, which `pacfrel` never asked for.
+ *)
+let guard_gwc_pacf_gwr_needs_wf ()
+  : Lemma (gwc_cf GWCPacf fcl_rel pa_unb0 gwc_gF_cf gwc_gF_cf /\
+           PStep? gwc_gF_cf.st /\
+           gwr_st fcl_rel pa_unb0 gwc_gF_cf.st gwc_gF_cf.st /\
+           gwr_srel fcl_rel pa_unb0 gwc_gF_cf.store gwc_gF_cf.store /\
+           ~(pawf pa_unb0) /\
+           ~(gwc_cf GWCGwr fcl_rel pa_unb0 gwc_gF_cf gwc_gF_cf))
+  = gwc_nwf_sto_pasrel ();
+    gwc_unb0_is_not_wf ();
+    gwr_srel_of_pasrel fcl_rel pa_unb0 gwc_nwf_sto gwc_nwf_sto;
+    assert (pval_rel #fv pa_unb0.aw (fpv FU) (fpv FU));
+    lemma_pacrel_var #fv #fcl fcl_rel pa_unb0 (fpv FU) (fpv FU);
+    lemma_pakrel_nil #fv #fcl fcl_rel pa_unb0;
+    introduce gwc_cf GWCGwr fcl_rel pa_unb0 gwc_gF_cf gwc_gF_cf ==> False
+    with (gwc_cf_unfold GWCGwr fcl_rel pa_unb0 gwc_gF_cf gwc_gF_cf ())
+
+(* ---- 9. THE SET-OF-TAGS FORM, INHABITED BY WEAKENING A DEFINITE     *)
+(*         LANDING -- NOT YET BY A GENUINELY MULTI-TAG BRANCH          *)
+
+(** The two-element landing set a `PPerform` could be declared to land in if the
+    caller does not wish to commit to the generated family. *)
+let gwc_qs_gwe_or_gwy (q: gwc_phase) : bool = GWCGwe? q || GWCGwy? q
+
+(**
+ * **`gwe_perform_case_a` FITS THE SET FORM TOO.**  Cited through
+ * `gwc_fit_perform`, so no proof is restated.  A branch that lands in a
+ * definite tag lands in any set containing it, by `gwc_lands_set_intro` alone.
+ *
+ * **BUT THAT IS EXTENSIONAL INHABITATION, NOT A MULTI-TAG BRANCH.**  No branch
+ * has yet been proved ONLY through a landing set whose selected tag depends on
+ * the operational horn.  Until one is, the set form is an interface that has
+ * been exercised by weakening, not by need.
+ *)
+let gwc_fit_perform_set
+    (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (eff1 op1 eff2 op2: string) (pay1 pay2: list (pval v))
+    (k1 k2 cap1 cap2 bel1 bel2: pstack v cl) (fc1 fc2: found_clause cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires
+             pcl_mono r /\ gwe_apply_pres r apply /\
+             gwc_cf GWCGwy r s
+               ({ st = PStep (PPerform eff1 op1 pay1) k1;
+                  store = sto1; next = s.an1 } <: pconf v cl)
+               ({ st = PStep (PPerform eff2 op2 pay2) k2;
+                  store = sto2; next = s.an2 } <: pconf v cl) /\
+             pfind_prompt lk eff1 op1 k1 == Some (cap1, fc1, bel1) /\
+             pfind_prompt lk eff1 op1 k2 == Some (cap2, fc2, bel2) /\
+             ~(KScoped? fc1.kind) /\ fc1.kind == fc2.kind /\
+             pclrel r s.aw fc1.body fc2.body /\
+             gwy_k r s cap1 cap2 /\ pakrel r s bel1 bel2)
+          (ensures
+            (let cfL : pconf v cl =
+               { st = PStep (PPerform eff1 op1 pay1) k1;
+                 store = sto1; next = s.an1 } in
+             let cfR : pconf v cl =
+               { st = PStep (PPerform eff2 op2 pay2) k2;
+                 store = sto2; next = s.an2 } in
+             gwc_lands_set lk apply gwc_qs_gwe_or_gwy r s 1 1 cfL cfR))
+  = let cfL : pconf v cl =
+      { st = PStep (PPerform eff1 op1 pay1) k1; store = sto1; next = s.an1 } in
+    let cfR : pconf v cl =
+      { st = PStep (PPerform eff2 op2 pay2) k2; store = sto2; next = s.an2 } in
+    gwc_fit_perform r lk apply s eff1 op1 eff2 op2 pay1 pay2
+      k1 k2 cap1 cap2 bel1 bel2 fc1 fc2 sto1 sto2;
+    gwc_lands_set_intro lk apply gwc_qs_gwe_or_gwy GWCGwe r s 1 1 cfL cfR

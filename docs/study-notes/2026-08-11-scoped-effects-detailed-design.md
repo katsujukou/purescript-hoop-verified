@@ -8935,6 +8935,83 @@ has `gwr_cf` among its successors, and only then move `PReadP`, `PWriteP`,
 `PWeave` and the context-extension forms — so that which of `gwy_cf` and
 `gwr_cf` each constructor departs from and lands in never has to be guessed.
 
+#### A phase carrier for the dispatcher
+
+An interface gate: it adds no coverage. Its deliverable is a phase tag, a
+relation indexed by it, and proofs that the interface **is** the existing
+relations.
+
+All seven configuration relations sit at seven tags, as two-way implications,
+with **nothing changed**: `pacfrel`, `padx_cf`, `gwy_cf`, `gwp_cf`, `gwr_cf` in
+the stack family, `padxg_cf` and `gwe_cfg` in the generated one. The carrier
+is a tag plus four component selectors, and the one genuinely non-uniform datum
+is the reachable-shape selector: only `pacfrel` admits `PDone`, `PStuck` and
+`PRejected`; `gwp_cf` and `gwr_cf` reach `PPaused`; the other four are
+`PStep`-only. That could not be folded into the stack component, which is why
+it is a selector of its own.
+
+#### The transition shape parameterises only the landing
+
+`gwc_lands` is `gwb_run_at` with the landing relation abstracted and everything
+else verbatim, and the two are proved equivalent at `GWCGwr`. So the existing
+`gwb_*` family enters the interface **by citation**, with no proof restated —
+and the count pair survives, so `1:1` and `1:0` are expressible in one
+statement.
+
+#### The lattice
+
+Four uniform inclusions and one conditional:
+
+```text
+GWCPadx ──▶ GWCGwy ──▶ GWCGwp ──▶ GWCGwr        (no hypotheses)
+GWCPadxg ──▶ GWCGwe                              (no hypotheses)
+GWCPacf ──▶ GWCGwr        requires pawf s and PStep?/PStep?
+```
+
+All five pairs are **unequal as relations** — none of the edges degenerates
+to an equality. But the fifth edge's strictness and the unconditional
+inclusions should not be conflated: `GWCPacf ==> GWCGwr` is a conditional edge,
+and both of its premises were separately refuted as load-bearing — the `pawf`
+one on a pair where every other conjunct of `gwr_cf` holds and only `pawf`
+fails.
+
+The `gwp_cf`/`gwr_cf` edge's strictness has a structural reason, checked
+independently: `gwy_k` forces a length difference of exactly one, so a pair with
+**equal** stacks cannot sit at the narrower tags while `gwr_kd` admits it.
+
+#### The two families are joined
+
+`PPerform` fits as `GWCGwy → GWCGwe` and `PSplice` as `GWCGwe → GWCGwy`,
+both by citation. So the round trip between the stack and generated families is
+expressed in the carrier rather than in prose.
+
+#### The set-of-tags form, at its actual status
+
+> `gwc_lands_set` is inhabited extensionally by weakening a definite landing.
+> No branch has yet been proved only through a genuinely multi-tag landing set
+> whose selected tag depends on the operational horn.
+
+The `.fst`'s own heading said "inhabited by a real branch"; it now says
+"inhabited by weakening a definite landing", with the distinction spelled out.
+
+#### Not proved
+
+- dispatcher coverage — five branches were fitted, not all of them;
+- transitive inclusions, e.g. `GWCPadx ==> GWCGwr`, stated explicitly;
+- the departure tag as a first-class predicate — it appears only in each
+  fitting lemma's `requires`;
+- separation of tag pairs not joined by a lattice edge, such as `GWCPadx`
+  against `GWCPadxg`;
+- a genuinely multi-tag landing.
+
+#### A methodological correction
+
+This gate's brief claimed `padx_cf ==> gwy_cf` was missing. It was not:
+`gwy_padx_cf_is_cf` already existed, and needs no `pcl_down`. The claim came
+from a name-pattern grep that did not match the lemma's naming. Absence claims
+from name searches are unreliable and will not be made again — the same error
+had already occurred once, over `gwe_k_mono`.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
