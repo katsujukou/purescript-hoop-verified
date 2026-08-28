@@ -51148,3 +51148,851 @@ let guard_gwr_yield_paused_fires ()
                            (PBoundaryF <: pframe fv fcl)
                            (PBoundaryF <: pframe fv fcl)
                            gwp_g_y1 gwp_g_y2 gwp_gY_cf1 gwp_gY_cf2
+
+(* ================================================================== *)
+(*  B2b.PVarDEEP-B -- THE `gwr_cf` BUNDLE, JUXTAPOSED WITH THE OLD ONE *)
+(*                                                                     *)
+(*  WHAT THIS SECTION IS FOR.  `gwp_var_deep_step` takes               *)
+(*  `gwp_cut_below` POSITIVELY.  The previous section showed the       *)
+(*  premise is DROPPABLE at the two yielding exits once the landing    *)
+(*  relation is widened from `gwp_cf` to `gwr_cf`                      *)
+(*  (`gwr_cut_below_demoted`).  This section carries that all the way  *)
+(*  to a BUNDLE: every head-frame branch of the deep `PVar` rule is    *)
+(*  repackaged into ONE conclusion at `gwr_cf`, and the resulting      *)
+(*  theorem `gwb_var_deep` has NO `gwp_cut_below` and NO horn          *)
+(*  selector in its premises.                                          *)
+(*                                                                     *)
+(*  NOTHING IS DELETED.  `gwp_var_deep_step` and `gwp_var_deep` stand  *)
+(*  untouched; `gwb_vs_gwp_var_deep_step` gives a TWO-FIXTURE          *)
+(*  comparison: one witnesses the coverage gain and the other the      *)
+(*  precision loss.  It is not a biconditional or a general            *)
+(*  implication between the bundles.                                   *)
+(*                                                                     *)
+(*  --- THE THREE THINGS THAT HAD TO BE DECIDED ---                    *)
+(*                                                                     *)
+(*  1. THE NON-YIELD BRANCHES ARE ASSEMBLY.  Each shipped exit ends    *)
+(*     in `gwy_cf`; `gwp_cf_of_gwy_cf` then `gwr_cf_of_gwp_cf` moves   *)
+(*     it to `gwr_cf` with no new proof.  So the seven non-yield       *)
+(*     branches transport verbatim.                                    *)
+(*                                                                     *)
+(*  2. THE PHASE DISJUNCTION COLLAPSES, BUT ONLY AT THIS SCOPE.        *)
+(*     The stutter horn lands in `pacfrel`, whose state relation has   *)
+(*     `PDone`, `PStuck` and `PRejected` clauses that `gwr_st` does    *)
+(*     NOT have, so `pacfrel ==> gwr_cf` is FALSE in general.  What is *)
+(*     true, and all that is used, is                                  *)
+(*     `gwb_gwr_cf_of_pacfrel_step`: `pacfrel` implies `gwr_cf` when   *)
+(*     BOTH states are `PStep` -- and the stutter's successor pair is  *)
+(*     exactly of that shape.  No general subsumption is stated.       *)
+(*                                                                     *)
+(*  3. THE STEP COUNTS ARE NOT UNIFORM, SO THEY ARE CARRIED            *)
+(*     EXPLICITLY.  `gwb_run_at` is indexed by a PAIR of counts        *)
+(*     `n1 n2` and speaks of `prun lk apply n1` / `prun lk apply n2`,  *)
+(*     not of `pstep_tr`.  The bundle concludes                        *)
+(*                                                                     *)
+(*       exists n1 n2. n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\ ...          *)
+(*                                                                     *)
+(*     so the LEFT always advances by exactly one and the RIGHT by     *)
+(*     one or zero, the zero being the stutter alone.  The TRACE claim *)
+(*     is inside `gwb_run_at` and is stated at those same counts:      *)
+(*     `snd (prun n1 cf1) == snd (prun n2 cf2)`, so it is not weakened *)
+(*     by the disjunction.  `n2 == 1 ==> Cons? k2` is recorded too, so *)
+(*     the shape information `gwp_var_deep`'s right disjunct carried   *)
+(*     is not lost.                                                    *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(* ================================================================== *)
+
+(* ---- 1. THE CONCLUSION SHAPE, WITH EXPLICIT STEP COUNTS ---------- *)
+
+(**
+ * `gwp_step_at` with THREE edits and no more: `pstep_tr` on each side becomes
+ * `prun lk apply n_i`, the two counts are separate parameters, and `gwp_cf`
+ * becomes `gwr_cf`.  `paext`, `pawf`, the `s' == s \/ s' == paalloc s`
+ * dichotomy and `paprov_step_at` are verbatim.
+ *)
+let gwb_run_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+               (r: pcl_rel_t cl) (s: pastate) (n1 n2: nat)
+               (cf1 cf2: pconf v cl) : GTot prop
+  = snd (prun lk apply n1 cf1) == snd (prun lk apply n2 cf2) /\
+    (exists (s': pastate).
+       paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+       paprov_step_at s' s cf1 cf2 (fst (prun lk apply n1 cf1))
+                                   (fst (prun lk apply n2 cf2)) /\
+       gwr_cf r s' (fst (prun lk apply n1 cf1)) (fst (prun lk apply n2 cf2)))
+
+(** The `squash`-to-`squash` cast, accepted BY CONVERSION, for the same reason
+    `pcfrel_unfold` records: a `GTot prop` applied to arguments is an ATOM in
+    hypothesis position. *)
+let gwb_run_at_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                      (r: pcl_rel_t cl) (s: pastate) (n1 n2: nat)
+                      (cf1 cf2: pconf v cl)
+                      (h: squash (gwb_run_at lk apply r s n1 n2 cf1 cf2))
+  : squash (snd (prun lk apply n1 cf1) == snd (prun lk apply n2 cf2) /\
+            (exists (s': pastate).
+               paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+               paprov_step_at s' s cf1 cf2 (fst (prun lk apply n1 cf1))
+                                           (fst (prun lk apply n2 cf2)) /\
+               gwr_cf r s' (fst (prun lk apply n1 cf1))
+                           (fst (prun lk apply n2 cf2))))
+  = h
+
+(* ---- 2. THE FOUR INTRODUCTIONS ----------------------------------- *)
+
+(** The 1:1 introduction with the allocation state left existential; this is the
+    shape the two yielding exits already deliver. *)
+let gwb_step_intro (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                   (r: pcl_rel_t cl) (s: pastate)
+                   (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires PStep? cf1.st /\ PStep? cf2.st /\
+                    pstep_tr lk apply cf1 == (cf1', ([] <: list string)) /\
+                    pstep_tr lk apply cf2 == (cf2', ([] <: list string)) /\
+                    (exists (s': pastate).
+                       paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+                       paprov_step_at s' s cf1 cf2 cf1' cf2' /\
+                       gwr_cf r s' cf1' cf2'))
+          (ensures gwb_run_at lk apply r s 1 1 cf1 cf2)
+  = lemma_prun_one lk apply cf1 cf1';
+    lemma_prun_one lk apply cf2 cf2'
+
+(** The 1:1 introduction at a STANDING STILL allocation state. *)
+let gwb_step_same (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                  (r: pcl_rel_t cl) (s: pastate)
+                  (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires pawf s /\ PStep? cf1.st /\ PStep? cf2.st /\
+                    pstep_tr lk apply cf1 == (cf1', ([] <: list string)) /\
+                    pstep_tr lk apply cf2 == (cf2', ([] <: list string)) /\
+                    cf1'.next == cf1.next /\ cf2'.next == cf2.next /\
+                    gwr_cf r s cf1' cf2')
+          (ensures gwb_run_at lk apply r s 1 1 cf1 cf2)
+  = lemma_paext_refl_wf s;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cf1 cf2 cf1' cf2' /\ gwr_cf r s' cf1' cf2')
+    with s and ();
+    gwb_step_intro lk apply r s cf1 cf2 cf1' cf2'
+
+(** The 1:1 introduction at an allocation state advanced by exactly one pair. *)
+let gwb_step_alloc (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                   (r: pcl_rel_t cl) (s: pastate)
+                   (cf1 cf2 cf1' cf2': pconf v cl)
+  : Lemma (requires pawf s /\ PStep? cf1.st /\ PStep? cf2.st /\
+                    pstep_tr lk apply cf1 == (cf1', ([] <: list string)) /\
+                    pstep_tr lk apply cf2 == (cf2', ([] <: list string)) /\
+                    paprov_step_at (paalloc s) s cf1 cf2 cf1' cf2' /\
+                    gwr_cf r (paalloc s) cf1' cf2')
+          (ensures gwb_run_at lk apply r s 1 1 cf1 cf2)
+  = lemma_paext_of_alloc s;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cf1 cf2 cf1' cf2' /\ gwr_cf r s' cf1' cf2')
+    with (paalloc s) and ();
+    gwb_step_intro lk apply r s cf1 cf2 cf1' cf2'
+
+(** The 1:0 introduction -- the stutter, and the ONLY place a count other than
+    one appears.  The right side does not move, so the allocation state cannot,
+    and `paprov_step_at s s` is the standing-still disjunct. *)
+let gwb_stutter_intro (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                      (r: pcl_rel_t cl) (s: pastate)
+                      (cf1 cf2 cf1': pconf v cl)
+  : Lemma (requires pawf s /\
+                    prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+                    prun lk apply 0 cf2 == (cf2, ([] <: list string)) /\
+                    cf1'.next == cf1.next /\
+                    gwr_cf r s cf1' cf2)
+          (ensures gwb_run_at lk apply r s 1 0 cf1 cf2)
+  = lemma_paext_refl_wf s;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cf1 cf2 cf1' cf2 /\ gwr_cf r s' cf1' cf2)
+    with s and ()
+
+(* ---- 3. THE PHASE COLLAPSE, AT EXACTLY ITS SCOPE ----------------- *)
+
+(**
+ * **`pacfrel` LANDS IN `gwr_cf` WHEN BOTH SIDES ARE `PStep`.** PROVED, and the
+ * `PStep? /\ PStep?` premise is NOT decoration: `pastrel` has `PDone`, `PStuck`
+ * and `PRejected` clauses and `gwr_st` has none of them, so the unrestricted
+ * subsumption `pacfrel ==> gwr_cf` is FALSE and is not stated anywhere.  The
+ * stutter horn's successor pair is `PStep`/`PStep` by construction, which is the
+ * whole of why the phase disjunction can be dropped HERE and only here.
+ *)
+let gwb_gwr_cf_of_pacfrel_step (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                               (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ pacfrel r s cf1 cf2 /\
+                    PStep? cf1.st /\ PStep? cf2.st)
+          (ensures gwr_cf r s cf1 cf2)
+  = pacfrel_unfold r s cf1 cf2 ();
+    pastrel_unfold r s cf1.st cf2.st ();
+    gwr_srel_of_pasrel r s cf1.store cf2.store
+
+(* ---- 4. THE NON-YIELD EXITS, TRANSPORTED ------------------------- *)
+
+(** `PParamF` pops. *)
+let gwb_exit_param
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (l1 l2: string) (y1 y2: pval v)
+    (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PParamF l1 y1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PParamF l2 y2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PParamF l1 y1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PParamF l2 y2 :: t2);
+                 store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PParamF l1 y1 :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PParamF l2 y2 :: t2); store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep (PVar x1) t1; store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep (PVar x2) t2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwp_exit_param lk apply r s x1 x2 l1 l2 y1 y2 t1 t2 sto1 sto2;
+    gwp_cf_of_gwy_cf r s cf1' cf2';
+    gwr_cf_of_gwp_cf r s cf1' cf2';
+    gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+
+(** `PModeF` pops. *)
+let gwb_exit_mode
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (m1 m2: weave_mode) (g1 g2: pval v -> pcomp v cl)
+    (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PModeF m1 g1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PModeF m2 g2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PModeF m1 g1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PModeF m2 g2 :: t2);
+                 store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PModeF m1 g1 :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PModeF m2 g2 :: t2); store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep (PVar x1) t1; store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep (PVar x2) t2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwp_exit_mode lk apply r s x1 x2 m1 m2 g1 g2 t1 t2 sto1 sto2;
+    gwp_cf_of_gwy_cf r s cf1' cf2';
+    gwr_cf_of_gwp_cf r s cf1' cf2';
+    gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+
+(** `PPromptF` -- the return clause, or the plain pop. *)
+let gwb_exit_prompt
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (tb1 tb2: ptable cl)
+    (ret1 ret2: option (pval v -> pcomp v cl))
+    (pv1 pv2: prompt_provenance)
+    (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PPromptF tb1 ret1 pv1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PPromptF tb2 ret2 pv2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pcl_down r)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PPromptF tb1 ret1 pv1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PPromptF tb2 ret2 pv2 :: t2);
+                 store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PPromptF tb1 ret1 pv1 :: t1);
+        store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PPromptF tb2 ret2 pv2 :: t2);
+        store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwp_exit_prompt lk apply r s x1 x2 tb1 tb2 ret1 ret2 pv1 pv2 t1 t2 sto1 sto2;
+    match ret1, ret2 with
+    | Some fn1, Some fn2 ->
+      let cf1' : pconf v cl =
+        { st = PStep (fn1 x1) t1; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStep (fn2 x2) t2; store = sto2; next = s.an2 } in
+      gwp_cf_of_gwy_cf r s cf1' cf2';
+      gwr_cf_of_gwp_cf r s cf1' cf2';
+      gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+    | None, None ->
+      let cf1' : pconf v cl =
+        { st = PStep (PVar x1) t1; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStep (PVar x2) t2; store = sto2; next = s.an2 } in
+      gwp_cf_of_gwy_cf r s cf1' cf2';
+      gwr_cf_of_gwp_cf r s cf1' cf2';
+      gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+    | _, _ -> ()
+
+(** `PScopeF` -- THE ALLOCATING ONE, and the only 1:1 branch whose allocation
+    state moves. *)
+let gwb_exit_scope
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PScopeF :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PScopeF :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pcl_mono r)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PScopeF :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PScopeF :: t2);
+                 store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PScopeF :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PScopeF :: t2); store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep (PVar (fst (palloc (PCtxDone x1) cf1))) t1;
+        store = (s.an1, PCtxDone x1) :: sto1; next = s.an1 + 1 } in
+    let cf2' : pconf v cl =
+      { st = PStep (PVar (fst (palloc (PCtxDone x2) cf2))) t2;
+        store = (s.an2, PCtxDone x2) :: sto2; next = s.an2 + 1 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwp_exit_scope lk apply r s x1 x2 t1 t2 sto1 sto2;
+    gwp_cf_of_gwy_cf r (paalloc s) cf1' cf2';
+    gwr_cf_of_gwp_cf r (paalloc s) cf1' cf2';
+    gwb_step_alloc lk apply r s cf1 cf2 cf1' cf2'
+
+(* ---- 5. THE TWO PRODUCING HEAD FRAMES, YIELD BRANCH INCLUDED ----- *)
+
+(**
+ * `PBoundaryF`, BOTH branches, in one lemma and with NO `gwp_cut_below`.  The
+ * responder branch transports through `gwp_exit_boundary_respond`; the yielding
+ * branch is `gwr_exit_boundary_yield`, which already lands in `gwr_cf` and
+ * already has the premise dropped.
+ *)
+let gwb_exit_boundary
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PBoundaryF :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PBoundaryF :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pcl_mono r)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PBoundaryF :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PBoundaryF :: t2);
+                 store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PBoundaryF :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PBoundaryF :: t2); store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    gwy_k_unfold r s (PBoundaryF :: t1) (PBoundaryF :: t2) ();
+    match pfind_mode t1 with
+    | None ->
+      lemma_pacrel_var_inv #v #cl r s x1 x2;
+      gwr_srel_of_pasrel r s sto1 sto2;
+      gwr_exit_boundary_yield lk apply r s x1 x2 t1 t2 sto1 sto2;
+      gwb_step_intro lk apply r s cf1 cf2
+        (pyield x1 (PBoundaryF <: pframe v cl) t1 cf1)
+        (pyield x2 (PBoundaryF <: pframe v cl) t2 cf2)
+    | Some (m1, resp1) ->
+      gwp_exit_boundary_respond lk apply r s x1 x2 t1 t2 sto1 sto2;
+      (match pfind_mode t2 with
+       | Some (m2, resp2) ->
+         let cf1' : pconf v cl =
+           { st = PStep (resp1 x1) t1; store = sto1; next = s.an1 } in
+         let cf2' : pconf v cl =
+           { st = PStep (resp2 x2) t2; store = sto2; next = s.an2 } in
+         gwp_cf_of_gwy_cf r s cf1' cf2';
+         gwr_cf_of_gwp_cf r s cf1' cf2';
+         gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+       | None -> ())
+
+(**
+ * `PSiteF`, ALL THREE branches, likewise: `MResume` fires the site, `MExtend`
+ * pops, and the empty mode search yields into `gwr_cf` by
+ * `gwr_exit_site_yield`.
+ *)
+let gwb_exit_site
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (g1 g2: pval v -> pcomp v cl)
+    (t1 t2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PSiteF g1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PSiteF g2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pcl_mono r)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PSiteF g1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PSiteF g2 :: t2);
+                 store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PSiteF g1 :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PSiteF g2 :: t2); store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    gwy_k_unfold r s (PSiteF g1 :: t1) (PSiteF g2 :: t2) ();
+    match pfind_mode t1 with
+    | None ->
+      lemma_pacrel_var_inv #v #cl r s x1 x2;
+      lemma_pafrel_site_inv r s g1 g2;
+      gwr_srel_of_pasrel r s sto1 sto2;
+      gwr_exit_site_yield lk apply r s x1 x2 g1 g2 t1 t2 sto1 sto2;
+      gwb_step_intro lk apply r s cf1 cf2
+        (pyield x1 (PSiteF g1 <: pframe v cl) t1 cf1)
+        (pyield x2 (PSiteF g2 <: pframe v cl) t2 cf2)
+    | Some (MResume, _) ->
+      let cf1' : pconf v cl =
+        { st = PStep (g1 x1) t1; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStep (g2 x2) t2; store = sto2; next = s.an2 } in
+      gwp_exit_site_resume lk apply r s x1 x2 g1 g2 t1 t2 sto1 sto2;
+      gwp_cf_of_gwy_cf r s cf1' cf2';
+      gwr_cf_of_gwp_cf r s cf1' cf2';
+      gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+    | Some (MExtend, _) ->
+      let cf1' : pconf v cl =
+        { st = PStep (PVar x1) t1; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStep (PVar x2) t2; store = sto2; next = s.an2 } in
+      gwp_exit_site_extend lk apply r s x1 x2 g1 g2 t1 t2 sto1 sto2;
+      gwp_cf_of_gwy_cf r s cf1' cf2';
+      gwr_cf_of_gwp_cf r s cf1' cf2';
+      gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+
+(* ---- 6. THE `PBindF` HORN ---------------------------------------- *)
+
+(** `gwy_exit_value_deep`'s conclusion at `gwr_cf`, count pair 1:1. *)
+let gwb_exit_value_deep
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (g1 g2: pval v -> pcomp v cl) (t1 t2: pstack v cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (PBindF g1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (PBindF g2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pafrel r s (PBindF g1) (PBindF g2) /\
+                    gwy_k r s t1 t2)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (PBindF g1 :: t1);
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (PBindF g2 :: t2);
+                 store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (PBindF g1 :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (PBindF g2 :: t2); store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep (g1 x1) t1; store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep (g2 x2) t2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_exit_value_deep lk apply r s x1 x2 g1 g2 t1 t2 sto1 sto2;
+    gwp_cf_of_gwy_cf r s cf1' cf2';
+    gwr_cf_of_gwp_cf r s cf1' cf2';
+    gwb_step_same lk apply r s cf1 cf2 cf1' cf2'
+
+(* ---- 7. THE HEAD-FRAME BUNDLE, `gwp_cut_below`-FREE -------------- *)
+
+(**
+ * **`gwp_var_deep_step`'s STATEMENT WITH `gwp_cut_below` REMOVED.** PROVED.
+ *
+ * Compare the premise lists side by side: `gwp_var_deep_step` has
+ * `gwy_cf ... /\ ~(PBindF? f1) /\ pcl_mono r /\ pcl_down r /\ gwp_cut_below r s f1 t1 t2`;
+ * this has the SAME list with the last conjunct GONE.  The conclusion moved
+ * from `gwp_step_at` (landing `gwp_cf`, phase `pasrel`+`gwy_k`) to
+ * `gwb_run_at ... 1 1` (landing `gwr_cf`, phase `gwr_srel`+`gwr_kd`).
+ *)
+let gwb_var_deep_step
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (f1 f2: pframe v cl) (t1 t2: pstack v cl)
+    (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) (f1 :: t1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) (f2 :: t2);
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    ~(PBindF? f1) /\ pcl_mono r /\ pcl_down r)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) (f1 :: t1); store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) (f2 :: t2); store = sto2; next = s.an2 } in
+             gwb_run_at lk apply r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) (f1 :: t1); store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) (f2 :: t2); store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    gwy_k_unfold r s (f1 :: t1) (f2 :: t2) ();
+    assert (paframe_rel r 1 s f1 f2);
+    match f1, f2 with
+    | PParamF l1 y1, PParamF l2 y2 ->
+      gwb_exit_param lk apply r s x1 x2 l1 l2 y1 y2 t1 t2 sto1 sto2
+    | PModeF m1 g1, PModeF m2 g2 ->
+      gwb_exit_mode lk apply r s x1 x2 m1 m2 g1 g2 t1 t2 sto1 sto2
+    | PPromptF tb1 ret1 pv1, PPromptF tb2 ret2 pv2 ->
+      gwb_exit_prompt lk apply r s x1 x2 tb1 tb2 ret1 ret2 pv1 pv2 t1 t2 sto1 sto2
+    | PScopeF, PScopeF ->
+      gwb_exit_scope lk apply r s x1 x2 t1 t2 sto1 sto2
+    | PBoundaryF, PBoundaryF ->
+      gwb_exit_boundary lk apply r s x1 x2 t1 t2 sto1 sto2
+    | PSiteF g1, PSiteF g2 ->
+      gwb_exit_site lk apply r s x1 x2 g1 g2 t1 t2 sto1 sto2
+    | _, _ -> ()
+
+(* ---- 8. THE BUNDLE ----------------------------------------------- *)
+
+(**
+ * **THE `PVar` RULE, WHOLE, AT `gwr_cf`, WITH NO `gwp_cut_below` AND NO HORN
+ * SELECTOR.** PROVED.
+ *
+ * Read the premise list against `gwp_var_deep`'s: the `match k1, k2 with
+ * | f1 :: t1, f2 :: t2 -> gwp_cut_below r s f1 t1 t2 | _, _ -> True` conjunct is
+ * GONE and nothing replaces it.  What remains is `gwy_cf`, `pcl_mono` and
+ * `pcl_down` -- the same three the shipped bundle needs anyway.
+ *
+ * Read the conclusion against `gwp_var_deep`'s: where the shipped bundle offers
+ * a DISJUNCTION OF PHASES -- `pacfrel` at counts 1:0, or `gwp_step_at` at 1:1 --
+ * this one offers ONE phase, `gwr_cf`, at a count pair that is existentially
+ * quantified and pinned: `n1 == 1` always, `n2 == 1 \/ n2 == 0`.  The trace
+ * equality lives inside `gwb_run_at` AT THOSE COUNTS, so nothing about the trace
+ * is traded away for the collapse.  `n2 == 1 ==> Cons? k2` keeps the shape fact
+ * the shipped right disjunct carried.
+ *)
+let gwb_var_deep
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwy_cf r s
+                      ({ st = PStep (PVar x1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl) /\
+                    pcl_mono r /\ pcl_down r)
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+             Cons? k1 /\
+             (exists (n1: nat) (n2: nat).
+                n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\
+                (n2 == 1 ==> Cons? k2) /\
+                gwb_run_at lk apply r s n1 n2 cf1 cf2)))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) k2; store = sto2; next = s.an2 } in
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    gwy_dichotomy r s k1 k2;
+    eliminate (padx_ktop r s k1 k2)
+           \/ (Cons? k2 /\ pafrel r s (Cons?.hd k1) (Cons?.hd k2) /\
+               gwy_k r s (Cons?.tl k1) (Cons?.tl k2))
+    with (gwy_exit_stutter lk apply r s x1 x2 k1 k2 sto1 sto2;
+          let cf1' : pconf v cl =
+            { st = PStep (PVar x1) (Cons?.tl k1); store = sto1; next = s.an1 } in
+          gwb_gwr_cf_of_pacfrel_step r s cf1' cf2;
+          gwb_stutter_intro lk apply r s cf1 cf2 cf1';
+          introduce exists (n1: nat) (n2: nat).
+              (n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\ (n2 == 1 ==> Cons? k2) /\
+               gwb_run_at lk apply r s n1 n2 cf1 cf2)
+          with 1 0 and ())
+    and  (match k1, k2 with
+          | f1 :: t1, f2 :: t2 ->
+            assert (paframe_rel r 1 s f1 f2);
+            (match f1, f2 with
+             | PBindF g1, PBindF g2 ->
+               gwb_exit_value_deep lk apply r s x1 x2 g1 g2 t1 t2 sto1 sto2;
+               introduce exists (n1: nat) (n2: nat).
+                   (n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\ (n2 == 1 ==> Cons? k2) /\
+                    gwb_run_at lk apply r s n1 n2 cf1 cf2)
+               with 1 1 and ()
+             | PBindF _, _ -> ()
+             | _, _ ->
+               gwb_var_deep_step lk apply r s x1 x2 f1 f2 t1 t2 sto1 sto2;
+               introduce exists (n1: nat) (n2: nat).
+                   (n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\ (n2 == 1 ==> Cons? k2) /\
+                    gwb_run_at lk apply r s n1 n2 cf1 cf2)
+               with 1 1 and ())
+          | _, _ -> ())
+
+(* ---- 9. THE GUARDS: THE BUNDLE FIRES ON THE SHIPPING FIXTURES ---- *)
+
+(**
+ * **A POPPING BRANCH.** The `PParamF` fixture of `guard_gwp_exit_param_fires`,
+ * surplus genuinely at depth (`~(pacfrel ...)`), count pair 1:1.
+ *)
+let guard_gwb_var_deep_param_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwp_gP_cf1 gwp_gP_cf2 /\
+           ~(pacfrel fcl_rel pabot gwp_gP_cf1 gwp_gP_cf2) /\
+           gwb_run_at flook xapply fcl_rel pabot 1 1 gwp_gP_cf1 gwp_gP_cf2 /\
+           (exists (n1: nat) (n2: nat).
+              n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\
+              gwb_run_at flook xapply fcl_rel pabot n1 n2 gwp_gP_cf1 gwp_gP_cf2))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    guard_gwp_exit_param_fires ();
+    gwb_var_deep_step flook xapply fcl_rel pabot gwp_g_u gwp_g_u
+                      gwp_gP_f gwp_gP_f gwp_g_t1 gwp_g_t2
+                      ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwb_var_deep flook xapply fcl_rel pabot gwp_g_u gwp_g_u
+                 (gwp_gP_f :: gwp_g_t1) (gwp_gP_f :: gwp_g_t2)
+                 ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(**
+ * **AN ALLOCATING BRANCH.** The `PScopeF` fixture of
+ * `guard_gwp_exit_scope_fires` -- the same one `guard_gwp_var_deep_fires` runs
+ * the shipped bundle on -- so the two bundles are exhibited on ONE fixture.
+ *)
+let guard_gwb_var_deep_scope_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwp_gS_cf1 gwp_gS_cf2 /\
+           ~(pacfrel fcl_rel pabot gwp_gS_cf1 gwp_gS_cf2) /\
+           gwb_run_at flook xapply fcl_rel pabot 1 1 gwp_gS_cf1 gwp_gS_cf2 /\
+           (exists (n1: nat) (n2: nat).
+              n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\
+              gwb_run_at flook xapply fcl_rel pabot n1 n2 gwp_gS_cf1 gwp_gS_cf2))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    guard_gwp_exit_scope_fires ();
+    gwb_var_deep_step flook xapply fcl_rel pabot gwp_g_u gwp_g_u
+                      (PScopeF <: pframe fv fcl) (PScopeF <: pframe fv fcl)
+                      gwp_g_t1 gwp_g_t2
+                      ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwb_var_deep flook xapply fcl_rel pabot gwp_g_u gwp_g_u
+                 (PScopeF :: gwp_g_t1) (PScopeF :: gwp_g_t2)
+                 ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(** The `gwy_cf` premise on the CUT-INSIDE boundary fixture, assembled from the
+    same pieces `guard_gwr_exit_boundary_yield_inside_fires` uses. *)
+let gwb_g_yield_source ()
+  : Lemma (gwy_cf fcl_rel pabot gwr_gcf1 gwr_gcf2)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwp_g_t_deep ();
+    lemma_pafrel_boundary #fv #fcl fcl_rel pabot;
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwp_g_u gwp_g_u;
+    gwy_k_cons fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+               (PBoundaryF <: pframe fv fcl) gwp_g_t1 gwp_g_t2
+
+(**
+ * **A YIELD BRANCH, AND THE ONE THE SHIPPED BUNDLE CANNOT TAKE.** The fixture is
+ * `gwr_gcf1`/`gwr_gcf2`, on which `gwp_cut_below` is REFUTED
+ * (`guard_gwr_cut_below_is_refuted`) and the successor pair is refused by
+ * `gwp_cf` (`guard_gwr_exit_boundary_yield_inside_fires`).  The new bundle fires
+ * anyway, at count pair 1:1.
+ *)
+let guard_gwb_var_deep_yield_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwr_gcf1 gwr_gcf2 /\
+           ~(gwp_cut_below fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+                           gwp_g_t1 gwp_g_t2) /\
+           ~(gwp_cf fcl_rel (paalloc pabot) gwr_gout1 gwr_gout2) /\
+           gwr_cf fcl_rel (paalloc pabot) gwr_gout1 gwr_gout2 /\
+           gwb_run_at flook xapply fcl_rel pabot 1 1 gwr_gcf1 gwr_gcf2 /\
+           (exists (n1: nat) (n2: nat).
+              n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\
+              gwb_run_at flook xapply fcl_rel pabot n1 n2 gwr_gcf1 gwr_gcf2))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    gwb_g_yield_source ();
+    guard_gwr_exit_boundary_yield_inside_fires ();
+    gwb_var_deep_step flook xapply fcl_rel pabot gwp_g_u gwp_g_u
+                      (PBoundaryF <: pframe fv fcl) (PBoundaryF <: pframe fv fcl)
+                      gwp_g_t1 gwp_g_t2
+                      ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwb_var_deep flook xapply fcl_rel pabot gwp_g_u gwp_g_u
+                 (PBoundaryF :: gwp_g_t1) (PBoundaryF :: gwp_g_t2)
+                 ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(**
+ * **THE STUTTER, AT COUNT PAIR 1:0.** The fixture of
+ * `guard_gwy_exit_stutter_fires`: the left carries the surplus identity frame,
+ * the right does not, the left advances one step and the right stands still, and
+ * the successor pair lands in `gwr_cf` through
+ * `gwb_gwr_cf_of_pacfrel_step` -- both states being `PStep`, which is the whole
+ * of the restriction that lemma carries.
+ *)
+let guard_gwb_var_deep_stutter_fires ()
+  : Lemma (gwy_cf fcl_rel pabot gwv_st_c1 gwv_st_c2 /\
+           ~(pacfrel fcl_rel pabot gwv_st_c1 gwv_st_c2) /\
+           gwb_run_at flook xapply fcl_rel pabot 1 0 gwv_st_c1 gwv_st_c2 /\
+           (exists (n1: nat) (n2: nat).
+              n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\
+              gwb_run_at flook xapply fcl_rel pabot n1 n2 gwv_st_c1 gwv_st_c2))
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    guard_gwy_exit_stutter_fires ();
+    gwb_gwr_cf_of_pacfrel_step fcl_rel pabot gwv_st_c2 gwv_st_c2;
+    gwb_stutter_intro flook xapply fcl_rel pabot gwv_st_c1 gwv_st_c2 gwv_st_c2;
+    gwb_var_deep flook xapply fcl_rel pabot (fpv FU) (fpv FU)
+                 gwv_st_k1 ([] <: pstack fv fcl)
+                 ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ---- 11. THE COUNT PAIR IS LOAD-BEARING -------------------------- *)
+
+(** `gwr_st` has no clause pairing a `PStep` with a `PDone`, so no allocation
+    state whatever relates such a pair. *)
+let gwb_g_never_gwr_cf (cf1 cf2: pconf fv fcl)
+  : Lemma (requires PStep? cf1.st /\ PDone? cf2.st)
+          (ensures forall (s: pastate). ~(gwr_cf fcl_rel s cf1 cf2))
+  = introduce forall (s: pastate). ~(gwr_cf fcl_rel s cf1 cf2)
+    with (introduce gwr_cf fcl_rel s cf1 cf2 ==> False
+          with (gwr_cf_unfold fcl_rel s cf1 cf2 ();
+                gwr_st_unfold fcl_rel s cf1.st cf2.st ()))
+
+let gwb_g_stut_done : pconf fv fcl =
+  { st = PDone (fpv FU); store = ([] <: pstore fv fcl); next = 0 }
+
+(**
+ * **THE 1:0 STUTTER IS NOT A 1:1 STEP IN DISGUISE.** REFUTED.
+ *
+ * On the stutter fixture the right side's own next transition takes it to
+ * `PDone` -- it is a value on an empty stack -- and `gwr_st` pairs `PDone` with
+ * nothing.  So `gwb_run_at ... 1 1` is FALSE exactly where `gwb_run_at ... 1 0`
+ * is true, and the count pair the bundle existentially quantifies is carrying
+ * information rather than decorating one.  This is why the bundle CANNOT state a
+ * uniform count and why `n2 == 1 \/ n2 == 0` is not a weakening that could be
+ * dropped.
+ *)
+let guard_gwb_stutter_count_is_not_uniform ()
+  : Lemma (prun flook xapply 1 gwv_st_c2
+             == (gwb_g_stut_done, ([] <: list string)) /\
+           gwb_run_at flook xapply fcl_rel pabot 1 0 gwv_st_c1 gwv_st_c2 /\
+           ~(gwb_run_at flook xapply fcl_rel pabot 1 1 gwv_st_c1 gwv_st_c2))
+  = guard_gwb_var_deep_stutter_fires ();
+    guard_gwy_exit_stutter_fires ();
+    assert_norm (pstep_tr flook xapply gwv_st_c2
+                 == (gwb_g_stut_done, ([] <: list string)));
+    lemma_prun_one flook xapply gwv_st_c2 gwb_g_stut_done;
+    gwb_g_never_gwr_cf gwv_st_c2 gwb_g_stut_done;
+    introduce gwb_run_at flook xapply fcl_rel pabot 1 1 gwv_st_c1 gwv_st_c2 ==> False
+    with gwb_run_at_unfold flook xapply fcl_rel pabot 1 1 gwv_st_c1 gwv_st_c2 ()
+
+(* ---- 12. THE OLD CONCLUSION IS FALSE WHERE THE NEW ONE HOLDS ----- *)
+
+(** `gwp_step_at`'s `squash`-to-`squash` cast, so the guard below can REFUTE it
+    rather than merely fail to prove it. *)
+let gwb_gwp_step_at_unfold (#v #cl: Type) (r: pcl_rel_t cl) (lk: plookup_t cl)
+                           (apply: papply_t v cl) (s: pastate) (cf1 cf2: pconf v cl)
+                           (h: squash (gwp_step_at r lk apply s cf1 cf2))
+  : squash (snd (pstep_tr lk apply cf1) == snd (pstep_tr lk apply cf2) /\
+            (exists (s': pastate).
+               paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+               paprov_step_at s' s cf1 cf2 (fst (pstep_tr lk apply cf1))
+                                           (fst (pstep_tr lk apply cf2)) /\
+               gwp_cf r s' (fst (pstep_tr lk apply cf1))
+                           (fst (pstep_tr lk apply cf2))))
+  = h
+
+(** A counter off the state's frontier is refused by every configuration
+    relation in the file, `gwp_cf` included. *)
+let gwb_g_not_gwp_cf_next (s: pastate) (cf1 cf2: pconf fv fcl)
+  : Lemma (requires ~(cf1.next == s.an1))
+          (ensures ~(gwp_cf fcl_rel s cf1 cf2))
+  = introduce gwp_cf fcl_rel s cf1 cf2 ==> False
+    with gwp_cf_unfold fcl_rel s cf1 cf2 ()
+
+(**
+ * **THE SHIPPED BUNDLE'S CONCLUSION IS FALSE ON THE CUT-INSIDE FIXTURE, NOT
+ * MERELY UNPROVABLE.** REFUTED.
+ *
+ * `gwp_step_at` offers exactly two allocation states, `pabot` and
+ * `paalloc pabot`.  At `paalloc pabot` the successor pair is refused by `gwp_cf`
+ * because the two stored residuals differ in length and `pasrel` matches them
+ * frame for frame (`guard_gwr_exit_boundary_yield_inside_fires`); at `pabot` it
+ * is refused because the successors' counters have already moved off `pabot`'s
+ * frontier.  Both disjuncts fail, so no strengthening of
+ * `gwp_var_deep_step`'s PROOF could reach this pair -- only a change of landing
+ * relation could, and that is what `gwb_var_deep_step` is.
+ *)
+let guard_gwb_gwp_step_at_is_false_here ()
+  : Lemma (gwb_run_at flook xapply fcl_rel pabot 1 1 gwr_gcf1 gwr_gcf2 /\
+           ~(gwp_step_at fcl_rel flook xapply pabot gwr_gcf1 gwr_gcf2))
+  = guard_gwb_var_deep_yield_fires ();
+    guard_gwr_exit_boundary_yield_inside_fires ();
+    assert_norm (gwr_gout1.next == 1);
+    assert_norm (pabot.an1 == 0);
+    gwb_g_not_gwp_cf_next pabot gwr_gout1 gwr_gout2;
+    introduce gwp_step_at fcl_rel flook xapply pabot gwr_gcf1 gwr_gcf2 ==> False
+    with gwb_gwp_step_at_unfold fcl_rel flook xapply pabot gwr_gcf1 gwr_gcf2 ()
+
+(* ---- 13. THE TWO-FIXTURE COMPARISON ----------------------------- *)
+
+(**
+ * **`gwb_var_deep` AGAINST `gwp_var_deep_step`, AS A STATEMENT AND NOT A
+ * CLAIM.** PROVED.  Six conjuncts, three each way.
+ *
+ * WHAT THE NEW BUNDLE COVERS THAT THE OLD ONE COULD NOT (first three).  On
+ * `gwr_gcf1`/`gwr_gcf2` the premise `gwp_var_deep_step` insists on is FALSE, and
+ * its conclusion `gwp_step_at` is FALSE TOO -- so the shipped bundle is not
+ * merely silent here, it could not be repaired to speak.  `gwb_var_deep_step`
+ * concludes `gwb_run_at ... 1 1` on the machine's own `pstep_tr` at that same
+ * pair.  This is the entire coverage gain and it is one fixture wide, on the
+ * cut-INSIDE horn.
+ *
+ * WHAT THE OLD ONE DELIVERS THAT THE NEW ONE DOES NOT (last three).  On
+ * `gwp_gS_cf1`/`gwp_gS_cf2`, a fixture BOTH bundles cover, the shipped one
+ * delivers `gwp_step_at`, whose landing is `gwp_cf`: `pasrel` on the store and
+ * `gwy_k` on the stack.  `gwb_var_deep` delivers only `gwr_cf`: `gwr_srel` and
+ * `pakrel \/ gwy_k`.  `gwr_cf_of_gwp_cf` gives one inclusion and
+ * `guard_gwb_var_deep_yield_fires` refutes the other, so the loss is real and
+ * not a matter of presentation.  NO claim is made here that `gwb_var_deep`
+ * cannot be strengthened to `gwp_step_at` on the branches where
+ * `gwp_cut_below` holds; that is a separate theorem and it is not proved.
+ *)
+let gwb_vs_gwp_var_deep_step ()
+  : Lemma (~(gwp_cut_below fcl_rel pabot (PBoundaryF <: pframe fv fcl)
+                           gwp_g_t1 gwp_g_t2) /\
+           ~(gwp_step_at fcl_rel flook xapply pabot gwr_gcf1 gwr_gcf2) /\
+           gwb_run_at flook xapply fcl_rel pabot 1 1 gwr_gcf1 gwr_gcf2 /\
+           gwy_cf fcl_rel pabot gwp_gS_cf1 gwp_gS_cf2 /\
+           gwp_step_at fcl_rel flook xapply pabot gwp_gS_cf1 gwp_gS_cf2 /\
+           gwb_run_at flook xapply fcl_rel pabot 1 1 gwp_gS_cf1 gwp_gS_cf2)
+  = guard_gwb_gwp_step_at_is_false_here ();
+    guard_gwb_var_deep_yield_fires ();
+    guard_gwb_var_deep_scope_fires ();
+    guard_gwp_var_deep_fires ()

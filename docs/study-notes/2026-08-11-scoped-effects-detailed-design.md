@@ -8854,6 +8854,87 @@ into the same conclusion. That is where a complete deep-`PVar` theorem free of
 `gwp_cut_below` first exists. Deleting or replacing the old bundle is a decision
 to take afterwards, on the comparison.
 
+#### The old conclusion was false, not merely unproved
+
+> The cut-inside fixture does not merely escape the old proof: it refutes the
+> old bundle's conclusion. Therefore no strengthening of that proof can cover
+> the fixture while retaining the same target relation. The wider `gwr_cf`
+> conclusion is a semantic change forced by the machine state.
+
+The refutation names why: `gwp_step_at` admits only two allocation states, and
+both fail — at one the successor's counters have left the frontier, at the
+other the residual pair's lengths differ and `pasrel` refuses. That
+retrospectively justifies the previous gate's decision to widen the target
+rather than sharpen the horns.
+
+#### The two bundles are not comparable as propositions
+
+> The new bundle has a strictly weaker antecedent — `gwp_cut_below` and every
+> horn selector are absent — but a coarser consequent, replacing `gwp_cf` by
+> `gwr_cf` and forgetting part of the old phase information. Hence the complete
+> propositions are not classified as stronger or weaker.
+
+Confirmed by reading: `gwb_var_deep`'s premises are `gwy_cf`, `pcl_mono`,
+`pcl_down` — three, with no horn selector. What is given up is concrete: the
+stutter branch's shape information — the decomposition of `k1`, the
+`padx_ktop`, and the successor being `pacfrel` rather than the coarser
+`gwr_cf`.
+
+#### The count split is structural, in one branch
+
+> The explicit `1:0 \/ 1:1` count split is necessary for the successor shapes
+> admitted by the theorem. In the terminating branch, the right-hand step
+> reaches `PDone`, while `gwr_st` has no clause relating a running left `PStep`
+> to a right `PDone`; a synchronized `1:1` target is therefore unavailable.
+
+Verified independently at the definition:
+`~(gwr_st r s (PStep c1 k1) (PDone x2))` holds for any relation, state,
+computation, stack and value. This is a claim
+about that terminating branch, not that `1:0` is needed at arbitrary
+configurations.
+
+> Trace equality is carried inside each count alternative rather than factored
+> outside the disjunction. Both alternatives preserve it, but the theorem
+> records it together with the corresponding step-count witness.
+
+That is weaker than the generated phase's arrangement, where trace equality sits
+outside the exits; here the count witness and the trace travel together.
+
+#### The phase confluence, at its actual scope
+
+> All successor shapes produced by this `PVar` bundle embed into the common
+> `gwr_cf` target. No general inclusion or unification theorem for the
+> surrounding phase relations is proved.
+
+The general `pacfrel ==> gwr_cf` is **false** — `gwr_st` has no `PDone`,
+`PStuck` or `PRejected` clause — and was deliberately not written. Only the
+`PStep`/`PStep`-restricted version exists.
+
+#### Where the new semantics was actually needed
+
+Seven non-yield branches transported through two existing bridges with no new
+proof. So the place that required new semantics is localised to the **cut and
+yield boundary** — which is a sign the surrounding design is stable, not that
+the work was small.
+
+#### Not proved
+
+- an independent exhaustiveness theorem — the head-frame case analysis reuses
+  the old bundle's argument;
+- strictness of `gwr_cf` over `gwp_cf` beyond a single fixture;
+- any complete implication between the old and new bundles, in either direction;
+- concrete runs through the new bundle for the `PModeF`, `PPromptF` and
+  `PSiteF` branches;
+- the old bundle and its callers are untouched and still require
+  `gwp_cut_below`.
+
+#### Next
+
+Not deleting the old bundle. Decide the phase-sensitive dispatcher carrier that
+has `gwr_cf` among its successors, and only then move `PReadP`, `PWriteP`,
+`PWeave` and the context-extension forms — so that which of `gwy_cf` and
+`gwr_cf` each constructor departs from and lands in never has to be guessed.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
