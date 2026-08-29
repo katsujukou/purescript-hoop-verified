@@ -9012,6 +9012,105 @@ from a name-pattern grep that did not match the lemma's naming. Absence claims
 from name searches are unreliable and will not be made again — the same error
 had already occurred once, over `gwe_k_mono`.
 
+#### The dispatcher reaches the surplus phase, and the set becomes necessary
+
+This gate was planned as coverage: carry `PReadP`, `PWriteP`, `PWeave` and the
+context-production form into the surplus phase, so that which relation each
+constructor departs from and lands in is never guessed. It delivered that, and
+it also settled a question the previous gate had left open in the other
+direction.
+
+#### The cell operations are blind to the surplus, and the write keeps it
+
+Two lemmas, each the ordinary one with `pakrel` weakened to `gwy_k` in the
+hypothesis and **nothing weakened in the conclusion**. The read still agrees on
+both sides; the values are still related. The reason it survives is small and
+worth naming: the surplus frame is a `PBindF`, and `pfind_param` skips it.
+
+The write's conclusion is `gwy_k`, not `pakrel` — `pset_param` rebuilds the
+frames above the cell it writes, so the skipped frame is put back. No horn of
+that lemma lands in the ordinary relation: **the write cannot delete the
+surplus**, and the statement records that as a negative rather than leaving it
+to be inferred.
+
+#### Four branches
+
+`PReadP`, `PWriteP` and `PWeave` depart from `GWCGwy`; `PEnterCtx` departs from
+`GWCGwy` and lands there definitely. `PWeave` and `PEnterCtx` need `pcl_down`
+and nothing else; the two cell operations need no hypothesis beyond the
+departure. `PEnterCtx` needed no new lemma at all — the existing append lemma
+for the deep stack relation already covers a related prefix pushed onto a
+surplus-carrying tail.
+
+#### The unplanned result: no tag at all covers `PReadP`
+
+Each of the three cell/plan constructors has **two horns, and one of them
+halts** — `PStuck` for a missed cell, `PRejected` for an unbuildable plan. A
+halted pair is relatable only where the reachable-shape selector is `GWCRAll`,
+and that is `GWCPacf` alone. The successful horn keeps the surplus in the stack,
+which the plain relation refuses on length. So the two horns are relatable in
+disjoint places.
+
+That makes the landing set of the previous gate **necessary rather than
+weakening**. The record now carries the refutation in the strong form:
+
+- the miss horn admits `GWCPacf` and no other phase, uniformly in the allocation
+  state the landing predicate hides;
+- the miss horn **does** land there, so the refutation is not about an empty
+  situation;
+- the hit horn refuses `GWCPacf`;
+- therefore, quantified over **all seven phases** in one statement, no phase
+  covers both horns.
+
+There is a generic form too, and its hypotheses turned out **asymmetric** in a
+way worth recording: the miss departure needs `None?` on the cell search and
+**nothing else** — no relation, no well-formedness, nothing about the right-hand
+side. Only the hit departure needs to be a departure at `GWCGwy`. A separate
+lemma instantiates the generic form at the two fixtures, so it is not a theorem
+about an empty class.
+
+#### What the result actually rests on
+
+Checked independently, by counterexample rather than by a failed proof attempt:
+drop the surplus from the hit departure — take both stacks to be a bare
+parameter cell — and the successor pair is ordinary, lands at `GWCPacf`, and
+`GWCPacf` then covers **both** horns. The quantified conclusion is false there.
+
+So the theorem does not rest on `PReadP` having two horns. It rests on the
+surplus surviving one of them. The hit-side hypothesis is load-bearing and now
+has a witness saying why.
+
+#### Irreducibility, not maximality
+
+What is proved is that the two-element landing set **cannot be reduced to a
+single tag**. It is not proved, and not claimed, that the set is maximal in the
+inclusion order: a larger landing set would also be true, and nothing here rules
+one out.
+
+#### Not proved
+
+- **the necessity packaging exists for `PReadP` only.** `PWriteP` and `PWeave`
+  are proved to *fit* the two-tag set — an upper bound. Their necessity is not
+  proved, and the similarity of their shapes is not a proof;
+- the context-consuming forms are untouched. They have a stuck horn of their
+  own, from a handle that does not resolve, so the same shape is expected —
+  expected, not shown;
+- dispatcher coverage is still partial;
+- the departure tag remains absent as a first-class predicate.
+
+#### A note on what verification does not check
+
+Two claims in this gate's prose were false while every F\* proposition in the
+file was discharged. One said the two-tag set was the only pair of tags the
+three constructors could reach — the successful horn lands at `gwy_cf`, so three
+phases admit it. The other announced necessity in the heading of two branches
+where only fitting had been proved.
+
+Neither was reachable by re-running the checker, because neither was a
+proposition. The correction was to limit the prose and then to raise the
+proposition to the strength the prose had claimed — the second half being the
+better outcome, and the one that produced the seven-phase statement above.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
