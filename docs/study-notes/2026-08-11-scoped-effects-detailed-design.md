@@ -9111,6 +9111,82 @@ proposition. The correction was to limit the prose and then to raise the
 proposition to the strength the prose had claimed — the second half being the
 better outcome, and the one that produced the seven-phase statement above.
 
+#### The consuming forms, and necessity with no constructor in it
+
+Three more branches carried into the surplus phase — `PExtendC`, `PResumeC`,
+`PExtendCtxC` — and then the result of the previous gate detached from the
+clause it was discovered on.
+
+All three depart from `GWCGwy` and fit the two-tag set. Each needs `pcl_mono`
+and the departure, and nothing else; `pcl_down` turned out unnecessary for all
+three. Their halting horn is cheaper than `PReadP`'s: the stuck state's two
+components are constants of the module rather than data read off the redex, so
+the two halted sides are equal with no inversion at all.
+
+#### Two existentials, doing two different jobs
+
+`PExtendCtxC` allocates on its resolved horn and does not on its unresolved one.
+That makes it the first branch whose **two horns land at different allocation
+states**, and it is worth separating which quantifier absorbs which split.
+
+- The **state** existential inside `gwc_lands` absorbs the `s` / `paalloc s`
+  split. It was already there — the landing predicate has always hidden its
+  allocation state behind `exists s'` with the two-way disjunct `s' == s \/ s'
+  == paalloc s` — and this branch is the first computation node to exercise the
+  second disjunct.
+- The **tag** existential inside `gwc_lands_set` absorbs the `GWCGwr` /
+  `GWCPacf` split. That one is about which phase the pair is related at, not
+  about how much has been allocated.
+
+The two are independent: this branch exercises both at once, and neither
+substitutes for the other.
+
+#### Necessity, abstracted
+
+The previous gate's necessity result named `PReadP` in its statement. Nothing in
+its argument did. It uses two facts only — the left side halts, and the two
+successors are `PStep`s whose stacks still carry the surplus — and both were
+already generic. So the statement is now generic too: no constructor appears in
+it, and the four step counts are independent rather than pinned to one apiece.
+
+The clause it was generalised from is re-derived through it, under the original
+hypotheses verbatim, with the original left untouched and uncited.
+
+**The abstract lemma does not, and cannot, guarantee non-vacuity.** It is an
+implication about departures whose horns have a given shape; nothing in it says
+such departures exist. Non-vacuity is carried entirely by the instantiations —
+`PReadP` and `PWriteP` — and by their firing fixtures, which exhibit concrete
+departures at `GWCGwy` with the same redex, differing only by whether the stack
+carries the cell.
+
+#### Where necessity stands
+
+Settled for **`PReadP` and `PWriteP`**. The other four multi-horn branches —
+`PWeave`, `PExtendC`, `PResumeC`, `PExtendCtxC` — are proved to **fit** the
+two-tag set and nothing more. Their horns have the same shape, but shape is not
+proof, and no instantiation has been carried out for them.
+
+As before: this is irreducibility to a single tag, not maximality in the
+inclusion order. A larger landing set is also true and nothing rules one out.
+
+#### One concrete independent confirmation
+
+Checked separately from the branch, at the fixture stacks: the surplus pair
+survives the move to `paalloc pabot`, the move is not a no-op, and — the point —
+the pair is **still not ordinary** at the moved state.
+
+This is recorded as a concrete confirmation and **not as a general theorem**.
+The general preservation is `gwp_k_mono_alloc`'s, and the non-collapse to the
+ordinary relation is the existing length argument's; the check adds neither. Its
+value is that it puts both together at a witness, on the one branch where the
+allocation state moves, which is where a gap would have hidden.
+
+#### Not proved
+
+- necessity for the four remaining multi-horn branches;
+- dispatcher coverage of the value rules;
+- the departure tag as a first-class predicate.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

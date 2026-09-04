@@ -53920,3 +53920,632 @@ let guard_gwc_readp_generic_fires ()
     gwc_readp_no_tag_covers_both flook fapply0 fcl_rel pabot
       "l" "l" gwc_miss_k1 gwc_miss_k2 ([] <: pstore fv fcl) ([] <: pstore fv fcl)
       "l" "l" gwc_hit_k1 gwc_hit_k2 ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ================================================================== *)
+(*  GATE: THE CONTEXT-CONSUMING BRANCHES, AND NECESSITY WITHOUT A      *)
+(*  CONSTRUCTOR                                                        *)
+(*                                                                     *)
+(*  Section 11 carried three multi-horn clauses into the surplus phase *)
+(*  and section 12 carried one single-horn one.  Three clauses of the  *)
+(*  machine were still outstanding: `PExtendC`, `PResumeC` and         *)
+(*  `PExtendCtxC`, the three that CONSUME a context handle.  This      *)
+(*  section carries all three, and the third of them is the first      *)
+(*  computation-node branch in the surplus phase whose ALLOCATION      *)
+(*  STATE MOVES: `bindScope` conses a new entry, so its successor pair *)
+(*  sits at `paalloc s` and the introduction is `gwb_step_alloc`.      *)
+(*                                                                     *)
+(*  Section 15b's necessity result had `PReadP` written into its       *)
+(*  statement, and nothing in its argument used that.  This section    *)
+(*  abstracts it: the hypotheses become "the miss run halts on the     *)
+(*  LEFT" and "the hit run's two successors are `PStep`s over stacks   *)
+(*  still related by `gwy_k`", with no redex named and the four step   *)
+(*  counts left general.  `PReadP`'s quantified conclusion is then     *)
+(*  RE-DERIVED through the abstraction, and `PWriteP`'s is derived for *)
+(*  the first time, with firing fixtures.                              *)
+(*                                                                     *)
+(*  WHAT THIS SECTION DOES NOT DO.  It does not prove that any of      *)
+(*  `PWeave`, `PExtendC`, `PResumeC` or `PExtendCtxC` NEEDS the        *)
+(*  two-tag set.  Those four are proved to FIT it -- an UPPER BOUND on *)
+(*  where they land -- and nothing more.  After this section the       *)
+(*  necessity packaging exists for `PReadP` and `PWriteP`, and for no  *)
+(*  other clause.                                                      *)
+(*                                                                     *)
+(*  Everything before this section is UNTOUCHED; this section APPENDS. *)
+(*  NOTHING HERE IS DISCHARGED BY AN ESCAPE HATCH: no `admit`, no      *)
+(*  `assume`, no `z3rlimit`, no `push-options`, no `set-options`, no   *)
+(*  `expect_failure`, no bodiless `val`.  Every proof below runs at    *)
+(*  the file's default settings.                                       *)
+(* ================================================================== *)
+
+(* ---- 16. THE THREE CONSUMING BRANCHES, AND NECESSITY ABSTRACTED --- *)
+
+(**
+ * **THE `PExtendC` BRANCH FITS THE TWO-TAG SET.** PROVED, departure tag
+ * `GWCGwy`, counts `1 1`, allocation state UNMOVED on both horns.  Hypotheses:
+ * `pcl_mono r`, which `lemma_paextend_C_rel` wants and nothing else in the
+ * branch does, and the departure being at `gwc_cf GWCGwy`.
+ *
+ * RESOLVED: the handle resolves on both sides -- `lemma_paresolve_rel` makes the
+ * two searches agree and relates the two residuals -- and `extend_C` leaves the
+ * STACK alone.  So the successor pair is still at `gwy_cf`, the surplus exactly
+ * where it was, and the two weakenings `gwp_cf_of_gwy_cf` and `gwr_cf_of_gwp_cf`
+ * carry it to `gwb_step_same`'s landing, which `gwc_lands_is_gwb_run_at` reads
+ * as the tag `GWCGwr`.  This is `gwc_fit_weave`'s plan-built horn verbatim in
+ * shape.
+ *
+ * UNRESOLVED: both sides halt at `PStuck pctx_eff pctx_missing_op`.  Those two
+ * components are CONSTANTS of the module, not data read off the redex, so the
+ * two halted states are equal with no inversion needed at all -- unlike
+ * `PReadP`, whose stuck state carries the label and needs
+ * `lemma_pacrel_readp_inv` to equate it.  A halted state is reachable at no tag
+ * but `GWCPacf`, so this horn is proved DIRECTLY against `gwc_lands`.
+ *
+ * NOT CLAIMED: that `GWCGwr` and `GWCPacf` are the only tags this branch can
+ * reach.  The resolved horn lands at `gwy_cf`, which `GWCGwy`, `GWCGwp` and
+ * `GWCGwr` all admit; the set is a cover, not an enumeration.  NOT CLAIMED
+ * EITHER: that the set is NEEDED here.  That is proved for `PReadP` and
+ * `PWriteP` below and for no other clause.
+ *)
+let gwc_fit_extendc
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (pl1 pl2: plan v cl) (h1 h2: pval v)
+    (g1 g2: pval v -> pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pcl_mono r /\
+                    gwc_cf GWCGwy r s
+                      ({ st = PStep (PExtendC pl1 h1 g1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PExtendC pl2 h2 g2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PExtendC pl1 h1 g1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PExtendC pl2 h2 g2) k2; store = sto2; next = s.an2 } in
+             gwc_lands_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PExtendC pl1 h1 g1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PExtendC pl2 h2 g2) k2; store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_extendc_inv r s pl1 pl2 h1 h2 g1 g2;
+    lemma_paresolve_rel r s sto1 sto2 h1 h2;
+    match presolve sto1 h1, presolve sto2 h2 with
+    | Some cx1, Some cx2 ->
+      let cf1' : pconf v cl =
+        { st = PStep (extend_C pl1 cx1 g1) k1; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStep (extend_C pl2 cx2 g2) k2; store = sto2; next = s.an2 } in
+      lemma_paextend_C_rel r s pl1 pl2 cx1 cx2 g1 g2;
+      assert (gwy_cf r s cf1' cf2');
+      gwp_cf_of_gwy_cf r s cf1' cf2';
+      gwr_cf_of_gwp_cf r s cf1' cf2';
+      gwb_step_same lk apply r s cf1 cf2 cf1' cf2';
+      gwc_lands_is_gwb_run_at lk apply r s 1 1 cf1 cf2;
+      gwc_lands_set_intro lk apply gwc_qs_gwr_or_pacf GWCGwr r s 1 1 cf1 cf2
+    | None, None ->
+      let cf1' : pconf v cl =
+        { st = PStuck pctx_eff pctx_missing_op; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStuck pctx_eff pctx_missing_op; store = sto2; next = s.an2 } in
+      lemma_prun_one lk apply cf1 cf1';
+      lemma_prun_one lk apply cf2 cf2';
+      lemma_paext_refl_wf s;
+      assert (gwc_cf GWCPacf r s cf1' cf2');
+      introduce exists (s': pastate).
+          (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+           paprov_step_at s' s cf1 cf2 cf1' cf2' /\ gwc_cf GWCPacf r s' cf1' cf2')
+      with s and ();
+      gwc_lands_set_intro lk apply gwc_qs_gwr_or_pacf GWCPacf r s 1 1 cf1 cf2
+
+(**
+ * **THE `PResumeC` BRANCH FITS THE TWO-TAG SET.** PROVED, departure tag
+ * `GWCGwy`, counts `1 1`, allocation state UNMOVED on both horns, hypotheses
+ * `pcl_mono r` and the departure.
+ *
+ * The branch is `gwc_fit_extendc` with `extend_C` replaced by `resume_C` and
+ * `lemma_paextend_C_rel` by `lemma_paresume_C_rel`; the machine's two clauses
+ * differ only in the drive mode passed to `pactx_drive`, and neither touches the
+ * stack.  The unresolved horn is character-for-character the same halted state,
+ * because `pctx_eff` and `pctx_missing_op` are the same two constants: the
+ * machine does not distinguish a failed `resume` from a failed `extend`.
+ *
+ * The two NOT-CLAIMED remarks on `gwc_fit_extendc` apply here unchanged.
+ *)
+let gwc_fit_resumec
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (pl1 pl2: plan v cl) (h1 h2: pval v)
+    (g1 g2: pval v -> pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pcl_mono r /\
+                    gwc_cf GWCGwy r s
+                      ({ st = PStep (PResumeC pl1 h1 g1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PResumeC pl2 h2 g2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PResumeC pl1 h1 g1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PResumeC pl2 h2 g2) k2; store = sto2; next = s.an2 } in
+             gwc_lands_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PResumeC pl1 h1 g1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PResumeC pl2 h2 g2) k2; store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_resumec_inv r s pl1 pl2 h1 h2 g1 g2;
+    lemma_paresolve_rel r s sto1 sto2 h1 h2;
+    match presolve sto1 h1, presolve sto2 h2 with
+    | Some cx1, Some cx2 ->
+      let cf1' : pconf v cl =
+        { st = PStep (resume_C pl1 cx1 g1) k1; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStep (resume_C pl2 cx2 g2) k2; store = sto2; next = s.an2 } in
+      lemma_paresume_C_rel r s pl1 pl2 cx1 cx2 g1 g2;
+      assert (gwy_cf r s cf1' cf2');
+      gwp_cf_of_gwy_cf r s cf1' cf2';
+      gwr_cf_of_gwp_cf r s cf1' cf2';
+      gwb_step_same lk apply r s cf1 cf2 cf1' cf2';
+      gwc_lands_is_gwb_run_at lk apply r s 1 1 cf1 cf2;
+      gwc_lands_set_intro lk apply gwc_qs_gwr_or_pacf GWCGwr r s 1 1 cf1 cf2
+    | None, None ->
+      let cf1' : pconf v cl =
+        { st = PStuck pctx_eff pctx_missing_op; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStuck pctx_eff pctx_missing_op; store = sto2; next = s.an2 } in
+      lemma_prun_one lk apply cf1 cf1';
+      lemma_prun_one lk apply cf2 cf2';
+      lemma_paext_refl_wf s;
+      assert (gwc_cf GWCPacf r s cf1' cf2');
+      introduce exists (s': pastate).
+          (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+           paprov_step_at s' s cf1 cf2 cf1' cf2' /\ gwc_cf GWCPacf r s' cf1' cf2')
+      with s and ();
+      gwc_lands_set_intro lk apply gwc_qs_gwr_or_pacf GWCPacf r s 1 1 cf1 cf2
+
+(**
+ * **THE `PExtendCtxC` BRANCH FITS THE TWO-TAG SET, AND ITS RESOLVED HORN
+ * ALLOCATES.** PROVED, departure tag `GWCGwy`, counts `1 1`, hypotheses
+ * `pcl_mono r` and the departure.  This is the FIRST computation-node branch in
+ * the surplus phase whose allocation state moves; every earlier one either stood
+ * still or was a value rule, and the one allocating value rule is
+ * `gwb_exit_scope`, which is this proof's template.
+ *
+ * RESOLVED: `bindScope` conses the extended residual onto the store and hands
+ * back the fresh handle, so the successor pair sits at `paalloc s` and NOT at
+ * `s`.  Three things have to be moved there and each has its own lemma.  The
+ * STORE is moved by `lemma_pasrel_alloc`, which also delivers that the two fresh
+ * handles are `PCtxKey s.an1` and `PCtxKey s.an2` and are `pval_rel` at the
+ * advanced world.  The STACK -- and with it the surplus -- is moved by
+ * `gwp_k_mono_alloc`, and that is the one step that reads `pcl_mono r` for its
+ * own sake rather than passing it on.  The PROVENANCE obligation is discharged
+ * by `lemma_paprov_alloc_intro` at the two extended residuals.  The successor
+ * computation is `PVar` of the fresh handle, related by `lemma_pacrel_var`.  The
+ * introduction is then `gwb_step_alloc`, not `gwb_step_same`.
+ *
+ * UNRESOLVED: the same halted pair as the other two consuming clauses, and the
+ * allocation state does NOT move on this horn -- nothing is allocated when the
+ * handle does not resolve, so the witness is `s` itself.  The two horns of this
+ * one branch therefore land at two DIFFERENT allocation states, which is why
+ * `gwc_lands` hides the state behind an existential and why the set form can
+ * hold both horns at all.
+ *
+ * The two NOT-CLAIMED remarks on `gwc_fit_extendc` apply here unchanged.
+ *)
+let gwc_fit_extendctxc
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (pl1 pl2: plan v cl) (h1 h2: pval v)
+    (g1 g2: pval v -> pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pcl_mono r /\
+                    gwc_cf GWCGwy r s
+                      ({ st = PStep (PExtendCtxC pl1 h1 g1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PExtendCtxC pl2 h2 g2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PExtendCtxC pl1 h1 g1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PExtendCtxC pl2 h2 g2) k2; store = sto2; next = s.an2 } in
+             gwc_lands_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PExtendCtxC pl1 h1 g1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PExtendCtxC pl2 h2 g2) k2; store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_extendctxc_inv r s pl1 pl2 h1 h2 g1 g2;
+    lemma_paresolve_rel r s sto1 sto2 h1 h2;
+    match presolve sto1 h1, presolve sto2 h2 with
+    | Some cx1, Some cx2 ->
+      let s' = paalloc s in
+      let d1 : pctx v cl = extend_ctx_C pl1 cx1 g1 in
+      let d2 : pctx v cl = extend_ctx_C pl2 cx2 g2 in
+      let cf1' : pconf v cl =
+        { st = PStep (PVar (fst (palloc d1 cf1))) k1;
+          store = (s.an1, d1) :: sto1; next = s.an1 + 1 } in
+      let cf2' : pconf v cl =
+        { st = PStep (PVar (fst (palloc d2 cf2))) k2;
+          store = (s.an2, d2) :: sto2; next = s.an2 + 1 } in
+      lemma_paextend_ctx_C_rel r s pl1 pl2 cx1 cx2 g1 g2;
+      lemma_pasrel_alloc r s cf1 cf2 d1 d2;
+      gwp_k_mono_alloc r s k1 k2;
+      lemma_pacrel_var #v #cl r s' (fst (palloc d1 cf1)) (fst (palloc d2 cf2));
+      lemma_paprov_alloc_intro s cf1 cf2 cf1' cf2' d1 d2;
+      assert (gwy_cf r s' cf1' cf2');
+      gwp_cf_of_gwy_cf r s' cf1' cf2';
+      gwr_cf_of_gwp_cf r s' cf1' cf2';
+      gwb_step_alloc lk apply r s cf1 cf2 cf1' cf2';
+      gwc_lands_is_gwb_run_at lk apply r s 1 1 cf1 cf2;
+      gwc_lands_set_intro lk apply gwc_qs_gwr_or_pacf GWCGwr r s 1 1 cf1 cf2
+    | None, None ->
+      let cf1' : pconf v cl =
+        { st = PStuck pctx_eff pctx_missing_op; store = sto1; next = s.an1 } in
+      let cf2' : pconf v cl =
+        { st = PStuck pctx_eff pctx_missing_op; store = sto2; next = s.an2 } in
+      lemma_prun_one lk apply cf1 cf1';
+      lemma_prun_one lk apply cf2 cf2';
+      lemma_paext_refl_wf s;
+      assert (gwc_cf GWCPacf r s cf1' cf2');
+      introduce exists (s': pastate).
+          (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+           paprov_step_at s' s cf1 cf2 cf1' cf2' /\ gwc_cf GWCPacf r s' cf1' cf2')
+      with s and ();
+      gwc_lands_set_intro lk apply gwc_qs_gwr_or_pacf GWCPacf r s 1 1 cf1 cf2
+
+(* ---- 16b. NECESSITY, WITH NO CONSTRUCTOR IN THE STATEMENT -------- *)
+
+(**
+ * **NO PHASE RECEIVES BOTH A HALTING RUN AND A SURPLUS-CARRYING RUN.** PROVED,
+ * and this is `gwc_readp_no_tag_covers_both` with the redex removed from the
+ * statement and the four step counts made independent.
+ *
+ * The hypotheses are exactly what the two generic refutations of section 15b and
+ * section 13 read.  The first run's LEFT result is `PStuck`, which is all
+ * `gwc_lands_stuck_forces_pacf` asks, and it forces any phase receiving that run
+ * to be `GWCPacf`.  The second run's two results are `PStep`s over stacks still
+ * related by `gwy_k`, which is all `gwc_lands_deep_not_pacf` asks, and it
+ * refutes `GWCPacf` for that run.  The two meet on `GWCPacf` and there is no
+ * third case, so no phase receives both.  NO new ingredient is used: the body is
+ * the two citations and the elimination.
+ *
+ * Note what is NOT required.  Nothing relates the two runs to each other; they
+ * need not share a departure shape, a store, a stack, or a count.  Nothing is
+ * assumed about the halting run's RIGHT result, nor about `r`, nor about `s`
+ * beyond `gwy_k r s j1 j2` -- and that single hypothesis is what makes the
+ * statement about a SURPLUS phase rather than about arbitrary runs.
+ *
+ * WHAT IS NOT CLAIMED.  This is IRREDUCIBILITY TO A SINGLE TAG for the pair of
+ * runs supplied, and nothing more.  It is NOT maximality in the inclusion order:
+ * a landing set LARGER than `gwc_qs_gwr_or_pacf` is also true of both runs, and
+ * nothing here rules one out.  It also says nothing about which clause of the
+ * machine, if any, produces such a pair -- that is the instantiations' job, and
+ * they are below.
+ *)
+let gwc_no_tag_covers_both
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n1 n2 m1 m2: nat)
+    (mcf1 mcf2 hcf1 hcf2: pconf v cl)
+    (c1 c2: pcomp v cl) (j1 j2: pstack v cl)
+  : Lemma (requires
+             PStuck? (fst (prun lk apply n1 mcf1)).st /\
+             (fst (prun lk apply m1 hcf1)).st == PStep c1 j1 /\
+             (fst (prun lk apply m2 hcf2)).st == PStep c2 j2 /\
+             gwy_k r s j1 j2)
+          (ensures
+             (forall (q: gwc_phase).
+                ~(gwc_lands lk apply q r s n1 n2 mcf1 mcf2 /\
+                  gwc_lands lk apply q r s m1 m2 hcf1 hcf2)))
+  = gwc_lands_deep_not_pacf lk apply r s m1 m2 hcf1 hcf2 c1 c2 j1 j2;
+    introduce forall (q: gwc_phase).
+        ~(gwc_lands lk apply q r s n1 n2 mcf1 mcf2 /\
+          gwc_lands lk apply q r s m1 m2 hcf1 hcf2)
+    with (introduce _ ==> _
+          with gwc_lands_stuck_forces_pacf lk apply q r s n1 n2 mcf1 mcf2)
+
+(**
+ * **THE ABSTRACTION COVERS THE CASE IT WAS GENERALISED FROM.** PROVED: the
+ * quantified conclusion of `gwc_readp_no_tag_covers_both` is re-derived here
+ * from `gwc_no_tag_covers_both` alone, under that lemma's hypotheses verbatim.
+ * The original is untouched and is not cited.
+ *
+ * What the derivation has to supply is exactly the two shape facts the abstract
+ * lemma asks for, and the machine supplies both in one step each.  On the miss
+ * side, `pfind_param` returning `None` makes the left successor `PStuck var_eff
+ * lm1` and `lemma_prun_one` turns the step into a one-step run.  On the hit
+ * side, `lemma_pacrel_readp_inv` equates the two labels, `gwv_find_param_deep`
+ * makes the right search succeed too, and the read leaves both stacks ALONE --
+ * so the successor stacks ARE `kh1` and `kh2`, whose `gwy_k` came off the
+ * departure.  Only the first conjunct of the original is re-derived; the second,
+ * that the hit departure lands in the two-element set, is `gwc_fit_readp`'s and
+ * is not restated.
+ *)
+let gwc_readp_via_abstract
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (lm1 lm2: string) (km1 km2: pstack v cl) (stom1 stom2: pstore v cl)
+    (lh1 lh2: string) (kh1 kh2: pstack v cl) (stoh1 stoh2: pstore v cl)
+  : Lemma (requires
+            None? (pfind_param lm1 km1) /\
+            Some? (pfind_param lh1 kh1) /\
+            gwc_cf GWCGwy r s
+              ({ st = PStep (PReadP lh1) kh1; store = stoh1; next = s.an1 } <: pconf v cl)
+              ({ st = PStep (PReadP lh2) kh2; store = stoh2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let mcf1 : pconf v cl =
+               { st = PStep (PReadP lm1) km1; store = stom1; next = s.an1 } in
+             let mcf2 : pconf v cl =
+               { st = PStep (PReadP lm2) km2; store = stom2; next = s.an2 } in
+             let hcf1 : pconf v cl =
+               { st = PStep (PReadP lh1) kh1; store = stoh1; next = s.an1 } in
+             let hcf2 : pconf v cl =
+               { st = PStep (PReadP lh2) kh2; store = stoh2; next = s.an2 } in
+             (forall (q: gwc_phase).
+                ~(gwc_lands lk apply q r s 1 1 mcf1 mcf2 /\
+                  gwc_lands lk apply q r s 1 1 hcf1 hcf2))))
+  = let mcf1 : pconf v cl =
+      { st = PStep (PReadP lm1) km1; store = stom1; next = s.an1 } in
+    let mcf2 : pconf v cl =
+      { st = PStep (PReadP lm2) km2; store = stom2; next = s.an2 } in
+    let hcf1 : pconf v cl =
+      { st = PStep (PReadP lh1) kh1; store = stoh1; next = s.an1 } in
+    let hcf2 : pconf v cl =
+      { st = PStep (PReadP lh2) kh2; store = stoh2; next = s.an2 } in
+    let mcf1' : pconf v cl =
+      { st = PStuck var_eff lm1; store = stom1; next = s.an1 } in
+    lemma_prun_one lk apply mcf1 mcf1';
+    gwc_cf_is_gwy_cf r s hcf1 hcf2;
+    gwy_cf_unfold r s hcf1 hcf2 ();
+    gwy_st_unfold r s hcf1.st hcf2.st ();
+    lemma_pacrel_readp_inv #v #cl r s lh1 lh2;
+    gwv_find_param_deep r s lh1 kh1 kh2;
+    let y1 : pval v = Some?.v (pfind_param lh1 kh1) in
+    let y2 : pval v = Some?.v (pfind_param lh2 kh2) in
+    let hcf1' : pconf v cl =
+      { st = PStep (PVar y1) kh1; store = stoh1; next = s.an1 } in
+    let hcf2' : pconf v cl =
+      { st = PStep (PVar y2) kh2; store = stoh2; next = s.an2 } in
+    lemma_prun_one lk apply hcf1 hcf1';
+    lemma_prun_one lk apply hcf2 hcf2';
+    gwc_no_tag_covers_both lk apply r s 1 1 1 1 mcf1 mcf2 hcf1 hcf2
+      (PVar y1) (PVar y2) kh1 kh2
+
+(* ---- 16c. NECESSITY FOR A SECOND CLAUSE: `PWriteP` --------------- *)
+
+(**
+ * **NO SINGLE TAG COVERS `PWriteP`, AT ARBITRARY DEPARTURES.** PROVED, and this
+ * is the first clause OTHER than `PReadP` for which necessity is packaged.  Two
+ * `PWriteP` departures are taken at the SAME relation and the SAME allocation
+ * state; one misses its cell and the other hits.  No phase receives both
+ * landings, and the hit departure does land, in the two-element set.
+ *
+ * The hypotheses are `gwc_readp_no_tag_covers_both`'s, and ASYMMETRIC in the
+ * same way.  The miss departure needs exactly `None? (pset_param lm1 xm1 km1)`
+ * -- nothing relational, because a write that finds no cell halts the left
+ * machine in one step and a halted left state pins the phase by itself.  The hit
+ * departure needs `Some? (pset_param lh1 xh1 kh1)` AND that its two
+ * configurations are related at `GWCGwy`: without that, the hit successors are
+ * two unconnected `PStep`s and `GWCPacf` is not refutable.
+ *
+ * ONE DIFFERENCE FROM `PReadP`, and it is the whole reason this is not a copy.
+ * A read leaves the stacks alone, so its hit successors carry the departure's
+ * own `gwy_k` unchanged.  A write REBUILDS the frames above the cell it writes,
+ * so its hit successors carry DIFFERENT stacks, and what supplies the abstract
+ * lemma's `gwy_k r s j1 j2` is `gwv_set_param_deep`'s conclusion that the
+ * rebuilt pair is still related -- the rebuild puts the skipped surplus `PBindF`
+ * back in place.
+ *
+ * The two caveats stand.  This is IRREDUCIBILITY TO A SINGLE TAG, NOT maximality
+ * in the inclusion order: a larger landing set is also true of both departures.
+ * And the packaging now exists for `PReadP` and `PWriteP` and for NO other
+ * clause; `PWeave`, `PExtendC`, `PResumeC` and `PExtendCtxC` are proved to FIT
+ * the set and nothing here shows any of them needs it.
+ *)
+let gwc_writep_no_tag_covers_both
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (lm1 lm2: string) (xm1 xm2: pval v)
+    (km1 km2: pstack v cl) (stom1 stom2: pstore v cl)
+    (lh1 lh2: string) (xh1 xh2: pval v)
+    (kh1 kh2: pstack v cl) (stoh1 stoh2: pstore v cl)
+  : Lemma (requires
+            None? (pset_param lm1 xm1 km1) /\
+            Some? (pset_param lh1 xh1 kh1) /\
+            gwc_cf GWCGwy r s
+              ({ st = PStep (PWriteP lh1 xh1) kh1;
+                 store = stoh1; next = s.an1 } <: pconf v cl)
+              ({ st = PStep (PWriteP lh2 xh2) kh2;
+                 store = stoh2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let mcf1 : pconf v cl =
+               { st = PStep (PWriteP lm1 xm1) km1; store = stom1; next = s.an1 } in
+             let mcf2 : pconf v cl =
+               { st = PStep (PWriteP lm2 xm2) km2; store = stom2; next = s.an2 } in
+             let hcf1 : pconf v cl =
+               { st = PStep (PWriteP lh1 xh1) kh1; store = stoh1; next = s.an1 } in
+             let hcf2 : pconf v cl =
+               { st = PStep (PWriteP lh2 xh2) kh2; store = stoh2; next = s.an2 } in
+             (forall (q: gwc_phase).
+                ~(gwc_lands lk apply q r s 1 1 mcf1 mcf2 /\
+                  gwc_lands lk apply q r s 1 1 hcf1 hcf2)) /\
+             gwc_lands_set lk apply gwc_qs_gwr_or_pacf r s 1 1 hcf1 hcf2))
+  = let mcf1 : pconf v cl =
+      { st = PStep (PWriteP lm1 xm1) km1; store = stom1; next = s.an1 } in
+    let mcf2 : pconf v cl =
+      { st = PStep (PWriteP lm2 xm2) km2; store = stom2; next = s.an2 } in
+    let hcf1 : pconf v cl =
+      { st = PStep (PWriteP lh1 xh1) kh1; store = stoh1; next = s.an1 } in
+    let hcf2 : pconf v cl =
+      { st = PStep (PWriteP lh2 xh2) kh2; store = stoh2; next = s.an2 } in
+    let mcf1' : pconf v cl =
+      { st = PStuck var_eff lm1; store = stom1; next = s.an1 } in
+    lemma_prun_one lk apply mcf1 mcf1';
+    gwc_cf_is_gwy_cf r s hcf1 hcf2;
+    gwy_cf_unfold r s hcf1 hcf2 ();
+    gwy_st_unfold r s hcf1.st hcf2.st ();
+    lemma_pacrel_writep_inv #v #cl r s lh1 lh2 xh1 xh2;
+    gwv_set_param_deep r s lh1 xh1 xh2 kh1 kh2;
+    let j1 : pstack v cl = Some?.v (pset_param lh1 xh1 kh1) in
+    let j2 : pstack v cl = Some?.v (pset_param lh2 xh2 kh2) in
+    let hcf1' : pconf v cl =
+      { st = PStep (PVar xh1) j1; store = stoh1; next = s.an1 } in
+    let hcf2' : pconf v cl =
+      { st = PStep (PVar xh2) j2; store = stoh2; next = s.an2 } in
+    lemma_prun_one lk apply hcf1 hcf1';
+    lemma_prun_one lk apply hcf2 hcf2';
+    gwc_no_tag_covers_both lk apply r s 1 1 1 1 mcf1 mcf2 hcf1 hcf2
+      (PVar xh1) (PVar xh2) j1 j2;
+    gwc_fit_writep lk apply r s lh1 lh2 xh1 xh2 kh1 kh2 stoh1 stoh2
+
+(* ---- 16d. THE `PWriteP` FIXTURES: BOTH HORNS FIRE ---------------- *)
+
+(** `PWriteP` against itself is `pacrel` whenever the value written is related
+    to itself: the clause of `pacomp_rel` at a write is the equality of the two
+    labels together with `pval_rel` of the two values. *)
+let gwc_pacrel_writep_self (r: pcl_rel_t fcl) (s: pastate) (l: string) (x: pval fv)
+  : Lemma (requires pval_rel s.aw x x)
+          (ensures pacrel #fv #fcl r s (PWriteP l x) (PWriteP l x))
+  = introduce forall (n: nat). pacomp_rel #fv #fcl r n s (PWriteP l x) (PWriteP l x)
+    with ()
+
+(** The four `PWriteP` fixtures, over THE SAME TWO STACK PAIRS section 14 built
+    for `PReadP`.  `gwc_miss_k1`/`gwc_miss_k2` carry no `PParamF`, so
+    `pset_param` misses on them exactly as `pfind_param` did;
+    `gwc_hit_k1`/`gwc_hit_k2` carry one, so it hits.  Sharing the stacks is the
+    point: the surplus under test is the same surplus. *)
+let gwc_wmiss_cf1 : pconf fv fcl =
+  { st = PStep (PWriteP "l" (fpv FU)) gwc_miss_k1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_wmiss_cf2 : pconf fv fcl =
+  { st = PStep (PWriteP "l" (fpv FU)) gwc_miss_k2;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_whit_cf1 : pconf fv fcl =
+  { st = PStep (PWriteP "l" (fpv FU)) gwc_hit_k1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_whit_cf2 : pconf fv fcl =
+  { st = PStep (PWriteP "l" (fpv FU)) gwc_hit_k2;
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(**
+ * **THE `PWriteP` MISS DEPARTURE IS A DEPARTURE, AND IT MISSES.** PROVED, at a
+ * closed term.  The pair is related at `GWCGwy` -- surplus at depth under a
+ * boundary -- and the cell search fails on the left.  Hypotheses: none.
+ *)
+let gwc_writep_miss_departs ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+           None? (pset_param "l" (fpv FU) gwc_miss_k1))
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    assert (pval_rel #fv pabot.aw (fpv FU) (fpv FU));
+    gwc_pacrel_writep_self fcl_rel pabot "l" (fpv FU);
+    gwc_g_deep_is_gwy_not_padx pabot;
+    assert (gwy_cf fcl_rel pabot gwc_wmiss_cf1 gwc_wmiss_cf2);
+    gwc_cf_is_gwy_cf fcl_rel pabot gwc_wmiss_cf1 gwc_wmiss_cf2
+
+(**
+ * **THE `PWriteP` HIT DEPARTURE IS A DEPARTURE, AND IT HITS.** PROVED, at a
+ * closed term of the SAME shape as the miss one -- same redex, same value, same
+ * relation, same state, same store, and a stack differing only by carrying a
+ * cell.  So the two horns below are horns of ONE constructor at ONE departure
+ * shape and not of two disguised ones.  Hypotheses: none.
+ *)
+let gwc_writep_hit_departs ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_whit_cf1 gwc_whit_cf2 /\
+           Some? (pset_param "l" (fpv FU) gwc_hit_k1))
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    assert (pval_rel #fv pabot.aw (fpv FU) (fpv FU));
+    gwc_pacrel_writep_self fcl_rel pabot "l" (fpv FU);
+    guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot;
+    gwy_ktop_is_gwy_k fcl_rel pabot [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl);
+    lemma_pafrel_param #fv #fcl fcl_rel pabot "l" (fpv FU) (fpv FU);
+    gwy_k_cons fcl_rel pabot (PParamF "l" (fpv FU) <: pframe fv fcl)
+                             (PParamF "l" (fpv FU) <: pframe fv fcl)
+                             [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl);
+    assert (gwy_cf fcl_rel pabot gwc_whit_cf1 gwc_whit_cf2);
+    gwc_cf_is_gwy_cf fcl_rel pabot gwc_whit_cf1 gwc_whit_cf2
+
+(**
+ * **AND THE `PWriteP` MISS DEPARTURE DOES LAND.** PROVED.  Without this the
+ * refutation below would be a statement about an empty situation: no phase
+ * receives both runs is vacuous of a run that lands nowhere.  The witness for
+ * the allocation state is `pabot` itself -- a failed write allocates nothing --
+ * and the two successors are the SAME halted configuration, so the `PStuck`
+ * clause of `gwc_st` is two syntactic equalities.  Hypotheses: none.
+ *)
+let gwc_writep_miss_lands_at_pacf ()
+  : Lemma (gwc_lands flook fapply0 GWCPacf fcl_rel pabot 1 1
+                     gwc_wmiss_cf1 gwc_wmiss_cf2)
+  = let a1 : pconf fv fcl =
+      { st = PStuck var_eff "l"; store = ([] <: pstore fv fcl); next = 0 } in
+    let a2 : pconf fv fcl =
+      { st = PStuck var_eff "l"; store = ([] <: pstore fv fcl); next = 0 } in
+    lemma_prun_one flook fapply0 gwc_wmiss_cf1 a1;
+    lemma_prun_one flook fapply0 gwc_wmiss_cf2 a2;
+    lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    cor_padxg_pabot_sto_self ();
+    assert (gwc_cf GWCPacf fcl_rel pabot a1 a2);
+    introduce exists (s': pastate).
+        (paext s' pabot /\ pawf s' /\ (s' == pabot \/ s' == paalloc pabot) /\
+         paprov_step_at s' pabot gwc_wmiss_cf1 gwc_wmiss_cf2 a1 a2 /\
+         gwc_cf GWCPacf fcl_rel s' a1 a2)
+    with pabot and ()
+
+(**
+ * **THE BUNDLE: NO TAG AT ALL COVERS `PWriteP`, AND THE CLASS IS NOT EMPTY.**
+ * PROVED, over ALL SEVEN phases in one statement, at two CONCRETE departures.
+ * `guard_gwc_readp_no_tag_at_all`'s bundle, for the second clause.
+ *
+ * The five conjuncts are: both pairs are genuine departures, related at the
+ * single tag `GWCGwy` before the step; the miss departure DOES land, at
+ * `GWCPacf`; the hit departure DOES land, in the two-element set; and no phase
+ * receives both.  So the quantifier ranges over a real dichotomy -- two runs
+ * that each land, and no one phase that takes them both -- and
+ * `gwc_writep_no_tag_covers_both` is not a theorem about an empty class of
+ * departures.
+ *
+ * WHAT IS NOT CLAIMED, first: this is IRREDUCIBILITY TO A SINGLE TAG.  It is NOT
+ * maximality in the inclusion order -- a landing set larger than
+ * `gwc_qs_gwr_or_pacf`, up to the total predicate, is also true of both
+ * departures, and nothing here rules one out.  What is ruled out is a landing
+ * set with ONE element, whichever element that is.
+ *
+ * WHAT IS NOT CLAIMED, second: the necessity packaging now covers `PReadP` and
+ * `PWriteP`.  It does NOT cover the remaining multi-horn clause `PWeave`, nor
+ * the three consuming clauses of section 16, which are proved to FIT the
+ * two-element set and no more.  Their two-horn shape resembles `PWriteP`'s, and
+ * that resemblance is not a proof.
+ *
+ * Hypotheses: none.  The four fixtures are closed terms and each run is one step.
+ *)
+let guard_gwc_writep_no_single_tag ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+           gwc_cf GWCGwy fcl_rel pabot gwc_whit_cf1 gwc_whit_cf2 /\
+           gwc_lands flook fapply0 GWCPacf fcl_rel pabot 1 1
+                     gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+           gwc_lands_set flook fapply0 gwc_qs_gwr_or_pacf fcl_rel pabot 1 1
+                         gwc_whit_cf1 gwc_whit_cf2 /\
+           (forall (q: gwc_phase).
+              ~(gwc_lands flook fapply0 q fcl_rel pabot 1 1
+                          gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+                gwc_lands flook fapply0 q fcl_rel pabot 1 1
+                          gwc_whit_cf1 gwc_whit_cf2)))
+  = gwc_writep_miss_departs ();
+    gwc_writep_hit_departs ();
+    gwc_writep_miss_lands_at_pacf ();
+    gwc_writep_no_tag_covers_both flook fapply0 fcl_rel pabot
+      "l" "l" (fpv FU) (fpv FU) gwc_miss_k1 gwc_miss_k2
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+      "l" "l" (fpv FU) (fpv FU) gwc_hit_k1 gwc_hit_k2
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl)
