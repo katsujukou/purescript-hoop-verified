@@ -9187,6 +9187,131 @@ allocation state moves, which is where a gap would have hidden.
 - dispatcher coverage of the value rules;
 - the departure tag as a first-class predicate.
 
+#### A composition primitive for the surplus phase
+
+Every branch so far concludes a single landing, and single landings are **not
+closed under unrestricted composition**. That is weaker than saying no two legs
+compose — two legs that both stand still plainly do. What fails is the general
+case: the landing predicate's allocation state is existential but bounded to at
+most one allocation, and `paalloc (paalloc s)` is neither `s` nor `paalloc s`,
+so the bound is false of a composite that allocates twice while true of each
+leg. That is why no composition lemma was stated or cited anywhere in the
+branch development.
+
+#### The multi-step shape differs in three ways, not one
+
+The ordinary phase already showed what to put in the bound's place: `paext`
+together with the **frontier equation** `s'.an1 + s.an2 == s'.an2 + s.an1` —
+the two runs allocated the same number of times, however many that was. But it
+would be wrong to describe the multi-step predicate as the single landing with
+one conjunct swapped. Relative to it, the reach predicate
+
+1. **strengthens** the trace condition, from the two traces being equal to both
+   being empty;
+2. **generalises** the state condition, from the one-allocation bound to `paext`
+   plus the frontier equation;
+3. **drops** the exact single-step provenance entirely — not a weaker version of
+   it, none.
+
+(1) is a strengthening and (2)–(3) are weakenings, so **these syntactic
+differences alone do not order the two shapes, and no unguarded implication in
+either direction is proved**. That is a statement about what has been proved,
+not a proof of incomparability: a mixture of strengthenings and weakenings does
+not by itself refute either implication, and no separating instance is
+exhibited. What is proved is one **guarded** implication from landing to reach,
+and it needs (1) as an added premise precisely because a landing cannot supply
+it.
+
+The trace strengthening is not a technicality. An empty trace *is* the statement
+that the run passed through no `PEmit`, so **any run through an emit is outside
+this composition**. Every branch proved so far happens to deliver emptiness, but
+that is a property of those branches, not of the machine.
+
+#### What composes, and in which form
+
+- **The silent reach composes.** Counts add side by side, accessibility is
+  transitive, and the two frontier equations add to give the third — over `nat`,
+  with no subtraction anywhere, so nothing truncates.
+- **With the intermediate state explicit, composition is ordinary.** This is the
+  form the proof is done in.
+- **With the state hidden, what holds is a dependent composition, not
+  transitivity.** An ordinary transitivity would take two independent premises.
+  Here the second premise must be **universally quantified over the middle
+  state**: what has to be supplied is a second leg available at *every* state
+  the first leg could have landed in, not at one named state. The reach
+  predicate hides where the first leg arrived, and the second leg's hypotheses
+  live at that state; a premise naming one particular state would be about a
+  state the first leg is not known to reach. The premise is correspondingly
+  harder to discharge than a transitivity's.
+
+#### Fuel indices are not transition counts
+
+The composed statement carries counts `2 1`. That is a pair of **fuel bounds**,
+not a pair of step counts: the run function's numeric argument is an upper
+bound, and a run that reaches a terminal state returns without consuming what
+remains.
+
+Two consequences, both recorded:
+
+- The generic composition exhibits a reach at **unequal fuel indices**. It does
+  not establish that one side performed two operational transitions and the
+  other one; that would need the extra unit of fuel shown to drive a real step,
+  which is a separate fact about the configuration reached.
+- The closed instance performs **one operational transition on each side**. Its
+  `1:0` leg departs from a state that has already halted, so the extra fuel
+  drives nothing — terminal padding, not a stutter transition. What the instance
+  witnesses is exactly that an unequal fuel-indexed reach is inhabited.
+
+A related correction: it is **not** true that the single landing can only speak
+of one transition per side. It is stated at arbitrary counts; every branch
+happens to instantiate it at `1:1` or `1:0`. What it cannot do is compose, and
+that — not the count pair — is the gap this closes.
+
+#### The genuine unequal-transition stutter, and where it is not
+
+The carrier's own stutter is real: the left pops a frame and the right does not
+move, and that is an unequal transition step, proved generically along with its
+composition to counts `2 1`.
+
+But **no closed instance of it is built**. Building one needs a deep-stack pair
+whose right stack is empty and whose left is not, together with the node the pop
+uncovers, and that fixture is not constructed.
+
+The outstanding item is exactly that and no wider: **no closed instance of the
+carrier's `gwc_fit_var_deep` 1:0 pop is connected to the reach predicate**. It
+would be wrong to state this as an absence claim about the file. A closed
+instance of a genuinely unequal transition count already exists elsewhere in it
+— two left transitions against zero on the right, computed at closed terms, with
+a companion guard showing one step does not suffice and the three
+configurations are pairwise distinct.
+
+#### An independent check, and exactly what it separates
+
+The reach predicate was deliberately **not** claimed to be strictly weaker than
+the single landing: no instance separating them as predicates has been
+exhibited, so what is asserted is only that the bound is absent and that nothing
+recovers it.
+
+Checked separately, at the existing two-allocation fixture: a state two
+allocations out satisfies accessibility, well-formedness and the frontier
+equation, while the one-allocation bound **rejects** it. That is the reason
+single landings could not compose, as a closed instance rather than an
+observation.
+
+Its scope is exactly the state conditions. No run is exhibited, so it is **not**
+a separation of the two predicates on configurations, and none is claimed.
+
+#### Not proved
+
+- no finite-run theorem and no observation theorem — this is a composition
+  primitive; nothing is stated about a run driven to exhaustion, and no branch
+  is shown to hand its landing to another branch's departure;
+- no converse from reach back to landing;
+- no closed instance of the carrier's `gwc_fit_var_deep` 1:0 pop connected to
+  the reach predicate (an unequal-transition instance does exist elsewhere in
+  the file);
+- no separation of the two predicates on configurations.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

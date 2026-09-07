@@ -54549,3 +54549,588 @@ let guard_gwc_writep_no_single_tag ()
       ([] <: pstore fv fcl) ([] <: pstore fv fcl)
       "l" "l" (fpv FU) (fpv FU) gwc_hit_k1 gwc_hit_k2
       ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ---- 17. THE MULTI-STEP LANDING, AND ITS COMPOSITION ------------- *)
+
+(**
+ * **WHY A SECOND SHAPE IS NEEDED AT ALL.**  Every branch of sections 6 to 16
+ * concludes `gwc_lands`, whose allocation state is existential but BOUNDED to at
+ * most one allocation:
+ *
+ *     (s' == s \/ s' == paalloc s)
+ *
+ * That bound is exactly why `gwc_lands` is NOT CLOSED UNDER UNRESTRICTED
+ * COMPOSITION.  That is weaker than saying no two legs compose -- two legs that
+ * both stand still plainly do.  What fails is the general case: two landings in
+ * sequence CAN allocate twice, and `paalloc (paalloc s)` is neither `s` nor
+ * `paalloc s`, so the conjunct is FALSE of that composite while true of each
+ * leg.  No composition lemma is stated or cited anywhere in sections 6 to 16,
+ * and this is why.
+ *
+ * The ORDINARY phase already exhibits the shape a multi-step statement must
+ * carry.  `lemma_pasteps_compat` and `lemma_parun_compat_at_boundary` do not
+ * bound the number of allocations at all; in the bound's place they put the
+ * FRONTIER EQUATION
+ *
+ *     s'.an1 + s.an2 == s'.an2 + s.an1
+ *
+ * -- the two runs allocated the SAME number of times, however many that was.
+ *
+ * **THREE THINGS CHANGE, NOT ONE.**  It would be wrong to read `gwc_reaches_at`
+ * as `gwc_lands` with a single conjunct swapped.  Relative to `gwc_lands` it:
+ *
+ *   1. STRENGTHENS the trace condition, from the two traces being EQUAL to both
+ *      being `[]`;
+ *   2. GENERALISES the state condition, from the one-allocation bound to `paext`
+ *      plus the balanced frontier equation;
+ *   3. DROPS `paprov_step_at` altogether, so it retains NO exact single-step
+ *      provenance -- not a weaker version of it, none.
+ *
+ * (1) is a strengthening and (2) and (3) are weakenings, so THESE SYNTACTIC
+ * DIFFERENCES ALONE DO NOT ORDER THE TWO SHAPES, and NO UNGUARDED IMPLICATION
+ * IN EITHER DIRECTION IS PROVED.  That is a statement about what has been
+ * proved, NOT a proof of incomparability: a mixture of strengthenings and
+ * weakenings does not by itself refute either implication, and no separating
+ * instance is exhibited anywhere below.  What IS proved is one GUARDED
+ * implication, `gwc_reaches_of_lands`, and it needs (1) as an added premise
+ * precisely because `gwc_lands` cannot supply it.
+ *
+ * **THE TRACES ARE PINNED TO `[]`, NOT MERELY EQUAL.**  `gwc_lands` says only
+ * that the two traces AGREE.  `lemma_prun_cat` -- the only lemma in the file
+ * that concatenates two `prun` segments -- requires both traces to be EMPTY,
+ * because the trace of a composite run is the append of the two and nothing
+ * recovers the split from the append.  So `gwc_reaches_at` demands emptiness
+ * outright.
+ *
+ * **WHAT THAT EXCLUDES, AND IT IS NOT A TECHNICALITY.**  `pstep_tr` emits at
+ * exactly one shape, `PStep (PEmit ev body) k`, so an empty trace is the
+ * statement that the run passed through NO `PEmit`.  Every branch proved above
+ * happens to deliver it -- none of them steps an emit -- but that is a property
+ * of those branches and not of the machine.  ANY RUN THROUGH AN EMIT IS OUTSIDE
+ * THIS COMPOSITION.  That is a real limitation of the primitive.
+ *)
+
+(** `prun` at fuel zero is the identity with an empty trace.  Named, because it
+    is wanted under a heavy hypothesis context where the definitional unfolding
+    is not reliably taken. *)
+let gwc_prun_zero (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                  (cf: pconf v cl)
+  : Lemma (prun lk apply 0 cf == (cf, ([] <: list string)))
+  = ()
+
+(** **THE FRONTIER EQUATION IS ADDITIVE.**  PROVED, and it is the whole of the
+    third conjunct of the composition.  Adding
+    `s1.an1 + s.an2 == s1.an2 + s.an1` to `s2.an1 + s1.an2 == s2.an2 + s1.an1`
+    cancels `s1.an1` and `s1.an2` and leaves the equation at `s2` over `s`.  No
+    subtraction is performed and none may be: subtraction on `nat` truncates,
+    and the equation would not survive it. *)
+let gwc_frontier_add (s s1 s2: pastate)
+  : Lemma (requires s1.an1 + s.an2 == s1.an2 + s.an1 /\
+                    s2.an1 + s1.an2 == s2.an2 + s1.an1)
+          (ensures s2.an1 + s.an2 == s2.an2 + s.an1)
+  = ()
+
+(** A run whose trace is empty IS the pair of its first component and `[]`.
+    Surjective pairing, named so that it is one small query rather than four
+    steps inside a larger one. *)
+let gwc_prun_pair (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                  (n: nat) (cf: pconf v cl)
+  : Lemma (requires snd (prun lk apply n cf) == ([] <: list string))
+          (ensures prun lk apply n cf
+                     == (fst (prun lk apply n cf), ([] <: list string)))
+  = ()
+
+(** **THE MULTI-STEP LANDING, WITH THE INTERMEDIATE STATE EXPLICIT.**  This is
+    the form that composes: composition has to NAME the middle state, and an
+    existential cannot be threaded through `lemma_paext_trans`. *)
+let gwc_reaches_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                   (q: gwc_phase) (r: pcl_rel_t cl) (s s': pastate)
+                   (n1 n2: nat) (cf1 cf2: pconf v cl) : GTot prop
+  = snd (prun lk apply n1 cf1) == ([] <: list string) /\
+    snd (prun lk apply n2 cf2) == ([] <: list string) /\
+    paext s' s /\ pawf s' /\
+    s'.an1 + s.an2 == s'.an2 + s.an1 /\
+    gwc_cf q r s' (fst (prun lk apply n1 cf1)) (fst (prun lk apply n2 cf2))
+
+(** The `squash`-to-`squash` cast, for the same reason `gwc_lands_unfold`
+    records: a `GTot prop` applied to arguments is an ATOM in hypothesis
+    position. *)
+let gwc_reaches_at_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                          (q: gwc_phase) (r: pcl_rel_t cl) (s s': pastate)
+                          (n1 n2: nat) (cf1 cf2: pconf v cl)
+                          (h: squash (gwc_reaches_at lk apply q r s s' n1 n2 cf1 cf2))
+  : squash (snd (prun lk apply n1 cf1) == ([] <: list string) /\
+            snd (prun lk apply n2 cf2) == ([] <: list string) /\
+            paext s' s /\ pawf s' /\
+            s'.an1 + s.an2 == s'.an2 + s.an1 /\
+            gwc_cf q r s' (fst (prun lk apply n1 cf1))
+                          (fst (prun lk apply n2 cf2)))
+  = h
+
+(** And the cast the other way, so a call site can assemble the five conjuncts
+    without the atom being re-opened by the solver. *)
+let gwc_reaches_at_intro (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (q: gwc_phase) (r: pcl_rel_t cl) (s s': pastate)
+                         (n1 n2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires snd (prun lk apply n1 cf1) == ([] <: list string) /\
+                    snd (prun lk apply n2 cf2) == ([] <: list string) /\
+                    paext s' s /\ pawf s' /\
+                    s'.an1 + s.an2 == s'.an2 + s.an1 /\
+                    gwc_cf q r s' (fst (prun lk apply n1 cf1))
+                                  (fst (prun lk apply n2 cf2)))
+          (ensures gwc_reaches_at lk apply q r s s' n1 n2 cf1 cf2)
+  = ()
+
+(** **THE SAME STATEMENT WITH THE STATE HIDDEN AGAIN.**  This is what a consumer
+    states; `gwc_reaches_at` is what a proof uses. *)
+let gwc_reaches (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                (n1 n2: nat) (cf1 cf2: pconf v cl) : GTot prop
+  = exists (s': pastate). gwc_reaches_at lk apply q r s s' n1 n2 cf1 cf2
+
+let gwc_reaches_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                       (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                       (n1 n2: nat) (cf1 cf2: pconf v cl)
+                       (h: squash (gwc_reaches lk apply q r s n1 n2 cf1 cf2))
+  : squash (exists (s': pastate). gwc_reaches_at lk apply q r s s' n1 n2 cf1 cf2)
+  = h
+
+let gwc_reaches_intro (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                      (q: gwc_phase) (r: pcl_rel_t cl) (s s': pastate)
+                      (n1 n2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_reaches_at lk apply q r s s' n1 n2 cf1 cf2)
+          (ensures gwc_reaches lk apply q r s n1 n2 cf1 cf2)
+  = introduce exists (s'': pastate). gwc_reaches_at lk apply q r s s'' n1 n2 cf1 cf2
+    with s' and ()
+
+(**
+ * **EVERY SINGLE STEP IS A REACH.**  PROVED, at every tag, every state and every
+ * count pair.  The frontier equation is read off `gwc_lands`'s OWN disjunct and
+ * off nothing else: at `s' == s` it is reflexivity of `+` on `nat`, and at
+ * `s' == paalloc s` both frontiers advance by exactly one, so
+ * `(s.an1 + 1) + s.an2 == (s.an2 + 1) + s.an1`.  `paprov_step_at` is present in
+ * `gwc_lands` and is NOT consulted here; the disjunct alone suffices.
+ *
+ * **A HYPOTHESIS HAD TO BE ADDED, AND IT IS NOT DERIVABLE.**  The two traces are
+ * required to be `[]`.  `gwc_lands` says they are EQUAL, which does not say they
+ * are empty, so no amount of unfolding produces this.  Weakening
+ * `gwc_reaches_at` to trace-EQUALITY instead would avoid the premise and would
+ * make `gwc_reaches_compose` unprovable, since `lemma_prun_cat` is stated at
+ * `[]`.  So the emptiness is taken as a premise here and discharged at each call
+ * site from the SHAPE of the departure -- which is possible exactly because no
+ * branch above steps a `PEmit`.
+ *)
+let gwc_reaches_of_lands (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                         (n1 n2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_lands lk apply q r s n1 n2 cf1 cf2 /\
+                    snd (prun lk apply n1 cf1) == ([] <: list string) /\
+                    snd (prun lk apply n2 cf2) == ([] <: list string))
+          (ensures gwc_reaches lk apply q r s n1 n2 cf1 cf2)
+  = gwc_lands_unfold lk apply q r s n1 n2 cf1 cf2 ();
+    eliminate exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cf1 cf2 (fst (prun lk apply n1 cf1))
+                                     (fst (prun lk apply n2 cf2)) /\
+         gwc_cf q r s' (fst (prun lk apply n1 cf1))
+                       (fst (prun lk apply n2 cf2)))
+    with
+      (assert (s'.an1 + s.an2 == s'.an2 + s.an1);
+       gwc_reaches_at_intro lk apply q r s s' n1 n2 cf1 cf2;
+       gwc_reaches_intro lk apply q r s s' n1 n2 cf1 cf2)
+
+(**
+ * **THE COMPOSITION.**  PROVED.  Two reaches in sequence are ONE reach, and the
+ * counts are added SIDE BY SIDE -- `a1 + b1` on the left, `a2 + b2` on the
+ * right, never mixed.  Three ingredients, one per conjunct:
+ *
+ *  - the two runs, by `lemma_prun_cat` on each side separately, which is
+ *    applicable precisely because both traces are `[]`;
+ *  - accessibility, by `lemma_paext_trans` THROUGH the middle state, which is
+ *    the reason `gwc_reaches_at` names it rather than hiding it;
+ *  - the frontier equation, by `gwc_frontier_add`, which is the two instances
+ *    ADDED.  Linear arithmetic over `nat` with NO subtraction anywhere.
+ *
+ * The landing tag of the composite is the SECOND leg's, `q2`; `q1` occurs only
+ * in the hypothesis and is otherwise unconstrained, so the two legs may land at
+ * different phases.  Well-formedness of `s2` comes from the second leg
+ * directly, so `lemma_paext_wf` is not wanted.
+ *)
+let gwc_reaches_compose (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                        (q1 q2: gwc_phase) (r: pcl_rel_t cl) (s s1 s2: pastate)
+                        (a1 a2 b1 b2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires
+             gwc_reaches_at lk apply q1 r s s1 a1 a2 cf1 cf2 /\
+             gwc_reaches_at lk apply q2 r s1 s2 b1 b2
+               (fst (prun lk apply a1 cf1)) (fst (prun lk apply a2 cf2)))
+          (ensures gwc_reaches_at lk apply q2 r s s2 (a1 + b1) (a2 + b2) cf1 cf2)
+  = let m1 = fst (prun lk apply a1 cf1) in
+    let m2 = fst (prun lk apply a2 cf2) in
+    gwc_reaches_at_unfold lk apply q1 r s s1 a1 a2 cf1 cf2 ();
+    gwc_reaches_at_unfold lk apply q2 r s1 s2 b1 b2 m1 m2 ();
+    let e1 = fst (prun lk apply b1 m1) in
+    let e2 = fst (prun lk apply b2 m2) in
+    gwc_prun_pair lk apply a1 cf1;
+    gwc_prun_pair lk apply b1 m1;
+    gwc_prun_pair lk apply a2 cf2;
+    gwc_prun_pair lk apply b2 m2;
+    lemma_prun_cat lk apply a1 b1 cf1 m1 e1;
+    lemma_prun_cat lk apply a2 b2 cf2 m2 e2;
+    assert (snd (prun lk apply (a1 + b1) cf1) == ([] <: list string));
+    assert (snd (prun lk apply (a2 + b2) cf2) == ([] <: list string));
+    assert (fst (prun lk apply (a1 + b1) cf1) == e1);
+    assert (fst (prun lk apply (a2 + b2) cf2) == e2);
+    lemma_paext_trans s2 s1 s;
+    gwc_frontier_add s s1 s2;
+    gwc_reaches_at_intro lk apply q2 r s s2 (a1 + b1) (a2 + b2) cf1 cf2
+
+(** The composition with the SECOND leg's state existentialised.  One witness
+    eliminated, `gwc_reaches_compose` applied, the result re-introduced. *)
+let gwc_reaches_then (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                     (q1 q2: gwc_phase) (r: pcl_rel_t cl) (s s1: pastate)
+                     (a1 a2 b1 b2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires
+             gwc_reaches_at lk apply q1 r s s1 a1 a2 cf1 cf2 /\
+             gwc_reaches lk apply q2 r s1 b1 b2
+               (fst (prun lk apply a1 cf1)) (fst (prun lk apply a2 cf2)))
+          (ensures gwc_reaches lk apply q2 r s (a1 + b1) (a2 + b2) cf1 cf2)
+  = let m1 = fst (prun lk apply a1 cf1) in
+    let m2 = fst (prun lk apply a2 cf2) in
+    gwc_reaches_unfold lk apply q2 r s1 b1 b2 m1 m2 ();
+    eliminate exists (s2: pastate). gwc_reaches_at lk apply q2 r s1 s2 b1 b2 m1 m2
+    with
+      (gwc_reaches_compose lk apply q1 q2 r s s1 s2 a1 a2 b1 b2 cf1 cf2;
+       gwc_reaches_intro lk apply q2 r s s2 (a1 + b1) (a2 + b2) cf1 cf2)
+
+(**
+ * **DEPENDENT COMPOSITION OF THE HIDDEN FORM.**  PROVED, by eliminating BOTH
+ * intermediate witnesses.
+ *
+ * **THIS IS NOT ORDINARY TRANSITIVITY, AND SHOULD NOT BE READ AS IT.**  An
+ * ordinary transitivity would take two independent premises `R s s1` and
+ * `R s1 s2`.  Here the second premise is UNIVERSALLY QUANTIFIED over the middle
+ * state: what must be supplied is a second leg available at EVERY state the
+ * first leg could have landed in, not at one named state.  That is a
+ * dependent -- Kleisli-shaped -- composition principle, and its premise is
+ * correspondingly harder to discharge than a transitivity's.
+ *
+ * It has to be this way: `gwc_reaches` hides the state the first leg arrived at,
+ * and the second leg's hypotheses are stated AT that state.  A premise naming
+ * one particular `s1` would be a statement about a state the first leg is not
+ * known to reach.
+ *)
+let gwc_reaches_trans (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                      (q1 q2: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                      (a1 a2 b1 b2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires
+             gwc_reaches lk apply q1 r s a1 a2 cf1 cf2 /\
+             (forall (s1: pastate).
+                gwc_reaches_at lk apply q1 r s s1 a1 a2 cf1 cf2 ==>
+                gwc_reaches lk apply q2 r s1 b1 b2
+                  (fst (prun lk apply a1 cf1)) (fst (prun lk apply a2 cf2))))
+          (ensures gwc_reaches lk apply q2 r s (a1 + b1) (a2 + b2) cf1 cf2)
+  = gwc_reaches_unfold lk apply q1 r s a1 a2 cf1 cf2 ();
+    eliminate exists (s1: pastate). gwc_reaches_at lk apply q1 r s s1 a1 a2 cf1 cf2
+    with
+      (gwc_reaches_then lk apply q1 q2 r s s1 a1 a2 b1 b2 cf1 cf2)
+
+
+(* ---- 18. THE PAYOFF: THE TWO FUEL INDICES DIVERGE ---------------- *)
+
+(**
+ * **THE FUEL INDICES DIVERGE.**  PROVED, generically.  A 1:0 leg followed by a
+ * 1:1 leg is a single reach with counts `2 1`.  Nothing about the two legs' tags
+ * is assumed, and the second leg's departure on the right is the UNMOVED `cf2`,
+ * since `prun` at fuel zero is the identity.
+ *
+ * **WHAT `2 1` MEANS HERE, EXACTLY.**  `prun`'s numeric argument is a FUEL
+ * BOUND, not a transition count: a run that reaches a terminal state returns
+ * without consuming the fuel that remains.  So what this lemma exhibits is a
+ * reach at UNEQUAL FUEL INDICES.  It does NOT establish that the left side
+ * performed two operational transitions and the right one; that would need the
+ * left's second unit of fuel to be shown to drive a real step, which is a
+ * separate fact about the configuration reached and is not proved here.
+ *
+ * **NOR IS THIS SOMETHING `gwc_lands` CANNOT SAY.**  `gwc_lands` is stated at
+ * arbitrary `n1 n2` and is not restricted to a single transition per side; every
+ * branch above happens to instantiate it at `1 1` or `1 0`, which is a fact
+ * about those branches.  What `gwc_lands` cannot do is COMPOSE, for the
+ * allocation reason given in section 17 -- and that, not the count pair, is the
+ * gap this section closes.
+ *)
+let gwc_reaches_two_one (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                        (q1 q2: gwc_phase) (r: pcl_rel_t cl) (s s1 s2: pastate)
+                        (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_reaches_at lk apply q1 r s s1 1 0 cf1 cf2 /\
+                    gwc_reaches_at lk apply q2 r s1 s2 1 1
+                      (fst (prun lk apply 1 cf1)) cf2)
+          (ensures gwc_reaches_at lk apply q2 r s s2 2 1 cf1 cf2)
+  = assert (fst (prun lk apply 0 cf2) == cf2);
+    gwc_reaches_compose lk apply q1 q2 r s s1 s2 1 0 1 1 cf1 cf2
+
+(**
+ * **THE 1:0 HORN OF `gwc_fit_var_deep`, SELECTED.**  PROVED.  That branch
+ * concludes an EXISTENTIAL count pair with `n1 == 1`, `n2 == 1 \/ n2 == 0` and
+ * `n2 == 1 ==> Cons? k2`.  At `k2 == []` the third conjunct kills the `n2 == 1`
+ * horn, so the pair is forced to `1 0` and the landing is definite.  This is the
+ * stutter at the carrier: the left pops a frame, the right does not move.
+ *
+ * `gwc_fit_var_deep` is CITED; its proof is not touched.
+ *)
+let gwc_var_deep_stutter
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\
+                    gwc_cf GWCGwy r s
+                      ({ st = PStep (PVar x1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) ([] <: pstack v cl);
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) ([] <: pstack v cl);
+                 store = sto2; next = s.an2 } in
+             Cons? k1 /\ gwc_lands lk apply GWCGwr r s 1 0 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) ([] <: pstack v cl); store = sto2; next = s.an2 } in
+    gwc_fit_var_deep lk apply r s x1 x2 k1 ([] <: pstack v cl) sto1 sto2;
+    assert (gwc_lands lk apply GWCGwr r s 1 0 cf1 cf2)
+
+(**
+ * **AND THE STUTTER IS A REACH.**  PROVED.  The trace premise of
+ * `gwc_reaches_of_lands` is discharged HERE, from the shape: the left node is a
+ * `PVar` and not a `PEmit`, so its one transition emits nothing, and a run of
+ * zero emits nothing.  This is the discharge the doc comment of section 17
+ * promised, done at a call site.
+ *)
+let gwc_reaches_of_var_deep_stutter
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\
+                    gwc_cf GWCGwy r s
+                      ({ st = PStep (PVar x1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PVar x2) ([] <: pstack v cl);
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) ([] <: pstack v cl);
+                 store = sto2; next = s.an2 } in
+             gwc_reaches lk apply GWCGwr r s 1 0 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) ([] <: pstack v cl); store = sto2; next = s.an2 } in
+    gwc_var_deep_stutter lk apply r s x1 x2 k1 sto1 sto2;
+    assert (snd (prun lk apply 1 cf1) == ([] <: list string));
+    assert (snd (prun lk apply 0 cf2) == ([] <: list string));
+    gwc_reaches_of_lands lk apply GWCGwr r s 1 0 cf1 cf2
+
+(**
+ * **THE CARRIER'S STUTTER, CHAINED.**  PROVED: the `gwc_fit_var_deep` 1:0 horn
+ * followed by any 1:1 continuation is a reach with counts `2 1`.
+ *
+ * THE CONTINUATION IS A HYPOTHESIS, and it is stated rather than assumed away:
+ * the second leg must be available AT WHATEVER state the stutter landed in, which
+ * is why the premise is quantified over `s1`.  Nothing here proves that such a
+ * continuation exists for a given `x1`, `x2`, `k1` -- the branches of sections 6
+ * to 16 are what would supply one, and which of them applies depends on the node
+ * the pop uncovers, which this statement does not constrain.
+ *)
+let gwc_reaches_var_deep_two_one
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (q2: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) ([] <: pstack v cl);
+                 store = sto2; next = s.an2 } in
+             pcl_mono r /\ pcl_down r /\ gwc_cf GWCGwy r s cf1 cf2 /\
+             (forall (s1: pastate).
+                gwc_reaches_at lk apply GWCGwr r s s1 1 0 cf1 cf2 ==>
+                gwc_reaches lk apply q2 r s1 1 1 (fst (prun lk apply 1 cf1)) cf2)))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PVar x2) ([] <: pstack v cl);
+                 store = sto2; next = s.an2 } in
+             gwc_reaches lk apply q2 r s 2 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PVar x1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PVar x2) ([] <: pstack v cl); store = sto2; next = s.an2 } in
+    gwc_reaches_of_var_deep_stutter lk apply r s x1 x2 k1 sto1 sto2;
+    gwc_prun_zero lk apply cf2;
+    gwc_reaches_trans lk apply GWCGwr q2 r s 1 0 1 1 cf1 cf2
+
+(* ---- the firing guard, at closed terms --------------------------- *)
+
+(** The halted configuration both `PWriteP` miss runs arrive at, named.  `prun`
+    is CONSTANT on it at every fuel -- the `PStuck` arm of `prun` returns the
+    configuration and the empty trace without consulting the fuel further -- and
+    that is what makes a 1:0 leg available at a closed term. *)
+let gwc_rch_halt : pconf fv fcl =
+  { st = PStuck var_eff "l"; store = ([] <: pstore fv fcl); next = 0 }
+
+(** It is related to itself at `GWCPacf`: two syntactic equalities in the
+    `PStuck` clause of `gwc_st`, the empty store at `pasrel` by
+    `cor_padxg_pabot_sto_self`, and both counters on `pabot`'s frontiers. *)
+let gwc_rch_halt_related ()
+  : Lemma (gwc_cf GWCPacf fcl_rel pabot gwc_rch_halt gwc_rch_halt)
+  = cor_padxg_pabot_sto_self ()
+
+(** **LEG ONE: THE `PWriteP` MISS DEPARTURE, AS A REACH.**  PROVED, counts `1 1`.
+    `gwc_writep_miss_lands_at_pacf` is section 16's landing at these fixtures;
+    this restates it in the multi-step shape with the state EXPLICIT -- the
+    witness is `pabot`, since a failed write allocates nothing -- and records
+    where both sides arrive. *)
+let gwc_rch_leg1 ()
+  : Lemma (gwc_reaches_at flook fapply0 GWCPacf fcl_rel pabot pabot 1 1
+                          gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+           fst (prun flook fapply0 1 gwc_wmiss_cf1) == gwc_rch_halt /\
+           fst (prun flook fapply0 1 gwc_wmiss_cf2) == gwc_rch_halt)
+  = lemma_prun_one flook fapply0 gwc_wmiss_cf1 gwc_rch_halt;
+    lemma_prun_one flook fapply0 gwc_wmiss_cf2 gwc_rch_halt;
+    lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    gwc_rch_halt_related ();
+    gwc_reaches_at_intro flook fapply0 GWCPacf fcl_rel pabot pabot 1 1
+                         gwc_wmiss_cf1 gwc_wmiss_cf2
+
+(** **LEG TWO: TERMINAL FUEL PADDING AT THE HALT.**  PROVED.  The departure is
+    ALREADY `PStuck`, so the left is offered one more unit of fuel and performs
+    NO transition -- `prun` is constant on `PStuck` -- and the right is offered
+    zero.  The counts are `1` and `0` and the pair is still related at
+    `GWCPacf`, but this leg contains no operational step on either side.  It is
+    fuel padding past a terminal state, NOT a stutter transition. *)
+let gwc_rch_leg2 ()
+  : Lemma (gwc_reaches_at flook fapply0 GWCPacf fcl_rel pabot pabot 1 0
+                          gwc_rch_halt gwc_rch_halt)
+  = lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    gwc_rch_halt_related ();
+    assert (prun flook fapply0 1 gwc_rch_halt == (gwc_rch_halt, ([] <: list string)));
+    gwc_reaches_at_intro flook fapply0 GWCPacf fcl_rel pabot pabot 1 0
+                         gwc_rch_halt gwc_rch_halt
+
+(**
+ * **THE COMPOSITION FIRES, AT A CLOSED TERM, AT UNEQUAL FUEL INDICES.**
+ * PROVED.  `gwc_reaches_compose` is applied to the two legs above and yields
+ * counts `2 1`, from a departure that `gwc_writep_miss_departs` already shows is
+ * a genuine related pair at `GWCGwy`.  So neither `gwc_reaches_compose` nor
+ * `gwc_reaches_two_one` is a theorem about an empty class.
+ *
+ * **WHAT THIS INSTANCE DOES NOT WITNESS: UNEQUAL TRANSITION COUNTS.**  Count
+ * the operational steps and they are ONE on each side.  Leg one steps the
+ * `PWriteP` miss to the halt on both sides; leg two departs from a state that is
+ * ALREADY `PStuck`, so its extra unit of left fuel drives nothing.  The `1:0` of
+ * leg two is TERMINAL FUEL PADDING, not a stutter transition, and the composite
+ * `2 1` is a fuel-index pair, not a transition-count pair.  What is witnessed is
+ * exactly that an unequal fuel-indexed reach is inhabited -- which is what the
+ * composition lemma is stated at, and no more.
+ *
+ * WHAT THIS INSTANCE IS ALSO NOT.  Its `1:0` leg does not come from the carrier
+ * stutter of `gwc_fit_var_deep`.  That stutter IS a genuine unequal-transition
+ * step -- the left pops a real frame while the right does not -- but it is only
+ * available generically: `gwc_var_deep_stutter` and
+ * `gwc_reaches_var_deep_two_one` remain generic statements, and no closed
+ * instance of THEIR departure is built.  Building one would need a `gwy_k` pair
+ * whose right stack is empty and whose left is not, together with the node the
+ * pop uncovers, and that fixture is not constructed here.
+ *
+ * **AND THIS IS NOT AN ABSENCE CLAIM ABOUT THE FILE.**  A closed instance of a
+ * genuinely unequal TRANSITION count already exists above:
+ * `guard_arx_two_steps_fire` computes `prun 2` on the left and `prun 0` on the
+ * right at closed terms, and `guard_arx_detour_is_genuine` shows one step does
+ * not suffice and the three configurations are pairwise distinct.  What is
+ * missing is narrower and exactly this: **NO CLOSED INSTANCE OF THE CARRIER'S
+ * `gwc_fit_var_deep` POP IS CONNECTED TO `gwc_reaches`.**
+ *
+ * Hypotheses: none.  Every term is closed.
+ *)
+let guard_gwc_reaches_counts_diverge ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+           gwc_reaches_at flook fapply0 GWCPacf fcl_rel pabot pabot 2 1
+                          gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+           gwc_reaches flook fapply0 GWCPacf fcl_rel pabot 2 1
+                       gwc_wmiss_cf1 gwc_wmiss_cf2 /\
+           ~(2 == 1))
+  = gwc_writep_miss_departs ();
+    gwc_rch_leg1 ();
+    gwc_rch_leg2 ();
+    gwc_reaches_compose flook fapply0 GWCPacf GWCPacf fcl_rel pabot pabot pabot
+                        1 1 1 0 gwc_wmiss_cf1 gwc_wmiss_cf2;
+    gwc_reaches_intro flook fapply0 GWCPacf fcl_rel pabot pabot 2 1
+                      gwc_wmiss_cf1 gwc_wmiss_cf2
+
+(**
+ * **THE FRONTIER EQUATION IS LOAD-BEARING, BY CITATION.**  REFUTED already, at
+ * `guard_pa_frontier_eq_not_from_paext`, and NOT re-proved: the closed instance
+ * there -- `{ aw = [(0,0)]; an1 = 1; an2 = 2 }` accessible from `pa_sto0`, with
+ * the left frontier advanced once and the right twice -- refutes deriving the
+ * conjunct from `paext` at the ORDINARY phase, and the very same instance
+ * refutes deriving it here, because `gwc_reaches_at` reads `paext` and the
+ * equation off the SAME two states with no phase involved.
+ *
+ * So dropping the equation from `gwc_reaches_at` would admit a composite whose
+ * two sides allocated a different number of times, and `gwc_reaches_compose`
+ * would then be adding a false conjunct to a false conjunct.
+ *)
+let gwc_reaches_frontier_not_from_paext ()
+  : Lemma (paext pa_ce_hi pa_sto0 /\ pawf pa_ce_hi /\ pawf pa_sto0 /\
+           ~(pa_ce_hi.an1 + pa_sto0.an2 == pa_ce_hi.an2 + pa_sto0.an1) /\
+           ~(forall (s' s: pastate).
+               paext s' s /\ pawf s /\ pawf s' ==>
+               s'.an1 + s.an2 == s'.an2 + s.an1))
+  = guard_pa_frontier_eq_not_from_paext ()
+
+(*
+ * WHAT SECTIONS 17 AND 18 DO NOT CLAIM.
+ *
+ *  1. NOT a finite-run theorem, and NOT an observation theorem.  What is proved
+ *     is a COMPOSITION PRIMITIVE: two reaches make one reach.  Whether the
+ *     branches of sections 6 to 16 can be chained into a whole run is NOT
+ *     settled here.  Nothing is stated at `psteps`, no statement quantifies
+ *     over a whole-run fuel bound, and no branch is shown to hand its landing to
+ *     another branch's departure.  (The reach predicates DO carry fuel indices
+ *     `n1 n2`; what is absent is any statement about a run driven to
+ *     exhaustion.)
+ *
+ *  2. NOT an equivalence with `gwc_lands`.  `gwc_reaches` DROPS the
+ *     single-allocation bound `s' == s \/ s' == paalloc s`, and drops
+ *     `paprov_step_at` with it.  Only the forward direction is proved, as
+ *     `gwc_reaches_of_lands`, and even that needs the trace premise that
+ *     `gwc_lands` does not supply.  NO CONVERSE is proved and none is claimed:
+ *     recovering the bound from a reach would mean showing the composite
+ *     allocated at most once, which is not true of composites in general.  No
+ *     instance separating the two is exhibited either, so `strictly weaker` is
+ *     not asserted as a proposition -- what is asserted is that the bound is
+ *     absent from `gwc_reaches_at` and that nothing above recovers it.
+ *
+ *  3. NOT applicable across a `PEmit`.  The trace conjuncts are `[]`, not
+ *     merely equal, and `pstep_tr` emits exactly at `PStep (PEmit ev body) k`.
+ *     Any run through an emit falls outside every statement above.
+ *
+ *  4. NOT a claim that the CARRIER stutter is inhabited at a closed term.
+ *     `prun`'s index is a fuel bound, not a step count, and the one closed
+ *     instance in section 18, `guard_gwc_reaches_counts_diverge`, performs ONE
+ *     operational transition on each side; its `1:0` leg is fuel padding past a
+ *     state that had already halted, not `gwc_fit_var_deep`'s pop.  The pop is a
+ *     genuine unequal-transition step but is available only generically.
+ *
+ *     This is NOT the claim that the file contains no closed unequal-transition
+ *     instance -- it does, at `guard_arx_two_steps_fire` with
+ *     `guard_arx_detour_is_genuine`.  The gap is that the carrier's pop has not
+ *     been connected to `gwc_reaches` at closed terms.
+ *)
