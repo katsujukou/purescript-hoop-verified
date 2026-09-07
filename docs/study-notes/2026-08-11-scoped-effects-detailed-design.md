@@ -9312,6 +9312,85 @@ a separation of the two predicates on configurations, and none is claimed.
   the file);
 - no separation of the two predicates on configurations.
 
+#### The carrier's own stutter, at closed terms
+
+The previous gate left exactly one item standing: the carrier's `1:0` pop had
+only ever been used generically, and the one closed composite in the file
+performed a single operational transition on each side — its `1:0` leg was fuel
+padding past a state that had already halted. This gate closes that.
+
+The fixture is small: a left stack carrying one surplus bind frame, an empty
+right stack, the same value on both sides, an empty store, and the bottom
+allocation state. The left pops the surplus and lands on the configuration the
+right is already sitting at; both then step to `PDone`. Composed, the counts are
+`2 1`, and this time they are transition counts, not only fuel indices.
+
+Two things had to be true for this to close the item, and both were checked
+rather than assumed.
+
+- **The `1:0` comes through the carrier.** The lemma establishing it cites the
+  carrier's stutter and nothing else — no computation on the run function
+  appears in its proof. Had it been recomputed, the pop would not have been
+  connected to anything.
+- **The landing state is extracted, not re-established.** The landing predicate
+  offers its state existentially with a one-allocation disjunct. Here the
+  allocating arm is impossible — it would force a successor counter of one while
+  both successors sit at zero — so the state is *forced* to be the bottom one.
+  The explicit-state form is then introduced from the eliminated witness, with
+  the arrival relation carried over rather than re-proved. Only the empty-trace
+  conjuncts are supplied by computation, because the landing predicate speaks of
+  trace equality and not emptiness.
+
+#### Genuine, and mechanically distinguished from padding
+
+Distinctness of endpoints alone would not separate a real step from padding, so
+the check was done at the transition function rather than at the run function,
+and comparatively: both departures of this instance **move** under one
+transition, while the earlier instance's second-leg departure **does not**. The
+two kinds of `1:0` now sit in the same file and are told apart by a computed
+fact rather than by prose.
+
+#### What this is, exactly
+
+The first closed witness **in the carrier development** — not the first in the
+file. A closed instance of an unequal transition count already existed
+elsewhere, computed directly on the run function with a companion guard showing
+one step insufficient. What is new is that the carrier's pop now has one too.
+
+The fixture is not claimed to be canonical, minimal, or the only one.
+
+#### A claim from the previous gate, narrowed
+
+The earlier ledger said no branch had been shown to hand its landing to another
+branch's departure. That was true of the sections it was stated at, and it is no
+longer the right way to describe the position: here leg one arrives at a pair
+and leg two departs from exactly that pair. What remains open is the general
+fact — **no general theorem shows that arbitrary branch landings satisfy the
+next branch's departure premises**.
+
+#### A residual, restated correctly
+
+It would be wrong to record "a closed carrier-pop instance that allocates" as
+outstanding: the carrier pop *cannot* allocate. It is a value node popping an
+identity bind frame, and it rewrites neither the store nor the counter, so no
+such instance could exist.
+
+The two residuals that are real, and neither is built:
+
+- a closed carrier pop taken at a **non-trivial already-allocated state** rather
+  than at the bottom one;
+- a closed **composite containing the carrier pop in which some other leg
+  allocates**, so that the allocating arm is exercised somewhere in the chain.
+
+#### Not proved
+
+- no finite-run theorem and no observation theorem; nothing is stated about a
+  run driven to exhaustion;
+- no general chaining of branches;
+- no converse from reach back to landing — the state is pinned at one fixture by
+  computation, which is not a recovery of the bound in general;
+- runs through an emit remain outside every statement.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

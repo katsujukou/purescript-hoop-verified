@@ -55134,3 +55134,345 @@ let gwc_reaches_frontier_not_from_paext ()
  *     `guard_arx_detour_is_genuine`.  The gap is that the carrier's pop has not
  *     been connected to `gwc_reaches` at closed terms.
  *)
+
+(* ---- 19. THE CARRIER'S POP, AT A CLOSED TERM --------------------- *)
+
+(*
+ * Section 18's ledger left exactly one item standing: no CLOSED instance of the
+ * carrier's `gwc_fit_var_deep` 1:0 pop had been connected to `gwc_reaches`.
+ * `gwc_var_deep_stutter` and `gwc_reaches_var_deep_two_one` were available only
+ * generically, and the one closed composite there,
+ * `guard_gwc_reaches_counts_diverge`, gets its `1:0` from fuel padding past a
+ * state that had already halted rather than from the pop.
+ *
+ * This section builds such an instance.  It does NOT add the first closed
+ * unequal-TRANSITION instance to the file -- `guard_arx_two_steps_fire` with
+ * `guard_arx_detour_is_genuine` is one already, at a two-step detour that never
+ * touches the carrier.  What is new is narrower and exactly this: the CARRIER's
+ * pop now has one too.
+ *)
+
+(* ---- 19.1 the fixture, and what the machine does on it ----------- *)
+
+(** The one surplus frame the left carries and the right does not: an identity
+    bind.  This is the frame the pop consumes. *)
+let gwc_vs_k1 : pstack fv fcl = [PBindF (PVar #fv #fcl)]
+
+(** The DEPARTURE on the left: a `PVar` under the surplus frame. *)
+let gwc_vs_cf1 : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) gwc_vs_k1; store = ([] <: pstore fv fcl); next = 0 }
+
+(** The DEPARTURE on the right, and also the left's arrival after the pop: the
+    same `PVar` with the EMPTY stack.  It occurs on both sides of the composite,
+    in two different roles, which is what makes the leg a stutter. *)
+let gwc_vs_cf2 : pconf fv fcl =
+  { st = PStep (PVar (fpv FU)) ([] <: pstack fv fcl);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(** Where both sides finish: `PDone`, on the empty store, with nothing
+    allocated. *)
+let gwc_vs_cf3 : pconf fv fcl =
+  { st = PDone (fpv FU); store = ([] <: pstore fv fcl); next = 0 }
+
+(**
+ * **WHAT THE MACHINE ACTUALLY DOES HERE.**  PROVED, by computation: four runs,
+ * each an equality on the PAIR, so the trace is pinned to `[]` alongside the
+ * configuration.  `prun` at fuel one takes `cf1` to `cf2` -- that is the pop --
+ * and takes `cf2` to `cf3`; at fuel two it takes `cf1` all the way to `cf3`;
+ * and at fuel zero it is the identity on `cf2`.
+ *
+ * These are facts about `prun`'s FUEL INDEX.  That the two units of left fuel
+ * each drive a real transition is a separate matter and is settled below, at
+ * `gwc_vs_distinct`, not here.
+ *)
+let gwc_vs_machine ()
+  : Lemma (prun flook fapply0 1 gwc_vs_cf1 == (gwc_vs_cf2, ([] <: list string)) /\
+           prun flook fapply0 1 gwc_vs_cf2 == (gwc_vs_cf3, ([] <: list string)) /\
+           prun flook fapply0 2 gwc_vs_cf1 == (gwc_vs_cf3, ([] <: list string)) /\
+           prun flook fapply0 0 gwc_vs_cf2 == (gwc_vs_cf2, ([] <: list string)))
+  = assert_norm (prun flook fapply0 1 gwc_vs_cf1 == (gwc_vs_cf2, ([] <: list string)));
+    assert_norm (prun flook fapply0 1 gwc_vs_cf2 == (gwc_vs_cf3, ([] <: list string)));
+    assert_norm (prun flook fapply0 2 gwc_vs_cf1 == (gwc_vs_cf3, ([] <: list string)));
+    assert_norm (prun flook fapply0 0 gwc_vs_cf2 == (gwc_vs_cf2, ([] <: list string)))
+
+(* ---- 19.2 the departure is a `GWCGwy` pair ----------------------- *)
+
+(**
+ * **THE DEPARTURE IS THE SHAPE THE POP WANTS.**  PROVED: a `gwy_cf` pair, hence
+ * `gwc_cf GWCGwy`, with the left stack ONE frame longer than the right's and the
+ * right's empty.  Four ingredients and no hypothesis: `pabot` is well formed,
+ * the empty store is `pasrel` to itself at `pabot`, the two `PVar` redexes are
+ * `pacrel` because `PV FU` is `pval_rel` to itself in the empty world, and
+ * `gwy_ktop_is_gwy_k` promotes the surplus-at-the-head stack pair to
+ * surplus-at-depth.  Both counters sit on `pabot`'s frontiers, which are zero.
+ *)
+let gwc_vs_departs ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_vs_cf1 gwc_vs_cf2)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    lemma_pacrel_var fcl_rel pabot (fpv FU) (fpv FU);
+    gwy_ktop_is_gwy_k fcl_rel pabot gwc_vs_k1 ([] <: pstack fv fcl);
+    gwc_cf_is_gwy_cf fcl_rel pabot gwc_vs_cf1 gwc_vs_cf2
+
+(**
+ * **THE 1:0 LANDING, OBTAINED THROUGH THE CARRIER.**  PROVED, and this is the
+ * point of the section: the counts come from `gwc_var_deep_stutter` -- hence
+ * from the `gwc_fit_var_deep` horn it selects -- applied to the departure above,
+ * and are NOT recomputed from `prun`.  `gwc_vs_machine` is not cited in this
+ * proof.  The two side conditions are the interpreter-relation obligations,
+ * discharged by `lemma_fcl_rel_mono` and `lemma_fcl_rel_down`.
+ *
+ * So the `1:0` here is the carrier's pop: the left consumes the surplus frame,
+ * the right is offered no fuel at all and stands still.
+ *)
+let gwc_vs_lands ()
+  : Lemma (gwc_lands flook fapply0 GWCGwr fcl_rel pabot 1 0 gwc_vs_cf1 gwc_vs_cf2)
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    gwc_vs_departs ();
+    gwc_var_deep_stutter flook fapply0 fcl_rel pabot (fpv FU) (fpv FU)
+                         gwc_vs_k1 ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(* ---- 19.3 the landing state is PINNED --------------------------- *)
+
+(**
+ * **THE ALLOCATING ARM IS IMPOSSIBLE AT THIS FIXTURE.**  PROVED, as a
+ * refutation.  `gwc_lands` offers its state as `s' == s \/ s' == paalloc s`, and
+ * at `s == pabot` the second horn dies twice over: `paalloc pabot` has left
+ * frontier `1` where `pabot` has `0`, so it is not `pabot`; and
+ * `paprov_step_at`'s allocating arm demands `cf1'.next == cf1.next + 1`, while
+ * BOTH successors here carry `next == 0` and so does the departure.
+ *)
+let gwc_vs_alloc_arm_impossible ()
+  : Lemma (~(paalloc pabot == pabot) /\
+           ~(paprov_step_at (paalloc pabot) pabot gwc_vs_cf1 gwc_vs_cf2
+                            gwc_vs_cf2 gwc_vs_cf2))
+  = assert_norm ((paalloc pabot).an1 == 1);
+    assert_norm (pabot.an1 == 0);
+    assert_norm (gwc_vs_cf1.next == 0);
+    assert_norm (gwc_vs_cf2.next == 0)
+
+(** The pinning, in the form the elimination below consumes: any state carrying
+    `gwc_lands`'s disjunct together with `paprov_step_at` at this fixture IS
+    `pabot`.  The existential of `gwc_lands` is therefore definite here. *)
+let gwc_vs_no_alloc (s': pastate)
+  : Lemma (requires (s' == pabot \/ s' == paalloc pabot) /\
+                    paprov_step_at s' pabot gwc_vs_cf1 gwc_vs_cf2
+                                   gwc_vs_cf2 gwc_vs_cf2)
+          (ensures s' == pabot)
+  = assert_norm ((paalloc pabot).an1 == 1);
+    assert_norm (pabot.an1 == 0)
+
+(**
+ * **THE REACH, EXTRACTED FROM THE LANDING.**  PROVED, and BY EXTRACTION: the
+ * landing of 19.2 is unfolded, its state witness eliminated, pinned to `pabot`
+ * by `gwc_vs_no_alloc`, and the five conjuncts of `gwc_reaches_at` assembled at
+ * that state.  The relation at the arrival is the one `gwc_lands` already
+ * carried; it is not re-established.  What `gwc_vs_machine` supplies is only the
+ * two trace conjuncts, which `gwc_lands` states as an EQUALITY and not as
+ * emptiness -- the same premise `gwc_reaches_of_lands` records as underivable.
+ *
+ * The state is `pabot` on both sides of `paext`, so the frontier equation is
+ * reflexivity of `+`.
+ *)
+let gwc_vs_reaches_at ()
+  : Lemma (gwc_reaches_at flook fapply0 GWCGwr fcl_rel pabot pabot 1 0
+                          gwc_vs_cf1 gwc_vs_cf2)
+  = gwc_vs_machine ();
+    gwc_vs_lands ();
+    lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    gwc_lands_unfold flook fapply0 GWCGwr fcl_rel pabot 1 0 gwc_vs_cf1 gwc_vs_cf2 ();
+    eliminate exists (s': pastate).
+        (paext s' pabot /\ pawf s' /\ (s' == pabot \/ s' == paalloc pabot) /\
+         paprov_step_at s' pabot gwc_vs_cf1 gwc_vs_cf2
+           (fst (prun flook fapply0 1 gwc_vs_cf1))
+           (fst (prun flook fapply0 0 gwc_vs_cf2)) /\
+         gwc_cf GWCGwr fcl_rel s' (fst (prun flook fapply0 1 gwc_vs_cf1))
+                                  (fst (prun flook fapply0 0 gwc_vs_cf2)))
+    with (gwc_vs_no_alloc s';
+          gwc_reaches_at_intro flook fapply0 GWCGwr fcl_rel pabot pabot 1 0
+                               gwc_vs_cf1 gwc_vs_cf2)
+
+(* ---- 19.4 the second leg, and the composite --------------------- *)
+
+(** `PDone` against `PDone` is related only where `gwc_reach_of` is `GWCRAll`,
+    and `GWCPacf` is such a phase.  The obligation there is `pval_rel` on the two
+    payloads, which is `FU == FU`; the stores are the empty pair and both
+    counters are zero. *)
+let gwc_vs_halt_related ()
+  : Lemma (gwc_cf GWCPacf fcl_rel pabot gwc_vs_cf3 gwc_vs_cf3)
+  = cor_padxg_pabot_sto_self ()
+
+(** **LEG TWO: THE SAME CONFIGURATION ON BOTH SIDES, ONE UNIT EACH.**  PROVED,
+    counts `1 1`, landing at `GWCPacf`.  The departure is `cf2` on both sides --
+    on the left because the pop put it there, on the right because it was there
+    all along -- and one unit of fuel takes each to `PDone`.  Nothing is
+    allocated, so the state stays `pabot`. *)
+let gwc_vs_leg2 ()
+  : Lemma (gwc_reaches_at flook fapply0 GWCPacf fcl_rel pabot pabot 1 1
+                          gwc_vs_cf2 gwc_vs_cf2)
+  = gwc_vs_machine ();
+    lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    gwc_vs_halt_related ();
+    gwc_reaches_at_intro flook fapply0 GWCPacf fcl_rel pabot pabot 1 1
+                         gwc_vs_cf2 gwc_vs_cf2
+
+(** **THE COMPOSITE, `2 1`.**  PROVED, by `gwc_reaches_compose` on 19.3 and the
+    leg above: `1 + 1` on the left against `0 + 1` on the right, landing at
+    `GWCPacf`.  Both forms are recorded, with the state explicit and with it
+    hidden. *)
+let gwc_vs_composite ()
+  : Lemma (gwc_reaches_at flook fapply0 GWCPacf fcl_rel pabot pabot 2 1
+                          gwc_vs_cf1 gwc_vs_cf2 /\
+           gwc_reaches flook fapply0 GWCPacf fcl_rel pabot 2 1
+                       gwc_vs_cf1 gwc_vs_cf2)
+  = gwc_vs_machine ();
+    gwc_vs_reaches_at ();
+    gwc_vs_leg2 ();
+    gwc_reaches_compose flook fapply0 GWCGwr GWCPacf fcl_rel pabot pabot pabot
+                        1 0 1 1 gwc_vs_cf1 gwc_vs_cf2;
+    gwc_reaches_intro flook fapply0 GWCPacf fcl_rel pabot pabot 2 1
+                      gwc_vs_cf1 gwc_vs_cf2
+
+(* ---- 19.5 the guard: the counts are TRANSITION counts ------------ *)
+
+(**
+ * **THE THREE CONFIGURATIONS ARE PAIRWISE DISTINCT, AND ONE UNIT IS NOT
+ * ENOUGH.**  PROVED, by computation, and for two different reasons, which is why
+ * both are run:
+ *
+ *   - `cf1` against `cf2` by the STACK, which is one frame longer -- the frame
+ *     the pop consumes;
+ *   - `cf3` against both by being `PDone`, where the other two are `PStep`.
+ *
+ * And the last conjunct pins the left count: ONE unit of fuel does NOT reach
+ * `cf3`, so `2` is not an over-count that a smaller number would also have
+ * satisfied.
+ *)
+let gwc_vs_distinct ()
+  : Lemma (~(gwc_vs_cf1 == gwc_vs_cf2) /\
+           ~(gwc_vs_cf2 == gwc_vs_cf3) /\
+           ~(gwc_vs_cf1 == gwc_vs_cf3) /\
+           ~(prun flook fapply0 1 gwc_vs_cf1 == (gwc_vs_cf3, ([] <: list string))))
+  = assert_norm (FStar.List.Tot.length (PStep?.k gwc_vs_cf1.st) == 1);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwc_vs_cf2.st) == 0);
+    assert_norm (PDone? gwc_vs_cf3.st);
+    assert_norm (~(PDone? gwc_vs_cf1.st));
+    assert_norm (~(PDone? gwc_vs_cf2.st));
+    assert_norm (~(prun flook fapply0 1 gwc_vs_cf1 == (gwc_vs_cf3, ([] <: list string))))
+
+(**
+ * **THE GUARD, AND IT FIRES.**  PROVED, at closed terms, with no hypothesis.
+ * One lemma collects the departure, the carrier's landing, the composite in both
+ * forms, and the facts that make the count pair a TRANSITION pair rather than
+ * merely a fuel pair:
+ *
+ *   - the three configurations are PAIRWISE DISTINCT, so no leg is standing
+ *     still under two names;
+ *   - the left's TWO units are not an over-count: one unit lands on `cf2`, and
+ *     reaching `cf3` in one is REFUTED, so the left performs two transitions;
+ *   - the right's ONE unit drives a real transition, since it takes `cf2` to
+ *     `cf3` and those two configurations are distinct.
+ *
+ * So the composite's `2 1` counts two operational transitions on the left
+ * against one on the right, and its `1:0` leg is the carrier's pop: the left
+ * consumes the surplus frame while the right, offered zero fuel, does nothing.
+ * This is what section 18's closed instance did NOT witness -- there both sides
+ * take one transition and the `1:0` is fuel padding past an already-halted
+ * state.
+ *
+ * **WHAT IS AND IS NOT CLAIMED.**  This is ONE closed instance.  It is not a
+ * finite-run theorem and not an observation theorem: nothing here is stated at
+ * `psteps` and no whole-run fuel bound is quantified over.  Handing a landing to
+ * a departure IS done here -- leg one arrives at `gwc_vs_cf2` on both sides and
+ * leg two departs from exactly that pair -- so what is missing is the GENERAL
+ * fact: NO GENERAL THEOREM SHOWS THAT ARBITRARY BRANCH LANDINGS SATISFY THE
+ * NEXT BRANCH'S DEPARTURE PREMISES.  The fixture is not claimed
+ * to be canonical, minimal, or the only one -- it is a fixture that works.  And
+ * the generic statements `gwc_var_deep_stutter`,
+ * `gwc_reaches_of_var_deep_stutter` and `gwc_reaches_var_deep_two_one` are
+ * CITED, not re-proved; what is added is that their departure is inhabited at a
+ * closed term and that the reach they carry composes there.
+ *)
+let guard_gwc_vs_two_one_is_genuine ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_vs_cf1 gwc_vs_cf2 /\
+           gwc_lands flook fapply0 GWCGwr fcl_rel pabot 1 0 gwc_vs_cf1 gwc_vs_cf2 /\
+           gwc_reaches_at flook fapply0 GWCPacf fcl_rel pabot pabot 2 1
+                          gwc_vs_cf1 gwc_vs_cf2 /\
+           gwc_reaches flook fapply0 GWCPacf fcl_rel pabot 2 1
+                       gwc_vs_cf1 gwc_vs_cf2 /\
+           ~(gwc_vs_cf1 == gwc_vs_cf2) /\
+           ~(gwc_vs_cf2 == gwc_vs_cf3) /\
+           ~(gwc_vs_cf1 == gwc_vs_cf3) /\
+           prun flook fapply0 1 gwc_vs_cf1 == (gwc_vs_cf2, ([] <: list string)) /\
+           prun flook fapply0 2 gwc_vs_cf1 == (gwc_vs_cf3, ([] <: list string)) /\
+           ~(prun flook fapply0 1 gwc_vs_cf1 == (gwc_vs_cf3, ([] <: list string))) /\
+           prun flook fapply0 1 gwc_vs_cf2 == (gwc_vs_cf3, ([] <: list string)) /\
+           ~(2 == 1))
+  = gwc_vs_machine ();
+    gwc_vs_departs ();
+    gwc_vs_lands ();
+    gwc_vs_composite ();
+    gwc_vs_distinct ()
+
+(*
+ * ADDENDUM TO SECTION 18'S LEDGER.  (Appended here; section 18 is UNTOUCHED.)
+ *
+ * The single outstanding item recorded at the end of section 18 -- "NO CLOSED
+ * INSTANCE OF THE CARRIER'S `gwc_fit_var_deep` POP IS CONNECTED TO
+ * `gwc_reaches`" -- is DISCHARGED above.  `gwc_vs_lands` obtains the `1:0`
+ * through `gwc_var_deep_stutter`, `gwc_vs_reaches_at` extracts the reach from
+ * that landing after pinning the state to `pabot`, and `gwc_vs_composite`
+ * composes it to `2 1`.
+ *
+ * Point 4 of section 18's closing list is correspondingly narrowed.  Its first
+ * sentence stands as written of the instance it names: in
+ * `guard_gwc_reaches_counts_diverge` each side does perform exactly one
+ * operational transition and its `1:0` leg is fuel padding.  Its second
+ * sentence -- that the pop "is available only generically" -- is what section 19
+ * supersedes.
+ *
+ * WHAT IS STILL NOT SETTLED, and section 19 does not touch:
+ *
+ *  1. Finite runs and the observation.  Section 19 exhibits a two-leg composite
+ *     at fixed counts.  Nothing is stated at `psteps`, nothing quantifies over a
+ *     run driven to exhaustion, and no general chaining of the branches of
+ *     sections 6 to 16 is proved.
+ *
+ *     One clause of section 17's own closing list is narrowed by this, and is
+ *     flagged here rather than edited there: "no branch is shown to hand its
+ *     landing to another branch's departure" was true of sections 17 and 18,
+ *     which is the scope that list is stated at.  Section 19 DOES hand one
+ *     landing to one departure, at closed terms.  What remains open is the
+ *     general fact -- that arbitrary branch landings satisfy the next branch's
+ *     departure premises -- and that is not proved anywhere.
+ *
+ *  2. The converse of `gwc_reaches_of_lands`.  Section 19 goes forward only, and
+ *     it pins the landing state at ONE fixture by computation; that is not a
+ *     recovery of the single-allocation bound from a reach in general.
+ *
+ *  3. Emits.  Every trace conjunct above is `[]`, and `gwc_vs_cf1` steps a
+ *     `PVar`, never a `PEmit`.  Runs through an emit remain outside every
+ *     statement here.
+ *
+ *  4. Allocation.  The whole fixture sits at `pabot` with both frontiers zero
+ *     and nothing allocated; the allocating arm of `paprov_step_at` is REFUTED
+ *     here rather than exercised.
+ *
+ *     Note what this residual is NOT.  The carrier pop CANNOT allocate: it is
+ *     `PVar` popping an identity `PBindF`, which rewrites neither the store nor
+ *     the counter, so "a closed carrier-pop instance that allocates" is not a
+ *     thing that could be built.  The two residuals that are real are: a closed
+ *     carrier pop taken at a NON-TRIVIAL ALREADY-ALLOCATED state rather than at
+ *     `pabot`, and a closed COMPOSITE containing the carrier pop in which some
+ *     OTHER leg allocates, so that the allocating arm is exercised somewhere in
+ *     the chain.  Neither is built.
+ *
+ * Everything before section 19 is UNTOUCHED; this section APPENDS.  NOTHING
+ * above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)
