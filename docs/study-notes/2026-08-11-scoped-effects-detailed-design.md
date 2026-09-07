@@ -9391,6 +9391,96 @@ The two residuals that are real, and neither is built:
   computation, which is not a recovery of the bound in general;
 - runs through an emit remain outside every statement.
 
+#### The obstruction to chaining is the lattice, not the machine
+
+The standing residual was that no general theorem showed a branch's landing
+satisfying the next branch's departure premises. This gate found why, and the
+answer turned out to be structural rather than operational.
+
+Every stack-phase branch **departs** from the surplus tag but is **stated** as
+landing at the weakened one, because the run predicate the branch family was
+built on hard-codes that weakened relation as its landing. And a landing there
+cannot be fed back into a surplus departure: the weakened stack relation is a
+disjunction admitting the ordinary pair, which the surplus relation refuses on
+length.
+
+That is refuted at a closed pair, and the refutation's proof mentions no
+transition, no step function and no run — which is the evidence that the
+obstruction sits in the phase lattice and not in the machine.
+
+#### The weakening was never necessary
+
+The underlying exit lemmas for the three non-allocating value exits already
+conclude the **surplus** relation at the successor, at the same allocation state,
+with nothing allocated. The wrapper layer threw that away. Restating those three
+branches at the tag they actually land at costs no new proof — the existing
+lemmas are cited, not redone — and the earlier statements remain correct
+weakenings that nothing here replaces.
+
+#### A companion shape, and its logical status stated carefully
+
+For branches whose allocation state does not move, a landing form that fixes the
+state outright and carries no existential.
+
+It would be wrong to call this a restriction of the general landing. Read as
+propositions the two are a **mixture**: the companion strengthens (traces pinned
+to empty rather than merely equal; state fixed rather than existential and
+bounded) and weakens (well-formedness, accessibility and the single-step
+provenance are all absent — no provenance conjunct at all, so not a weaker
+version of one either).
+
+So these differences alone do not order the two shapes, and **no unconditional
+implication in either direction is proved**. That is a statement about what has
+been proved, not a proof of incomparability — no separating instance is
+exhibited either. A conditional bridge is the honest shape for one: add
+well-formedness and a stationary-provenance premise and the two can be related.
+That bridge is not stated. The one implication proved goes to the multi-step
+reach predicate and takes well-formedness as an explicit hypothesis for exactly
+this reason.
+
+Because the state is fixed, composing two of these is **ordinary composition** —
+no existential to eliminate, so none of the dependent, Kleisli-shaped premise
+the hidden multi-step form needed. That is bought by fixing the state and by
+nothing else: the composition is unavailable wherever a leg allocates, which is
+the case the general one exists to handle.
+
+#### The chain, with the second departure discharged
+
+The chain lemma takes two hypotheses: a surplus departure, and a **shape
+premise** on the landed pair. The second branch's departure premise is *not*
+among them — it is read off the first branch's landing. That is what the
+residual asked for.
+
+A closed instance runs it: two parameter frames popped in sequence, with both
+shape premises discharged by computation, and with the second departure included
+explicitly in the guard's conclusion as the conjunct that the weakened landing
+could not have supplied.
+
+#### What was removed, and what was not
+
+Checked independently at the closed fixture, and this is the gate's central
+distinction:
+
+- after the chain the landed pair **is at the departure tag** — the tag feeds
+  back, which is precisely what the weakened landing was refuted for;
+- but its left stack is headed by a bind frame, not a parameter frame, so the
+  chain lemma's own shape premise is **false** there and a third link is
+  unavailable.
+
+The lattice obstruction is removed. The shape obligation is not: a phase tag
+does not determine a redex, and removing that premise would need a statement of
+a different kind, which is not made.
+
+#### Not proved
+
+- **not general chaining.** Three branches have sharp landings; the rest keep
+  the weakened one and the refutation applies to them. One chain is built. No
+  statement quantifies over branches, chain length, or run length;
+- allocating branches are outside the companion shape entirely;
+- runs through an emit remain outside;
+- the counts are fuel indices; they are shown to be transition counts only at
+  the closed fixture.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
