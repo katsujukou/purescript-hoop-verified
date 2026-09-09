@@ -9481,6 +9481,86 @@ a different kind, which is not made.
 - the counts are fuel indices; they are shown to be transition counts only at
   the closed fixture.
 
+#### Chains that cross an allocation, and a ledger sentence corrected
+
+The previous gate's ledger said allocating branches were outside the
+standing-still machinery entirely. That was an overclaim, and correcting it is
+where this gate started.
+
+The standing-still form's state argument is the **target** state; the departure
+state does not occur in the definition. So an allocating branch is expressible
+in it — one states it at the post-allocation state — and the allocating value
+exit now has a sharp landing exactly that way, by citing the exit lemma that
+already delivered the surplus tag there. Four branches now have sharp landings
+rather than three. The previous section's proofs are untouched and correct; what
+was overstated was the scope of an exclusion.
+
+#### What the single-state composition actually excluded
+
+Not allocating branches. The composition fixed one state and required both legs
+to be stated at it, so what it excluded is a chain whose two legs carry
+**different landing-state indices**.
+
+A chain that allocates can still satisfy it. Taking the scope exit first and the
+parameter exit second, the first leg allocates — yet **both** legs land at the
+post-allocation state, so the single-state lemma closes it. The chain that
+genuinely needs two states is the other order: parameter exit then scope exit,
+whose legs land at `s` and at the allocation of `s`.
+
+Both chains are proved, and the two-state composition is proved with the states
+independent, with the single-state lemma derived as its diagonal case rather
+than asserted to be one. The restriction was not load-bearing: in the proof the
+first leg's state never enters the conclusion, whose relational conjunct comes
+from the second leg's landing while the first contributes only its traces.
+
+#### What a landing forgets — four things, not all of one kind
+
+The honest counterpart of "allocating branches fit" is that the form cannot
+distinguish an allocating branch from a non-allocating one. That is now a
+proposition, not a remark: the forgetful map from the reach predicate is proved,
+and it drops
+
+- the **departure state** itself, which has no argument position in the landing
+  form;
+- **accessibility**, which relates the two states;
+- **frontier balance**, which also relates the two states;
+- **landing well-formedness**, which does **not** mention the departure state —
+  it is a condition on the landing state alone, dropped for a different reason
+  entirely: the landing form carries only the phase's own well-formedness
+  selector, which is trivially true at the plain tag.
+
+Describing all of these as "the conjuncts that mention the departure state"
+would be wrong; only the middle two do.
+
+So "allocating branches fit" means their **landing is expressible**. It does not
+mean the allocation is **recorded**. Where the allocation must be recorded, the
+reach predicate is what says so, and the recovery lemma from a post-allocation
+landing back to a reach is proved.
+
+#### The state parameter is not inert
+
+Checked independently, so that the point above is not over-read. At the closed
+allocation-crossing chain the landing holds at the post-allocation state and
+**fails** at the departure state — the landed counters have advanced past the
+departure frontiers.
+
+Two different facts, both true: the allocation *is* visible in the landing
+statement, and the departure state is *not* recorded by it.
+
+#### Not proved
+
+- the shape obligation remains, in both chains, for the reason the previous gate
+  gave;
+- not general chaining: four branches have sharp landings, two chains of two
+  branches are built, and nothing quantifies over branches, chain length, or run
+  length;
+- no equivalence between the landing and reach forms — the two implications go
+  in opposite directions under different hypotheses, and neither is proved to
+  invert the other;
+- runs through an emit remain outside;
+- the counts are fuel indices; they are shown to be transition counts only at
+  the closed fixture.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
