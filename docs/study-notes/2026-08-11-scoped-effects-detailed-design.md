@@ -9561,6 +9561,81 @@ statement, and the departure state is *not* recorded by it.
 - the counts are fuel indices; they are shown to be transition counts only at
   the closed fixture.
 
+#### Every redex has a branch, and what that does not buy
+
+The principal obstruction is the shape obligation: a phase tag does not
+determine a redex, so a chain lemma has to be told which redex the landed pair
+presents. This gate attacked it from the coverage side.
+
+Four of the machine's fourteen computation constructors had no carrier branch at
+the surplus phase — the operation bind, the handler install, the parameter
+introduction, and the emit. A fifth had one only from the *generated* phase. All
+five now have branches departing from the surplus tag.
+
+The machine facts underneath were not new: an existing lockstep lemma already
+had them for exactly these five nodes, and it is untouched and uncited. What is
+new is the carrier packaging — the departure at a tag, the run equations at fuel
+index one that name the landed pair, and the landing in the fixed shape.
+
+#### The dispatch, and its exact reach
+
+For a departure at the surplus tag whose left state is a step configuration,
+**some** landing exists — for thirteen of the fourteen constructors.
+
+The exception is the perform node, and it is a real one: its branch covers only
+the horn where the prompt search succeeds and the clause is not scoped. The
+other two horns — search failure, and the scoped-clause rejection — have no
+lemma cited and none assumed. So the accurate statement is that **the dispatch
+is closed for thirteen constructors**, not that coverage is complete: every
+constructor has *a* carrier-level lemma, but the perform node's is conditional
+and covers one horn of three.
+
+The value node was expected to need a second case analysis on the stack head. It
+did not: its branch is already stated over an arbitrary deep-stack pair, and the
+head split happens inside that lemma's own proof. The cost of folding it in is
+visible elsewhere and is recorded — its count pair is `1:1` or `1:0`, the second
+being the stutter, and the dispatch's conclusion forgets both, so the two horns
+collapse into one. That collapse loses exactly the information earlier gates
+were built to expose.
+
+#### Where trace equality and empty trace come apart
+
+Four of the five new branches land in the sharp form, whose traces are pinned to
+empty. The emit does not, and that is proved rather than remarked: at **left
+fuel index one** its trace is a one-element list, which the sharp form's first
+conjunct forbids. The refutation is universal in the landing phase, the right
+count and the right configuration, and it is *not* claimed at any other left
+count — extending it would be a statement about the run function at arbitrary
+fuel, which is not made.
+
+So among the five one-step branches at count one, the one that refuses the sharp
+form is exactly the emit. That is the difference between requiring the two
+traces to be *equal* and requiring them to be *empty*, and it is now load-bearing
+rather than stipulated.
+
+#### The existential over counts is not idle
+
+Checked independently. At the stutter fixture from an earlier gate the
+dispatch's conclusion holds, while a landing at counts `1:1` is false at every
+tag — the right side has already reached a terminal state while the left is
+still stepping. What holds there is `1:0`.
+
+What that shows, exactly: **the existential count pair cannot be replaced
+uniformly by `1:1`**. It does not show that no fixed pair would do; ruling out
+`1:0` as well would need a second fixture, of the lockstep kind, that refuses
+it. Only the `1:1` substitution is refuted here.
+
+#### Not proved
+
+- **the shape obligation is untouched.** Exhaustiveness of a case analysis is
+  not selection of a case. Both dispatch statements are existential in the phase
+  and in both counts, so neither names the landed configuration, and a chain
+  needs that;
+- the perform node's two uncovered horns;
+- nothing quantifies over run length, over chains, or over the branch family;
+- non-vacuity is shown at one fixture for the dispatch and one for the emit
+  split; nothing is claimed about which programs produce these departures.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

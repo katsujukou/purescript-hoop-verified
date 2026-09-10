@@ -56820,3 +56820,931 @@ let guard_gwc_sp_chain_fires ()
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ---- 22. THE COMPUTATION NODES AT THE SURPLUS PHASE, AND THE
+       SHAPE-COVERAGE STATEMENT ------------------------------------ *)
+
+(*
+ * The carrier-level branches stated in sections 6 to 16 -- in `gwc_lands` or in
+ * `gwc_lands_set` form -- are `gwc_fit_exit_param` and `gwc_fit_var_deep` for
+ * `PVar`, `gwc_fit_perform` for `PPerform`, `gwc_fit_splice` for `PSplice`, and
+ * `gwc_fit_weave`, `gwc_fit_enterctx`, `gwc_fit_extendc`, `gwc_fit_extendctxc`,
+ * `gwc_fit_resumec`, `gwc_fit_readp` and `gwc_fit_writep` for the six nodes they
+ * name.  Four of `pcomp`'s fourteen constructors are not among them: `POp`,
+ * `PHandle`, `PNewP` and `PEmit`.  A fifth, `PSplice`, is among them only
+ * through `gwc_fit_splice`, whose DEPARTURE is the generated phase `GWCGwe`.
+ * 22.1 to 22.3 state five carrier branches, all departing at `GWCGwy`, that
+ * close that list.
+ *
+ * **WHAT IS AND IS NOT NEW IN 22.1 TO 22.3.**  The MACHINE facts are not new:
+ * `gwy_exit_lockstep` already proves, for `POp`, `PHandle`, `PNewP`, `PEmit` and
+ * `PSplice` together, that a `gwy_cf` pair steps to a `gwy_cf` pair with equal
+ * traces and unmoved stores and counters.  That lemma is untouched and is not
+ * cited below; the proofs here take the same two or three inversions its
+ * corresponding arm takes.  What is new is the CARRIER packaging: a `gwc_cf
+ * GWCGwy` departure, the two `prun` equations at fuel index one that name the
+ * landed pair, and the landing in the shape section 5 and 20.2 fixed.
+ *
+ * **THE SHARP FORM AND WHERE IT STOPS.**  Four of the five land in
+ * `gwc_lands_still` -- traces pinned to `[]`, allocation state fixed at the
+ * departure's own `s`, phase still `GWCGwy`.  `PEmit` does not: `pstep_tr`
+ * emits at exactly that shape, so its trace at fuel index one is `[ev]`.  It
+ * lands in `gwc_lands`, whose trace conjunct is the two traces being EQUAL, and
+ * 22.3 REFUTES the `gwc_lands_still` form for it.  That is the content of 22.3:
+ * at `gwc_lands` the five are uniform, at `gwc_lands_still` they are not, and
+ * `PEmit` is exactly the difference.
+ *
+ * 22.5 then states the DISPATCH: a departure at `GWCGwy` whose left redex is a
+ * computation node other than `PPerform` has SOME landing.  Read what that says
+ * carefully -- it is existential in the phase AND in both counts, so it names
+ * neither.  It does NOT discharge the SHAPE obligation of 20.4 and 21.4, which
+ * need to know WHICH branch applies in order to NAME the landed configuration.
+ * What 22.5 adds is that the case analysis is EXHAUSTIVE over the fragment it
+ * covers, which is a different and weaker thing.
+ *)
+
+(* ---- 22.1 the three stack-pushing nodes, sharp ------------------- *)
+
+(**
+ * **`POp` AT THE SURPLUS PHASE.**  PROVED.  The step clause is `POp comp fn ->
+ * keep (PStep comp (PBindF fn :: k))`: one frame pushed, nothing allocated, no
+ * trace.  So the departure's `gwy_k` stack relation is carried to the successor
+ * by `gwy_k_cons` once the pushed frames are `pafrel`, which `lemma_pafrel_bind`
+ * supplies from the `pafn_rel_at` half of `lemma_pacrel_op_inv`.
+ *
+ * **HYPOTHESES: THE DEPARTURE, AND NOTHING ELSE.**  Neither `pcl_mono` nor
+ * `pcl_down` is needed.  The reason is that the branch never looks inside a
+ * clause and never crosses phases: it stays at `GWCGwy` at the same state `s`.
+ *
+ * The two `prun` equations at fuel index one are reported for the reason 20.3
+ * reports them -- a chain needs to know WHICH configuration was landed on.
+ * `1 1` are FUEL INDICES for `prun`; nothing here says a unit of fuel drives a
+ * transition.
+ *)
+let gwc_fit_op
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwc_cf GWCGwy r s
+                      ({ st = PStep (POp a1 f1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (POp a2 f2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (POp a1 f1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (POp a2 f2) k2; store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep a1 (PBindF f1 :: k1); store = sto1; next = s.an1 } in
+             let cf2' : pconf v cl =
+               { st = PStep a2 (PBindF f2 :: k2); store = sto2; next = s.an2 } in
+             prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 1 cf2 == (cf2', ([] <: list string)) /\
+             gwc_lands_still lk apply GWCGwy r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (POp a1 f1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (POp a2 f2) k2; store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep a1 (PBindF f1 :: k1); store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep a2 (PBindF f2 :: k2); store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_op_inv r s a1 a2 f1 f2;
+    lemma_pafrel_bind r s f1 f2;
+    gwy_k_cons r s (PBindF f1) (PBindF f2) k1 k2;
+    assert (gwy_cf r s cf1' cf2');
+    gwc_cf_is_gwy_cf r s cf1' cf2';
+    lemma_prun_one lk apply cf1 cf1';
+    lemma_prun_one lk apply cf2 cf2';
+    gwc_lands_still_intro lk apply GWCGwy r s 1 1 cf1 cf2
+
+(**
+ * **`PHandle` AT THE SURPLUS PHASE.**  PROVED, and it is `gwc_fit_op` with
+ * `lemma_pacrel_handle_inv` and `lemma_pafrel_prompt` in place of the two `POp`
+ * inversions.  The pushed frame is `PPromptF tb1 ret1 pv1`, and the provenance
+ * equality `pv1 == pv2` is one of the inversion's conjuncts, so the two sides'
+ * pushed frames agree on the field the reframing carries.
+ *
+ * **HYPOTHESES: THE DEPARTURE, AND NOTHING ELSE.**  In particular `pcl_down` is
+ * not needed here, although `gwc_still_exit_prompt` needs it: that lemma POPS a
+ * `PPromptF` and must relate the two return clauses at the value; this one
+ * PUSHES the frame and relates nothing at a value.
+ *)
+let gwc_fit_handle
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (tb1 tb2: ptable cl) (ret1 ret2: option (pval v -> pcomp v cl))
+    (pv1 pv2: prompt_provenance) (b1 b2: pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwc_cf GWCGwy r s
+                      ({ st = PStep (PHandle tb1 ret1 pv1 b1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PHandle tb2 ret2 pv2 b2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PHandle tb1 ret1 pv1 b1) k1;
+                 store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PHandle tb2 ret2 pv2 b2) k2;
+                 store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep b1 (PPromptF tb1 ret1 pv1 :: k1);
+                 store = sto1; next = s.an1 } in
+             let cf2' : pconf v cl =
+               { st = PStep b2 (PPromptF tb2 ret2 pv2 :: k2);
+                 store = sto2; next = s.an2 } in
+             prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 1 cf2 == (cf2', ([] <: list string)) /\
+             gwc_lands_still lk apply GWCGwy r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PHandle tb1 ret1 pv1 b1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PHandle tb2 ret2 pv2 b2) k2; store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep b1 (PPromptF tb1 ret1 pv1 :: k1); store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep b2 (PPromptF tb2 ret2 pv2 :: k2); store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_handle_inv r s tb1 tb2 ret1 ret2 pv1 pv2 b1 b2;
+    lemma_pafrel_prompt r s tb1 tb2 ret1 ret2 pv1;
+    gwy_k_cons r s (PPromptF tb1 ret1 pv1) (PPromptF tb2 ret2 pv2) k1 k2;
+    assert (gwy_cf r s cf1' cf2');
+    gwc_cf_is_gwy_cf r s cf1' cf2';
+    lemma_prun_one lk apply cf1 cf1';
+    lemma_prun_one lk apply cf2 cf2';
+    gwc_lands_still_intro lk apply GWCGwy r s 1 1 cf1 cf2
+
+(**
+ * **`PNewP` AT THE SURPLUS PHASE.**  PROVED, and it is `gwc_fit_op` again with
+ * `lemma_pacrel_newp_inv` and `lemma_pafrel_param`.  The pushed frame is
+ * `PParamF l1 i1`; the label equality `l1 == l2` comes from the inversion, so
+ * the frame `gwc_still_exit_param` later pops is pushed here with the label the
+ * two sides agree on.
+ *
+ * **THIS NODE DOES NOT ALLOCATE.**  A parameter cell is a STACK FRAME, not a
+ * store entry, so the allocation state does not move and the sharp form applies.
+ * `PExtendCtxC` is an allocating branch, and section 21 is where allocation is
+ * handled; nothing here bears on it.
+ *
+ * **HYPOTHESES: THE DEPARTURE, AND NOTHING ELSE.**
+ *)
+let gwc_fit_newp
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (l1 l2: string) (i1 i2: pval v) (b1 b2: pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwc_cf GWCGwy r s
+                      ({ st = PStep (PNewP l1 i1 b1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PNewP l2 i2 b2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PNewP l1 i1 b1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PNewP l2 i2 b2) k2; store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep b1 (PParamF l1 i1 :: k1);
+                 store = sto1; next = s.an1 } in
+             let cf2' : pconf v cl =
+               { st = PStep b2 (PParamF l2 i2 :: k2);
+                 store = sto2; next = s.an2 } in
+             prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 1 cf2 == (cf2', ([] <: list string)) /\
+             gwc_lands_still lk apply GWCGwy r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PNewP l1 i1 b1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PNewP l2 i2 b2) k2; store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep b1 (PParamF l1 i1 :: k1); store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep b2 (PParamF l2 i2 :: k2); store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_newp_inv r s l1 l2 i1 i2 b1 b2;
+    lemma_pafrel_param #v #cl r s l1 i1 i2;
+    gwy_k_cons r s (PParamF l1 i1) (PParamF l2 i2) k1 k2;
+    assert (gwy_cf r s cf1' cf2');
+    gwc_cf_is_gwy_cf r s cf1' cf2';
+    lemma_prun_one lk apply cf1 cf1';
+    lemma_prun_one lk apply cf2 cf2';
+    gwc_lands_still_intro lk apply GWCGwy r s 1 1 cf1 cf2
+
+(* ---- 22.2 `PSplice` at the surplus phase, sharp ------------------ *)
+
+(**
+ * **`PSplice` DEPARTING AT `GWCGwy`.**  PROVED.  `gwc_fit_splice` covers this
+ * node already, but its departure is `GWCGwe` -- a GENERATED phase -- and its
+ * landing is `GWCGwy`; that lemma is what closes the round trip out of the
+ * generated family and it stands unchanged.  This one is the OTHER direction of
+ * the same clause: a departure that is already at `GWCGwy`, which the dispatch
+ * of 22.5 needs and which `gwc_fit_splice` does not supply.
+ *
+ * The clause appends rather than pushes, so `gwy_k_append` does the work
+ * `gwy_k_cons` does in 22.1, and the frames spliced in are `pakrel` by
+ * `lemma_pacrel_splice_inv`.  The surplus therefore stays where it was: BELOW
+ * the spliced segment, in the tails `k1` and `k2`.
+ *
+ * **HYPOTHESES: THE DEPARTURE, AND NOTHING ELSE.**
+ *)
+let gwc_fit_splice_gwy
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (fs1 fs2: pstack v cl) (b1 b2: pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwc_cf GWCGwy r s
+                      ({ st = PStep (PSplice fs1 b1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PSplice fs2 b2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PSplice fs1 b1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PSplice fs2 b2) k2; store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep b1 (fs1 @ k1); store = sto1; next = s.an1 } in
+             let cf2' : pconf v cl =
+               { st = PStep b2 (fs2 @ k2); store = sto2; next = s.an2 } in
+             prun lk apply 1 cf1 == (cf1', ([] <: list string)) /\
+             prun lk apply 1 cf2 == (cf2', ([] <: list string)) /\
+             gwc_lands_still lk apply GWCGwy r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PSplice fs1 b1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PSplice fs2 b2) k2; store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep b1 (fs1 @ k1); store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep b2 (fs2 @ k2); store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_splice_inv r s fs1 fs2 b1 b2;
+    gwy_k_append r s fs1 fs2 k1 k2;
+    assert (gwy_cf r s cf1' cf2');
+    gwc_cf_is_gwy_cf r s cf1' cf2';
+    lemma_prun_one lk apply cf1 cf1';
+    lemma_prun_one lk apply cf2 cf2';
+    gwc_lands_still_intro lk apply GWCGwy r s 1 1 cf1 cf2
+
+(* ---- 22.3 `PEmit`, and the distinction it forces ----------------- *)
+
+(**
+ * **`PEmit` AT THE SURPLUS PHASE, IN THE `gwc_lands` FORM.**  PROVED.  The step
+ * clause leaves the stack alone -- `PEmit _ body -> keep (PStep body k)` -- so
+ * the departure's `gwy_k` is the successor's unchanged, and no frame lemma is
+ * needed at all.  `lemma_pacrel_emit_inv` gives both halves at once: the two
+ * bodies are `pacrel`, and `ev1 == ev2`.
+ *
+ * **THE TRACE IS `[ev1]`, NOT `[]`.**  `pstep_tr` intercepts exactly this shape
+ * and no other, so the run at fuel index one emits.  `gwc_lands`'s trace
+ * conjunct is the two traces being EQUAL, and they are, because the event
+ * equality is part of the inversion.  The landing phase is `GWCGwy` and the
+ * allocation state does not move, so `paprov_step_at` fires on its left
+ * disjunct, exactly as at `gwc_fit_enterctx`.
+ *
+ * `ev1 == ev2` is reported in the conclusion because it is what makes the trace
+ * conjunct true, and a caller that wants the trace equation should be able to
+ * see why it holds.
+ *
+ * **HYPOTHESES: THE DEPARTURE, AND NOTHING ELSE.**
+ *)
+let gwc_fit_emit
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (ev1 ev2: string) (b1 b2: pcomp v cl)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires gwc_cf GWCGwy r s
+                      ({ st = PStep (PEmit ev1 b1) k1;
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      ({ st = PStep (PEmit ev2 b2) k2;
+                         store = sto2; next = s.an2 } <: pconf v cl))
+          (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PEmit ev1 b1) k1; store = sto1; next = s.an1 } in
+             let cf2 : pconf v cl =
+               { st = PStep (PEmit ev2 b2) k2; store = sto2; next = s.an2 } in
+             let cf1' : pconf v cl =
+               { st = PStep b1 k1; store = sto1; next = s.an1 } in
+             let cf2' : pconf v cl =
+               { st = PStep b2 k2; store = sto2; next = s.an2 } in
+             ev1 == ev2 /\
+             prun lk apply 1 cf1 == (cf1', [ev1]) /\
+             prun lk apply 1 cf2 == (cf2', [ev2]) /\
+             gwc_lands lk apply GWCGwy r s 1 1 cf1 cf2))
+  = let cf1 : pconf v cl =
+      { st = PStep (PEmit ev1 b1) k1; store = sto1; next = s.an1 } in
+    let cf2 : pconf v cl =
+      { st = PStep (PEmit ev2 b2) k2; store = sto2; next = s.an2 } in
+    let cf1' : pconf v cl =
+      { st = PStep b1 k1; store = sto1; next = s.an1 } in
+    let cf2' : pconf v cl =
+      { st = PStep b2 k2; store = sto2; next = s.an2 } in
+    gwc_cf_is_gwy_cf r s cf1 cf2;
+    gwy_cf_unfold r s cf1 cf2 ();
+    gwy_st_unfold r s cf1.st cf2.st ();
+    lemma_pacrel_emit_inv r s ev1 ev2 b1 b2;
+    assert (gwy_cf r s cf1' cf2');
+    gwc_cf_is_gwy_cf r s cf1' cf2';
+    assert (prun lk apply 1 cf1 == (cf1', [ev1]));
+    assert (prun lk apply 1 cf2 == (cf2', [ev2]));
+    lemma_paext_refl_wf s;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cf1 cf2 cf1' cf2' /\ gwc_cf GWCGwy r s' cf1' cf2')
+    with s and ()
+
+(**
+ * **AND THE SHARP FORM IS REFUTED FOR IT.**  PROVED, GENERICALLY -- no fixture,
+ * no closed term, and no departure premise either.  The refutation is a fact
+ * about `prun` at fuel index one on a `PEmit`-headed configuration and about
+ * nothing else: the trace is `[ev1]`, which is a `Cons`, and
+ * `gwc_lands_still`'s first conjunct pins it to `[]`.  A closed-term refutation
+ * was not needed; 22.6 exhibits one anyway, to show the two statements of 22.3
+ * are not vacuous at the same pair.
+ *
+ * The refutation is universal in the landing phase `q`, in the right count `n2`
+ * and in the right configuration, so no choice of those repairs it.  It is
+ * stated at LEFT count one and is not claimed for any other left count: that is
+ * the index `gwc_fit_emit` lands at, and extending it would be a statement about
+ * `prun` at arbitrary fuel, which is not made here.
+ *
+ * **WHAT THIS MEANS FOR THE COMPOSITIONS.**  `gwc_lands_still_compose` takes a
+ * `gwc_lands_still` as each of its two premises, and
+ * `gwc_reaches_at_of_lands_still` takes one as its premise; by the refutation
+ * neither can be supplied with this pair as its LEFT leg at LEFT count one.  So
+ * `PEmit` is outside the sharp form, and outside those two statements at that
+ * index.  20.2 REMARKS that a run through a `PEmit` is outside the sharp form
+ * and proves nothing about it; this is that remark proved, at left count one.
+ *
+ * `PEmit` is NOT outside `gwc_lands`, and `gwc_fit_emit` is the witness.
+ *)
+let gwc_emit_is_not_still
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (ev1: string) (b1: pcomp v cl) (k1: pstack v cl) (sto1: pstore v cl)
+  : Lemma (ensures
+            (let cf1 : pconf v cl =
+               { st = PStep (PEmit ev1 b1) k1; store = sto1; next = s.an1 } in
+             snd (prun lk apply 1 cf1) == [ev1] /\
+             (forall (q: gwc_phase) (n2: nat) (cf2: pconf v cl).
+                ~(gwc_lands_still lk apply q r s 1 n2 cf1 cf2))))
+  = let cf1 : pconf v cl =
+      { st = PStep (PEmit ev1 b1) k1; store = sto1; next = s.an1 } in
+    let cf1' : pconf v cl =
+      { st = PStep b1 k1; store = sto1; next = s.an1 } in
+    assert (prun lk apply 1 cf1 == (cf1', [ev1]));
+    introduce forall (q: gwc_phase) (n2: nat) (cf2: pconf v cl).
+        ~(gwc_lands_still lk apply q r s 1 n2 cf1 cf2)
+    with (introduce gwc_lands_still lk apply q r s 1 n2 cf1 cf2 ==> False
+          with (gwc_lands_still_unfold lk apply q r s 1 n2 cf1 cf2 ();
+                assert (Cons? (snd (prun lk apply 1 cf1)))))
+
+(* ---- 22.4 the bridge, and the existential landing ---------------- *)
+
+(**
+ * **THE CONDITIONAL BRIDGE FROM THE SHARP FORM TO `gwc_lands`.**  PROVED, WITH
+ * THREE PREMISES BEYOND THE SHARP LANDING: `pawf s`, and the two departure
+ * counter equations `cf1.next == s.an1` and `cf2.next == s.an2`.
+ *
+ * **THIS IS THE BRIDGE 20.2 DESCRIBED AND DID NOT STATE, AND IT DOES NOT
+ * CONTRADICT ANYTHING 20.2 SAYS.**  20.2's claim is that no UNCONDITIONAL
+ * implication in either direction is proved THERE, and it names `pawf s` plus a
+ * stationary provenance premise as the honest shape for a conditional one.  This
+ * is that bridge, with the stationary premise taking the concrete form of the two
+ * departure counter equations -- which is exactly what `paprov_step_at`'s
+ * stationary disjunct compares, and what the sharp form does not mention.  `pawf
+ * s` is needed because `gwc_lands` demands `pawf s'` while `gwc_cf` at `GWCPacf`
+ * carries no well-formedness at all.  Given the three, `s' == s` is the witness,
+ * `paext s s` is `lemma_paext_refl_wf`, and the successors' counters come from
+ * the landing's own `gwc_cf`.
+ *
+ * The converse is not stated here.  `gwc_lands` does not pin its traces to `[]`
+ * and does not fix its state at `s`, so it does not imply the sharp form, and
+ * 22.3 is the reason that matters rather than a technicality.
+ *)
+let gwc_lands_of_lands_still
+      (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+      (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+      (n1 n2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    gwc_lands_still lk apply q r s n1 n2 cf1 cf2)
+          (ensures gwc_lands lk apply q r s n1 n2 cf1 cf2)
+  = gwc_lands_still_unfold lk apply q r s n1 n2 cf1 cf2 ();
+    let o1 = fst (prun lk apply n1 cf1) in
+    let o2 = fst (prun lk apply n2 cf2) in
+    gwc_cf_unfold q r s o1 o2 ();
+    lemma_paext_refl_wf s;
+    introduce exists (s': pastate).
+        (paext s' s /\ pawf s' /\ (s' == s \/ s' == paalloc s) /\
+         paprov_step_at s' s cf1 cf2 o1 o2 /\ gwc_cf q r s' o1 o2)
+    with s and ()
+
+(** The `squash`-to-`squash` cast for the SET-OF-TAGS shape, for the same reason
+    `gwc_lands_unfold` records: a `GTot prop` applied to arguments is an ATOM in
+    hypothesis position, and the branches of sections 11 and 16 conclude
+    in this shape. *)
+let gwc_lands_set_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (qs: gwc_phase -> bool) (r: pcl_rel_t cl) (s: pastate)
+                         (n1 n2: nat) (cf1 cf2: pconf v cl)
+                         (h: squash (gwc_lands_set lk apply qs r s n1 n2 cf1 cf2))
+  : squash (exists (q: gwc_phase).
+              qs q /\ gwc_lands lk apply q r s n1 n2 cf1 cf2)
+  = h
+
+(**
+ * **A LANDING SHAPE THAT NAMES NEITHER THE PHASE NOR THE COUNTS.**  It forgets
+ * both.  It is weak deliberately: the arms of 22.5 land at three different
+ * phases, some definitely and some only within a two-element set, and this is
+ * the shape in which they were given one conclusion.
+ *
+ * `gwc_lands_set` is STRONGER and is not replaced by it -- that shape still
+ * names the SET the landing phase lies in and still fixes the counts, both of
+ * which this one drops.  `gwc_some_landing_of_set` below is the one-way
+ * implication, and no converse is stated.  Everything above stays stated where
+ * it was stated.
+ *)
+let gwc_some_landing (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                     (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl) : GTot prop
+  = exists (q: gwc_phase) (n1: nat) (n2: nat).
+      gwc_lands lk apply q r s n1 n2 cf1 cf2
+
+let gwc_some_landing_unfold (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                            (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+                            (h: squash (gwc_some_landing lk apply r s cf1 cf2))
+  : squash (exists (q: gwc_phase) (n1: nat) (n2: nat).
+              gwc_lands lk apply q r s n1 n2 cf1 cf2)
+  = h
+
+(** From a DEFINITE landing, by forgetting.  PROVED. *)
+let gwc_some_landing_intro (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                           (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                           (n1 n2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_lands lk apply q r s n1 n2 cf1 cf2)
+          (ensures gwc_some_landing lk apply r s cf1 cf2)
+  = introduce exists (q': gwc_phase) (m1: nat) (m2: nat).
+      gwc_lands lk apply q' r s m1 m2 cf1 cf2
+    with q n1 n2 and ()
+
+(** From a SET landing, by eliminating its witness and forgetting.  PROVED. *)
+let gwc_some_landing_of_set (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                            (qs: gwc_phase -> bool) (r: pcl_rel_t cl) (s: pastate)
+                            (n1 n2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires gwc_lands_set lk apply qs r s n1 n2 cf1 cf2)
+          (ensures gwc_some_landing lk apply r s cf1 cf2)
+  = gwc_lands_set_unfold lk apply qs r s n1 n2 cf1 cf2 ();
+    eliminate exists (q: gwc_phase).
+      qs q /\ gwc_lands lk apply q r s n1 n2 cf1 cf2
+    with gwc_some_landing_intro lk apply q r s n1 n2 cf1 cf2
+
+(** From a SHARP landing, through the bridge, and forgetting.  PROVED, carrying
+    the bridge's three premises unchanged. *)
+let gwc_some_landing_of_still (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                              (q: gwc_phase) (r: pcl_rel_t cl) (s: pastate)
+                              (n1 n2: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires pawf s /\ cf1.next == s.an1 /\ cf2.next == s.an2 /\
+                    gwc_lands_still lk apply q r s n1 n2 cf1 cf2)
+          (ensures gwc_some_landing lk apply r s cf1 cf2)
+  = gwc_lands_of_lands_still lk apply q r s n1 n2 cf1 cf2;
+    gwc_some_landing_intro lk apply q r s n1 n2 cf1 cf2
+
+(* ---- 22.5 which redexes have a branch, and the dispatch ---------- *)
+
+(**
+ * **THE REDEXES `gwc_dispatch_nonvar` COVERS.**  Read the name narrowly: this
+ * is the set of `pcomp` head constructors for which `gwc_dispatch_nonvar` below
+ * has an arm, and NOT the set of nodes that have a carrier-level lemma.  `PVar`
+ * has two -- `gwc_fit_exit_param` and `gwc_fit_var_deep` -- and is outside this
+ * set; `PPerform` has `gwc_fit_perform` and is outside it too.  Why each is left
+ * out of `gwc_dispatch_nonvar` is stated at that lemma, and 22.5b puts `PVar`
+ * back.
+ *)
+let gwc_covered_redex (#v #cl: Type) (c: pcomp v cl) : bool
+  = POp? c || PHandle? c || PSplice? c || PEmit? c || PWeave? c ||
+    PEnterCtx? c || PExtendC? c || PExtendCtxC? c || PResumeC? c ||
+    PNewP? c || PReadP? c || PWriteP? c
+
+(**
+ * **EXHAUSTIVENESS OVER THE FOURTEEN CONSTRUCTORS.**  PROVED, by case analysis
+ * and nothing else.  Twelve are covered and the remaining two are exactly `PVar`
+ * and `PPerform`.  Together with `gwc_redex_disjoint` this makes `~(PVar? c) /\
+ * ~(PPerform? c)` and `gwc_covered_redex c` EQUIVALENT, so `gwc_dispatch_nonvar`
+ * may be read with either as its hypothesis.
+ *)
+let gwc_redex_exhaustive (#v #cl: Type) (c: pcomp v cl)
+  : Lemma (PVar? c \/ PPerform? c \/ gwc_covered_redex c)
+  = ()
+
+(** The other half: nothing covered is `PVar` or `PPerform`.  PROVED. *)
+let gwc_redex_disjoint (#v #cl: Type) (c: pcomp v cl)
+  : Lemma (requires gwc_covered_redex c)
+          (ensures ~(PVar? c) /\ ~(PPerform? c))
+  = ()
+
+(**
+ * **THE DISPATCH: A NON-`PVar`, NON-`PPerform` DEPARTURE AT `GWCGwy` LANDS
+ * SOMEWHERE.**  PROVED, by a twelve-way case analysis in which every arm cites
+ * an existing branch: 22.1 to 22.3 for `POp`, `PHandle`, `PNewP`, `PSplice` and
+ * `PEmit`; `gwc_fit_weave`, `gwc_fit_enterctx`, `gwc_fit_extendc`,
+ * `gwc_fit_extendctxc`, `gwc_fit_resumec`, `gwc_fit_readp` and `gwc_fit_writep`
+ * for the rest.  None of those seven proofs is restated or changed.  The two
+ * sides' redexes are forced to agree on their head constructor by
+ * `lemma_pacrel_shape`, so the off-diagonal arms are vacuous.
+ *
+ * **HYPOTHESES, AND THE TWO THAT ARE ADDED.**  `pcl_mono r` and `pcl_down r` are
+ * both required.  Each is carried because a CITED branch demands it: `pcl_down`
+ * is `gwc_fit_weave`'s and `gwc_fit_enterctx`'s premise, `pcl_mono` is
+ * `gwc_fit_extendc`'s, `gwc_fit_extendctxc`'s and `gwc_fit_resumec`'s.  Both are
+ * passed straight through, and the five branches of 22.1 to 22.3 need neither.
+ * Whether either could be dropped from this statement is not investigated here.
+ *
+ * **`PVar` IS OUT OF THIS STATEMENT, AND 22.5b PUTS IT BACK.**  A `PVar` redex is
+ * consumed by the STACK HEAD, so the branch that fires depends on the head
+ * frame, and this twelve-way analysis is over the REDEX alone.  That is a fact
+ * about how the statement is written and NOT a gap: `gwc_fit_var_deep` covers
+ * `PVar` over an arbitrary `gwy_k` stack with no head analysis at all, at the
+ * price of an EXISTENTIAL count pair with a `1:0` horn, and `gwc_some_landing`
+ * has already forgotten the counts.  22.5b does exactly that and extends the
+ * conclusion to `PVar`.  So the exclusion here is a matter of shape; the honest
+ * exclusion is `PPerform`, next.
+ *
+ * **`PPerform` IS EXCLUDED, AND THE REASON IS A MISSING PREMISE AND TWO
+ * UNCITED HORNS.**  `gwc_fit_perform` covers the horn where `pfind_prompt`
+ * returns `Some` and the found clause is not `KScoped`, and it takes that
+ * `pfind_prompt` result, `gwe_apply_pres r apply` and relations on the captured
+ * and below segments as premises -- none of which the hypotheses here supply.
+ * The `pfind_prompt == None` horn steps to `PStuck` and the `KScoped` horn to
+ * `PRejected`; no lemma for either horn is cited in this section, and none is
+ * assumed.  So `PPerform` is outside this statement and outside 22.5b.
+ *
+ * **WHAT THE CONCLUSION SAYS, AND WHAT IT DOES NOT.**  It is existential in the
+ * landing PHASE and in BOTH counts.  It therefore names no phase -- the arms
+ * land at `GWCGwy`, at `GWCGwr` and at `GWCPacf`, and which one is not recorded
+ * -- and it names no count.  The counts are FUEL INDICES for `prun`; every arm
+ * here supplies `1 1`, but the statement does not say so and nothing in this
+ * section says a unit of fuel drives a transition.
+ *
+ * **THIS DOES NOT DISCHARGE THE SHAPE OBLIGATION OF 20.4 AND 21.4.**  Those need
+ * to know WHICH branch applies, because they must NAME the configuration landed
+ * on in order to hand it to the next departure; that is why they take a redex
+ * premise, and this statement supplies no redex and no configuration.  What it
+ * establishes is that the case analysis over the fragment it covers is
+ * EXHAUSTIVE.  That is a different and weaker fact, and it does not combine with
+ * 20.4 or 21.4 to remove their premises.
+ *)
+let gwc_dispatch_nonvar
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\
+                    gwc_cf GWCGwy r s cf1 cf2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    ~(PVar? c1) /\ ~(PPerform? c1))
+          (ensures gwc_some_landing lk apply r s cf1 cf2 /\
+                   (exists (q: gwc_phase) (n1: nat) (n2: nat).
+                      gwc_lands lk apply q r s n1 n2 cf1 cf2))
+  = gwc_cf_unfold GWCGwy r s cf1 cf2 ();
+    gwc_st_unfold GWCGwy r s cf1.st cf2.st ();
+    lemma_pacrel_shape r s c1 c2;
+    let sto1 = cf1.store in
+    let sto2 = cf2.store in
+    assert (cf1 == ({ st = PStep c1 k1; store = sto1; next = s.an1 } <: pconf v cl));
+    assert (cf2 == ({ st = PStep c2 k2; store = sto2; next = s.an2 } <: pconf v cl));
+    (match c1, c2 with
+     | POp a1 f1, POp a2 f2 ->
+       gwc_fit_op lk apply r s a1 a2 f1 f2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_still lk apply GWCGwy r s 1 1 cf1 cf2
+     | PHandle tb1 rc1 pw1 b1, PHandle tb2 rc2 pw2 b2 ->
+       gwc_fit_handle lk apply r s tb1 tb2 rc1 rc2 pw1 pw2 b1 b2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_still lk apply GWCGwy r s 1 1 cf1 cf2
+     | PNewP l1 i1 b1, PNewP l2 i2 b2 ->
+       gwc_fit_newp lk apply r s l1 l2 i1 i2 b1 b2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_still lk apply GWCGwy r s 1 1 cf1 cf2
+     | PSplice fs1 b1, PSplice fs2 b2 ->
+       gwc_fit_splice_gwy lk apply r s fs1 fs2 b1 b2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_still lk apply GWCGwy r s 1 1 cf1 cf2
+     | PEmit e1 b1, PEmit e2 b2 ->
+       gwc_fit_emit lk apply r s e1 e2 b1 b2 k1 k2 sto1 sto2;
+       gwc_some_landing_intro lk apply GWCGwy r s 1 1 cf1 cf2
+     | PWeave e1 o1 is1 ow1 b1, PWeave e2 o2 is2 ow2 b2 ->
+       gwc_fit_weave lk apply r s e1 o1 e2 o2 is1 is2 ow1 ow2 b1 b2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2
+     | PEnterCtx pl1 b1, PEnterCtx pl2 b2 ->
+       gwc_fit_enterctx lk apply r s pl1 pl2 b1 b2 k1 k2 sto1 sto2;
+       gwc_some_landing_intro lk apply GWCGwy r s 1 1 cf1 cf2
+     | PExtendC pl1 h1 g1, PExtendC pl2 h2 g2 ->
+       gwc_fit_extendc lk apply r s pl1 pl2 h1 h2 g1 g2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2
+     | PExtendCtxC pl1 h1 g1, PExtendCtxC pl2 h2 g2 ->
+       gwc_fit_extendctxc lk apply r s pl1 pl2 h1 h2 g1 g2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2
+     | PResumeC pl1 h1 g1, PResumeC pl2 h2 g2 ->
+       gwc_fit_resumec lk apply r s pl1 pl2 h1 h2 g1 g2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2
+     | PReadP l1, PReadP l2 ->
+       gwc_fit_readp lk apply r s l1 l2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2
+     | PWriteP l1 x1, PWriteP l2 x2 ->
+       gwc_fit_writep lk apply r s l1 l2 x1 x2 k1 k2 sto1 sto2;
+       gwc_some_landing_of_set lk apply gwc_qs_gwr_or_pacf r s 1 1 cf1 cf2
+     | _, _ -> ());
+    gwc_some_landing_unfold lk apply r s cf1 cf2 ()
+
+(* ---- 22.5b `PVar` back in, and what that leaves excluded ---------- *)
+
+(**
+ * **THE `PVar` ARM, ON ITS OWN.**  PROVED, by CITING `gwc_fit_var_deep` and
+ * eliminating the existential count pair it produces.  No case analysis on the
+ * stack head is performed here and none is needed: `gwc_fit_var_deep` is stated
+ * over an arbitrary `gwy_k`-related stack pair, and it is `gwy_dichotomy` INSIDE
+ * that lemma's proof -- not here -- that splits the head.
+ *
+ * What is paid for that is visible in `gwc_fit_var_deep`'s own conclusion and
+ * not in this one: the count pair is `1 1` or `1 0`, the `1:0` horn being the
+ * STUTTER in which the left consumes the surplus frame and the right is offered
+ * no fuel.  `gwc_some_landing` forgets both counts, so the two horns collapse
+ * into one conclusion here.  THAT COLLAPSE IS A LOSS OF INFORMATION, and 18 and
+ * 19.5 are where the divergence of the two indices is the point; nothing here
+ * weakens either.
+ *
+ * `pcl_mono r` and `pcl_down r` are `gwc_fit_var_deep`'s own premises, passed
+ * straight through.  They are the same two the dispatch already carries.
+ *)
+let gwc_dispatch_var
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x1 x2: pval v) (k1 k2: pstack v cl) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\
+                    gwc_cf GWCGwy r s cf1 cf2 /\
+                    cf1.st == PStep (PVar x1) k1 /\
+                    cf2.st == PStep (PVar x2) k2)
+          (ensures gwc_some_landing lk apply r s cf1 cf2)
+  = gwc_cf_unfold GWCGwy r s cf1 cf2 ();
+    let sto1 = cf1.store in
+    let sto2 = cf2.store in
+    assert (cf1 == ({ st = PStep (PVar x1) k1;
+                      store = sto1; next = s.an1 } <: pconf v cl));
+    assert (cf2 == ({ st = PStep (PVar x2) k2;
+                      store = sto2; next = s.an2 } <: pconf v cl));
+    gwc_fit_var_deep lk apply r s x1 x2 k1 k2 sto1 sto2;
+    eliminate exists (n1: nat) (n2: nat).
+      (n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\ (n2 == 1 ==> Cons? k2) /\
+       gwc_lands lk apply GWCGwr r s n1 n2 cf1 cf2)
+    with gwc_some_landing_intro lk apply GWCGwr r s n1 n2 cf1 cf2
+
+(**
+ * **THIRTEEN OF THE FOURTEEN.**  PROVED, by two citations: `gwc_dispatch_var`
+ * at a `PVar` redex and `gwc_dispatch_nonvar` at every other, with the
+ * off-diagonal pair ruled out by `lemma_pacrel_shape`.  The hypotheses are the
+ * dispatch's minus the `PVar` exclusion; `pcl_mono r` and `pcl_down r` remain,
+ * for the reasons given at each of the two cited lemmas.
+ *
+ * **THE ONE EXCLUSION LEFT IS `PPerform`, AND IT IS NOT A MATTER OF SHAPE.**
+ * The reason is stated in full at `gwc_dispatch_nonvar`: `gwc_fit_perform`
+ * covers one horn of three and takes premises this statement does not supply,
+ * and the other two horns are not cited anywhere in this section.  Widening this
+ * lemma to `PPerform` would require those horns; they are not assumed and the
+ * lemma is not widened.
+ *
+ * **AND EVERY DISCLAIMER AT `gwc_dispatch_nonvar` APPLIES HERE UNCHANGED.**  The
+ * conclusion is existential in the landing phase and in both counts, so it names
+ * neither; the counts are FUEL INDICES; and it does NOT discharge the SHAPE
+ * obligation of 20.4 and 21.4, which need the landed configuration NAMED.  What
+ * this adds over `gwc_dispatch_nonvar` is one more constructor in the case
+ * analysis and nothing else.
+ *)
+let gwc_dispatch_step
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\
+                    gwc_cf GWCGwy r s cf1 cf2 /\
+                    cf1.st == PStep c1 k1 /\ cf2.st == PStep c2 k2 /\
+                    ~(PPerform? c1))
+          (ensures gwc_some_landing lk apply r s cf1 cf2 /\
+                   (exists (q: gwc_phase) (n1: nat) (n2: nat).
+                      gwc_lands lk apply q r s n1 n2 cf1 cf2))
+  = gwc_cf_unfold GWCGwy r s cf1 cf2 ();
+    gwc_st_unfold GWCGwy r s cf1.st cf2.st ();
+    lemma_pacrel_shape r s c1 c2;
+    (match c1 with
+     | PVar x1 ->
+       (match c2 with
+        | PVar x2 -> gwc_dispatch_var lk apply r s x1 x2 k1 k2 cf1 cf2
+        | _ -> ())
+     | _ -> gwc_dispatch_nonvar lk apply r s c1 c2 k1 k2 cf1 cf2);
+    gwc_some_landing_unfold lk apply r s cf1 cf2 ()
+
+(* ---- 22.6 closed instances: both statements fire ----------------- *)
+
+(**
+ * The `POp` fixture, built from pieces already in the file and no new ones: the
+ * tails `gwp_g_t1` and `gwp_g_t2`, whose difference is the one surplus
+ * `PBindF` frame, under the node function `gwy_g` and the value
+ * `gwp_g_u`.
+ *)
+let gwc_op_c : pcomp fv fcl = POp (PVar gwp_g_u) gwy_g
+
+let gwc_op_cf1 : pconf fv fcl =
+  { st = PStep gwc_op_c gwp_g_t1; store = ([] <: pstore fv fcl); next = 0 }
+let gwc_op_cf2 : pconf fv fcl =
+  { st = PStep gwc_op_c gwp_g_t2; store = ([] <: pstore fv fcl); next = 0 }
+
+(**
+ * **THE FIXTURE IS A `GWCGwy` DEPARTURE AND IS NOT AN ORDINARY ONE.**  PROVED,
+ * both conjuncts, with no hypothesis.  `gwp_g_t_deep` supplies both halves of
+ * what is needed: the two tails are `gwy_k` -- surplus at depth -- and they are
+ * NOT `pakrel`.  The second half is what makes the first conjunct worth stating:
+ * the pair sits at `GWCGwy` and at no ordinary phase, so 22.1 is being applied
+ * where the surplus genuinely is.  `lemma_pacrel_op` builds the redex relation
+ * from `lemma_pacrel_var` and `gwy_g_fn_rel`.
+ *)
+let gwc_op_departs ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_op_cf1 gwc_op_cf2 /\
+           ~(gwc_cf GWCPacf fcl_rel pabot gwc_op_cf1 gwc_op_cf2))
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwp_g_t_deep ();
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwp_g_u gwp_g_u;
+    gwy_g_fn_rel pabot;
+    lemma_pacrel_op #fv #fcl fcl_rel pabot
+      (PVar gwp_g_u) (PVar gwp_g_u) gwy_g gwy_g;
+    gwc_cf_is_gwy_cf fcl_rel pabot gwc_op_cf1 gwc_op_cf2;
+    introduce gwc_cf GWCPacf fcl_rel pabot gwc_op_cf1 gwc_op_cf2 ==> False
+    with (gwc_cf_unfold GWCPacf fcl_rel pabot gwc_op_cf1 gwc_op_cf2 ();
+          gwc_st_unfold GWCPacf fcl_rel pabot gwc_op_cf1.st gwc_op_cf2.st ();
+          gwc_kd_at_pacf fcl_rel pabot gwp_g_t1 gwp_g_t2)
+
+(**
+ * **THE DISPATCH IS NOT VACUOUS.**  PROVED, at closed terms, with no hypothesis.
+ * The premises of `gwc_dispatch_nonvar` are all discharged here -- `pcl_mono`
+ * and `pcl_down` by `lemma_fcl_rel_mono` and `lemma_fcl_rel_down`, the departure
+ * by `gwc_op_departs`, the two exclusions by computation -- and a landing comes
+ * out.
+ *
+ * **WHAT THIS GUARD DOES AND DOES NOT SHOW.**  It shows that the dispatch's
+ * hypothesis set is INHABITED, so the theorem is not true merely for want of a
+ * pair satisfying it.  It shows this at ONE fixture, with ONE covered redex out
+ * of the twelve.  It does not show that the other eleven arms are reachable, and
+ * no such statement is made here.
+ *)
+let guard_gwc_dispatch_fires ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_op_cf1 gwc_op_cf2 /\
+           ~(gwc_cf GWCPacf fcl_rel pabot gwc_op_cf1 gwc_op_cf2) /\
+           ~(PVar? gwc_op_c) /\ ~(PPerform? gwc_op_c) /\
+           gwc_covered_redex gwc_op_c /\
+           gwc_some_landing flook xapply fcl_rel pabot gwc_op_cf1 gwc_op_cf2)
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    gwc_op_departs ();
+    gwc_dispatch_nonvar flook xapply fcl_rel pabot gwc_op_c gwc_op_c
+                        gwp_g_t1 gwp_g_t2 gwc_op_cf1 gwc_op_cf2
+
+(** The `PEmit` fixture: the same two tails, with the emitting body
+    `gwy_g gwp_g_u` -- that is, `PEmit "e" (PVar gwp_g_u)` -- as the redex on
+    both sides. *)
+let gwc_em_cf1 : pconf fv fcl =
+  { st = PStep (PEmit "e" (PVar gwp_g_u)) gwp_g_t1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_em_cf2 : pconf fv fcl =
+  { st = PStep (PEmit "e" (PVar gwp_g_u)) gwp_g_t2;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_em_out1 : pconf fv fcl =
+  { st = PStep (PVar gwp_g_u) gwp_g_t1;
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_em_out2 : pconf fv fcl =
+  { st = PStep (PVar gwp_g_u) gwp_g_t2;
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(** **THE `PEmit` FIXTURE IS A `GWCGwy` DEPARTURE.**  PROVED, with no
+    hypothesis.  The redex relation is `gwy_g_fn_rel` instantiated at
+    `gwp_g_u` through `lemma_pafn_apply`, which is available because
+    `gwy_g y == PEmit "e" (PVar y)` by definition; no `pacrel` introduction
+    lemma for `PEmit` is needed and none is added. *)
+let gwc_em_departs ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_em_cf1 gwc_em_cf2)
+  = lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    cor_padxg_pabot_sto_self ();
+    gwp_g_t_deep ();
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    gwy_g_fn_rel pabot;
+    lemma_pafn_apply #fv #fcl fcl_rel pabot pabot gwy_g gwy_g gwp_g_u gwp_g_u;
+    assert (pacrel #fv #fcl fcl_rel pabot
+              (PEmit "e" (PVar gwp_g_u)) (PEmit "e" (PVar gwp_g_u)));
+    gwc_cf_is_gwy_cf fcl_rel pabot gwc_em_cf1 gwc_em_cf2
+
+(**
+ * **BOTH SIDES OF 22.3 FIRE AT ONE PAIR.**  PROVED, at closed terms, with no
+ * hypothesis.  The same departure yields a `gwc_lands` landing at `GWCGwy` with
+ * both traces `["e"]`, and NO `gwc_lands_still` landing at left count one, for
+ * any phase, any right count and any right configuration.
+ *
+ * That is the content of 22.3 made concrete: the two statements are about the
+ * same transition, they are not in tension, and the fixture rules out the
+ * reading on which the refutation holds only because no pair reaches the shape.
+ * The trace `["e"]` is exhibited rather than asserted abstractly, so the
+ * `Cons?` the refutation turns on is visible.
+ *)
+let guard_gwc_emit_splits ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_em_cf1 gwc_em_cf2 /\
+           prun flook xapply 1 gwc_em_cf1 == (gwc_em_out1, ["e"]) /\
+           prun flook xapply 1 gwc_em_cf2 == (gwc_em_out2, ["e"]) /\
+           gwc_lands flook xapply GWCGwy fcl_rel pabot 1 1
+                     gwc_em_cf1 gwc_em_cf2 /\
+           (forall (q: gwc_phase) (n2: nat) (b: pconf fv fcl).
+              ~(gwc_lands_still flook xapply q fcl_rel pabot 1 n2 gwc_em_cf1 b)))
+  = gwc_em_departs ();
+    gwc_fit_emit flook xapply fcl_rel pabot "e" "e"
+                 (PVar gwp_g_u) (PVar gwp_g_u) gwp_g_t1 gwp_g_t2
+                 ([] <: pstore fv fcl) ([] <: pstore fv fcl);
+    gwc_emit_is_not_still flook xapply fcl_rel pabot "e" (PVar gwp_g_u)
+                          gwp_g_t1 ([] <: pstore fv fcl)
+
+(*
+ * LEDGER FOR SECTION 22.  (Appended; sections 1 to 21 are UNTOUCHED.)
+ *
+ * WHAT THIS SECTION SETTLES.
+ *
+ *  1. Five carrier branches are stated and proved at a `GWCGwy` departure:
+ *     `POp`, `PHandle`, `PNewP` and `PSplice` in the SHARP form
+ *     `gwc_lands_still`, and `PEmit` in `gwc_lands`.  Each of the five needs the
+ *     departure and NOTHING ELSE -- no `pcl_mono`, no `pcl_down`, no premise
+ *     about the interpreter.  Each reports the two `prun` equations at fuel
+ *     index one that name the pair it landed on.
+ *
+ *  2. `PEmit` is proved to be OUTSIDE the sharp form, generically and at left
+ *     count one: its trace there is `[ev]`, which `gwc_lands_still` pins to
+ *     `[]`.  The refutation is universal in the landing phase, the right count
+ *     and the right configuration.  So the five branches are uniform at
+ *     `gwc_lands` and are not uniform at `gwc_lands_still`, and `PEmit` is
+ *     exactly the difference.
+ *
+ *  3. The CONDITIONAL bridge 20.2 described and declined to state is stated:
+ *     sharp implies `gwc_lands` given `pawf s` and the two departure counter
+ *     equations.  All three premises are used in the proof.
+ *
+ *  4. The dispatch, in two statements.  `gwc_dispatch_nonvar`: a `GWCGwy`
+ *     departure whose left redex is neither `PVar` nor `PPerform` has SOME
+ *     landing, given `pcl_mono r` and `pcl_down r`, by twelve arms each citing
+ *     an existing branch.  `gwc_dispatch_step`: the same with `PVar` folded back
+ *     in through `gwc_fit_var_deep`, so the only excluded constructor is
+ *     `PPerform`.  The exhaustiveness of the twelve over `pcomp`'s fourteen
+ *     constructors is itself proved, in both directions.
+ *
+ *  5. Two closed fixtures show that neither the dispatch's hypothesis set nor
+ *     22.3's pair of statements is vacuous, and the `POp` fixture is shown to be
+ *     at `GWCGwy` and at NO ordinary phase.
+ *
+ * WHAT THIS SECTION DOES NOT SETTLE.
+ *
+ *  1. The SHAPE obligation of 20.4 and 21.4 is untouched.  Both dispatch
+ *     statements are existential in the phase and in both counts, so neither
+ *     names the landing phase or the landed configuration, and a chain needs the
+ *     latter.  Exhaustiveness of a case analysis is not selection of a case, and
+ *     nothing here combines with 20.4 or 21.4 to drop their redex premises.
+ *
+ *  2. `PPerform` is outside BOTH dispatch statements.  `gwc_fit_perform` covers
+ *     the found, non-`KScoped` horn and takes premises the dispatch does not
+ *     supply; no lemma for the `pfind_prompt == None` horn or the `KScoped` horn
+ *     is cited in this section, and none is assumed.  `PVar` is outside
+ *     `gwc_dispatch_nonvar` only, and 22.5b puts it back; that exclusion is a
+ *     matter of how the twelve-way analysis is written and is not a gap.
+ *
+ *  3. The counts are FUEL INDICES for `prun` throughout: `1 1` in 22.1 to 22.3,
+ *     `1 1` or `1 0` inside `gwc_fit_var_deep`'s horn at 22.5b, and existential
+ *     naturals in both dispatch conclusions.  No statement in this section says
+ *     that a unit of fuel drives a transition; 20.5 establishes that at its own
+ *     fixture.
+ *
+ *  4. The machine facts underlying 22.1 and 22.2 are not new -- `gwy_exit_lockstep`
+ *     already has them for these five nodes.  That lemma is unchanged, is not
+ *     cited above, and nothing here replaces it; what is added is the carrier
+ *     packaging and the `prun` equations.
+ *
+ *  5. Nothing here quantifies over run length, over chains, or over the branches
+ *     of sections 6 to 16 as a family.  `gwc_lands`, `gwc_lands_set`,
+ *     `gwc_lands_still`, `gwb_run_at`, the `gwc_fit_*` family and every lemma
+ *     above are untouched, and none of their proofs is restated.
+ *
+ *  6. Non-vacuity is shown at ONE fixture for the dispatch and ONE for 22.3.
+ *     No claim is made that the other arms of either dispatch statement are
+ *     reachable, and none is made about which programs produce these departures.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)
