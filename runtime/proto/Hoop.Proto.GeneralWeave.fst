@@ -57748,3 +57748,706 @@ let guard_gwc_emit_splits ()
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ---- 23. THE RE-DEPARTABLE FRAGMENT, AND THE FIRST STATEMENT
+       QUANTIFIED OVER A COMMON FUEL INDEX -------------------------- *)
+
+(*
+ * Section 22's ledger records, as its fifth item, that nothing above it
+ * quantifies over run length.  Stated in the vocabulary this file has settled
+ * on, what is absent is a statement quantified over a common FUEL INDEX: every
+ * statement in sections 6 to 22 is at a FIXED
+ * pair of fuel indices -- `1 1` at a branch, `2 2` at 20.4's two-leg chain, `3 3`
+ * and `4 4` at 21.4's, and existential naturals in the two dispatch statements.
+ * This section states and proves one that is quantified over an arbitrary `n`.
+ *
+ * WHAT MAKES AN INDUCTION POSSIBLE HERE, AND ONLY HERE.  Seven branches proved
+ * above conclude `gwc_lands_still lk apply GWCGwy r s 1 1 cf1 cf2`: `gwc_fit_op`,
+ * `gwc_fit_handle`, `gwc_fit_newp` and `gwc_fit_splice_gwy` at 22.1 and 22.2, and
+ * `gwc_still_exit_param`, `gwc_still_exit_mode` and `gwc_still_exit_prompt` at
+ * 20.3.  Each of the seven DEPARTS at `GWCGwy` and LANDS at `GWCGwy`, at the SAME
+ * allocation state `s`, with both traces `[]`.  Same tag in and out, same state
+ * in and out.  That is exactly the hypothesis shape `gwc_lands_still_compose`
+ * needs on both legs, so any two of the seven compose, and so does any `n` of
+ * them.
+ *
+ * WHAT IS DELIBERATELY OUTSIDE.  `gwc_still_exit_scope` at 21.2 lands at
+ * `paalloc s` and not at `s`, so the state MOVES and a fixed-state induction does
+ * not close over it; `gwc_lands` and `gwc_reaches_compose` remain the forms for
+ * that, and section 21 is unchanged and unreplaced by anything here.  `PEmit` is
+ * outside because 22.3 REFUTES the standing-still form for it.  The rest of the
+ * exclusions are named at `gwc_redepartable` and proved at
+ * `gwc_redepartable_excludes_heads` and `gwc_redepartable_excludes_redexes`.
+ *
+ * WHAT THE ITERATION THEOREM DOES AND DOES NOT DO.  It does NOT discharge the
+ * SHAPE obligation that 20.4, 21.4 and 22.5 all leave standing.  It ITERATES it:
+ * its premise asserts the fragment predicate at EVERY index below `n`, and no
+ * statement in this section proves that premise for any program.  What it shows
+ * is that the shape obligation is the ONLY thing standing between one step and
+ * `n` steps for this fragment -- the lattice obstruction 20.1 named is gone, the
+ * allocation obstruction section 21 named does not arise, and the composition is
+ * ordinary.  That is the honest content of the section.
+ *
+ * The counts remain FUEL INDICES for `prun`.  `n n` does not by itself say that
+ * either side performed `n` transitions.  What the premise DOES give, by
+ * `gwc_redepartable_is_step`, is that each of the first `n` left configurations
+ * is a `PStep`, so `prun` applies `pstep_tr` at each of those indices rather than
+ * returning immediately; whether the configuration MOVES at each is the separate
+ * question 20.5 settles at its fixture and 23.6 settles at this section's.
+ *)
+
+(* ---- 23.1 shape transfer across the deep stack relation ---------- *)
+
+(**
+ * **A `pafrel` PAIR AGREES ON ITS CONSTRUCTOR.**  PROVED, at index one and
+ * nothing else: `paframe_rel r 1 s f1 f2` is `pframe`'s seven-by-seven match with
+ * `_, _ -> False` off the diagonal, so the single instantiation settles it.  The
+ * five `lemma_pafrel_*_inv` lemmas each assume the diagonal case and extract its
+ * payload; this one PRODUCES the diagonal, which is what a case analysis driven
+ * from one side needs and what none of them supplies.
+ *)
+let gwc_pafrel_same_head (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (f1 f2: pframe v cl)
+  : Lemma (requires pafrel r s f1 f2)
+          (ensures (match f1, f2 with
+                    | PBindF _, PBindF _ -> True
+                    | PParamF _ _, PParamF _ _ -> True
+                    | PPromptF _ _ _, PPromptF _ _ _ -> True
+                    | PBoundaryF, PBoundaryF -> True
+                    | PSiteF _, PSiteF _ -> True
+                    | PModeF _ _, PModeF _ _ -> True
+                    | PScopeF, PScopeF -> True
+                    | _, _ -> False))
+  = assert (paframe_rel r 1 s f1 f2)
+
+(**
+ * **A NON-`PBindF` LEFT HEAD FORCES THE RIGHT HEAD, AND THE SAME CONSTRUCTOR.**
+ * PROVED.  From `gwy_k r s (f1 :: t1) k2` with `f1` not a `PBindF`, the right
+ * stack is non-empty, its head is `pafrel` to `f1`, the two tails are again
+ * `gwy_k`, and the two heads carry the SAME constructor.
+ *
+ * **WHY THE `PBindF` EXCLUSION IS THE WHOLE CONTENT.**  `gwy_k`'s definition has
+ * a disjunction at a `PBindF` head and a single clause at every other head.  The
+ * disjunct that makes the relation what it is -- the surplus frame `PBindF PVar`
+ * DELETED, with `pakrel r s t1 k2` beneath it -- is reachable only at a `PBindF`
+ * head, and it relates the left's TAIL to the whole of the right's stack, so
+ * under it the right head is not determined by the left head at all.  Excluding
+ * `PBindF` on the left removes that disjunct and leaves the frame-for-frame
+ * clause, which does determine it.  `gwy_dichotomy` names the same split at an
+ * arbitrary head and does not take the exclusion; this statement takes the
+ * exclusion and gets the right head in return.
+ *
+ * **THIS IS WHAT THE THREE VALUE EXITS NEED.**  `gwc_still_exit_param`,
+ * `gwc_still_exit_mode` and `gwc_still_exit_prompt` each take BOTH sides' head
+ * frames as arguments.  A case analysis driven from the LEFT configuration alone
+ * -- which is what an iteration over left-hand shapes is -- has only `k1`, and
+ * this lemma is what turns `k1`'s head into `k2`'s.
+ *)
+let gwc_gwy_head_transfer (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (f1: pframe v cl) (t1 k2: pstack v cl)
+  : Lemma (requires gwy_k r s (f1 :: t1) k2 /\ ~(PBindF? f1))
+          (ensures Cons? k2 /\
+                   pafrel r s f1 (Cons?.hd k2) /\
+                   gwy_k r s t1 (Cons?.tl k2) /\
+                   (match f1, Cons?.hd k2 with
+                    | PBindF _, PBindF _ -> True
+                    | PParamF _ _, PParamF _ _ -> True
+                    | PPromptF _ _ _, PPromptF _ _ _ -> True
+                    | PBoundaryF, PBoundaryF -> True
+                    | PSiteF _, PSiteF _ -> True
+                    | PModeF _ _, PModeF _ _ -> True
+                    | PScopeF, PScopeF -> True
+                    | _, _ -> False))
+  = gwy_k_unfold r s (f1 :: t1) k2 ();
+    match k2 with
+    | f2 :: _ -> gwc_pafrel_same_head r s f1 f2
+    | [] -> ()
+
+(* ---- 23.2 the re-departable fragment, as a predicate ------------- *)
+
+(**
+ * **THE SEVEN SHAPES, NAMED.**  A DECIDABLE predicate on a redex and a stack.
+ * It holds exactly at the shapes of the seven branches listed at the head of this
+ * section: the redex is `POp`, `PHandle`, `PNewP` or `PSplice`, or the redex is
+ * `PVar` and the stack head is `PParamF`, `PModeF` or `PPromptF`.
+ *
+ * **WHAT IT LEAVES OUT, AND WHY EACH IS OUT.**  Every exclusion below is a
+ * statement about what has been proved elsewhere in this file, and the
+ * computational half of each -- that the predicate is FALSE at the shape -- is
+ * proved at `gwc_redepartable_excludes_heads` and
+ * `gwc_redepartable_excludes_redexes`.
+ *
+ *   `PVar` over `PBindF` -- THE DEEP STUTTER.  `gwc_fit_var_deep` is the branch,
+ *   and its landing is `GWCGwr`, at count pair `1 1` or `1 0`.  By 20.1 a
+ *   `GWCGwr` landing is NOT a `GWCGwy` departure, so it cannot be fed back and
+ *   the induction cannot pass through it.  This is the one exclusion that is
+ *   forced by a refutation rather than by a missing lemma.
+ *
+ *   `PVar` over `PScopeF` -- IT ALLOCATES.  `gwc_still_exit_scope` at 21.2 lands
+ *   at `paalloc s`, not at `s`, so `gwc_lands_still_compose` -- which fixes one
+ *   state throughout -- does not apply to it.  Section 21 handles that case in
+ *   the `gwc_lands` form and is untouched here.
+ *
+ *   `PVar` over `PBoundaryF` and over `PSiteF` -- THEY CAN YIELD.  These exits
+ *   can produce a `PPaused` state, which `gwc_st` at `GWCGwy` sends to `False`
+ *   because `gwc_reach_of GWCGwy` is `GWCRStep`.  A landing at `GWCGwy` is
+ *   therefore not available for them in general, and none is claimed.
+ *
+ *   `PVar` over the EMPTY stack -- IT TERMINATES.  The successor is `PDone`,
+ *   which `gwc_st` at `GWCGwy` also sends to `False`, for the same reason.
+ *
+ *   `PEmit` -- IT IS NOT SHARP.  22.3 PROVES that no `gwc_lands_still` landing at
+ *   left count one exists for it, at any phase and any right count, because its
+ *   trace at fuel index one is `[ev]` and `gwc_lands_still` pins both traces to
+ *   `[]`.  This exclusion, like the deep stutter's, rests on a refutation.
+ *
+ *   `PPerform` -- section 22's ledger item 2.  `gwc_fit_perform` covers the horn
+ *   where `pfind_prompt` returns `Some` and the clause is not `KScoped`, and
+ *   takes premises no statement in this section supplies; the `None` horn steps
+ *   to `PStuck` and the `KScoped` horn to `PRejected`, and no lemma for either is
+ *   cited here or assumed.
+ *
+ *   `PWeave`, `PEnterCtx`, `PExtendC`, `PExtendCtxC`, `PResumeC`, `PReadP` and
+ *   `PWriteP` -- THEIR HALTING HORNS.  Each has a branch above --
+ *   `gwc_fit_weave` and the six beside it -- but each of those branches lands in
+ *   `gwc_lands_set` at `gwc_qs_gwr_or_pacf`, which admits `GWCPacf`, the phase
+ *   the halting horns land at.  A landing that may be at `GWCPacf` is not a
+ *   `GWCGwy` departure, so those seven are outside the fragment.  That is a
+ *   statement about the FORM their branches were stated in; no refutation of a
+ *   sharp landing for them is proved here, and none is claimed.
+ *)
+let gwc_redepartable_ck (#v #cl: Type) (c: pcomp v cl) (k: pstack v cl) : bool
+  = match c with
+    | POp _ _ -> true
+    | PHandle _ _ _ _ -> true
+    | PNewP _ _ _ -> true
+    | PSplice _ _ -> true
+    | PVar _ ->
+      (match k with
+       | PParamF _ _ :: _ -> true
+       | PModeF _ _ :: _ -> true
+       | PPromptF _ _ _ :: _ -> true
+       | _ -> false)
+    | _ -> false
+
+(** The same predicate on a CONFIGURATION, which is what the iteration quantifies
+    over.  A configuration that is not a `PStep` is outside the fragment
+    outright. *)
+let gwc_redepartable (#v #cl: Type) (cf: pconf v cl) : bool
+  = match cf.st with
+    | PStep c k -> gwc_redepartable_ck c k
+    | _ -> false
+
+(** **THE FRAGMENT IS INSIDE `PStep`.**  PROVED, by computation.  This is what
+    says `prun` does not idle at an index where the predicate holds: at a `PStep`
+    the definition of `prun` applies `pstep_tr` and recurses, and at the four
+    halting states it returns immediately.  It does NOT say the configuration
+    moves. *)
+let gwc_redepartable_is_step (#v #cl: Type) (cf: pconf v cl)
+  : Lemma (requires gwc_redepartable cf) (ensures PStep? cf.st)
+  = ()
+
+(** **THE FOUR EXCLUDED STACK HEADS UNDER A `PVar` REDEX.**  PROVED, by
+    computation.  `PBindF` is the deep stutter, `PScopeF` allocates, `PBoundaryF`
+    and `PSiteF` can yield, and the empty stack terminates; the reasons are given
+    at `gwc_redepartable` and only the falsity of the predicate is proved here. *)
+let gwc_redepartable_excludes_heads (#v #cl: Type) (x: pval v)
+                                    (g: pval v -> pcomp v cl) (t: pstack v cl)
+  : Lemma (~(gwc_redepartable_ck (PVar x) (PBindF g :: t)) /\
+           ~(gwc_redepartable_ck (PVar x) (PScopeF :: t)) /\
+           ~(gwc_redepartable_ck (PVar x) (PBoundaryF :: t)) /\
+           ~(gwc_redepartable_ck (PVar x) (PSiteF g :: t)) /\
+           ~(gwc_redepartable_ck #v #cl (PVar x) []))
+  = ()
+
+(** **THE NINE EXCLUDED REDEXES, AT AN ARBITRARY STACK.**  PROVED, by
+    computation.  With `PVar` these nine exhaust `pcomp`'s remaining
+    constructors, so together with `gwc_redepartable_excludes_heads` the
+    predicate's support is exactly the seven shapes named above. *)
+let gwc_redepartable_excludes_redexes
+      (#v #cl: Type) (k: pstack v cl)
+      (ev: string) (b: pcomp v cl)
+      (e o: string) (ps: list (pval v))
+      (ints: list (pframe v cl)) (ow: powner v cl)
+      (pl: plan v cl) (h: pval v) (g: pval v -> pcomp v cl)
+      (l: string) (y: pval v)
+  : Lemma (~(gwc_redepartable_ck (PEmit ev b) k) /\
+           ~(gwc_redepartable_ck (PPerform e o ps) k) /\
+           ~(gwc_redepartable_ck (PWeave e o ints ow b) k) /\
+           ~(gwc_redepartable_ck (PEnterCtx pl b) k) /\
+           ~(gwc_redepartable_ck (PExtendC pl h g) k) /\
+           ~(gwc_redepartable_ck (PExtendCtxC pl h g) k) /\
+           ~(gwc_redepartable_ck (PResumeC pl h g) k) /\
+           ~(gwc_redepartable_ck #v #cl (PReadP l) k) /\
+           ~(gwc_redepartable_ck (PWriteP l y) k))
+  = ()
+
+(* ---- 23.3 one-step closure: a DEFINITE landing ------------------- *)
+
+(**
+ * **INSIDE THE FRAGMENT, ONE STEP LANDS AT `GWCGwy`, AT `s`, AT `1 1`.**  PROVED,
+ * by a seven-arm case analysis in which every arm cites one of the seven branches
+ * named at the head of this section.  None of those seven proofs is restated and
+ * none is changed.
+ *
+ * **THE CONCLUSION IS DEFINITE, AND THAT IS THE POINT.**  `gwc_dispatch_step` at
+ * 22.5b concludes `exists q n1 n2. gwc_lands lk apply q r s n1 n2 cf1 cf2`, which
+ * names NO phase and NO count; its own doc comment records that this is why it
+ * does not discharge the shape obligation of 20.4 and 21.4.  This statement names
+ * the phase -- `GWCGwy`, the very tag the pair departed from -- names the state --
+ * `s`, the very state it departed at -- and names both counts.  That is precisely
+ * what an induction needs: the conclusion has to be re-usable as the NEXT step's
+ * hypothesis, and an existential one is not.  The price is the fragment: this
+ * statement covers seven shapes and `gwc_dispatch_step` covers thirteen
+ * constructors.
+ *
+ * **THE CASE ANALYSIS IS DRIVEN FROM THE LEFT ALONE.**  The premise names only
+ * `cf1`.  The right redex's constructor comes from `lemma_pacrel_shape`, which
+ * makes the off-diagonal redex arms vacuous, and the right stack HEAD comes from
+ * `gwc_gwy_head_transfer` of 23.1, which makes the off-diagonal head arms vacuous
+ * in the three `PVar` arms.  Without 23.1 the three value exits could not be
+ * applied at all here, because each takes both sides' head frames.
+ *
+ * **HYPOTHESES.**  `pcl_down r`, and the departure.  `pcl_down` is required by
+ * `gwc_still_exit_prompt` and by nothing else cited here; the other six branches
+ * need only the departure.  `pcl_mono r` is NOT required.
+ *
+ * `1 1` are FUEL INDICES for `prun`, as everywhere above.
+ *)
+let gwc_still_step
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_down r /\ gwc_cf GWCGwy r s cf1 cf2 /\
+                    gwc_redepartable cf1)
+          (ensures gwc_lands_still lk apply GWCGwy r s 1 1 cf1 cf2)
+  = gwc_cf_unfold GWCGwy r s cf1 cf2 ();
+    gwc_st_unfold GWCGwy r s cf1.st cf2.st ();
+    let sto1 = cf1.store in
+    let sto2 = cf2.store in
+    match cf1.st, cf2.st with
+    | PStep c1 k1, PStep c2 k2 ->
+      lemma_pacrel_shape r s c1 c2;
+      assert (cf1 == ({ st = PStep c1 k1; store = sto1; next = s.an1 } <: pconf v cl));
+      assert (cf2 == ({ st = PStep c2 k2; store = sto2; next = s.an2 } <: pconf v cl));
+      (match c1, c2 with
+       | POp a1 f1, POp a2 f2 ->
+         gwc_fit_op lk apply r s a1 a2 f1 f2 k1 k2 sto1 sto2
+       | PHandle tb1 rc1 pw1 b1, PHandle tb2 rc2 pw2 b2 ->
+         gwc_fit_handle lk apply r s tb1 tb2 rc1 rc2 pw1 pw2 b1 b2 k1 k2 sto1 sto2
+       | PNewP l1 i1 b1, PNewP l2 i2 b2 ->
+         gwc_fit_newp lk apply r s l1 l2 i1 i2 b1 b2 k1 k2 sto1 sto2
+       | PSplice fs1 b1, PSplice fs2 b2 ->
+         gwc_fit_splice_gwy lk apply r s fs1 fs2 b1 b2 k1 k2 sto1 sto2
+       | PVar x1, PVar x2 ->
+         (match k1 with
+          | PParamF l1 y1 :: t1 ->
+            gwc_gwy_head_transfer r s (PParamF l1 y1) t1 k2;
+            (match k2 with
+             | PParamF l2 y2 :: t2 ->
+               gwc_still_exit_param lk apply r s x1 x2 l1 l2 y1 y2 t1 t2 sto1 sto2
+             | _ -> ())
+          | PModeF m1 g1 :: t1 ->
+            gwc_gwy_head_transfer r s (PModeF m1 g1) t1 k2;
+            (match k2 with
+             | PModeF m2 g2 :: t2 ->
+               gwc_still_exit_mode lk apply r s x1 x2 m1 m2 g1 g2 t1 t2 sto1 sto2
+             | _ -> ())
+          | PPromptF tb1 rc1 pv1 :: t1 ->
+            gwc_gwy_head_transfer r s (PPromptF tb1 rc1 pv1) t1 k2;
+            (match k2 with
+             | PPromptF tb2 rc2 pv2 :: t2 ->
+               gwc_still_exit_prompt lk apply r s x1 x2 tb1 tb2 rc1 rc2 pv1 pv2
+                                     t1 t2 sto1 sto2
+             | _ -> ())
+          | _ -> ())
+       | _, _ -> ())
+    | _, _ -> ()
+
+(* ---- 23.4 THE ITERATION THEOREM ---------------------------------- *)
+
+(**
+ * **`n` STEPS INSIDE THE FRAGMENT LAND AT `GWCGwy`, AT `s`, AT `n n`.**  PROVED,
+ * by induction on `n`, and this is the first statement in this file quantified
+ * over a COMMON FUEL INDEX.  It is NOT a statement about run length in the sense
+ * of transitions taken: `n` indexes `prun`'s fuel on both sides, and whether
+ * either side moves at each unit is the separate fact recorded below.
+ *
+ * BASE.  `prun lk apply 0 cf` is `(cf, [])` by the first line of `prun`'s
+ * definition, so at `n == 0` the landing IS the departure and the two trace
+ * conjuncts are `[] == []`.
+ *
+ * STEP.  The induction hypothesis at `n - 1` gives a landing at `n-1 n-1`, whose
+ * third conjunct is `gwc_cf GWCGwy r s` at the pair `prun` reached on each side.
+ * That is a `GWCGwy` DEPARTURE at the same `s`, obtained and not assumed -- the
+ * move 20.1 shows to be impossible when a landing is stated at `GWCGwr`.  The
+ * premise instantiated at `i == n - 1` gives the fragment predicate of the LEFT
+ * member of that pair.  23.3 turns the two into one more standing-still landing
+ * at `1 1`, and `gwc_lands_still_compose` adds the counts side by side.
+ *
+ * **THE PREMISE IS ABOUT THE LEFT SIDE ONLY.**  Nothing is assumed about the
+ * right side's shape at any index.  It is derived at each step, inside 23.3, from
+ * the left's shape and the relation: `lemma_pacrel_shape` for the redex and
+ * `gwc_gwy_head_transfer` for the stack head.
+ *
+ * **WHAT THIS DOES NOT DO, STATED PLAINLY.**  It does NOT discharge the shape
+ * obligation.  The premise ASSERTS the fragment predicate at every index below
+ * `n`, and no statement in this section proves that premise for any particular
+ * program; 23.6 discharges it by COMPUTATION at one closed fixture and at `n`
+ * three, and that is the only discharge offered.  What the theorem establishes is
+ * that the shape obligation is the ONLY thing between one step and `n` steps for
+ * this fragment: no further lattice premise, no allocation premise, and no
+ * side condition on the interpreter accumulates as `n` grows.  The ONE `pcl_*`
+ * hypothesis is the same one at every `n`.
+ *
+ * **HYPOTHESES, AND WHY THERE IS ONLY ONE.**  `pcl_down r` is genuinely
+ * required: 23.3 passes it to `gwc_still_exit_prompt`.  `pcl_mono r` is NOT
+ * required and is NOT stated -- no lemma cited here or in 23.3 uses it.  So this
+ * theorem's hypothesis set is strictly smaller than `gwc_dispatch_step`'s, which
+ * carries both.
+ *
+ * **THE COUNTS ARE FUEL INDICES.**  `n n` says the two sides' `prun` at fuel
+ * index `n` have empty traces and land in the relation.  It does not say either
+ * side performed `n` transitions.  By `gwc_redepartable_is_step` the premise does
+ * force each of the first `n` LEFT configurations to be a `PStep`, so no unit of
+ * the left's fuel is returned unspent; that the successor DIFFERS at each index is
+ * a further fact, and it is established only at fixtures -- 20.5's
+ * `gwc_pp_distinct` for the two-frame run and 23.6's `gwc_it_distinct` for the
+ * three-frame one.  It is NOT established for the theorem.
+ *)
+let rec gwc_iterate
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_down r /\ gwc_cf GWCGwy r s cf1 cf2 /\
+                    (forall (i: nat). i < n ==>
+                       gwc_redepartable (fst (prun lk apply i cf1))))
+          (ensures gwc_lands_still lk apply GWCGwy r s n n cf1 cf2)
+          (decreases n)
+  = if n = 0
+    then gwc_lands_still_intro lk apply GWCGwy r s 0 0 cf1 cf2
+    else begin
+      let m : nat = n - 1 in
+      gwc_iterate lk apply r s m cf1 cf2;
+      gwc_lands_still_unfold lk apply GWCGwy r s m m cf1 cf2 ();
+      let d1 = fst (prun lk apply m cf1) in
+      let d2 = fst (prun lk apply m cf2) in
+      assert (gwc_redepartable d1);
+      gwc_still_step lk apply r s d1 d2;
+      gwc_lands_still_compose lk apply GWCGwy GWCGwy r s m m 1 1 cf1 cf2
+    end
+
+(* ---- 23.5 the two-frame instance, on 20.5's fixture -------------- *)
+
+(**
+ * **THE SHAPE PREMISE, AT 20.5's FIXTURE AND AT `n` TWO.**  PROVED, by
+ * computation and `gwc_pp_leg1`.  The two indices below two are handled one by
+ * one: at zero `prun` is the identity and `gwc_pp_cf1` is a `PVar` over a
+ * `PParamF`-headed stack because `gwp_gP_f` unfolds to `PParamF "p" gwp_g_u`; at
+ * one `gwc_pp_leg1` names the configuration reached, `gwp_gP_cf1`, and it is the
+ * same shape with one frame fewer.
+ *)
+let gwc_pp_shape ()
+  : Lemma (forall (i: nat). i < 2 ==>
+             gwc_redepartable (fst (prun flook xapply i gwc_pp_cf1)))
+  = gwc_pp_leg1 ();
+    assert_norm (gwc_redepartable gwc_pp_cf1);
+    assert_norm (gwc_redepartable gwp_gP_cf1);
+    introduce forall (i: nat). i < 2 ==>
+                gwc_redepartable (fst (prun flook xapply i gwc_pp_cf1))
+    with introduce _ ==> _
+    with (if i = 0 then () else ())
+
+(**
+ * **THE ITERATION FIRES AT `n` TWO.**  PROVED, at closed terms, with no
+ * hypothesis: `pcl_mono` and `pcl_down` come from `lemma_fcl_rel_mono` and
+ * `lemma_fcl_rel_down`, the departure from `gwc_pp_departs`, and the shape
+ * premise from `gwc_pp_shape`.
+ *
+ * The conclusion is `gwc_chain_param_param`'s at 20.4, reached by a DIFFERENT
+ * route: 20.4 chains two named branches with a shape premise about the tail of
+ * the departure stack, and this reaches the same landing from the general
+ * theorem, with the shape premise stated at FUEL INDICES instead.  Neither
+ * subsumes the other's proof and 20.4 is unchanged.
+ *)
+let gwc_pp_iterate ()
+  : Lemma (gwc_lands_still flook xapply GWCGwy fcl_rel pabot 2 2
+                           gwc_pp_cf1 gwc_pp_cf2)
+  = lemma_fcl_rel_down ();
+    gwc_pp_departs ();
+    gwc_pp_shape ();
+    gwc_iterate flook xapply fcl_rel pabot 2 gwc_pp_cf1 gwc_pp_cf2
+
+(* ---- 23.6 the three-frame instance, and where it stops ----------- *)
+
+(**
+ * One more `PParamF` frame than 20.5's fixture, and nothing else new: the frame
+ * is section 14's `gwp_gP_f`, the tails are section 14's `gwp_g_t1` and
+ * `gwp_g_t2` whose difference is the one surplus `PBindF` frame, and the store is
+ * empty on both sides at `pabot`, whose two frontiers are zero.
+ *)
+let gwc_it_cf1 : pconf fv fcl =
+  { st = PStep (PVar gwp_g_u) (gwp_gP_f :: gwp_gP_f :: gwp_gP_f :: gwp_g_t1);
+    store = ([] <: pstore fv fcl); next = 0 }
+let gwc_it_cf2 : pconf fv fcl =
+  { st = PStep (PVar gwp_g_u) (gwp_gP_f :: gwp_gP_f :: gwp_gP_f :: gwp_g_t2);
+    store = ([] <: pstore fv fcl); next = 0 }
+
+(** **THE DEPARTURE IS A `GWCGwy` PAIR.**  PROVED, with no hypothesis, exactly as
+    `gwc_pp_departs` is, with one more `gwy_k_cons`. *)
+let gwc_it_departs ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_it_cf1 gwc_it_cf2)
+  = lemma_pabot_wf ();
+    cor_padxg_pabot_sto_self ();
+    gwp_g_t_deep ();
+    assert (pval_rel pabot.aw gwp_g_u gwp_g_u);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwp_g_u gwp_g_u;
+    lemma_pafrel_param #fv #fcl fcl_rel pabot "p" gwp_g_u gwp_g_u;
+    gwy_k_cons fcl_rel pabot gwp_gP_f gwp_gP_f gwp_g_t1 gwp_g_t2;
+    gwy_k_cons fcl_rel pabot gwp_gP_f gwp_gP_f
+               (gwp_gP_f :: gwp_g_t1) (gwp_gP_f :: gwp_g_t2);
+    gwy_k_cons fcl_rel pabot gwp_gP_f gwp_gP_f
+               (gwp_gP_f :: gwp_gP_f :: gwp_g_t1)
+               (gwp_gP_f :: gwp_gP_f :: gwp_g_t2);
+    gwc_cf_is_gwy_cf fcl_rel pabot gwc_it_cf1 gwc_it_cf2
+
+(** **AND IT IS NOT AN ORDINARY PAIR.**  PROVED, with no hypothesis.  `gwc_kd
+    GWCPacf` is `pakrel`, three applications of `lemma_pakrel_cons_inv` strip the
+    three `PParamF` frames, and what is left is `pakrel` on the two tails, which
+    `gwp_g_t_deep` refutes.  This is what makes the instance worth stating: the
+    surplus frame genuinely is present, so the iteration is being run where
+    `GWCGwy` is not `GWCPacf` in disguise. *)
+let gwc_it_not_ordinary ()
+  : Lemma (~(gwc_cf GWCPacf fcl_rel pabot gwc_it_cf1 gwc_it_cf2))
+  = gwp_g_t_deep ();
+    introduce gwc_cf GWCPacf fcl_rel pabot gwc_it_cf1 gwc_it_cf2 ==> False
+    with (gwc_cf_unfold GWCPacf fcl_rel pabot gwc_it_cf1 gwc_it_cf2 ();
+          gwc_st_unfold GWCPacf fcl_rel pabot gwc_it_cf1.st gwc_it_cf2.st ();
+          gwc_kd_at_pacf fcl_rel pabot
+            (gwp_gP_f :: gwp_gP_f :: gwp_gP_f :: gwp_g_t1)
+            (gwp_gP_f :: gwp_gP_f :: gwp_gP_f :: gwp_g_t2);
+          lemma_pakrel_cons_inv fcl_rel pabot gwp_gP_f gwp_gP_f
+            (gwp_gP_f :: gwp_gP_f :: gwp_g_t1)
+            (gwp_gP_f :: gwp_gP_f :: gwp_g_t2);
+          lemma_pakrel_cons_inv fcl_rel pabot gwp_gP_f gwp_gP_f
+            (gwp_gP_f :: gwp_g_t1) (gwp_gP_f :: gwp_g_t2);
+          lemma_pakrel_cons_inv fcl_rel pabot gwp_gP_f gwp_gP_f
+            gwp_g_t1 gwp_g_t2)
+
+(** **THE FIRST LEG NAMES 20.5's DEPARTURE.**  PROVED, by `gwc_still_exit_param`
+    at the outermost frame: one transition from this fixture is exactly
+    `gwc_pp_cf1` / `gwc_pp_cf2`, the fixture 20.5 starts from.  So the three-frame
+    run is the two-frame run with one pop in front of it. *)
+let gwc_it_leg1 ()
+  : Lemma (prun flook xapply 1 gwc_it_cf1 == (gwc_pp_cf1, ([] <: list string)) /\
+           prun flook xapply 1 gwc_it_cf2 == (gwc_pp_cf2, ([] <: list string)))
+  = gwc_it_departs ();
+    gwc_still_exit_param flook xapply fcl_rel pabot gwp_g_u gwp_g_u "p" "p"
+                         gwp_g_u gwp_g_u
+                         (gwp_gP_f :: gwp_gP_f :: gwp_g_t1)
+                         (gwp_gP_f :: gwp_gP_f :: gwp_g_t2)
+                         ([] <: pstore fv fcl) ([] <: pstore fv fcl)
+
+(** **THE SHAPE PREMISE AT `n` THREE.**  PROVED, by computation.  The three left
+    configurations at indices zero, one and two are named -- this fixture,
+    `gwc_pp_cf1` and `gwp_gP_cf1` -- by `gwc_it_leg1`, `gwc_pp_leg1` and
+    `lemma_prun_cat`, and each is a `PVar` over a `PParamF`-headed stack. *)
+let gwc_it_shape ()
+  : Lemma (forall (i: nat). i < 3 ==>
+             gwc_redepartable (fst (prun flook xapply i gwc_it_cf1)))
+  = gwc_it_leg1 ();
+    gwc_pp_leg1 ();
+    lemma_prun_cat flook xapply 1 1 gwc_it_cf1 gwc_pp_cf1 gwp_gP_cf1;
+    assert_norm (gwc_redepartable gwc_it_cf1);
+    assert_norm (gwc_redepartable gwc_pp_cf1);
+    assert_norm (gwc_redepartable gwp_gP_cf1);
+    introduce forall (i: nat). i < 3 ==>
+                gwc_redepartable (fst (prun flook xapply i gwc_it_cf1))
+    with introduce _ ==> _
+    with (if i = 0 then () else if i = 1 then () else ())
+
+(** **THE ITERATION FIRES AT `n` THREE.**  PROVED, at closed terms, with no
+    hypothesis.  Every premise of `gwc_iterate` is discharged: the two `pcl_*`
+    condition by `lemma_fcl_rel_down` -- `pcl_mono` is not among 23.4's
+    hypotheses -- the departure by `gwc_it_departs`, and the fuel-indexed shape
+    premise by `gwc_it_shape`. *)
+let gwc_it_iterate ()
+  : Lemma (gwc_lands_still flook xapply GWCGwy fcl_rel pabot 3 3
+                           gwc_it_cf1 gwc_it_cf2)
+  = lemma_fcl_rel_down ();
+    gwc_it_departs ();
+    gwc_it_shape ();
+    gwc_iterate flook xapply fcl_rel pabot 3 gwc_it_cf1 gwc_it_cf2
+
+(** **AND IT STOPS AT THREE.**  PROVED.  The left configuration at index three is
+    `gwp_gP_out1`, a `PVar` over `PBindF (PVar) :: [PScopeF]` -- the SURPLUS frame
+    itself -- and the predicate is false there.  So the premise of `gwc_iterate`
+    fails at `n` four for this fixture, and the fixture is not one where the
+    shape premise happens to hold forever.
+
+    This is the deep stutter exclusion of 23.2 made concrete: the run leaves the
+    fragment exactly when the value meets the surplus frame, which is where
+    `gwc_fit_var_deep` and its `GWCGwr` landing take over and where 20.1 says the
+    feed-back stops.  Nothing here says the run cannot be CONTINUED -- only that
+    it cannot be continued by `gwc_iterate`. *)
+let gwc_it_stops ()
+  : Lemma (prun flook xapply 3 gwc_it_cf1 == (gwp_gP_out1, ([] <: list string)) /\
+           ~(gwc_redepartable (fst (prun flook xapply 3 gwc_it_cf1))))
+  = gwc_it_leg1 ();
+    gwc_pp_chain ();
+    lemma_prun_cat flook xapply 1 2 gwc_it_cf1 gwc_pp_cf1 gwp_gP_out1;
+    assert_norm (gwc_redepartable gwp_gP_out1 == false)
+
+(**
+ * **AND ITS THREE FUEL UNITS ARE THREE TRANSITIONS.**  PROVED, at closed terms
+ * and with no hypothesis.  20.5's `gwc_pp_distinct` covers the LAST TWO of the
+ * three left transitions, because the two-frame fixture is what the three-frame
+ * one steps into; what it does not cover is the FIRST, `gwc_it_cf1` against
+ * `gwc_pp_cf1`.  This adds that one and collects all four configurations on each
+ * side, so the four are pairwise distinct and no unit of fuel is spent standing
+ * still.
+ *
+ * It is the three-frame counterpart of `gwc_pp_distinct`, and like it, it is a
+ * fact about THIS FIXTURE.  23.4 proves nothing of the kind at a general `n`,
+ * and this does not extend to one.
+ *)
+let gwc_it_distinct ()
+  : Lemma (~(gwc_it_cf1 == gwc_pp_cf1) /\ ~(gwc_it_cf1 == gwp_gP_cf1) /\
+           ~(gwc_it_cf1 == gwp_gP_out1) /\
+           ~(gwc_pp_cf1 == gwp_gP_cf1) /\ ~(gwc_pp_cf1 == gwp_gP_out1) /\
+           ~(gwp_gP_cf1 == gwp_gP_out1) /\
+           ~(gwc_it_cf2 == gwc_pp_cf2) /\ ~(gwc_it_cf2 == gwp_gP_cf2) /\
+           ~(gwc_it_cf2 == gwp_gP_out2) /\
+           ~(gwc_pp_cf2 == gwp_gP_cf2) /\ ~(gwc_pp_cf2 == gwp_gP_out2) /\
+           ~(gwp_gP_cf2 == gwp_gP_out2))
+  = assert_norm (FStar.List.Tot.length (PStep?.k gwc_it_cf1.st) == 5);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwc_pp_cf1.st) == 4);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwp_gP_cf1.st) == 3);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwp_gP_out1.st) == 2);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwc_it_cf2.st) == 4);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwc_pp_cf2.st) == 3);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwp_gP_cf2.st) == 2);
+    assert_norm (FStar.List.Tot.length (PStep?.k gwp_gP_out2.st) == 1)
+
+(**
+ * **THE GUARD, AND IT FIRES.**  PROVED, at closed terms, with no hypothesis.  One
+ * lemma collects the departure, its non-ordinariness, the shape premise at every
+ * index below three, the iteration's landing at `3 3`, the configuration the left
+ * reaches at index three, the failure of the predicate there, and the two-frame
+ * instance at `2 2`.
+ *
+ * **WHAT IS AND IS NOT CLAIMED.**  This is ONE closed instance, at ONE of the
+ * seven shapes -- `PVar` over `PParamF` -- repeated.  The shape premise is
+ * discharged here by COMPUTATION, at THIS fixture; that says nothing about
+ * landings in general and nothing about which programs produce such runs.  The
+ * other six shapes are not exercised by this fixture and no claim is made that
+ * they are reachable.  `3` is not claimed to be a bound on anything except this
+ * fixture, where `gwc_it_stops` establishes it.
+ *)
+let guard_gwc_iterate_fires ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_it_cf1 gwc_it_cf2 /\
+           ~(gwc_cf GWCPacf fcl_rel pabot gwc_it_cf1 gwc_it_cf2) /\
+           (forall (i: nat). i < 3 ==>
+              gwc_redepartable (fst (prun flook xapply i gwc_it_cf1))) /\
+           gwc_lands_still flook xapply GWCGwy fcl_rel pabot 3 3
+                           gwc_it_cf1 gwc_it_cf2 /\
+           prun flook xapply 3 gwc_it_cf1 == (gwp_gP_out1, ([] <: list string)) /\
+           ~(gwc_redepartable (fst (prun flook xapply 3 gwc_it_cf1))) /\
+           gwc_lands_still flook xapply GWCGwy fcl_rel pabot 2 2
+                           gwc_pp_cf1 gwc_pp_cf2)
+  = gwc_it_departs ();
+    gwc_it_not_ordinary ();
+    gwc_it_shape ();
+    gwc_it_iterate ();
+    gwc_it_stops ();
+    gwc_pp_iterate ()
+
+(*
+ * LEDGER FOR SECTION 23.  (Appended; sections 1 to 22 are UNTOUCHED.)
+ *
+ * WHAT THIS SECTION SETTLES.
+ *
+ *  1. Shape transfer across `gwy_k`.  `gwc_gwy_head_transfer`: if the left stack's
+ *     head is not a `PBindF`, the right stack is non-empty, the two heads are
+ *     `pafrel` and carry the SAME constructor, and the tails are again `gwy_k`.
+ *     The constructor half rests on `gwc_pafrel_same_head`, which reads the
+ *     diagonal off `paframe_rel` at index one.  This is what lets a case analysis
+ *     be driven from the LEFT configuration alone.
+ *
+ *  2. The re-departable fragment, as a decidable predicate on a configuration,
+ *     with its seven shapes and its exclusions.  The falsity of the predicate at
+ *     the four excluded stack heads and the nine excluded redexes is PROVED, by
+ *     computation; the REASONS for the exclusions are statements about what has
+ *     been proved elsewhere in this file, and are labelled as such at
+ *     `gwc_redepartable`.  Two of them -- the deep stutter and `PEmit` -- rest on
+ *     refutations already proved, at 20.1 and 22.3.
+ *
+ *  3. One-step closure with a DEFINITE conclusion: inside the fragment, a
+ *     `GWCGwy` departure lands at `GWCGwy`, at the SAME state, at fuel indices
+ *     `1 1`.  Seven arms, each citing one of the seven branches of 20.3, 22.1 and
+ *     22.2, none of which is restated or changed.  `pcl_down r` is required and
+ *     `pcl_mono r` is not.
+ *
+ *  4. The iteration theorem, quantified over `n`: given the departure and the
+ *     fragment predicate at every index below `n`, the landing is at `GWCGwy`, at
+ *     the same state, at `n n`.  This is the first statement in this file
+ *     quantified over a common FUEL INDEX.
+ *
+ *  5. Two closed instances of it, at `n` two and `n` three, with the shape premise
+ *     discharged by computation and the three-frame departure shown NOT to be an
+ *     ordinary pair.  The three-frame run is shown to LEAVE the fragment at index
+ *     three, so the premise is not vacuously available at every `n` there either.
+ *
+ * WHAT THIS SECTION DOES NOT SETTLE.
+ *
+ *  1. The SHAPE obligation is ITERATED, NOT DISCHARGED.  `gwc_iterate`'s premise
+ *     asserts the fragment predicate at every index below `n`, and no statement
+ *     here proves that premise for any program.  It is discharged by computation
+ *     at two fixtures and nowhere else.  What is established is that the shape
+ *     obligation is the only thing between one step and `n` steps for this
+ *     fragment: no premise beyond the two `pcl_*` conditions accumulates as `n`
+ *     grows.
+ *
+ *  2. Allocation is outside, by construction.  `gwc_still_exit_scope` lands at
+ *     `paalloc s`, so no run through it is in the fragment, and section 21's
+ *     `gwc_lands` and `gwc_reaches_compose` remain the forms for those.  Every
+ *     state in this section is one fixed `s`, and the closed fixtures sit at
+ *     `pabot` with both frontiers zero.
+ *
+ *  3. Emits are outside, by refutation.  22.3 proves `PEmit` has no
+ *     `gwc_lands_still` landing at left count one; every trace in this section is
+ *     `[]`.
+ *
+ *  4. `PPerform` is outside, for section 22's ledger reason: one horn of three has
+ *     a branch and it takes premises no statement here supplies, and the other two
+ *     horns have no lemma cited anywhere in this file's carrier sections.
+ *
+ *  5. The seven branches whose landings are `gwc_lands_set` at
+ *     `gwc_qs_gwr_or_pacf` -- `PWeave`, `PEnterCtx`, `PExtendC`, `PExtendCtxC`,
+ *     `PResumeC`, `PReadP`, `PWriteP` -- are outside the fragment because the FORM
+ *     of their landings admits `GWCPacf`.  No refutation of a sharp landing for
+ *     them is proved here, and none is claimed; whether any of them could be
+ *     given one is not investigated.
+ *
+ *  6. The counts are FUEL INDICES for `prun`.  `n n` does not say either side
+ *     performed `n` transitions.  `gwc_redepartable_is_step` gives that the left
+ *     is a `PStep` at each index below `n`, so `prun` applies `pstep_tr` there
+ *     rather than returning immediately; that the successor DIFFERS is a further
+ *     fact, proved only at fixtures -- 20.5's `gwc_pp_distinct` for the two-frame
+ *     run and 23.6's `gwc_it_distinct` for the three-frame one, which together
+ *     make those two fixtures' fuel indices transition counts.  For the THEOREM
+ *     no such fact is proved at any `n`.
+ *
+ *  7. `gwc_iterate` does NOT carry `pcl_mono r`.  Nothing it cites uses it, so it
+ *     is not stated, and this theorem's hypothesis set is strictly smaller than
+ *     `gwc_dispatch_step`'s.  What that does NOT establish is that the two
+ *     conditions are independent, or that `pcl_mono` is unnecessary anywhere
+ *     else; neither is investigated here.
+ *
+ *  8. Nothing here bears on `gwc_dispatch_nonvar` or `gwc_dispatch_step`.  Those
+ *     cover thirteen constructors with an EXISTENTIAL landing; this covers seven
+ *     shapes with a DEFINITE one.  Neither implies the other, and both stand.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

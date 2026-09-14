@@ -9636,6 +9636,99 @@ it. Only the `1:1` substitution is refuted here.
 - non-vacuity is shown at one fixture for the dispatch and one for the emit
   split; nothing is claimed about which programs produce these departures.
 
+#### A fragment that re-departs, and quantification over a fuel index
+
+Every statement so far has been at fixed counts. This gate produces the first
+one quantified over an arbitrary common fuel index.
+
+The opening is a fragment of seven shapes whose branches land at the tag they
+departed from, at the same allocation state, at counts one and one: the
+operation bind, the handler install, the parameter introduction, the splice, and
+the value node over a parameter, mode or prompt frame. Because the tag and state
+return, the single-state composition applies to any two of them in sequence, and
+that is what makes an induction possible.
+
+What the fragment leaves out is listed with a reason for each: the value node
+over a bind frame (the deep stutter — it lands at the weakened tag and cannot
+re-depart, which is the refutation from an earlier gate showing up as a
+concrete exclusion), over a scope frame (allocates), over a boundary or site
+frame (can yield), over the empty stack (terminates), the emit (not sharp), the
+perform node, and every halting horn.
+
+#### The one-step closure is definite, and needs less
+
+The dispatch of the previous gate concludes an existential — some tag, some
+counts. An induction cannot use that. The closure here concludes a **definite**
+tag and **definite** counts, which is exactly what the step case needs.
+
+It also needs less: only the downward-closure condition on the clause relation,
+required by one of the seven arms. The monotonicity condition that the
+existential dispatch carries is not needed at all.
+
+A small lemma was required to drive the case analysis from the left
+configuration alone: under the deep stack relation, a left head that is not a
+bind frame forces the same constructor on the right. The three value-exit
+lemmas take both stacks' heads as arguments, so the right one has to be
+recovered.
+
+#### The theorem, and what it does not do
+
+For any `n`, if the departure is in the relation and the fragment predicate
+holds of the left configuration at every index below `n`, the landing is at the
+departure tag, at the departure state, at counts `n n`.
+
+**This does not discharge the shape obligation — it iterates it.** The premise
+asserts the shape at every index, and nothing here proves that premise for any
+program. What it shows is that the shape obligation is the *only* thing between
+one step and `n` steps for this fragment: no further lattice premise, no
+allocation premise, no side condition on the interpreter accumulates as `n`
+grows. The single condition is the same one at every `n`.
+
+**And `n` is a fuel index, not a transition count.** It indexes the run
+function's fuel on both sides. The premise does force each of the first `n` left
+configurations to be a step configuration, so no unit of the left's fuel is
+returned unspent — but that the successor *differs* at each index is a separate
+fact, and it is established only at fixtures, never for the theorem.
+
+#### A hypothesis the statement was carrying without using
+
+The gate's own report flagged that the monotonicity condition appeared in the
+theorem's interface but was used by nothing it cites. Checked independently by
+restating the theorem without it and proving it: the remark is correct and the
+hypothesis is genuinely droppable, so the statement was weaker than its proof.
+
+It has been removed from the theorem rather than recorded as an observation, and
+the two closed instances no longer establish it. The theorem's hypothesis set is
+now strictly smaller than the existential dispatch's. That does not show the two
+conditions are independent, nor that the monotonicity condition is unnecessary
+elsewhere; neither is investigated.
+
+#### Two closed instances, and where the run leaves the fragment
+
+At `n` two on an earlier fixture, and at `n` three on a new one, with the shape
+premise discharged by computation.
+
+The three-frame instance also shows where the premise *fails*: at index three
+the left configuration is a value node over the surplus bind frame, and the
+fragment predicate is false there. So it is not a fixture where the premise
+happens to hold forever — the run leaves the fragment exactly at the deep
+stutter, which is the concrete face of the lattice refutation.
+
+For both fixtures the successive configurations are proved pairwise distinct, so
+for *those two runs* the fuel indices are transition counts. The three-frame
+case needed its own lemma: the earlier one covers only the last two of its three
+transitions, because the two-frame fixture is what the three-frame one steps
+into, and the first transition was not covered by anything.
+
+#### Not proved
+
+- the shape obligation, which is iterated rather than discharged;
+- that the successor differs at each index, for the theorem at any `n`;
+- that a sharp landing is impossible for the excluded branches — their exclusion
+  is a statement about the form their landings were stated in, and no refutation
+  is proved or attempted;
+- anything about which programs produce departures in the fragment.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
