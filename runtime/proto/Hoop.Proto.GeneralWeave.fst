@@ -59183,3 +59183,640 @@ let guard_gwc_iterate_alloc_fires ()
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ---- 25. A STRUCTURAL CONDITION ON THE DEPARTURE THAT DISCHARGES
+       THE ITERATION PREMISE, FOR ONE FAMILY ----------------------- *)
+
+(*
+ * 23.4's `gwc_iterate` and 24.5's `gwc_iterate_alloc` both carry a premise that
+ * asserts a fragment predicate at EVERY index below `n`, and both sections record
+ * in their ledgers that this ITERATES the shape obligation rather than
+ * discharging it: the premise is proved for no program, and it is discharged only
+ * by computation at individual fixtures, index by index -- 23.5 at `n` two, 23.6
+ * at `n` three, 24.6 at its own.
+ *
+ * This section discharges that premise from a condition on the LEFT DEPARTURE
+ * ALONE, at arbitrary `n`, with no per-index computation.
+ *
+ * **TWO LAYERS OF NON-VACUITY, AND THEY ARE NOT THE SAME.**  25.6 proves the
+ * LEFT structural family is inhabited at EVERY `n`, by constructing the stacks;
+ * so `gwc_param_prefix_discharges`, whose only hypothesis is the structural
+ * condition, is not a theorem about a bounded or empty class.
+ *
+ * `gwc_param_lands` asks for MORE: a RELATED RIGHT configuration, `gwc_cf
+ * GWCGwy r s _ cf2`.  Nothing below constructs one at arbitrary `n`.  The only
+ * concrete inhabitant of the COMBINED statement is 25.5's, at `n` three.  So
+ * "infinite family" is correct of the left structural condition and of the
+ * discharge, and is NOT established for the related-pair theorem.
+ *
+ * THE MACHINE FACT THAT MAKES IT POSSIBLE.  `pstep`'s `PVar` arm, at a `PParamF`
+ * head, is
+ *
+ *     | PParamF _ _ :: rest -> keep (PStep (PVar value) rest)
+ *
+ * -- the value is UNCHANGED, `keep` is `{ cf with st = _ }` and so leaves the
+ * store and the counter alone, and exactly ONE frame is dropped.  So a `PVar` over
+ * a stack whose top `n` frames are all `PParamF` steps to a `PVar` over a stack
+ * whose top `n-1` frames are all `PParamF`.  The condition is therefore PRESERVED,
+ * and preservation is an induction on `n` rather than `n` separate computations.
+ *
+ * WHAT IS AND IS NOT DISCHARGED.  The shape obligation is discharged FOR THIS
+ * FAMILY -- `PVar` over a `PParamF` prefix, which is ONE of the seven shapes
+ * `gwc_redepartable` admits.  It is NOT discharged in general.  `gwc_iterate` and
+ * `gwc_iterate_alloc` are not changed, not restated and not weakened by anything
+ * below; what this section adds is a sufficient condition under which the first
+ * one's premise is PROVABLE rather than assumed, and the family the condition
+ * covers.
+ *
+ * WHICH PROGRAMS PRODUCE SUCH STACKS is not addressed here, and nothing below
+ * claims that any program does.  The family is described by a condition on a
+ * stack; 25.6 shows the condition has members at every `n`, which is a statement
+ * about STACKS and not about programs, and the one closed member of the
+ * related-pair theorem exhibited at 25.5 is a fixture that already appears at
+ * 23.6.
+ *)
+
+(* ---- 25.1 the structural condition ------------------------------- *)
+
+(**
+ * **THE TOP `n` FRAMES ARE ALL `PParamF`.**  A DECIDABLE predicate on a natural
+ * number and a stack, by recursion on the number.  At `n` zero it holds of every
+ * stack, including the empty one: it constrains a PREFIX and says nothing about
+ * what lies below.
+ *
+ * This is the condition the whole section is stated over.  It mentions the LEFT
+ * stack only -- as 23.4's premise does -- and it mentions neither the store, nor
+ * the counter, nor the allocation state, nor the right side.
+ *)
+let rec gwc_param_prefix (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Tot bool (decreases n)
+  = if n = 0 then true
+    else (match k with
+          | PParamF _ _ :: t -> gwc_param_prefix (n - 1) t
+          | _ -> false)
+
+(** The tail after `n` frames are removed, total at every stack: it stops at the
+    empty stack rather than failing.  Under `gwc_param_prefix n k` the stack is
+    long enough that it never has to, which is `gwc_param_prefix_len` below. *)
+let rec gwc_param_drop (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Tot (pstack v cl) (decreases n)
+  = if n = 0 then k
+    else (match k with
+          | [] -> []
+          | _ :: t -> gwc_param_drop (n - 1) t)
+
+(** **ONE FRAME OFF THE TOP.**  PROVED, by computation: at a positive `n` the
+    predicate forces the stack to be non-empty, its head to be a `PParamF`, and
+    the predicate to hold again at `n-1` of the tail; and `gwc_param_drop` takes
+    the same step.  This is the inversion every induction below runs on. *)
+let gwc_param_prefix_cons (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Lemma (requires gwc_param_prefix n k /\ n > 0)
+          (ensures Cons? k /\ PParamF? (Cons?.hd k) /\
+                   gwc_param_prefix (n - 1) (Cons?.tl k) /\
+                   gwc_param_drop n k == gwc_param_drop (n - 1) (Cons?.tl k))
+  = ()
+
+(** **MONOTONE DOWNWARDS IN `n`.**  PROVED, by induction on `i`.  A prefix
+    condition at `n` is a prefix condition at every `i` below it. *)
+let rec gwc_param_prefix_mono (#v #cl: Type) (i n: nat) (k: pstack v cl)
+  : Lemma (requires gwc_param_prefix n k /\ i <= n)
+          (ensures gwc_param_prefix i k)
+          (decreases i)
+  = if i = 0 then ()
+    else (gwc_param_prefix_cons n k;
+          gwc_param_prefix_mono (i - 1) (n - 1) (Cons?.tl k))
+
+(** **THE LENGTH LOWER BOUND.**  PROVED, by induction on `n`.  `n` frames named
+    are `n` frames present.  This is what 25.4 measures with. *)
+let rec gwc_param_prefix_len (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Lemma (requires gwc_param_prefix n k)
+          (ensures FStar.List.Tot.length k >= n)
+          (decreases n)
+  = if n = 0 then ()
+    else (gwc_param_prefix_cons n k;
+          gwc_param_prefix_len (n - 1) (Cons?.tl k))
+
+(** **DROPPING `n` FRAMES COSTS EXACTLY `n` OF THE LENGTH.**  PROVED, by
+    induction on `n`, from the length bound alone -- the frames' constructors do
+    not enter. *)
+let rec gwc_param_drop_len (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Lemma (requires FStar.List.Tot.length k >= n)
+          (ensures FStar.List.Tot.length (gwc_param_drop n k)
+                   == FStar.List.Tot.length k - n)
+          (decreases n)
+  = if n = 0 then () else gwc_param_drop_len (n - 1) (Cons?.tl k)
+
+(** **THE CONDITION SURVIVES THE DROP, WITH THE BUDGET REDUCED.**  PROVED, by
+    induction on `i`.  After `i` frames are gone, `n - i` `PParamF` frames remain
+    on top.  This is the preservation fact; everything in 25.3 is a corollary of
+    it and of 25.2. *)
+let rec gwc_param_prefix_drop (#v #cl: Type) (i n: nat) (k: pstack v cl)
+  : Lemma (requires gwc_param_prefix n k /\ i <= n)
+          (ensures gwc_param_prefix (n - i) (gwc_param_drop i k))
+          (decreases i)
+  = if i = 0 then ()
+    else (gwc_param_prefix_cons n k;
+          gwc_param_prefix_drop (i - 1) (n - 1) (Cons?.tl k))
+
+(* ---- 25.2 what the left run does, in closed form ----------------- *)
+
+(** The departures this section is about: a `PVar` redex over a stack, at a store
+    and a counter.  Nothing is assumed about `x`, `k`, `sto` or `nx` here; the
+    condition arrives as a separate hypothesis at each statement below. *)
+let gwc_param_cf (#v #cl: Type) (x: pval v) (k: pstack v cl)
+                 (sto: pstore v cl) (nx: nat) : pconf v cl
+  = { st = PStep (PVar x) k; store = sto; next = nx }
+
+(**
+ * **THE RUN, AT FUEL INDEX `n`, IN CLOSED FORM.**  PROVED, by induction on `n`.
+ * From a departure satisfying the condition at `n`, `prun` at fuel index `n`
+ * reaches the SAME value over the stack with `n` frames dropped, at the SAME
+ * store and the SAME counter, with an EMPTY trace.
+ *
+ * The step is the machine fact quoted at the head of this section, applied once:
+ * `pstep_tr` at a `PVar` over a `PParamF` head is `(gwc_param_cf x t sto nx, [])`,
+ * which `lemma_prun_one` turns into a run of one, the induction hypothesis
+ * supplies the remaining `n-1`, and `lemma_prun_cat` concatenates them -- the two
+ * traces being `[]`, their concatenation is `[]`.
+ *
+ * **THE STORE AND THE COUNTER ARE IN THE CONCLUSION, AND THEY ARE THE
+ * DEPARTURE'S.**  That is what says no step of this prefix ALLOCATES: `palloc` is
+ * the only writer of the store and it increments the counter, and both components
+ * are literally `sto` and `nx` at index `n`.
+ *)
+let rec gwc_param_run
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (nx: nat)
+  : Lemma (requires gwc_param_prefix n k)
+          (ensures prun lk apply n (gwc_param_cf x k sto nx)
+                   == (gwc_param_cf x (gwc_param_drop n k) sto nx,
+                       ([] <: list string)))
+          (decreases n)
+  = if n = 0 then ()
+    else begin
+      gwc_param_prefix_cons n k;
+      let t = Cons?.tl k in
+      let cf = gwc_param_cf x k sto nx in
+      let cf' = gwc_param_cf x t sto nx in
+      assert (pstep_tr lk apply cf == (cf', ([] <: list string)));
+      lemma_prun_one lk apply cf cf';
+      gwc_param_run lk apply (n - 1) x t sto nx;
+      lemma_prun_cat lk apply 1 (n - 1) cf cf'
+        (gwc_param_cf x (gwc_param_drop (n - 1) t) sto nx)
+    end
+
+(**
+ * **AND AT EVERY INDEX UP TO `n`, NOT ONLY AT `n`.**  PROVED, from
+ * `gwc_param_prefix_mono` and the previous lemma at each `i`.  This is the form
+ * the iteration premise is stated in -- a statement about every index below a
+ * bound -- and it is what 25.3 reads.
+ *)
+let gwc_param_run_all
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (nx: nat)
+  : Lemma (requires gwc_param_prefix n k)
+          (ensures forall (i: nat). i <= n ==>
+                     prun lk apply i (gwc_param_cf x k sto nx)
+                     == (gwc_param_cf x (gwc_param_drop i k) sto nx,
+                         ([] <: list string)))
+  = introduce forall (i: nat). i <= n ==>
+                prun lk apply i (gwc_param_cf x k sto nx)
+                == (gwc_param_cf x (gwc_param_drop i k) sto nx,
+                    ([] <: list string))
+    with introduce _ ==> _
+    with (gwc_param_prefix_mono i n k;
+          gwc_param_run lk apply i x k sto nx)
+
+(* ---- 25.3 THE DISCHARGE ------------------------------------------ *)
+
+(** **A POSITIVE BUDGET PUTS THE CONFIGURATION IN 23.2's FRAGMENT.**  PROVED, by
+    computation once `gwc_param_prefix_cons` has exposed the `PParamF` head:
+    `gwc_redepartable_ck (PVar x)` is true at a `PParamF`-headed stack by the
+    third arm of its `PVar` case. *)
+let gwc_param_cf_redepartable
+    (#v #cl: Type) (m: nat) (x: pval v) (k: pstack v cl)
+    (sto: pstore v cl) (nx: nat)
+  : Lemma (requires gwc_param_prefix m k /\ m > 0)
+          (ensures gwc_redepartable (gwc_param_cf x k sto nx))
+  = gwc_param_prefix_cons m k
+
+(**
+ * **23.4's PREMISE, FROM THE DEPARTURE ALONE.**  PROVED, at arbitrary `n`, with
+ * no per-index computation.  The conclusion is LITERALLY the premise of
+ * `gwc_iterate`: the fragment predicate at every index below `n`.  The proof is
+ * three lemmas at each `i`: `gwc_param_run` names the configuration reached,
+ * `gwc_param_prefix_drop` says the condition still holds there with budget
+ * `n - i`, and `n - i` is positive because `i < n`, so
+ * `gwc_param_cf_redepartable` applies.
+ *
+ * **WHAT IS DISCHARGED, AND FOR WHOM.**  The shape obligation is discharged FOR
+ * THIS FAMILY -- departures of the form `gwc_param_cf x k sto nx` with
+ * `gwc_param_prefix n k` -- and not in general.  23.4's ledger item 1 stands
+ * unchanged for every departure outside the family; six of the seven shapes
+ * `gwc_redepartable` admits are not reached by any statement in this section.
+ *
+ * **NO HYPOTHESIS IS ADDED.**  The only hypothesis is the structural condition.
+ * There is no `pcl_*` condition here, no departure, no well-formedness, and no
+ * assumption about `lk` or `apply`: the statement is about the LEFT run only, and
+ * the left run does not consult the relation.
+ *)
+let gwc_param_prefix_discharges
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (nx: nat)
+  : Lemma (requires gwc_param_prefix n k)
+          (ensures forall (i: nat). i < n ==>
+                     gwc_redepartable
+                       (fst (prun lk apply i (gwc_param_cf x k sto nx))))
+  = introduce forall (i: nat). i < n ==>
+                gwc_redepartable
+                  (fst (prun lk apply i (gwc_param_cf x k sto nx)))
+    with introduce _ ==> _
+    with (gwc_param_prefix_mono i n k;
+          gwc_param_run lk apply i x k sto nx;
+          gwc_param_prefix_drop i n k;
+          gwc_param_cf_redepartable (n - i) x (gwc_param_drop i k) sto nx)
+
+(**
+ * **THE COMBINED THEOREM, WITH NO PER-INDEX PREMISE LEFT IN THE STATEMENT.**
+ * PROVED: the departure at `GWCGwy`, `pcl_down r`, and the structural condition
+ * at `n` give the standing-still landing at `n n`.
+ *
+ * Read against 23.4, the premise `forall (i: nat). i < n ==> gwc_redepartable
+ * (fst (prun lk apply i cf1))` has been REPLACED by `gwc_param_prefix n k`, a
+ * condition on the departure's stack.  No hypothesis is ADDED, and `pcl_mono r`
+ * is still not required.  What is paid for the replacement is the restriction to
+ * one redex shape and one stack shape.
+ *
+ * **`pcl_down r` IS INHERITED FROM THE PROOF ROUTE, AND ITS NECESSITY HERE IS
+ * NOT CHECKED.**  It is 23.4's hypothesis, and 23.4 carries it because 23.3
+ * passes it to `gwc_still_exit_prompt`.  But a run in THIS family never reaches
+ * a `PPromptF` head -- the first `n` frames are all `PParamF` -- so that arm is
+ * never taken.  The condition is here because this theorem CITES the general
+ * `gwc_iterate`, which covers all seven shapes, rather than doing its own
+ * induction over the `PParamF` arm alone.  Whether it is semantically necessary
+ * for a `PParamF`-only theorem, or would fall away under a direct induction, is
+ * NOT investigated here and no experiment is offered either way.  This is the
+ * same distinction 24.5 draws about `pcl_mono`: where a hypothesis is CONSUMED
+ * along a derivation is not where it is NEEDED.
+ *
+ * The counts `n n` are FUEL INDICES for `prun`, as everywhere above; 25.4 says
+ * what is separately true of the LEFT one for this family.
+ *)
+let gwc_param_lands
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n: nat)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (nx: nat)
+    (cf2: pconf v cl)
+  : Lemma (requires pcl_down r /\ gwc_param_prefix n k /\
+                    gwc_cf GWCGwy r s (gwc_param_cf x k sto nx) cf2)
+          (ensures gwc_lands_still lk apply GWCGwy r s n n
+                                   (gwc_param_cf x k sto nx) cf2)
+  = gwc_param_prefix_discharges lk apply n x k sto nx;
+    gwc_iterate lk apply r s n (gwc_param_cf x k sto nx) cf2
+
+(* ---- 25.4 for THIS FAMILY, the left fuel index counts transitions - *)
+
+(** **THE DROPPED TAILS AT DISTINCT INDICES ARE DISTINCT STACKS.**  PROVED, by
+    length: under the condition at `n` the stack has at least `n` frames, so
+    dropping `i` and dropping `j` leave `length k - i` and `length k - j` frames,
+    and `i < j <= n` makes those two numbers different. *)
+let gwc_param_drop_distinct
+    (#v #cl: Type) (n: nat) (k: pstack v cl) (i j: nat)
+  : Lemma (requires gwc_param_prefix n k /\ i < j /\ j <= n)
+          (ensures ~(gwc_param_drop i k == gwc_param_drop j k))
+  = gwc_param_prefix_len n k;
+    gwc_param_drop_len i k;
+    gwc_param_drop_len j k
+
+(**
+ * **TWO DISTINCT LEFT FUEL INDICES GIVE TWO DISTINCT CONFIGURATIONS.**  PROVED,
+ * at a SYMBOLIC departure and an ARBITRARY `n`.  `gwc_param_run` names both
+ * configurations and `gwc_param_drop_distinct` separates their stacks.
+ *
+ * **WHY IT CAN BE PROVED HERE AND IS PROVED AT FIXTURES ABOVE.**  The four
+ * distinctness statements earlier in this file -- `gwc_vs_distinct` at 19.5,
+ * `gwc_pp_distinct` at 20.5, `gwc_sp_distinct` at 21.5 and `gwc_it_distinct` at
+ * 23.6 -- are each at NAMED CLOSED configurations, and each proves its conjuncts
+ * by `assert_norm` on those configurations' stack lengths.  This one has a
+ * measure that decreases by construction: within the family the left stack loses
+ * exactly one frame per step, so its length is a strictly decreasing function of
+ * the index, and no enumeration of configurations is needed.
+ *
+ * **THE SCOPE, STATED EXACTLY.**  This is about THIS FAMILY.  It does NOT say
+ * that `gwc_iterate` or `gwc_iterate_alloc` identify their fuel indices with
+ * transition counts; those theorems are unchanged, and 23.4's and 24.5's ledgers
+ * -- which record that no such fact is proved for them at any `n` -- stand as
+ * written.  It is also about the LEFT index only: the right side's fuel index in
+ * `gwc_lands_still` is not addressed here, and nothing below claims the right run
+ * moves at any index.
+ *)
+let gwc_param_step_distinct
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (nx: nat)
+    (i j: nat)
+  : Lemma (requires gwc_param_prefix n k /\ i < j /\ j <= n)
+          (ensures ~(fst (prun lk apply i (gwc_param_cf x k sto nx))
+                     == fst (prun lk apply j (gwc_param_cf x k sto nx))))
+  = gwc_param_prefix_mono i n k;
+    gwc_param_prefix_mono j n k;
+    gwc_param_run lk apply i x k sto nx;
+    gwc_param_run lk apply j x k sto nx;
+    gwc_param_drop_distinct n k i j
+
+(** **ALL `n+1` LEFT CONFIGURATIONS ARE PAIRWISE DISTINCT.**  PROVED, from the
+    previous lemma.  For this family, and for the LEFT run, no unit of fuel below
+    `n` is spent standing still: the `n` fuel units are `n` transitions.  The
+    same two limits apply as above -- this family, and this side. *)
+let gwc_param_fuel_is_transitions
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (nx: nat)
+  : Lemma (requires gwc_param_prefix n k)
+          (ensures forall (i j: nat). i < j /\ j <= n ==>
+                     ~(fst (prun lk apply i (gwc_param_cf x k sto nx))
+                       == fst (prun lk apply j (gwc_param_cf x k sto nx))))
+  = introduce forall (i j: nat). i < j /\ j <= n ==>
+                ~(fst (prun lk apply i (gwc_param_cf x k sto nx))
+                  == fst (prun lk apply j (gwc_param_cf x k sto nx)))
+    with introduce _ ==> _
+    with gwc_param_step_distinct lk apply n x k sto nx i j
+
+(* ---- 25.5 a closed instance: 23.6's fixture, through this section - *)
+
+(** 23.6's fixture, with its stack named on its own: three `gwp_gP_f` frames --
+    each `PParamF "p" (fpv FU)` -- above section 14's `gwp_g_t1`, whose head is
+    the surplus `PBindF` and whose floor is a `PScopeF`.  No new fixture is
+    introduced by this section. *)
+let gwc_param_it_k1 : pstack fv fcl =
+  gwp_gP_f :: gwp_gP_f :: gwp_gP_f :: gwp_g_t1
+
+(** **AND IT IS A MEMBER OF THIS FAMILY.**  PROVED, by computation: 23.6's
+    `gwc_it_cf1` IS a `gwc_param_cf`, at value `gwp_g_u`, stack
+    `gwc_param_it_k1`, empty store and counter zero. *)
+let gwc_param_it_is_cf ()
+  : Lemma (gwc_it_cf1 == gwc_param_cf gwp_g_u gwc_param_it_k1
+                                      ([] <: pstore fv fcl) 0)
+  = ()
+
+(** **THE CONDITION HOLDS AT THREE AND FAILS AT FOUR.**  PROVED, by computation.
+    The failure at four is the same boundary `gwc_it_stops` records from the
+    other side: the fourth frame is the surplus `PBindF`, which is not a
+    `PParamF`, so the family's condition stops exactly where 23.2's deep-stutter
+    exclusion begins. *)
+let gwc_param_it_prefix ()
+  : Lemma (gwc_param_prefix 3 gwc_param_it_k1 /\
+           ~(gwc_param_prefix 4 gwc_param_it_k1))
+  = assert_norm (gwc_param_prefix 3 gwc_param_it_k1);
+    assert_norm (gwc_param_prefix 4 gwc_param_it_k1 == false)
+
+(** **THE CLOSED FORM NAMES 23.6's FOUR STACKS.**  PROVED, by computation.  The
+    four tails `gwc_param_drop` produces at indices zero to three are exactly the
+    stacks of `gwc_it_cf1`, `gwc_pp_cf1`, `gwp_gP_cf1` and `gwp_gP_out1` -- the
+    configurations 23.6 reached one transition at a time through `gwc_it_leg1`,
+    `gwc_pp_leg1` and `lemma_prun_cat`. *)
+let gwc_param_it_run ()
+  : Lemma (gwc_param_drop 0 gwc_param_it_k1 == PStep?.k gwc_it_cf1.st /\
+           gwc_param_drop 1 gwc_param_it_k1 == PStep?.k gwc_pp_cf1.st /\
+           gwc_param_drop 2 gwc_param_it_k1 == PStep?.k gwp_gP_cf1.st /\
+           gwc_param_drop 3 gwc_param_it_k1 == PStep?.k gwp_gP_out1.st)
+  = assert_norm (gwc_param_drop 0 gwc_param_it_k1 == PStep?.k gwc_it_cf1.st);
+    assert_norm (gwc_param_drop 1 gwc_param_it_k1 == PStep?.k gwc_pp_cf1.st);
+    assert_norm (gwc_param_drop 2 gwc_param_it_k1 == PStep?.k gwp_gP_cf1.st);
+    assert_norm (gwc_param_drop 3 gwc_param_it_k1 == PStep?.k gwp_gP_out1.st)
+
+(**
+ * **THE LANDING OF 23.6, DERIVED THROUGH THIS SECTION INSTEAD.**  PROVED, at
+ * closed terms, with no hypothesis.  The conclusion is `gwc_it_iterate`'s,
+ * verbatim.  The route differs in exactly one place: 23.6 discharges the
+ * iteration premise by `gwc_it_shape`, which names the left configuration at each
+ * of the three indices and checks the predicate at each; this discharges it by
+ * `gwc_param_prefix_discharges` from `gwc_param_prefix 3 gwc_param_it_k1`, a
+ * single computation on the departure's stack that does not mention `prun`.
+ *
+ * `gwc_it_iterate` is unchanged and is not replaced; both stand, and neither
+ * proof is used by the other.
+ *)
+let gwc_param_it_lands ()
+  : Lemma (gwc_lands_still flook xapply GWCGwy fcl_rel pabot 3 3
+                           gwc_it_cf1 gwc_it_cf2)
+  = lemma_fcl_rel_down ();
+    gwc_it_departs ();
+    gwc_param_it_prefix ();
+    gwc_param_lands flook xapply fcl_rel pabot 3 gwp_g_u gwc_param_it_k1
+                    ([] <: pstore fv fcl) 0 gwc_it_cf2
+
+(** **AND THE FOUR LEFT CONFIGURATIONS, NAMED FROM THE CLOSED FORM.**  PROVED,
+    by `gwc_param_run` at the four indices, with `gwc_param_it_run` identifying
+    the stacks.  `prun` is not unfolded at this fixture anywhere below. *)
+let gwc_param_it_confs ()
+  : Lemma (fst (prun flook xapply 0 gwc_it_cf1) == gwc_it_cf1 /\
+           fst (prun flook xapply 1 gwc_it_cf1) == gwc_pp_cf1 /\
+           fst (prun flook xapply 2 gwc_it_cf1) == gwp_gP_cf1 /\
+           fst (prun flook xapply 3 gwc_it_cf1) == gwp_gP_out1)
+  = gwc_param_it_prefix ();
+    gwc_param_it_run ();
+    gwc_param_prefix_mono 0 3 gwc_param_it_k1;
+    gwc_param_prefix_mono 1 3 gwc_param_it_k1;
+    gwc_param_prefix_mono 2 3 gwc_param_it_k1;
+    gwc_param_run flook xapply 0 gwp_g_u gwc_param_it_k1
+                  ([] <: pstore fv fcl) 0;
+    gwc_param_run flook xapply 1 gwp_g_u gwc_param_it_k1
+                  ([] <: pstore fv fcl) 0;
+    gwc_param_run flook xapply 2 gwp_g_u gwc_param_it_k1
+                  ([] <: pstore fv fcl) 0;
+    gwc_param_run flook xapply 3 gwp_g_u gwc_param_it_k1
+                  ([] <: pstore fv fcl) 0
+
+(** **THE LEFT HALF OF `gwc_it_distinct`, DERIVED FROM 25.4.**  PROVED.  The six
+    inequalities are 23.6's six left-hand ones, obtained here by instantiating
+    `gwc_param_fuel_is_transitions` at `n` three rather than by `assert_norm` on
+    four stack lengths.  The six RIGHT-hand inequalities of `gwc_it_distinct` are
+    NOT obtained here: the structural condition is on the left stack, and 25.4 is
+    about the left run. *)
+let gwc_param_it_distinct ()
+  : Lemma (~(gwc_it_cf1 == gwc_pp_cf1) /\ ~(gwc_it_cf1 == gwp_gP_cf1) /\
+           ~(gwc_it_cf1 == gwp_gP_out1) /\
+           ~(gwc_pp_cf1 == gwp_gP_cf1) /\ ~(gwc_pp_cf1 == gwp_gP_out1) /\
+           ~(gwp_gP_cf1 == gwp_gP_out1))
+  = gwc_param_it_prefix ();
+    gwc_param_it_confs ();
+    gwc_param_fuel_is_transitions flook xapply 3 gwp_g_u gwc_param_it_k1
+                                  ([] <: pstore fv fcl) 0
+
+(** **23.4's PREMISE AT THIS FIXTURE, WITHOUT TOUCHING `prun`.**  PROVED, from
+    the structural condition alone.  This is the conjunct `gwc_it_shape` proves
+    index by index. *)
+let gwc_param_it_shape ()
+  : Lemma (forall (i: nat). i < 3 ==>
+             gwc_redepartable (fst (prun flook xapply i gwc_it_cf1)))
+  = gwc_param_it_prefix ();
+    gwc_param_prefix_discharges flook xapply 3 gwp_g_u gwc_param_it_k1
+                                ([] <: pstore fv fcl) 0
+
+(**
+ * **THE GUARD, AND IT FIRES.**  PROVED, at closed terms, with no hypothesis.
+ * One lemma collects the structural condition and its failure one frame further
+ * down, the identification of 23.6's departure as a member of the family, 23.4's
+ * iteration premise obtained from the condition, the landing at `3 3`, and the
+ * six left-hand distinctness facts.
+ *
+ * **WHAT IS AND IS NOT CLAIMED.**  The fixture is 23.6's and is reused
+ * unchanged; no new fixture is introduced by this section.  Its role here is the
+ * opposite of its role there: at 23.6 it is what the premise is discharged AT, and
+ * here it is one member of a family whose premise is discharged for ALL its
+ * members at 25.3, exhibited to show the general statement instantiates.  The
+ * bound `3` is this fixture's, not the family's; the family has members at every
+ * `n`, and nothing here says any program produces one.
+ *)
+let guard_gwc_param_prefix_discharges ()
+  : Lemma (gwc_param_prefix 3 gwc_param_it_k1 /\
+           ~(gwc_param_prefix 4 gwc_param_it_k1) /\
+           gwc_it_cf1 == gwc_param_cf gwp_g_u gwc_param_it_k1
+                                      ([] <: pstore fv fcl) 0 /\
+           (forall (i: nat). i < 3 ==>
+              gwc_redepartable (fst (prun flook xapply i gwc_it_cf1))) /\
+           gwc_lands_still flook xapply GWCGwy fcl_rel pabot 3 3
+                           gwc_it_cf1 gwc_it_cf2 /\
+           ~(gwc_it_cf1 == gwc_pp_cf1) /\ ~(gwc_it_cf1 == gwp_gP_cf1) /\
+           ~(gwc_it_cf1 == gwp_gP_out1) /\
+           ~(gwc_pp_cf1 == gwp_gP_cf1) /\ ~(gwc_pp_cf1 == gwp_gP_out1) /\
+           ~(gwp_gP_cf1 == gwp_gP_out1))
+  = gwc_param_it_prefix ();
+    gwc_param_it_is_cf ();
+    gwc_param_it_shape ();
+    gwc_param_it_lands ();
+    gwc_param_it_distinct ()
+
+(* ---- 25.6 the LEFT structural family is inhabited at every `n` --- *)
+
+(**
+ * **THE CONDITION HAS MEMBERS AT EVERY `n`.**  PROVED, by construction: `n`
+ * `PParamF` frames over an arbitrary tail.
+ *
+ * **WHY THIS IS HERE AND WHAT IT SETTLES.**  25.3's discharge is a CONDITIONAL
+ * statement -- its only hypothesis is `gwc_param_prefix n k` -- and a conditional
+ * says nothing on its own about whether its hypothesis is ever met.  Every closed
+ * member exhibited at 25.5 has exactly three frames, so without this the whole
+ * section could in principle be a theorem about a class that is empty past three.
+ * It is not: the condition is met at EVERY `n`, and the discharge fires there.
+ *
+ * **AND WHAT IT DOES NOT SETTLE.**  This inhabits the LEFT structural condition
+ * and, through it, `gwc_param_prefix_discharges`, whose hypothesis is exactly
+ * that condition.  It does NOT inhabit `gwc_param_lands`, which additionally
+ * asks for a RELATED RIGHT configuration at `gwc_cf GWCGwy r s _ cf2`.  No right
+ * configuration is constructed here at any `n`, and the only concrete inhabitant
+ * of the combined theorem remains 25.5's, at `n` three.  The two layers are
+ * separate and only the first is settled at arbitrary `n`.
+ *
+ * The tail is arbitrary, so nothing here says the tail carries a surplus, or is
+ * related to anything, or is reachable.
+ *)
+let rec gwc_param_stack_of (n: nat) (tail: pstack fv fcl)
+  : Tot (pstack fv fcl) (decreases n)
+  = if n = 0 then tail
+    else (PParamF "p" (fpv FU) <: pframe fv fcl) :: gwc_param_stack_of (n - 1) tail
+
+let rec gwc_param_stack_of_prefix (n: nat) (tail: pstack fv fcl)
+  : Lemma (ensures gwc_param_prefix n (gwc_param_stack_of n tail))
+          (decreases n)
+  = if n = 0 then () else gwc_param_stack_of_prefix (n - 1) tail
+
+(** **AND THE DISCHARGE FIRES ON THEM, AT EVERY `n`.**  PROVED, with the store,
+    the counter and the tail all arbitrary.  The per-index shape premise of 23.4
+    is obtained with no per-index work and at no fixed `n`. *)
+let gwc_param_family_unbounded (n: nat) (tail: pstack fv fcl)
+                               (sto: pstore fv fcl) (nx: nat)
+  : Lemma (gwc_param_prefix n (gwc_param_stack_of n tail) /\
+           (forall (i: nat). i < n ==>
+              gwc_redepartable
+                (fst (prun flook xapply i
+                        (gwc_param_cf (fpv FU) (gwc_param_stack_of n tail)
+                                      sto nx)))))
+  = gwc_param_stack_of_prefix n tail;
+    gwc_param_prefix_discharges flook xapply n (fpv FU)
+      (gwc_param_stack_of n tail) sto nx
+
+(*
+ * LEDGER FOR SECTION 25.  (Appended; sections 1 to 24 are UNTOUCHED.)
+ *
+ * ON NON-VACUITY, WHICH COMES IN TWO LAYERS.  25.6 inhabits the LEFT structural
+ * condition at EVERY `n`, and with it `gwc_param_prefix_discharges`, whose only
+ * hypothesis is that condition.  `gwc_param_lands` additionally requires a
+ * RELATED RIGHT configuration; that is inhabited at 25.5 and at `n` three only,
+ * and at no other `n` anywhere below.  Statements about "every `n`" in this
+ * section are about the first layer unless they say otherwise.
+ *
+ * WHAT THIS SECTION SETTLES.
+ *
+ *  1. A structural condition on a stack, `gwc_param_prefix n k`: the top `n`
+ *     frames are all `PParamF`.  Decidable, on the LEFT stack only, mentioning
+ *     neither store, counter, allocation state nor right side.  With it:
+ *     monotonicity down in `n`, the length lower bound, the one-frame inversion,
+ *     and its survival under `gwc_param_drop` with the budget reduced.
+ *
+ *  2. The left run in closed form: under the condition at `n`, `prun` at every
+ *     fuel index `i <= n` reaches the SAME value over `gwc_param_drop i k`, at the
+ *     SAME store and counter, with an EMPTY trace.  The store and counter in that
+ *     conclusion are the departure's, which is what says no step of the prefix
+ *     allocates.
+ *
+ *  3. THE DISCHARGE.  `gwc_param_prefix_discharges` proves 23.4's premise --
+ *     `gwc_redepartable` at every index below `n` -- from the structural condition
+ *     alone, at arbitrary `n`, with no per-index computation and with no `pcl_*`
+ *     or relational hypothesis.  `gwc_param_lands` combines it with the departure
+ *     and `pcl_down r` to give `gwc_lands_still ... GWCGwy r s n n` with NO
+ *     per-index premise in the statement.
+ *
+ *  4. For THIS FAMILY and the LEFT run, the fuel index counts transitions: the
+ *     left stack loses exactly one frame per step, so its length strictly
+ *     decreases, so the configurations at distinct indices `i < j <= n` are
+ *     distinct.  Proved at a symbolic departure and an arbitrary `n`.
+ *
+ *  5. A closed instance at 23.6's fixture, reused unchanged: it is a member of the
+ *     family at `n` three, `gwc_it_iterate`'s landing is re-derived through 25.3,
+ *     and the left half of `gwc_it_distinct` is re-derived through 25.4.
+ *
+ * WHAT THIS SECTION DOES NOT SETTLE.
+ *
+ *  1. THE DISCHARGE IS FOR ONE FAMILY.  It covers departures `PVar` over a stack
+ *     with a `PParamF` prefix -- ONE of the seven shapes `gwc_redepartable`
+ *     admits.  The general shape obligation stands.  23.4's ledger item 1 and
+ *     24.5's are unchanged and remain true as written for every departure outside
+ *     this family; `gwc_iterate` and `gwc_iterate_alloc` are neither restated,
+ *     changed nor weakened here, and nothing here is used by them.
+ *
+ *  2. Nothing here says WHICH PROGRAMS produce such stacks, or that any do.  The
+ *     family is given by a condition on a stack; its one exhibited closed member
+ *     is a fixture that already appears at 23.6, and that fixture is not claimed
+ *     to be the residual of any surface program by anything in this section.
+ *
+ *  3. The condition is on the LEFT departure only, as 23.4's premise is.  The
+ *     right side's shape is not constrained here and is not derived here; where
+ *     it is needed it is derived inside 23.3, from the left's shape and the
+ *     relation, and that is unchanged.
+ *
+ *  4. Item 4 is about THIS FAMILY and about the LEFT index.  It does NOT say that
+ *     `gwc_iterate` or `gwc_iterate_alloc` identify their fuel indices with
+ *     transition counts -- for those theorems no such fact is proved at any `n`,
+ *     as their own ledgers record -- and it says nothing about the RIGHT fuel
+ *     index of `gwc_lands_still`, at this family or anywhere else.  The six
+ *     right-hand conjuncts of `gwc_it_distinct` are not re-derived here.
+ *
+ *  5. Allocating steps do not occur in this family's prefix: `gwc_param_prefix n
+ *     k` forces the top `n` frames to be `PParamF`, so none of them is a
+ *     `PScopeF`, and `gwc_param_run` returns the departure's store and counter at
+ *     index `n`.  That is a statement about the first `n` frames of stacks
+ *     satisfying the condition, and about nothing else -- it does not bear on what
+ *     lies BELOW those `n` frames, and section 24's threaded allocation index is
+ *     untouched by it.  `gwc_param_lands` is stated at one fixed `s`, as
+ *     `gwc_iterate` is.
+ *
+ *  6. The exclusions of 23.2 are unchanged and are not revisited: the deep
+ *     stutter, the scope exit, the two yielding value exits, the empty stack,
+ *     `PEmit`, `PPerform` and the seven `gwc_lands_set` branches.  No refutation
+ *     and no new landing for any of them is proved here, and none is claimed.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

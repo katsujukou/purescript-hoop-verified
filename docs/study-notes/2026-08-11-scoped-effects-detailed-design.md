@@ -9803,6 +9803,93 @@ theorem it generalises where both apply.
   branch;
 - any ordering of the two theorems' full premise sets.
 
+#### Discharging the shape obligation, for one family
+
+Two gates produced iteration theorems whose premise asserts, at every index
+below `n`, that the left configuration lies in a fragment. Both said plainly
+that this *iterates* the obligation rather than discharging it: the premise was
+proved for no program, only computed index by index at individual fixtures.
+
+This gate discharges it — for one family, from a condition on the departure
+alone, at arbitrary `n`.
+
+The machine fact that makes it possible is small. The value node over a
+parameter frame keeps the value, keeps the store, keeps the counter, and drops
+exactly one frame. So a value node over a stack whose top `n` frames are all
+parameter frames steps to one whose top `n-1` are. The condition is *preserved*,
+and preservation is one induction rather than `n` computations.
+
+The combined theorem then has **no per-index premise in its statement**: the
+per-index assertion is replaced by a condition on the departure's stack, not
+supplemented by one.
+
+#### Three layers, and they are not the same
+
+This is where care is needed, and the file now separates them mechanically.
+
+1. **At any `n`, the structural condition yields the per-index premise.** That
+   is the discharge, and its only hypothesis is the structural condition —
+   nothing about the interpreter, nothing about the relation, nothing about the
+   right side.
+2. **The left structural family is inhabited at every `n`.** A conditional
+   theorem says nothing on its own about whether its hypothesis is ever met, and
+   every closed member in the file has exactly three frames — so without this
+   the section could in principle have been about a class empty past three.
+   Constructing the stacks settles it: the condition holds at every `n` and the
+   discharge fires there, with store, counter and tail all arbitrary. (Checked
+   independently first, then promoted into the file rather than left as an
+   outside observation.)
+3. **The combined theorem's concrete non-vacuity is at `n` three, and nowhere
+   else.** It additionally requires a *related right configuration*, and the
+   construction in layer 2 produces no such thing at any `n`. "Infinite family"
+   is correct of the left structural condition and of the discharge; it is not
+   established for the related-pair theorem.
+
+Reachability is in neither layer. The tail of the constructed stacks is
+arbitrary — nothing says it carries a surplus, or is related to anything, or is
+reachable — and which surface programs produce such stacks is not addressed.
+
+#### Fuel indices become transition counts, off a fixture for the first time
+
+Every earlier statement is careful that `n n` is a pair of fuel bounds, and the
+identification with transition counts had only ever been proved at named closed
+configurations — four such lemmas, each by computing stack lengths, all of them
+checked individually rather than asserted away.
+
+For this family it holds at a symbolic departure and arbitrary `n`: the left
+stack loses exactly one frame per step, so its length strictly decreases, so the
+configurations at distinct indices differ.
+
+Scoped twice: **this family**, and the **left** index only. The iteration
+theorems still do not identify the two, and nothing here changes that.
+
+#### A hypothesis inherited from the proof route
+
+The combined theorem carries the downward-closure condition on the clause
+relation. It adds nothing relative to the narrow iteration theorem — that
+theorem carries it too, because its one-step closure passes it to the prompt
+arm.
+
+But a run in this family never reaches a prompt frame: the top `n` are all
+parameter frames, so that arm is never taken. The condition is present because
+the theorem *cites* the general iteration theorem, which covers all seven
+shapes, rather than doing its own induction over the one arm it needs. Whether
+it is semantically necessary for a parameter-only theorem, or would fall away
+under a direct induction, is not investigated, and no experiment is offered
+either way.
+
+That is the same distinction the previous gate drew about the monotonicity
+condition: where a hypothesis is *consumed* along a derivation is not where it
+is *needed*.
+
+#### Not proved
+
+- the shape obligation in general — one of seven shapes, one stack shape;
+- non-vacuity of the related-pair theorem beyond `n` three;
+- that any program produces such stacks, or that such stacks are reachable;
+- the right index as a transition count;
+- the necessity of the inherited hypothesis for this family.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
