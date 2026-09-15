@@ -59820,3 +59820,434 @@ let gwc_param_family_unbounded (n: nat) (tail: pstack fv fcl)
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ================================================================== *)
+(* ---- 26. THE RIGHT-IDENTITY PAIR AGAINST THE CARRIER: THE
+           LANDING IS RELATABLE, THE DEPARTURE IS REFUTED ------------ *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION ADJUDICATES.**  Sections 17 to 25 built reach,
+ * composition and iteration over the carrier `gwc_cf`.  Every one of those
+ * results takes a DEPARTING pair as a premise.  This section asks whether the
+ * right-identity pair -- the pair `lemma_arx_reconverges` (41247) runs -- can be
+ * that premise, and answers it at one named pair, by proof in both directions.
+ *
+ * The reconvergence itself is not re-proved and is not changed.  It is a MACHINE
+ * fact, already standing at `lemma_arx_reconverges`, at arbitrary `lk`, `apply`,
+ * `x`, `k`, store and counter, with no hypothesis on any of them: `prun` at fuel
+ * index two on the left and at zero on the right land on the SAME
+ * configuration, trace `[]`, store and counter untouched.  Everything below
+ * CITES it.
+ *
+ * **FUEL AND TRANSITIONS, KEPT APART HERE AS EVERYWHERE ABOVE.**  That the left
+ * side performs TWO ACTUAL TRANSITIONS is a separate fact and is ALSO already
+ * proved, generically, by `lemma_arx_step1` and `lemma_arx_step2`, each over
+ * `pstep_tr`.  The `2` and `0` appearing in 26.2's landings are `prun` FUEL
+ * INDICES, and THIS SECTION ADDS NO COUNT-PINNING OF ITS OWN: it neither
+ * re-derives those two step lemmas nor cites `guard_arx_detour_is_genuine`'s
+ * pinning, which is at that guard's own fixture.
+ *
+ * What is settled here is the RELATIONAL side, and it comes out asymmetric:
+ *
+ *   - the LANDED pair is related at `GWCPacf`, and both `gwc_lands_still` and
+ *     `gwc_lands` hold at counts `2` and `0` (26.2);
+ *   - the DEPARTING pair is REFUTED at every one of the seven tags (26.1).
+ *
+ * So the machinery reaches this pair from the landing side and not from the
+ * departure side.  26.3 names, at the computation component only, what a
+ * departure relation admitting it would have to do; 26.4 is the ledger.
+ *)
+
+(* ---- 26.0 the fixture ------------------------------------------- *)
+
+(**
+ * **THE PAIR.**  `lemma_arx_reconverges`'s two configurations, instantiated at
+ * the `fv`/`fcl` fixture types this file uses everywhere for closed instances,
+ * with the EMPTY stack, the EMPTY store and counter `0`.  The counter is `0` and
+ * the store empty because `gwc_cf` PINS the two counters to `s.an1` and `s.an2`,
+ * and `pabot` is the state whose two frontiers are `0`; nothing below needs a
+ * larger fixture, and `gwrid_each_side_relates_to_itself` shows the smallness is
+ * not what refutes the pair.
+ *)
+let gwrid_x : pval fv = fpv FU
+let gwrid_k : pstack fv fcl = []
+let gwrid_sto : pstore fv fcl = []
+
+let gwrid_cl : pcomp fv fcl = POp (PVar gwrid_x) (PVar #fv #fcl)
+let gwrid_cr : pcomp fv fcl = PVar gwrid_x
+
+let gwrid_cfl : pconf fv fcl =
+  { st = PStep gwrid_cl gwrid_k; store = gwrid_sto; next = 0 }
+let gwrid_cfr : pconf fv fcl =
+  { st = PStep gwrid_cr gwrid_k; store = gwrid_sto; next = 0 }
+
+(** **And it IS the pair `lemma_arx_reconverges` speaks about.**  PROVED, by
+    conversion.  Stated so that nothing below has to be read as being about a
+    pair that merely resembles the reconvergence's. *)
+let gwrid_is_arx_pair ()
+  : Lemma (gwrid_cfl == ({ st = PStep (POp (PVar gwrid_x) PVar) gwrid_k;
+                           store = gwrid_sto; next = 0 } <: pconf fv fcl) /\
+           gwrid_cfr == ({ st = PStep (PVar gwrid_x) gwrid_k;
+                           store = gwrid_sto; next = 0 } <: pconf fv fcl))
+  = ()
+
+(* ---- 26.1 THE DEPARTURE IS REFUTED, AT EVERY TAG ----------------- *)
+
+(**
+ * **THE COMPUTATION COMPONENT REFUSES THE PAIR.**  PROVED.  `pacrel` is a
+ * conjunction over every fuel index `n` of `pacomp_rel`; at `n == 1` the two
+ * redexes `POp (PVar x) PVar` and `PVar x` fall into `pacomp_rel`'s FINAL
+ * clause, `| _, _ -> False`, because the two heads are different constructors
+ * and the relation has no clause joining `POp` to `PVar`.  That single clause is
+ * the whole refutation.
+ *
+ * `pacrel_unfold` is needed for the same reason it is needed everywhere else in
+ * this file: `pacrel` applied to arguments is an ATOM in hypothesis position and
+ * the quantifier inside it is otherwise invisible.
+ *)
+let gwrid_pacrel_refuted ()
+  : Lemma (~(pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr))
+  = introduce pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr ==> False
+    with begin
+      pacrel_unfold #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr ();
+      assert (pacomp_rel #fv #fcl fcl_rel 1 pabot gwrid_cl gwrid_cr)
+    end
+
+(**
+ * **AND SO DOES `gwc_comp`, AT EVERY TAG.**  PROVED, by a seven-way case split
+ * over `gwc_phase`, which has exactly those seven constructors.
+ *
+ * **WHAT THE CASE SPLIT CHECKS, AND IT IS CHECKED BY THE MACHINE AND NOT
+ * ASSERTED HERE.**  `gwc_comp` (52050) is `padx_comp` at `GWCPadxg`, `gwe_comp`
+ * at `GWCGwe`, and `pacrel` at the other five.  `padx_comp` (41551) and
+ * `gwe_comp` (46869) each match on `c1` at `PSplice`, `PEnterCtx` and `PEmit`
+ * and fall through to `pacrel r s c1 c2` for every other head; `POp` is one of
+ * those others.  So at THIS pair all seven tags reduce to the same `pacrel`
+ * obligation, and `gwrid_pacrel_refuted` discharges all seven.
+ *
+ * This is a claim about what those three definitions COMPUTE at a `POp` head,
+ * and each of the seven reductions is performed by F* in the corresponding
+ * branch below.  It is not a claim that `padx_comp` and `gwe_comp` agree with
+ * `pacrel` in general -- they do not, at `PSplice`, `PEnterCtx` and `PEmit`,
+ * which is exactly why they exist.
+ *)
+let gwrid_comp_refuted (q: gwc_phase)
+  : Lemma (~(gwc_comp #fv #fcl q fcl_rel pabot gwrid_cl gwrid_cr))
+  = gwrid_pacrel_refuted ();
+    match q with
+    | GWCPacf -> () | GWCPadx -> () | GWCGwy -> () | GWCGwp -> ()
+    | GWCGwr -> () | GWCPadxg -> () | GWCGwe -> ()
+
+(**
+ * **THE CARRIER REFUSES THE DEPARTING PAIR, AT EVERY TAG.**  PROVED, uniformly
+ * in the tag.  Both configurations are `PStep`, so `gwc_st` takes its
+ * `PStep`/`PStep` clause, whose first conjunct is `gwc_comp` -- and that
+ * conjunct is already refuted, at every tag, by `gwrid_comp_refuted`.  The
+ * remaining conjuncts of `gwc_cf` (`gwc_wf`, `gwc_kd`, `gwc_sr`, the two
+ * frontier equations) are never examined: one false conjunct is enough.
+ *
+ * **READ THIS AS WHAT IT IS.**  It is a REFUTATION at a NAMED PAIR, at a named
+ * relation, and it quantifies over the seven-constructor type `gwc_phase` and
+ * over nothing else.  It does NOT say that the file contains no relation
+ * relating this pair; 26.3 exhibits one.  It does not say anything about
+ * `gwc_cf` at any other pair, at any other fixture, or at any other allocation
+ * state.
+ *)
+let gwrid_no_departure (q: gwc_phase)
+  : Lemma (~(gwc_cf #fv #fcl q fcl_rel pabot gwrid_cfl gwrid_cfr))
+  = gwrid_comp_refuted q;
+    introduce gwc_cf #fv #fcl q fcl_rel pabot gwrid_cfl gwrid_cfr ==> False
+    with begin
+      gwc_cf_unfold #fv #fcl q fcl_rel pabot gwrid_cfl gwrid_cfr ();
+      gwc_st_unfold #fv #fcl q fcl_rel pabot gwrid_cfl.st gwrid_cfr.st ()
+    end
+
+(** **THE SEVEN, WRITTEN OUT.**  PROVED, one conjunct per tag, each a separate
+    instance of `gwrid_no_departure`.  Every one of the seven is a REFUTATION;
+    none of the seven holds.  This is the single lemma the question asked for. *)
+let gwrid_no_departure_seven ()
+  : Lemma (~(gwc_cf #fv #fcl GWCPacf  fcl_rel pabot gwrid_cfl gwrid_cfr) /\
+           ~(gwc_cf #fv #fcl GWCPadx  fcl_rel pabot gwrid_cfl gwrid_cfr) /\
+           ~(gwc_cf #fv #fcl GWCGwy   fcl_rel pabot gwrid_cfl gwrid_cfr) /\
+           ~(gwc_cf #fv #fcl GWCGwp   fcl_rel pabot gwrid_cfl gwrid_cfr) /\
+           ~(gwc_cf #fv #fcl GWCGwr   fcl_rel pabot gwrid_cfl gwrid_cfr) /\
+           ~(gwc_cf #fv #fcl GWCPadxg fcl_rel pabot gwrid_cfl gwrid_cfr) /\
+           ~(gwc_cf #fv #fcl GWCGwe   fcl_rel pabot gwrid_cfl gwrid_cfr))
+  = gwrid_no_departure GWCPacf;  gwrid_no_departure GWCPadx;
+    gwrid_no_departure GWCGwy;   gwrid_no_departure GWCGwp;
+    gwrid_no_departure GWCGwr;   gwrid_no_departure GWCPadxg;
+    gwrid_no_departure GWCGwe
+
+(**
+ * **AND THE REFUTATION IS NOT AN ARTEFACT OF THE FIXTURE.**  PROVED.  Each side
+ * of the pair is `gwc_cf`-related TO ITSELF at `GWCPacf` -- the left redex
+ * through `lemma_pacrel_op` and `lemma_pafn_rel_at_pvar`, the right through
+ * `lemma_pacrel_var`, the empty stack through `lemma_pakrel_nil`, the empty
+ * store vacuously, `gwc_wf GWCPacf` being `True`, and both counters sitting on
+ * `pabot`'s two zero frontiers.  So neither the empty stack, nor the empty
+ * store, nor `pabot`, nor `GWCPacf` is what refuses the pair: what refuses it is
+ * the CROSSING, and the third conjunct records that the crossing is real by
+ * showing the two configurations are distinct.
+ *)
+let gwrid_each_side_relates_to_itself ()
+  : Lemma (gwc_cf #fv #fcl GWCPacf fcl_rel pabot gwrid_cfl gwrid_cfl /\
+           gwc_cf #fv #fcl GWCPacf fcl_rel pabot gwrid_cfr gwrid_cfr /\
+           ~(gwrid_cfl == gwrid_cfr))
+  = lemma_pabot_wf ();
+    lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    lemma_pafn_rel_at_pvar #fv #fcl fcl_rel pabot;
+    lemma_pacrel_op #fv #fcl fcl_rel pabot (PVar gwrid_x) (PVar gwrid_x)
+                    (PVar #fv #fcl) (PVar #fv #fcl);
+    assert_norm (POp? gwrid_cl);
+    assert_norm (~(POp? gwrid_cr))
+
+(* ---- 26.2 THE LANDING SIDE IS FINE ------------------------------- *)
+
+(** **The landed pair is `gwc_cf`-related at `GWCPacf`.**  PROVED.  After the
+    detour the two configurations are LITERALLY EQUAL, so this is reflexivity at
+    the three components `GWCPacf` asks for: `pacrel` at `PVar`, `pakrel` at the
+    empty stack, `pasrel` at the empty store, with `gwc_wf GWCPacf` being `True`
+    and the two counters on `pabot`'s frontiers. *)
+let gwrid_landed_pair_related ()
+  : Lemma (gwc_cf #fv #fcl GWCPacf fcl_rel pabot gwrid_cfr gwrid_cfr)
+  = lemma_pabot_wf ();
+    lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x
+
+(** **The two runs, read off the reconvergence.**  PROVED, at ARBITRARY `lk` and
+    `apply`, by citing `lemma_arx_reconverges` and nothing else.  `2` and `0` are
+    `prun` FUEL INDICES; nothing here identifies a unit of fuel with a
+    transition, and no count is pinned here. *)
+let gwrid_run_is_landing (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma (fst (prun lk apply 2 gwrid_cfl) == gwrid_cfr /\
+           fst (prun lk apply 0 gwrid_cfr) == gwrid_cfr /\
+           snd (prun lk apply 2 gwrid_cfl) == ([] <: list string) /\
+           snd (prun lk apply 0 gwrid_cfr) == ([] <: list string))
+  = lemma_arx_reconverges lk apply gwrid_x gwrid_k gwrid_sto 0
+
+(**
+ * **THE LANDING, AT COUNTS `2` AND `0`, FOR A PAIR THAT HAS NO DEPARTURE AT ANY
+ * TAG.**  PROVED, at arbitrary `lk` and `apply`.  Both traces are `[]` and the
+ * two landed configurations are related at `GWCPacf`, which is the whole of
+ * `gwc_lands_still`.
+ *
+ * **THIS IS THE ASYMMETRY.**  `gwrid_no_departure` refutes `gwc_cf` at this
+ * pair at all seven tags; this lemma supplies the landing form at one of them.
+ * The two are about the SAME pair at the SAME allocation state, so neither is
+ * the other's negation and there is no tension: `gwc_lands_still` speaks about
+ * the pair the runs ARRIVE at, `gwc_cf` about the pair they DEPART from, and at
+ * this pair the first is inhabited while the second is refuted.
+ *
+ * **WHAT IS NOT CLAIMED.**  This does not discharge any premise of section 17
+ * to 25's theorems.  `gwc_iterate`'s first relational premise reads
+ * `gwc_cf GWCGwy r s cf1 cf2` -- at the SOURCE pair -- and `gwrid_no_departure`
+ * refutes precisely that at this pair, `GWCGwy` being one of the seven tags it
+ * covers.  Its two counts read `n n`, equal on the two sides, where this pair's
+ * landing is at `2` and `0`.  No premise of that theorem, or of
+ * `gwc_iterate_alloc` or `gwc_param_lands`, is supplied here, and none is
+ * claimed to follow.
+ *)
+let gwrid_lands_still (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma (gwc_lands_still lk apply GWCPacf fcl_rel pabot 2 0 gwrid_cfl gwrid_cfr)
+  = gwrid_run_is_landing lk apply;
+    gwrid_landed_pair_related ();
+    gwc_lands_still_intro lk apply GWCPacf fcl_rel pabot 2 0 gwrid_cfl gwrid_cfr
+
+(**
+ * **AND THE OTHER, PROVENANCE-RETAINING LANDING FORM HOLDS TOO.**  PROVED.
+ * `gwc_lands` carries an allocation state `s'` with `paext`, `pawf`, the
+ * `s' == s \/ s' == paalloc s` disjunction and `paprov_step_at`, and all of it
+ * is available here with `s'` taken to be `pabot` itself: `paext pabot pabot`
+ * from `lemma_paext_refl_wf`, `pawf pabot` from `lemma_pabot_wf`, the left
+ * disjunct by reflexivity, and `paprov_step_at`'s NON-ALLOCATING disjunct
+ * because all four counters are `0`.
+ *
+ * **THE TWO FORMS ARE NOT ORDERED, AND NEITHER IS CALLED THE STRONGER.**
+ * `gwc_lands` retains provenance, accessibility and well-formedness, which
+ * `gwc_lands_still` drops; `gwc_lands_still` pins BOTH traces to `[]` and FIXES
+ * the state, where `gwc_lands` asks only that the traces be EQUAL.  20.2 records
+ * that mixture and records that no unconditional implication is proved in either
+ * direction.  What is claimed here is only that BOTH hold at this pair.
+ *)
+let gwrid_lands (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma (gwc_lands lk apply GWCPacf fcl_rel pabot 2 0 gwrid_cfl gwrid_cfr)
+  = gwrid_run_is_landing lk apply;
+    gwrid_landed_pair_related ();
+    lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    introduce exists (s': pastate).
+        (paext s' pabot /\ pawf s' /\ (s' == pabot \/ s' == paalloc pabot) /\
+         paprov_step_at s' pabot gwrid_cfl gwrid_cfr
+                        (fst (prun lk apply 2 gwrid_cfl))
+                        (fst (prun lk apply 0 gwrid_cfr)) /\
+         gwc_cf GWCPacf fcl_rel s' (fst (prun lk apply 2 gwrid_cfl))
+                                   (fst (prun lk apply 0 gwrid_cfr)))
+    with pabot and ()
+
+(* ---- 26.3 THE MISSING RELATION, NAMED AT ONE COMPONENT ----------- *)
+
+(**
+ * **WHAT A PHASE ADMITTING THIS DEPARTURE WOULD NEED, AT THE COMPUTATION
+ * COMPONENT.**  A relation that joins `POp c PVar` to `c` and is `pacrel`
+ * everywhere else.  It is written down here so that the gap 26.1 localises has
+ * a NAME and three checkable facts, and for no other purpose.
+ *
+ * **WHAT THIS IS NOT.**  No phase is built out of it.  No tag is added to
+ * `gwc_phase`.  There is no stack component, no store component, no
+ * configuration relation, no `gwc_comp` case, no transition-compatibility
+ * result, and no monotonicity, equivariance or composition lemma.  Nothing here
+ * says this is the shape the development SHOULD adopt, and nothing here checks
+ * that it would survive the obligations the existing phases satisfy -- in
+ * particular the `POp` clause of `pacomp_rel` demands a relation on the
+ * CONTINUATION as well, and `gwc_rid_comp` discards it by testing `f == PVar`
+ * syntactically instead.  It is a statement of what is missing, at one
+ * component, and it is exactly as strong as its three lemmas below.
+ *)
+let gwc_rid_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                 (c1 c2: pcomp v cl) : GTot prop
+  = (match c1 with
+     | POp a f -> (f == PVar #v #cl /\ pacrel r s a c2) \/ pacrel r s c1 c2
+     | _ -> pacrel r s c1 c2)
+
+(** The `squash`-to-`squash` cast, for the reason `pacrel_unfold` records. *)
+let gwc_rid_comp_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                        (c1 c2: pcomp v cl)
+                        (h: squash (gwc_rid_comp r s c1 c2))
+  : squash (match c1 with
+            | POp a f -> (f == PVar #v #cl /\ pacrel r s a c2) \/ pacrel r s c1 c2
+            | _ -> pacrel r s c1 c2)
+  = h
+
+(** **FACT 1: it is a WEAKENING of `pacrel` on the computation component.**
+    PROVED, at arbitrary `v`, `cl`, `r`, `s` and both computations.  Every
+    branch takes the right disjunct, or the default clause, unchanged. *)
+let gwc_rid_comp_of_pacrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2) (ensures gwc_rid_comp r s c1 c2)
+  = match c1 with
+    | POp a f -> () | _ -> ()
+
+(** **FACT 2: it relates the right-identity pair.**  PROVED, through the LEFT
+    disjunct: the continuation is `PVar` on the nose, and the two arguments
+    `PVar x` and `PVar x` are `pacrel` by `lemma_pacrel_var`. *)
+let gwc_rid_comp_relates_rid ()
+  : Lemma (gwc_rid_comp #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr)
+  = assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x
+
+(** **FACT 3: the weakening is STRICT.**  PROVED, and the separating pair is the
+    right-identity pair itself -- which is the point: the one pair that motivates
+    the definition is already the one that witnesses it is not `pacrel`. *)
+let gwc_rid_comp_strictly_weaker ()
+  : Lemma (gwc_rid_comp #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr /\
+           ~(pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr))
+  = gwc_rid_comp_relates_rid (); gwrid_pacrel_refuted ()
+
+(** The same fact as a refuted implication, so that no reader has to assemble
+    the two conjuncts to see that the converse of `gwc_rid_comp_of_pacrel`
+    fails.  PROVED. *)
+let gwc_rid_comp_not_equal_pacrel ()
+  : Lemma (~(forall (c1 c2: pcomp fv fcl).
+               gwc_rid_comp #fv #fcl fcl_rel pabot c1 c2 ==>
+               pacrel #fv #fcl fcl_rel pabot c1 c2))
+  = gwc_rid_comp_strictly_weaker ()
+
+(* ================================================================== *)
+(*  26.4 SECTION 26 LEDGER: WHAT THIS GATE SETTLES ABOUT THE LAW       *)
+(* ================================================================== *)
+
+(**
+ * **PROVED HERE.**
+ *
+ *  1. `gwrid_no_departure`, `gwrid_no_departure_seven`: at the pair
+ *     `gwrid_cfl` / `gwrid_cfr`, at `fcl_rel` and `pabot`, `gwc_cf q` is
+ *     REFUTED for every `q : gwc_phase`.  The failing clause is `pacomp_rel`'s
+ *     final `| _, _ -> False`, reached at fuel index `1` because the two redex
+ *     heads are `POp` and `PVar`, and reached at all seven tags because
+ *     `gwc_comp` is `pacrel` at five of them and because `padx_comp` and
+ *     `gwe_comp` both fall through to `pacrel` at a `POp` head.
+ *
+ *  2. `gwrid_each_side_relates_to_itself`: each side of that pair IS
+ *     `gwc_cf`-related to itself at `GWCPacf`, and the two are distinct.  So
+ *     item 1 is not an artefact of the fixture's smallness.
+ *
+ *  3. `gwrid_lands_still` and `gwrid_lands`: at arbitrary `lk` and `apply`, the
+ *     LANDED pair satisfies both landing forms at `GWCPacf`, at `prun` fuel
+ *     indices `2` and `0`.
+ *
+ *  4. `gwc_rid_comp_of_pacrel`, `gwc_rid_comp_relates_rid`,
+ *     `gwc_rid_comp_strictly_weaker`: `gwc_rid_comp` is implied by `pacrel`, it
+ *     relates the right-identity pair, and the implication is strict.
+ *
+ * **WHAT THAT MEANS FOR THE LAW, AND IT IS A LOCALISATION AND NOT PROGRESS ON
+ * THE LAW.**
+ *
+ *  - The RECONVERGENCE is a machine fact and was ALREADY PROVED, at
+ *    `lemma_arx_reconverges`, before this section existed.  Nothing here adds to
+ *    it; 26.2 cites it and 26.0 records that the pair is its pair.
+ *
+ *  - The LANDED pair is relatable in BOTH landing forms, with no concession on
+ *    the allocation state, the provenance conjunct or the traces.  The two forms
+ *    are not ordered and neither is called the stronger; see 26.2.
+ *
+ *  - The DEPARTING pair is not relatable at any tag the carrier has.
+ *
+ *  - Therefore a DEPARTURE relation is THE FIRST BLOCKER EXPOSED BY THE PRESENT
+ *    MACHINERY at this pair: every carrier theorem that could be pointed here
+ *    consumes a departure premise, and that premise is the first thing that
+ *    fails.  **THAT IS NOT THE CLAIM THAT IT IS THE ONLY BLOCKER.**  Nothing
+ *    here shows that supplying such a relation would let the adjudication go
+ *    through, or that no further obstruction lies behind it; no attempt past the
+ *    departure premise is made anywhere above.
+ *
+ *  - It is not a run: `lemma_arx_reconverges` already supplies the run,
+ *    generically.  It is not a composition: `gwc_lands_still_compose` and the
+ *    section 23 to 25 iteration theorems all consume a departure and none of
+ *    them produces one.  As to OBSERVATION, what is established is narrower than
+ *    "observation is not the obstacle": the EXHIBITED RUN supplies no separating
+ *    trace, store or counter -- both traces are `[]` and the stores and counters
+ *    agree -- and NO OBSERVATION THEOREM IS APPLIED above, so nothing here
+ *    settles what an observation would do at other runs or at other pairs.
+ *
+ *  - NOTHING HERE SUPPLIES THAT RELATION.  26.3 names a candidate SHAPE at ONE
+ *    component and proves three facts about it.  It is not a phase, it is not a
+ *    tag, it has no stack, store or configuration component, no transition
+ *    compatibility is proved for it, and no evidence is offered that it is the
+ *    right shape -- the note on `gwc_rid_comp` records one concrete reason for
+ *    doubt.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. Every refutation above is at ONE NAMED PAIR, at `fcl_rel`, at `pabot`, at
+ *     the empty stack and the empty store.  None of them is an absence claim
+ *     about this file, and none of them says anything about `gwc_cf` at any
+ *     other pair or any other state.  `gwc_rid_comp` relates this very pair, so
+ *     the file demonstrably does contain a relation that does.
+ *
+ *  2. `2` and `0` are `prun` FUEL INDICES throughout.  No lemma here identifies
+ *     a unit of fuel with a transition, and nothing here pins the counts:
+ *     `guard_arx_detour_is_genuine`'s count pinning is at ITS fixture, not at
+ *     this one, and is not re-derived here.
+ *
+ *  3. `gwc_rid_comp` is a WEAKENING of `pacrel` and is proved to be one.  It is
+ *     not claimed to stand in any order relation to `padx_comp` or `gwe_comp`,
+ *     and those two are NOT classified here as weakenings of `pacrel` either:
+ *     they TREAT THREE HEADS DIFFERENTLY from `pacrel` -- at a `PSplice` pair,
+ *     for instance, `padx_comp` asks for `padx_ktop` on the spliced frames where
+ *     `pacrel` asks for the ordinary frame relation, which can REFUSE a pair
+ *     `pacrel` accepts.  No ordering between any two of these three relations is
+ *     stated or proved anywhere in this section.
+ *
+ *  4. Sections 17 to 25 are untouched.  No theorem of theirs is restated,
+ *     changed, weakened or applied above, and no premise of any of them is
+ *     discharged here.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

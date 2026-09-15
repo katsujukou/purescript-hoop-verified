@@ -9890,6 +9890,110 @@ is *needed*.
 - the right index as a transition count;
 - the necessity of the inherited hypothesis for this family.
 
+#### Pointing the machinery at the law, and finding the gap
+
+Nine gates of reach, composition and iteration machinery. This one asks whether
+any of it can be aimed at right identity, and the answer is sharp in a way that
+is worth recording exactly.
+
+The **reconvergence was already proved**, generically, long before the carrier
+existed: the bind of a value with the identity continuation and the value alone
+land on *literally the same configuration*, at fuel index two against zero, with
+the trace empty and the store and counter untouched. That is a fact about the
+machine and this gate adds nothing to it.
+
+That the left side performs two ACTUAL TRANSITIONS is a separate fact, and it is
+also already proved generically, by the two step lemmas that the reconvergence
+is assembled from. The counts in this gate's landings are fuel indices, and
+**this gate adds no count-pinning of its own** — it neither re-derives those
+step lemmas nor borrows the earlier fixture's pinning.
+
+#### No tag admits the departure
+
+The two departing redexes have different head constructors. Checked against the
+definitions rather than the prose: the carrier's computation component is one of
+two administrative relations at two tags and the ordinary relation at the other
+five — and **both administrative relations special-case exactly three heads and
+fall through to the ordinary one everywhere else.** The bind head is not among
+the three. So at this departure all seven tags reduce to the same obligation,
+and that obligation fails at index one, in the ordinary relation's final
+catch-all clause. One clause is the whole refutation.
+
+Checked independently — as an outside check, not as a theorem in the file: the
+refutation does not depend on the fixture. At **any** value types, clause
+relation, state, value, stack and store, no tag relates the pair. What the file
+states at one named pair appears to hold at every instance; the file itself
+still states only the named-pair version.
+
+A companion guard rules out the obvious alternative reading — each side *is*
+related to itself at the plain tag, so it is the crossing that is refused, not
+the empty stack or the bottom state.
+
+#### The landing side needs no concession
+
+After the detour the two configurations are equal, so the landed pair is
+related. And not only in the standing-still form: the other,
+provenance-retaining landing form holds too, at counts two and zero, with the
+non-allocating disjunct and the bottom state — at arbitrary interpreter
+parameters, with no hypothesis.
+
+The two forms are **not ordered**, and neither is the stronger. One retains
+provenance, accessibility and well-formedness, which the other drops; the other
+pins both traces to empty and fixes the state, where the first asks only that
+the traces agree. An earlier gate recorded that mixture and recorded that no
+unconditional implication is proved in either direction. What is claimed here is
+only that both hold at this pair.
+
+So the machinery reaches this pair on the landing side and refuses it on the
+departure side. **A landing with no departure.**
+
+#### What that localises
+
+A **departure relation** is the **first blocker exposed by the present
+machinery** at this pair: every carrier theorem that could be pointed here
+consumes a departure premise, and that premise is the first thing that fails.
+
+**That is not the claim that it is the only blocker.** Nothing shows that
+supplying such a relation would let the adjudication go through, or that no
+further obstruction lies behind it — no attempt past the departure premise is
+made anywhere.
+
+It is not a run — that is supplied generically and has been for a long time.
+Not a composition — every composition and iteration theorem built over the last
+several gates *consumes* a departure. As to observation, the established point
+is narrower than "observation is not the obstacle": the **exhibited run supplies
+no separating trace, store or counter**, and **no observation theorem is
+applied**, so nothing here settles what an observation would do at other runs or
+other pairs.
+
+#### The candidate, named and not adopted
+
+A computation relation that relates the bind-with-identity to its body and
+otherwise behaves like the ordinary one is defined, proved to be implied by the
+ordinary relation, and proved **strictly** weaker — the separating witness being
+the right-identity pair itself.
+
+What is deliberately not done is longer than what is: no phase, no tag, no stack
+or store component, no configuration relation, no transition compatibility, no
+monotonicity, no equivariance, no composition, and no claim that this is the
+shape to adopt. The file also records a concrete reason for doubt: the ordinary
+relation's own clause at that head demands a relation on the *continuation*, and
+this candidate discards it by testing the continuation syntactically.
+
+It is a name for what is missing, at one component, and nothing more.
+
+#### Not proved
+
+- anything about the law itself — this is a localisation of what is missing, not
+  progress on the statement;
+- that the candidate relation is the right one, or usable, or extensible to a
+  phase;
+- any ordering between the candidate and the two existing administrative
+  computation relations — and those two are not classified as weakenings of the
+  ordinary relation either: they treat three heads *differently*, and at one of
+  them can refuse a pair the ordinary relation accepts;
+- the counts remain fuel indices.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
