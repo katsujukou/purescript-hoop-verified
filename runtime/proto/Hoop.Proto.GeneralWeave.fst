@@ -58451,3 +58451,735 @@ let guard_gwc_iterate_fires ()
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ---- 24. THE ALLOCATING SHAPE ADMITTED, AND THE ITERATION WITH THE
+       STATE THREADED ---------------------------------------------- *)
+
+(*
+ * 23.4's `gwc_iterate` is stated at ONE allocation state: the landing is at the
+ * same `s` the departure was at, and its fragment predicate `gwc_redepartable`
+ * excludes `PVar` over `PScopeF` for exactly that reason -- 23.2 records the
+ * exclusion and `gwc_redepartable_excludes_heads` proves the predicate false
+ * there.  This section admits that one shape and threads the state instead.
+ *
+ * WHAT MAKES THE ADMISSION AVAILABLE.  Two statements already proved above.
+ *
+ *   `gwc_still_exit_scope` at 21.2 concludes `gwc_lands_still lk apply GWCGwy r
+ *   (paalloc s) 1 1 cf1 cf2` -- the SAME tag the pair departed from, at the
+ *   ADVANCED state.  Same tag in and out is what a re-departure needs; 21.2 has
+ *   it, and what it does not have is same state in and out.
+ *
+ *   `gwc_lands_still_compose_at` at 21.3 composes two landings whose states
+ *   DIFFER, and the composite's state is the SECOND leg's -- leg one's state
+ *   occurs in the hypothesis and not in the conclusion.  So a chain whose state
+ *   moves at some steps and not at others composes without naming a single state
+ *   throughout.
+ *
+ * WHAT THE STATE THREADING COSTS.  `gwc_still_exit_scope` requires `pcl_mono r`.
+ * 23.4 does not carry that hypothesis and its doc comment records why: nothing it
+ * cites uses it.  This section's theorem does carry it, and the negative check
+ * below reports where it is spent.
+ *
+ * WHAT IS STILL OUTSIDE.  The widening is by ONE shape and no more, and
+ * `gwc_redepartable_a_split` proves that as an equation on booleans.  `PVar` over
+ * `PBindF`, `PVar` over `PBoundaryF`, `PVar` over `PSiteF`, `PVar` over the empty
+ * stack, `PEmit`, `PPerform` and the seven whose landings are `gwc_lands_set` at
+ * `gwc_qs_gwr_or_pacf` are outside `gwc_redepartable_a` just as they are outside
+ * `gwc_redepartable`; the reasons are 23.2's and are not restated.
+ *
+ * WHAT THIS SECTION DOES AND DOES NOT DO.  It does NOT discharge the SHAPE
+ * obligation, any more than 23.4 did.  Its premise ASSERTS the fragment predicate
+ * at every index below `n`, and no statement in this section proves that premise
+ * for any program; 24.6 discharges it by COMPUTATION at 21.5's closed fixture and
+ * at `n` two, and that is the only discharge offered.
+ *
+ * The counts remain FUEL INDICES for `prun`.  `n n` does not by itself say that
+ * either side performed `n` transitions.
+ *
+ * 23.4 IS NOT REPLACED.  What 24.5 records is this much and no more: the
+ * FRAGMENT PREDICATES are ordered -- `gwc_redepartable_a_of_redepartable` proves
+ * the narrow implies the widened -- and this signature SYNTACTICALLY ADDS
+ * `pcl_mono r`, which 23.4 does not carry.  NO ORDERING OF THE COMPLETE PREMISE
+ * CONJUNCTIONS IS PROVED in either direction, and `incomparable` is not
+ * asserted: that would need a witness meeting all of 23.4's premises while
+ * failing `pcl_mono`, and none is exhibited here.  `gwc_iterate` is untouched,
+ * and so is everything else above this line.
+ *)
+
+(* ---- 24.1 iterated allocation ------------------------------------ *)
+
+(**
+ * **THE `k`-FOLD ALLOCATION.**  `paalloc` applied `k` times, defined with the
+ * OUTERMOST application last, which is the orientation the induction below wants:
+ * `gwc_state_after` and `gwc_alloc_count` both recurse by peeling the LAST index
+ * off the run, so the successor equation they need is `paalloc_n (k + 1) s ==
+ * paalloc (paalloc_n k s)` and not the other one.  Both that equation and
+ * `paalloc_n 0 s == s` hold by conversion and are stated as lemmas so that a call
+ * site can cite them rather than rely on unfolding.
+ *)
+let rec paalloc_n (k: nat) (s: pastate) : Tot pastate (decreases k)
+  = if k = 0 then s else paalloc (paalloc_n (k - 1) s)
+
+(** **ZERO ALLOCATIONS LEAVE THE STATE.**  PROVED, by conversion. *)
+let paalloc_n_zero (s: pastate) : Lemma (paalloc_n 0 s == s) = ()
+
+(** **AND ONE MORE IS ONE MORE, ON THE OUTSIDE.**  PROVED, by conversion. *)
+let paalloc_n_succ (k: nat) (s: pastate)
+  : Lemma (paalloc_n (k + 1) s == paalloc (paalloc_n k s)) = ()
+
+(** **WELL-FORMEDNESS SURVIVES ANY NUMBER OF ALLOCATIONS.**  PROVED, by induction
+    on `k`, with `lemma_paext_of_alloc` at each step -- that lemma is what carries
+    `pawf s` to `pawf (paalloc s)`, and nothing else is used. *)
+let rec paalloc_n_wf (k: nat) (s: pastate)
+  : Lemma (requires pawf s) (ensures pawf (paalloc_n k s)) (decreases k)
+  = if k = 0 then ()
+    else (paalloc_n_wf (k - 1) s;
+          lemma_paext_of_alloc (paalloc_n (k - 1) s))
+
+(** **AND BOTH FRONTIERS ADVANCE BY `k`.**  PROVED, by induction on `k`, from
+    `paalloc`'s definition alone.  This is what makes an allocated state
+    DISTINGUISHABLE from the state it was allocated from: at `k` positive the two
+    records differ in their `an1` field, and in their `an2` field as well. *)
+let rec paalloc_n_frontiers (k: nat) (s: pastate)
+  : Lemma (ensures (paalloc_n k s).an1 == s.an1 + k /\
+                   (paalloc_n k s).an2 == s.an2 + k)
+          (decreases k)
+  = if k = 0 then () else paalloc_n_frontiers (k - 1) s
+
+(* ---- 24.2 the fragment, widened by exactly one shape ------------- *)
+
+(**
+ * **THE ALLOCATING SHAPE, NAMED ON ITS OWN.**  A DECIDABLE predicate, true
+ * exactly at a `PVar` redex over a `PScopeF`-headed stack -- the shape
+ * `gwc_still_exit_scope` at 21.2 takes, and the one shape `gwc_redepartable`
+ * leaves out on account of the state moving.  It is separated from the widened
+ * fragment predicate because the state function of 24.4 is driven by it and by
+ * nothing else.
+ *)
+let gwc_allocating_ck (#v #cl: Type) (c: pcomp v cl) (k: pstack v cl) : bool
+  = match c with
+    | PVar _ -> (match k with | PScopeF :: _ -> true | _ -> false)
+    | _ -> false
+
+(** The same predicate on a CONFIGURATION.  A configuration that is not a `PStep`
+    does not allocate. *)
+let gwc_allocating (#v #cl: Type) (cf: pconf v cl) : bool
+  = match cf.st with
+    | PStep c k -> gwc_allocating_ck c k
+    | _ -> false
+
+(**
+ * **THE WIDENED FRAGMENT: 23.2's SEVEN SHAPES AND THE SCOPE EXIT.**  A DECIDABLE
+ * predicate, written out as its own match rather than as a disjunction, so that
+ * the relationship to `gwc_redepartable_ck` is a proof obligation and not a
+ * definitional identity.  The two lemmas below discharge it: the narrow predicate
+ * IMPLIES this one, and the difference between them is EXACTLY `gwc_allocating`.
+ *
+ * The exclusions are 23.2's, unchanged and not restated, minus the one shape
+ * admitted here.
+ *)
+let gwc_redepartable_a_ck (#v #cl: Type) (c: pcomp v cl) (k: pstack v cl) : bool
+  = match c with
+    | POp _ _ -> true
+    | PHandle _ _ _ _ -> true
+    | PNewP _ _ _ -> true
+    | PSplice _ _ -> true
+    | PVar _ ->
+      (match k with
+       | PParamF _ _ :: _ -> true
+       | PModeF _ _ :: _ -> true
+       | PPromptF _ _ _ :: _ -> true
+       | PScopeF :: _ -> true
+       | _ -> false)
+    | _ -> false
+
+(** The widened predicate on a CONFIGURATION, which is what the iteration
+    quantifies over.  A configuration that is not a `PStep` is outside it
+    outright, exactly as with `gwc_redepartable`. *)
+let gwc_redepartable_a (#v #cl: Type) (cf: pconf v cl) : bool
+  = match cf.st with
+    | PStep c k -> gwc_redepartable_a_ck c k
+    | _ -> false
+
+(** The redex-and-stack half of the implication.  PROVED, by case analysis. *)
+let gwc_redepartable_a_of_redepartable_ck
+      (#v #cl: Type) (c: pcomp v cl) (k: pstack v cl)
+  : Lemma (requires gwc_redepartable_ck c k)
+          (ensures gwc_redepartable_a_ck c k)
+  = match c with
+    | PVar _ -> (match k with | _ :: _ -> () | [] -> ())
+    | _ -> ()
+
+(** **THE NARROW PREDICATE IMPLIES THE WIDENED ONE.**  PROVED, at a configuration,
+    by case analysis.  This is the half that lets 24.5's specialisation feed a
+    narrow premise to the widened theorem. *)
+let gwc_redepartable_a_of_redepartable (#v #cl: Type) (cf: pconf v cl)
+  : Lemma (requires gwc_redepartable cf) (ensures gwc_redepartable_a cf)
+  = match cf.st with
+    | PStep c k -> gwc_redepartable_a_of_redepartable_ck c k
+    | _ -> ()
+
+(** The redex-and-stack half of the difference equation.  PROVED, by case
+    analysis. *)
+let gwc_redepartable_a_split_ck (#v #cl: Type) (c: pcomp v cl) (k: pstack v cl)
+  : Lemma (gwc_redepartable_a_ck c k ==
+           (gwc_redepartable_ck c k || gwc_allocating_ck c k))
+  = match c with
+    | PVar _ -> (match k with | _ :: _ -> () | [] -> ())
+    | _ -> ()
+
+(** **THE WIDENING IS EXACTLY ONE SHAPE.**  PROVED, as an equation on booleans at
+    an arbitrary configuration: the widened predicate is the narrow one OR the
+    allocating one.  This is what says the fragment grew by the scope exit and by
+    nothing else, and it is the form the one-step closure of 24.3 splits on. *)
+let gwc_redepartable_a_split (#v #cl: Type) (cf: pconf v cl)
+  : Lemma (gwc_redepartable_a cf ==
+           (gwc_redepartable cf || gwc_allocating cf))
+  = match cf.st with
+    | PStep c k -> gwc_redepartable_a_split_ck c k
+    | _ -> ()
+
+(** **AND THE TWO HALVES ARE DISJOINT.**  PROVED, by case analysis: inside 23.2's
+    fragment the state does not move.  Together with `gwc_redepartable_a_split`
+    this makes the widened predicate the DISJOINT union of the narrow one and the
+    allocating shape, which is why 24.3's case split is exhaustive and
+    unambiguous. *)
+let gwc_redepartable_not_allocating (#v #cl: Type) (cf: pconf v cl)
+  : Lemma (requires gwc_redepartable cf) (ensures ~(gwc_allocating cf))
+  = match cf.st with
+    | PStep c k ->
+      (match c with
+       | PVar _ -> (match k with | _ :: _ -> () | [] -> ())
+       | _ -> ())
+    | _ -> ()
+
+(** **THE WIDENED FRAGMENT IS ALSO INSIDE `PStep`.**  PROVED, by computation, and
+    it says of `gwc_redepartable_a` what `gwc_redepartable_is_step` says of the
+    narrow predicate: at an index where it holds `prun` applies `pstep_tr` rather
+    than returning immediately.  It does NOT say the configuration moves. *)
+let gwc_redepartable_a_is_step (#v #cl: Type) (cf: pconf v cl)
+  : Lemma (requires gwc_redepartable_a cf) (ensures PStep? cf.st)
+  = ()
+
+(** **THE ADMITTED SHAPE, AT THE THREE PREDICATES AT ONCE.**  PROVED, by
+    computation: at a `PVar` over a `PScopeF`-headed stack the widened predicate
+    holds, the narrow one of 23.2 does not, and the allocating one does.  This is
+    the concrete content of the widening, stated at the shape itself. *)
+let gwc_redepartable_a_at_scope (#v #cl: Type) (x: pval v) (t: pstack v cl)
+  : Lemma (gwc_redepartable_a_ck (PVar x) (PScopeF :: t) /\
+           ~(gwc_redepartable_ck (PVar x) (PScopeF :: t)) /\
+           gwc_allocating_ck (PVar x) (PScopeF :: t))
+  = ()
+
+(* ---- 24.3 one-step closure, at `s` or at `paalloc s` ------------- *)
+
+(**
+ * **INSIDE THE WIDENED FRAGMENT, ONE STEP LANDS AT `GWCGwy`, AT `1 1`, AND AT THE
+ * STATE THE SHAPE DICTATES.**  PROVED, by the split of 24.2 into two arms.
+ *
+ *   NOT ALLOCATING.  `gwc_redepartable cf1` holds, 23.3's `gwc_still_step` gives
+ *   the landing at `s`, and `gwc_redepartable_not_allocating` turns the
+ *   conditional in the conclusion into its `else` branch.  None of 23.3's seven
+ *   arms is restated and none is changed.
+ *
+ *   ALLOCATING.  `gwc_redepartable_a_split` forces `gwc_allocating cf1`, the case
+ *   analysis reaches `PVar` over `PScopeF` on the LEFT, `lemma_pacrel_shape`
+ *   makes the off-diagonal redex arms vacuous, 23.1's `gwc_gwy_head_transfer`
+ *   makes the off-diagonal head arms vacuous, and 21.2's `gwc_still_exit_scope`
+ *   gives the landing at `paalloc s`.
+ *
+ * **THE CASE ANALYSIS IS DRIVEN FROM THE LEFT ALONE**, for 23.3's reason: the
+ * premise names only `cf1`, and the right side's redex and stack head are DERIVED,
+ * not assumed.
+ *
+ * **HYPOTHESES, AND WHERE EACH IS SPENT.**  `pcl_down r` is spent in the
+ * non-allocating arm, at `gwc_still_step`, which 23.3 records as passing it to
+ * `gwc_still_exit_prompt`.  `pcl_mono r` is spent in the allocating arm, at
+ * `gwc_still_exit_scope`, whose statement at 21.2 requires it.  Each was CHECKED
+ * by deleting it from this lemma's `requires` and reading the resulting error:
+ * dropping `pcl_mono` produces ONE error, at the `gwc_still_exit_scope` call, and
+ * dropping `pcl_down` produces ONE error, at the `gwc_still_step` call.  So the
+ * monotonicity condition is the price of the allocating arm and of nothing else
+ * in this lemma.
+ *
+ * `1 1` are FUEL INDICES for `prun`, as everywhere above.
+ *)
+let gwc_still_step_a
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ gwc_cf GWCGwy r s cf1 cf2 /\
+                    gwc_redepartable_a cf1)
+          (ensures gwc_lands_still lk apply GWCGwy r
+                     (if gwc_allocating cf1 then paalloc s else s) 1 1 cf1 cf2)
+  = if gwc_redepartable cf1
+    then (gwc_redepartable_not_allocating cf1;
+          gwc_still_step lk apply r s cf1 cf2)
+    else begin
+      gwc_redepartable_a_split cf1;
+      assert (gwc_allocating cf1);
+      gwc_cf_unfold GWCGwy r s cf1 cf2 ();
+      gwc_st_unfold GWCGwy r s cf1.st cf2.st ();
+      let sto1 = cf1.store in
+      let sto2 = cf2.store in
+      match cf1.st, cf2.st with
+      | PStep c1 k1, PStep c2 k2 ->
+        lemma_pacrel_shape r s c1 c2;
+        assert (cf1 == ({ st = PStep c1 k1; store = sto1; next = s.an1 } <: pconf v cl));
+        assert (cf2 == ({ st = PStep c2 k2; store = sto2; next = s.an2 } <: pconf v cl));
+        (match c1, c2 with
+         | PVar x1, PVar x2 ->
+           (match k1 with
+            | PScopeF :: t1 ->
+              gwc_gwy_head_transfer r s (PScopeF <: pframe v cl) t1 k2;
+              (match k2 with
+               | PScopeF :: t2 ->
+                 gwc_still_exit_scope lk apply r s x1 x2 t1 t2 sto1 sto2
+               | _ -> ())
+            | _ -> ())
+         | _, _ -> ())
+      | _, _ -> ()
+    end
+
+(* ---- 24.4 the threaded allocation state, from the left prefix ---- *)
+
+(**
+ * **AN ALLOCATION-INDEX BOOKKEEPING, COMPUTED FROM THE LEFT PREFIX.**  A TOTAL
+ * function, defined at EVERY input -- it does not presuppose that the run is in
+ * the fragment, or that the pair is related, or that anything is well-formed.
+ * It walks the indices below `n` and applies `paalloc` at those where the LEFT
+ * configuration carries the allocating shape, leaving the state alone at the
+ * others.
+ *
+ * **IT IS NOT "THE STATE THE RUN REACHES".**  A `pastate` is not a component of
+ * the machine and `prun` does not compute one; this function CONSTRUCTS an index
+ * from the shapes along the left prefix.  That the constructed index is the one
+ * the landing relation holds at is PROVED, in 24.5, UNDER that theorem's
+ * premises -- it is not an unconditional operational fact and nothing here makes
+ * it one.
+ *
+ * **IT READS THE LEFT RUN ONLY**, because that is the side `gwc_iterate`'s premise
+ * is stated about and the side 24.5's premise is stated about.  The right side's
+ * shape is not consulted here and is not assumed anywhere below; inside 24.3 it is
+ * DERIVED from the left's shape and the relation.
+ *
+ * It takes `lk` and `apply` because it calls `prun`, and `prun` takes them.
+ *)
+let rec gwc_state_after (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                        (n: nat) (s: pastate) (cf1: pconf v cl)
+  : Tot pastate (decreases n)
+  = if n = 0 then s
+    else let s' = gwc_state_after lk apply (n - 1) s cf1 in
+         if gwc_allocating (fst (prun lk apply (n - 1) cf1)) then paalloc s' else s'
+
+(** **AND HOW MANY OF THOSE INDICES THERE ARE.**  The same walk, counting instead
+    of allocating.  It is what turns `gwc_state_after` into a `paalloc_n`, which
+    is the only reason it is here. *)
+let rec gwc_alloc_count (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                        (n: nat) (cf1: pconf v cl)
+  : Tot nat (decreases n)
+  = if n = 0 then 0
+    else gwc_alloc_count lk apply (n - 1) cf1 +
+         (if gwc_allocating (fst (prun lk apply (n - 1) cf1)) then 1 else 0)
+
+(** **AT ZERO FUEL THE STATE IS THE DEPARTURE STATE.**  PROVED, by conversion.
+    This is the base case of 24.5. *)
+let gwc_state_after_zero (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (s: pastate) (cf1: pconf v cl)
+  : Lemma (gwc_state_after lk apply 0 s cf1 == s) = ()
+
+(** **AND ONE MORE FUEL UNIT ALLOCATES OR DOES NOT, ACCORDING TO THE SHAPE AT THAT
+    INDEX.**  PROVED, by conversion.  This is the step case of 24.5, and the
+    conditional on its right is verbatim the state in 24.3's conclusion. *)
+let gwc_state_after_succ (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                         (n: nat) (s: pastate) (cf1: pconf v cl)
+  : Lemma (gwc_state_after lk apply (n + 1) s cf1 ==
+           (if gwc_allocating (fst (prun lk apply n cf1))
+            then paalloc (gwc_state_after lk apply n s cf1)
+            else gwc_state_after lk apply n s cf1)) = ()
+
+(** **THE THREADED STATE IS AN ITERATED ALLOCATION OF THE DEPARTURE STATE.**
+    PROVED, by induction on `n`, with `paalloc_n_succ` at each step.  This is what
+    connects 24.4 to 24.1: the threaded index is `paalloc_n` applied as many
+    times as the run has allocating indices, and no other state is reachable by
+    this function. *)
+let rec gwc_state_after_is_paalloc_n
+          (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+          (n: nat) (s: pastate) (cf1: pconf v cl)
+  : Lemma (ensures gwc_state_after lk apply n s cf1 ==
+                   paalloc_n (gwc_alloc_count lk apply n cf1) s)
+          (decreases n)
+  = if n = 0 then ()
+    else begin
+      gwc_state_after_is_paalloc_n lk apply (n - 1) s cf1;
+      paalloc_n_succ (gwc_alloc_count lk apply (n - 1) cf1) s
+    end
+
+(** **AND IT IS WELL-FORMED WHENEVER THE DEPARTURE STATE IS.**  PROVED, through
+    the `paalloc_n` bridge and `paalloc_n_wf`.  It is stated because `gwc_cf` at
+    every tag but `GWCPacf` carries `gwc_wf`, so a caller that wants to re-depart
+    from the threaded state in the reach form of 20.2 needs it. *)
+let gwc_state_after_wf (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                       (n: nat) (s: pastate) (cf1: pconf v cl)
+  : Lemma (requires pawf s) (ensures pawf (gwc_state_after lk apply n s cf1))
+  = gwc_state_after_is_paalloc_n lk apply n s cf1;
+    paalloc_n_wf (gwc_alloc_count lk apply n cf1) s
+
+(** **UNDER 23.2's NARROW PREMISE THE THREADED STATE DOES NOT MOVE.**  PROVED, by
+    induction on `n`, with `gwc_redepartable_not_allocating` at each index.  This
+    is the fact that makes 24.5's specialisation land at `s` and not at some
+    allocation of it. *)
+let rec gwc_state_after_of_redepartable
+          (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+          (n: nat) (s: pastate) (cf1: pconf v cl)
+  : Lemma (requires (forall (i: nat). i < n ==>
+                       gwc_redepartable (fst (prun lk apply i cf1))))
+          (ensures gwc_state_after lk apply n s cf1 == s)
+          (decreases n)
+  = if n = 0 then ()
+    else begin
+      gwc_state_after_of_redepartable lk apply (n - 1) s cf1;
+      gwc_redepartable_not_allocating (fst (prun lk apply (n - 1) cf1))
+    end
+
+(* ---- 24.5 THE THEOREM -------------------------------------------- *)
+
+(**
+ * **`n` STEPS INSIDE THE WIDENED FRAGMENT LAND AT `GWCGwy`, AT `n n`, AND AT THE
+ * THREADED STATE.**  PROVED, by induction on `n`.
+ *
+ * BASE.  `prun lk apply 0 cf` is `(cf, [])` by the first line of `prun`'s
+ * definition and `gwc_state_after lk apply 0 s cf1` is `s` by the first line of
+ * its own, so at `n == 0` the landing IS the departure.
+ *
+ * STEP.  The induction hypothesis at `n - 1` gives a landing at `n-1 n-1` at the
+ * state `sm == gwc_state_after lk apply (n-1) s cf1`, whose third conjunct is
+ * `gwc_cf GWCGwy r sm` at the pair `prun` reached on each side.  That is a
+ * `GWCGwy` DEPARTURE at `sm`, obtained and not assumed.  The premise instantiated
+ * at `i == n - 1` gives the widened fragment predicate of the LEFT member.  24.3
+ * turns the two into one more landing at `1 1`, at `sm` or at `paalloc sm`
+ * according to the shape -- which is exactly `gwc_state_after lk apply n s cf1`,
+ * by `gwc_state_after_succ` -- and `gwc_lands_still_compose_at` of 21.3 adds the
+ * counts side by side.  `gwc_lands_still_compose` of 20.2 is NOT the lemma used
+ * here: it fixes one state throughout, and the two legs' states differ at the
+ * allocating indices.
+ *
+ * **THE PREMISE IS ABOUT THE LEFT SIDE ONLY**, for 23.4's reason, which is
+ * unchanged: nothing is assumed about the right side's shape at any index, and it
+ * is derived at each step inside 24.3 from the left's shape and the relation.
+ *
+ * **`pcl_mono r` IS HERE, AND IT HAS ONE USE IN THE PRESENT DERIVATION.**  23.4
+ * does not carry it; its doc comment records that nothing it cites uses it, and
+ * that was checked.  This theorem does carry it, and in THIS PROOF PATH the only
+ * consumer is the scope arm: 24.3's allocating branch passes it to
+ * `gwc_still_exit_scope`, whose statement at 21.2 requires it.  That was CHECKED
+ * rather than assumed -- deleting `pcl_mono` from 24.3's `requires` produces
+ * exactly ONE error, at the `gwc_still_exit_scope` call site, and every other
+ * lemma this section cites verifies unchanged without it.
+ *
+ * **WHAT THAT EXPERIMENT DOES AND DOES NOT SHOW.**  It locates the single point
+ * at which the condition is CONSUMED along the derivation as it now stands.  It
+ * does NOT show that the condition is semantically necessary for the allocating
+ * branch: `gwc_still_exit_scope` requires it because `gwp_exit_scope` does, and
+ * no counterexample is exhibited anywhere showing the scope exit FAILS without
+ * it.  So this is a fact about the present proof path and not about the boundary
+ * condition's logical necessity.  Calling it the price of admitting the
+ * allocating shape would overstate it.
+ *
+ * `pcl_down r` is here for 23.4's reason: 24.3's non-allocating branch is 23.3,
+ * which passes it to `gwc_still_exit_prompt`.  Deleting it likewise produces
+ * exactly one error, at the `gwc_still_step` call site.
+ *
+ * **WHAT THIS DOES NOT DO, STATED PLAINLY.**  It does NOT discharge the shape
+ * obligation, any more than 23.4 did.  The premise ASSERTS the widened fragment
+ * predicate at every index below `n`, and no statement in this section proves that
+ * premise for any particular program; 24.6 discharges it by COMPUTATION at 21.5's
+ * closed fixture and at `n` two, and that is the only discharge offered.
+ *
+ * **THE COUNTS ARE FUEL INDICES.**  `n n` says the two sides' `prun` at fuel index
+ * `n` have empty traces and land in the relation at the threaded state.  It does
+ * NOT say either side performed `n` transitions.  By
+ * `gwc_redepartable_a_is_step` the premise does force each of the first `n` LEFT
+ * configurations to be a `PStep`, so no unit of the left's fuel is returned
+ * unspent; that the successor DIFFERS at each index is a further fact, and it is
+ * not established here at any `n`.  21.5's `gwc_sp_distinct` establishes it at the
+ * fixture 24.6 uses, and that is a fact about that fixture.
+ *)
+let rec gwc_iterate_alloc
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ gwc_cf GWCGwy r s cf1 cf2 /\
+                    (forall (i: nat). i < n ==>
+                       gwc_redepartable_a (fst (prun lk apply i cf1))))
+          (ensures gwc_lands_still lk apply GWCGwy r
+                     (gwc_state_after lk apply n s cf1) n n cf1 cf2)
+          (decreases n)
+  = if n = 0
+    then gwc_lands_still_intro lk apply GWCGwy r s 0 0 cf1 cf2
+    else begin
+      let m : nat = n - 1 in
+      gwc_iterate_alloc lk apply r s m cf1 cf2;
+      let sm = gwc_state_after lk apply m s cf1 in
+      gwc_lands_still_unfold lk apply GWCGwy r sm m m cf1 cf2 ();
+      let d1 = fst (prun lk apply m cf1) in
+      let d2 = fst (prun lk apply m cf2) in
+      assert (gwc_redepartable_a d1);
+      gwc_still_step_a lk apply r sm d1 d2;
+      let sn = (if gwc_allocating d1 then paalloc sm else sm) in
+      assert (gwc_state_after lk apply n s cf1 == sn);
+      gwc_lands_still_compose_at lk apply GWCGwy GWCGwy r sm sn m m 1 1 cf1 cf2
+    end
+
+(**
+ * **AT 23.2's NARROW PREMISE IT LANDS WHERE 23.4 LANDS.**  PROVED, in three
+ * citations: `gwc_redepartable_a_of_redepartable` at every index turns the narrow
+ * premise into the widened one, `gwc_state_after_of_redepartable` collapses the
+ * threaded state to `s`, and the theorem above supplies the landing.
+ *
+ * **THIS IS NOT AN ORDERING OF THE TWO THEOREMS, AND SHOULD NOT BE READ AS ONE.**
+ * Two things are proved and a third is not.  PROVED: the FRAGMENT PREDICATES are
+ * ordered -- `gwc_redepartable_a_of_redepartable` -- and the allocating fixture
+ * of 24.6 leaves the narrow predicate, so the widening is not idle.  ALSO TRUE BY
+ * INSPECTION: this signature SYNTACTICALLY ADDS `pcl_mono r`, which 23.4 does not
+ * carry.
+ *
+ * NOT PROVED: any ordering of the COMPLETE premise conjunctions.  Establishing
+ * that neither contains the other would need a witness satisfying everything
+ * 23.4 asks while FAILING `pcl_mono`, and no such witness is exhibited here; the
+ * independence of the two `pcl_*` conditions is not investigated anywhere in
+ * this file.  So `incomparable` is not asserted, and neither is a containment.
+ * The lemma below is an AGREEMENT ON THE COMMON GROUND -- the two theorems give
+ * the same landing where both apply -- and agreement is not evidence of
+ * incomparability either.  `gwc_iterate` is untouched by everything in this
+ * section, and both statements stand.
+ *)
+let gwc_iterate_alloc_at_the_narrow_premise
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n: nat) (cf1 cf2: pconf v cl)
+  : Lemma (requires pcl_mono r /\ pcl_down r /\ gwc_cf GWCGwy r s cf1 cf2 /\
+                    (forall (i: nat). i < n ==>
+                       gwc_redepartable (fst (prun lk apply i cf1))))
+          (ensures gwc_lands_still lk apply GWCGwy r s n n cf1 cf2)
+  = introduce forall (i: nat). i < n ==>
+                gwc_redepartable_a (fst (prun lk apply i cf1))
+    with introduce _ ==> _
+    with gwc_redepartable_a_of_redepartable (fst (prun lk apply i cf1));
+    gwc_state_after_of_redepartable lk apply n s cf1;
+    gwc_iterate_alloc lk apply r s n cf1 cf2
+
+(* ---- 24.6 the closed instance, and the state moves --------------- *)
+
+(**
+ * **THE WIDENED SHAPE PREMISE, AT 21.5's FIXTURE AND AT `n` TWO.**  PROVED, by
+ * computation and `gwc_sp_leg1`.  The two indices below two are handled one by
+ * one: at zero `prun` is the identity and `gwc_sp_cf1` is a `PVar` over a
+ * `PScopeF`-headed stack, which is the ADMITTED shape; at one `gwc_sp_leg1` names
+ * the configuration reached, `gwc_sp_mid1`, and it is a `PVar` over a
+ * `PParamF`-headed stack, because `gwp_gP_f` unfolds to `PParamF "p" gwp_g_u`.
+ *
+ * So this one fixture exercises BOTH arms of 24.3, in that order.
+ *)
+let gwc_sp_shape_a ()
+  : Lemma (forall (i: nat). i < 2 ==>
+             gwc_redepartable_a (fst (prun flook xapply i gwc_sp_cf1)))
+  = gwc_sp_leg1 ();
+    assert_norm (gwc_redepartable_a gwc_sp_cf1);
+    assert_norm (gwc_redepartable_a gwc_sp_mid1);
+    introduce forall (i: nat). i < 2 ==>
+                gwc_redepartable_a (fst (prun flook xapply i gwc_sp_cf1))
+    with introduce _ ==> _
+    with (if i = 0 then () else ())
+
+(** **AND THE DEPARTURE IS OUTSIDE 23.2's FRAGMENT.**  PROVED, by computation.
+    This is what says the instance is not one `gwc_iterate` could have taken: at
+    index zero the narrow predicate is FALSE and the allocating one is TRUE, so
+    23.4's premise fails at `n` one already for this fixture. *)
+let gwc_sp_shape_a_not_redepartable ()
+  : Lemma (~(gwc_redepartable gwc_sp_cf1) /\ gwc_allocating gwc_sp_cf1)
+  = assert_norm (gwc_redepartable gwc_sp_cf1 == false);
+    assert_norm (gwc_allocating gwc_sp_cf1)
+
+(**
+ * **THE THREADED STATE AT `n` TWO IS `paalloc pabot`, AND IT IS NOT `pabot`.**
+ * PROVED, by computation and `gwc_sp_leg1`.  The allocating count over the two
+ * indices is ONE -- index zero allocates, index one does not -- and the two
+ * frontiers of `paalloc pabot` are one where `pabot`'s are zero, which is what
+ * refutes the equality.
+ *
+ * Without this conjunct the instance would not witness that the state MOVED: a
+ * landing stated at `gwc_state_after ... 2 pabot gwc_sp_cf1` says nothing on its
+ * own about which state that is.
+ *)
+let gwc_sp_state_after ()
+  : Lemma (gwc_state_after flook xapply 2 pabot gwc_sp_cf1 == paalloc pabot /\
+           gwc_alloc_count flook xapply 2 gwc_sp_cf1 == 1 /\
+           ~(gwc_state_after flook xapply 2 pabot gwc_sp_cf1 == pabot))
+  = gwc_sp_leg1 ();
+    assert_norm (gwc_allocating gwc_sp_cf1);
+    assert_norm (gwc_allocating gwc_sp_mid1 == false);
+    assert_norm ((paalloc pabot).an1 == 1);
+    assert_norm (pabot.an1 == 0)
+
+(**
+ * **THE ITERATION FIRES AT `n` TWO, ACROSS THE ALLOCATION.**  PROVED, at closed
+ * terms, with no hypothesis: `pcl_mono` and `pcl_down` come from
+ * `lemma_fcl_rel_mono` and `lemma_fcl_rel_down`, the departure from
+ * `gwc_sp_departs`, and the widened shape premise from `gwc_sp_shape_a`.  The
+ * second conjunct is the first with the threaded state named, by
+ * `gwc_sp_state_after`.
+ *
+ * The second conjunct is also `gwc_sp_chain`'s third, reached by a DIFFERENT
+ * route: 21.5 chains two named branches through `gwc_chain_scope_param` with
+ * shape premises about the departure stack, and this reaches the same landing from
+ * the general theorem, with the shape premise stated at FUEL INDICES instead.
+ * Neither subsumes the other's proof and 21.5 is unchanged.
+ *)
+let gwc_sp_iterate_alloc ()
+  : Lemma (gwc_lands_still flook xapply GWCGwy fcl_rel
+                           (gwc_state_after flook xapply 2 pabot gwc_sp_cf1)
+                           2 2 gwc_sp_cf1 gwc_sp_cf2 /\
+           gwc_lands_still flook xapply GWCGwy fcl_rel (paalloc pabot) 2 2
+                           gwc_sp_cf1 gwc_sp_cf2)
+  = lemma_fcl_rel_mono ();
+    lemma_fcl_rel_down ();
+    gwc_sp_departs ();
+    gwc_sp_shape_a ();
+    gwc_sp_state_after ();
+    gwc_iterate_alloc flook xapply fcl_rel pabot 2 gwc_sp_cf1 gwc_sp_cf2
+
+(**
+ * **THE GUARD, AND IT FIRES ACROSS THE ALLOCATION.**  PROVED, at closed terms,
+ * with no hypothesis.  One lemma collects the departure, the widened shape premise
+ * at every index below two, the failure of 23.2's narrow predicate at index zero
+ * together with the allocating predicate holding there, the threaded state and its
+ * difference from `pabot`, the landing at `2 2` at that state, and the two
+ * accessibility facts that say the state moved forwards and not backwards.
+ *
+ * **WHAT IS AND IS NOT CLAIMED.**  This is ONE closed instance, at TWO of the
+ * eight shapes of `gwc_redepartable_a` -- `PVar` over `PScopeF` and then `PVar`
+ * over `PParamF`.  The shape premise is discharged here by COMPUTATION, at THIS
+ * fixture; that says nothing about landings in general and nothing about which
+ * programs produce such runs.  The other six shapes are not exercised by this
+ * fixture and no claim is made that they are reachable.  `2` is not claimed to be
+ * a bound on anything.
+ *
+ * The four `prun` equations, the distinctness of the three configurations on each
+ * side, and the reach form that names both states are 21.5's, at
+ * `guard_gwc_sp_chain_fires`, and are not restated here.
+ *)
+let guard_gwc_iterate_alloc_fires ()
+  : Lemma (gwc_cf GWCGwy fcl_rel pabot gwc_sp_cf1 gwc_sp_cf2 /\
+           (forall (i: nat). i < 2 ==>
+              gwc_redepartable_a (fst (prun flook xapply i gwc_sp_cf1))) /\
+           ~(gwc_redepartable gwc_sp_cf1) /\ gwc_allocating gwc_sp_cf1 /\
+           gwc_state_after flook xapply 2 pabot gwc_sp_cf1 == paalloc pabot /\
+           ~(gwc_state_after flook xapply 2 pabot gwc_sp_cf1 == pabot) /\
+           gwc_lands_still flook xapply GWCGwy fcl_rel
+                           (gwc_state_after flook xapply 2 pabot gwc_sp_cf1)
+                           2 2 gwc_sp_cf1 gwc_sp_cf2 /\
+           paext (paalloc pabot) pabot /\ ~(paext pabot (paalloc pabot)))
+  = lemma_pabot_wf ();
+    lemma_paext_of_alloc pabot;
+    guard_pa_access_is_not_symmetric pabot;
+    gwc_sp_departs ();
+    gwc_sp_shape_a ();
+    gwc_sp_shape_a_not_redepartable ();
+    gwc_sp_state_after ();
+    gwc_sp_iterate_alloc ()
+
+(*
+ * LEDGER FOR SECTION 24.  (Appended; sections 1 to 23 are UNTOUCHED.)
+ *
+ * WHAT THIS SECTION SETTLES.
+ *
+ *  1. `paalloc_n`, the `k`-fold allocation, oriented with the outermost
+ *     application last.  `paalloc_n 0 s == s` and `paalloc_n (k+1) s == paalloc
+ *     (paalloc_n k s)` hold by conversion; `paalloc_n_wf` carries `pawf` through
+ *     any number of allocations, by `lemma_paext_of_alloc` at each step; and
+ *     `paalloc_n_frontiers` advances both frontiers by `k`.
+ *
+ *  2. The fragment widened by EXACTLY ONE SHAPE.  `gwc_redepartable_a` is written
+ *     as its own match, and the relationship to `gwc_redepartable` is PROVED, not
+ *     asserted: `gwc_redepartable_a_of_redepartable` gives the implication,
+ *     `gwc_redepartable_a_split` gives the boolean equation `widened == narrow ||
+ *     allocating`, and `gwc_redepartable_not_allocating` gives disjointness.  So
+ *     the widened predicate is the DISJOINT union of 23.2's and the scope exit's
+ *     shape.
+ *
+ *  3. One-step closure over the widened fragment, landing at `s` or at `paalloc s`
+ *     according to `gwc_allocating`, in two arms: 23.3 for the narrow one and
+ *     21.2's `gwc_still_exit_scope` for the allocating one.  Neither is restated
+ *     and neither is changed.
+ *
+ *  4. `gwc_state_after`, the threaded allocation index computed from the LEFT
+ *     prefix -- a TOTAL function, not an operational fact; that it is the index
+ *     the landing holds at is proved in 24.5 under that theorem's premises --
+ *     alone, with `gwc_state_after_is_paalloc_n` identifying it as `paalloc_n`
+ *     applied `gwc_alloc_count` times, `gwc_state_after_wf` preserving `pawf`, and
+ *     `gwc_state_after_of_redepartable` collapsing it to `s` under 23.2's narrow
+ *     premise.
+ *
+ *  5. `gwc_iterate_alloc`: given `pcl_mono r`, `pcl_down r`, the departure and the
+ *     WIDENED fragment predicate at every index below `n`, the landing is at
+ *     `GWCGwy`, at `gwc_state_after ... n s cf1`, at `n n`.  The step uses
+ *     `gwc_lands_still_compose_at` of 21.3, whose two legs' states may differ;
+ *     20.2's `gwc_lands_still_compose` is not applicable, because it fixes one
+ *     state throughout.
+ *
+ *  6. One closed instance of it, at 21.5's `PScopeF`-over-`PParamF` fixture and at
+ *     `n` two, with the shape premise discharged by computation, the threaded
+ *     state shown to be `paalloc pabot` and shown NOT to be `pabot`, and the
+ *     departure shown to be OUTSIDE 23.2's narrow fragment.
+ *
+ * WHAT THIS SECTION DOES NOT SETTLE.
+ *
+ *  1. The SHAPE obligation is ITERATED, NOT DISCHARGED, exactly as in 23.4.
+ *     `gwc_iterate_alloc`'s premise asserts the widened fragment predicate at
+ *     every index below `n`, and no statement here proves that premise for any
+ *     program.  It is discharged by computation at one fixture and nowhere else.
+ *
+ *  2. `gwc_iterate` is NOT replaced and is NOT weakened.  Proved: the fragment
+ *     predicates are ORDERED, and the allocating fixture of 24.6 leaves the
+ *     narrow one.  True by inspection: this signature adds `pcl_mono r`.  NOT
+ *     proved, and not asserted: any ordering of the complete premise
+ *     conjunctions, in either direction -- `incomparable` would need a witness
+ *     meeting 23.4's premises while failing `pcl_mono`, and none is exhibited.
+ *     `gwc_iterate_alloc_at_the_narrow_premise` is an AGREEMENT ON COMMON
+ *     GROUND, restating 23.4's conclusion under 23.4's fragment premise PLUS
+ *     `pcl_mono`.  Agreement is not evidence of incomparability, and the lemma
+ *     is not offered as an ordering of the two theorems.
+ *
+ *  3. `pcl_mono r` has ONE source, and it was checked rather than assumed.
+ *     Deleting it from `gwc_still_step_a`'s `requires` produces exactly one
+ *     error, at the `gwc_still_exit_scope` call site; deleting `pcl_down r`
+ *     produces exactly one error, at the `gwc_still_step` call site.  What that
+ *     does NOT establish is that the two conditions are independent, or that
+ *     `pcl_mono` is necessary for the scope exit itself; neither is investigated
+ *     here.
+ *
+ *  4. The counts are FUEL INDICES for `prun`.  `n n` does not say either side
+ *     performed `n` transitions.  `gwc_redepartable_a_is_step` gives that the left
+ *     is a `PStep` at each index below `n`, so `prun` applies `pstep_tr` there
+ *     rather than returning immediately; that the successor DIFFERS is a further
+ *     fact, and it is not proved here at any `n`.  At the fixture of 24.6 it is
+ *     21.5's `gwc_sp_distinct`, and that is a fact about that fixture.
+ *
+ *  5. `gwc_state_after` reads the LEFT run only.  Nothing here states that the
+ *     right side's run allocates at the same indices, or that the right side's
+ *     state function would agree with it; that question is not raised and no
+ *     answer to it is claimed.  What IS used is that 24.3 derives the right side's
+ *     shape from the left's at each step.
+ *
+ *  6. Emits, `PPerform`, the deep stutter, the two yielding value exits, the
+ *     empty stack and the seven `gwc_lands_set` branches remain outside, for
+ *     23.2's reasons, which are unchanged.  No refutation of a sharp landing for
+ *     any of them is proved here and none is claimed.
+ *
+ *  7. Nothing here bears on `gwc_dispatch_nonvar`, `gwc_dispatch_step`,
+ *     `gwc_reaches_compose` or the `gwb_*` family.  Those are untouched and all
+ *     of them stand.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

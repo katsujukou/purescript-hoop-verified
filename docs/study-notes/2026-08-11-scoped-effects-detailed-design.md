@@ -9729,6 +9729,80 @@ into, and the first transition was not covered by anything.
   is proved or attempted;
 - anything about which programs produce departures in the fragment.
 
+#### Iterating through an allocation
+
+The previous gate's iteration theorem was fixed-state: the landing sat at the
+same allocation state the departure did. That is why its fragment excluded the
+one value exit that allocates. This gate widens the fragment to eight shapes and
+threads the state.
+
+Two pieces already in place made it available. The allocating exit lands at the
+tag it departed from, at the advanced state. And the two-state composition —
+proved an earlier gate, and used there only in a single hand-built chain — puts
+the composite at the *second* leg's state, with the first leg's state never
+entering the conclusion. So threading is all the induction needs.
+
+#### The index is constructed, not observed
+
+The state the theorem's landing is indexed at is computed by walking the indices
+below `n` and applying one allocation at those where the left configuration
+carries the allocating shape.
+
+It is worth being exact about what that function is. It is **total** — defined
+at every input, presupposing nothing about the run being in the fragment, the
+pair being related, or anything being well-formed. It is **not** "the state the
+run reaches": these states are not components of the machine, and the run
+function does not compute one. The function constructs an index out of the
+shapes along the left prefix. That the constructed index is the one the landing
+relation actually holds at is *proved*, under the theorem's premises — it is not
+an unconditional operational fact.
+
+#### A hypothesis, and the difference between where it is spent and why
+
+The narrow theorem does not need the monotonicity condition on the clause
+relation; that was checked last gate and the hypothesis removed. This one does
+carry it, and its only consumer along the present derivation is the allocating
+arm — established by deleting the hypothesis and observing exactly one error, at
+exactly that call site, with a control experiment for the other condition
+landing at a different one.
+
+That experiment locates where the condition is **consumed**. It does not show
+the condition is semantically necessary for the allocating branch: the exit
+lemma requires it because the lemma beneath it does, and no counterexample
+showing the exit fails without it is exhibited anywhere. A proof-path fact, not
+a fact about the boundary condition.
+
+#### What relates the two theorems, and what does not
+
+Proved: the fragment predicates are **ordered** — the narrow implies the widened
+— and the allocating fixture leaves the narrow one, so the widening is not idle.
+True by inspection: the new signature adds the monotonicity condition.
+
+**Not proved, and not asserted: any ordering of the complete premise
+conjunctions, in either direction.** Calling the two hypothesis sets
+incomparable would need a witness meeting every premise of the narrow theorem
+while failing the added condition, and none is exhibited; the independence of
+the two conditions is not investigated. The companion lemma restating the narrow
+conclusion under the narrow fragment premise plus the added condition is an
+**agreement on common ground**, and agreement is not evidence of
+incomparability.
+
+Checked independently: on a run that takes no allocating step the widened
+theorem degenerates correctly — the premise lifts, the threaded index stays put,
+the allocation count is zero, and the landing is the one the narrow theorem
+already gives at that fixture. The generalisation does not disagree with the
+theorem it generalises where both apply.
+
+#### Not proved
+
+- the shape obligation, still assumed at every index and discharged for no
+  program — this gate iterates it exactly as the last one did;
+- the counts remain fuel indices; `n n` does not say either side performed `n`
+  transitions;
+- the semantic necessity of the monotonicity condition for the allocating
+  branch;
+- any ordering of the two theorems' full premise sets.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
