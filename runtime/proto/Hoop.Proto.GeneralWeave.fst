@@ -60251,3 +60251,716 @@ let gwc_rid_comp_not_equal_pacrel ()
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ================================================================== *)
+(* ---- 27. THE SEMANTIC RIGHT-IDENTITY COMPUTATION RELATION:
+           THE CONTINUATION OBLIGATION IS RESTORED, THE `POp` CLAUSE
+           IS STILL NOT MET -------------------------------------------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION EXAMINES.**  26.3 named a candidate computation relation
+ * `gwc_rid_comp` -- `pacrel` everywhere except that a `POp a f` may be joined to
+ * `c2` when `f == PVar` and `a` is `pacrel`-related to `c2` -- and recorded one
+ * concrete reason for doubt in its own note: `pacomp_rel`'s `POp` clause demands
+ * a relation on the CONTINUATION, and `gwc_rid_comp` discards it by testing
+ * `f == PVar` SYNTACTICALLY.
+ *
+ * This section writes down the variant that replaces that syntactic test by the
+ * Kripke obligation the clause is built from -- `pafn_rel_at r s f PVar`, the
+ * continuation related to the IDENTITY -- and settles four questions about it by
+ * proof.  It reaches one positive and two negatives:
+ *
+ *   - 27.0: the variant relates the right-identity redex, and is implied by
+ *     `pacrel`;
+ *   - 27.1: it is implied by 26.3's syntactic version, and the CONVERSE IS
+ *     REFUTED, at a named state and a named pair;
+ *   - 27.2: **it still does not supply `pacomp_rel`'s `POp` clause**, and two
+ *     refutations say exactly what is missing;
+ *   - 27.3: monotonicity holds at the computation component; the other six
+ *     components a phase would need are not addressed;
+ *   - 27.4: the closed instance, at 26.0's fixture.
+ *
+ * **NOTHING HERE ADOPTS THIS RELATION AND NOTHING HERE SOLVES THE DEPARTURE
+ * PROBLEM 26.1 LOCALISES.**  26 named a candidate; 27 examines it.  No phase is
+ * built, no tag is added to `gwc_phase`, and 26.1's seven refutations stand
+ * untouched -- 27.4 re-exhibits them beside this section's positive so that the
+ * two are visibly about the same pair.
+ *)
+
+(* ---- 27.0 the variant, and its three basic facts ----------------- *)
+
+(**
+ * **THE SEMANTIC VARIANT.**  `pacrel` everywhere except at a `POp` head, where a
+ * second disjunct is offered: the continuation is related to the IDENTITY in
+ * `pafn_rel_at`'s sense -- quantified over all accessible states and all related
+ * argument pairs, which is the shape `pacomp_rel`'s `POp` clause and
+ * `pafn_rel_at` (31129) both use -- and the body is `pacrel`-related to the
+ * whole right-hand computation.
+ *
+ * It differs from `gwc_rid_comp` (60110) in the FIRST conjunct of that disjunct
+ * and in nothing else.  27.1 settles how the two stand to each other.
+ *)
+let gwc_rid2_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (c1 c2: pcomp v cl) : GTot prop
+  = (match c1 with
+     | POp a f -> (pafn_rel_at r s f (fun (y: pval v) -> PVar y) /\ pacrel r s a c2)
+                  \/ pacrel r s c1 c2
+     | _ -> pacrel r s c1 c2)
+
+(** The `squash`-to-`squash` cast, for the reason `pacrel_unfold` records: the
+    application is an ATOM in hypothesis position and the disjunction inside it
+    is otherwise invisible. *)
+let gwc_rid2_comp_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                         (c1 c2: pcomp v cl)
+                         (h: squash (gwc_rid2_comp r s c1 c2))
+  : squash (match c1 with
+            | POp a f -> (pafn_rel_at r s f (fun (y: pval v) -> PVar y) /\
+                          pacrel r s a c2) \/ pacrel r s c1 c2
+            | _ -> pacrel r s c1 c2)
+  = h
+
+(**
+ * **FACT 1: it relates the right-identity redex, at ARBITRARY `r`, `s` and
+ * `x`.**  PROVED, through the LEFT disjunct.  The first conjunct is
+ * `lemma_pafn_rel_at_pvar`'s statement up to the eta-expansion the definition is
+ * written with, and it costs no hypothesis; the second conjunct is
+ * `lemma_pacrel_var` and it is what the hypothesis `pval_rel s.aw x x` pays for.
+ *
+ * **THE HYPOTHESIS IS REAL AND IT IS NOT PECULIAR TO THIS VARIANT.**
+ * `gwc_rid_comp_relates_rid_at` below carries the SAME hypothesis for 26.3's
+ * syntactic version, and `gwc_rid2_comp_rid_needs_refl` refutes BOTH relations at
+ * a value that fails it.  26.3's `gwc_rid_comp_relates_rid` states the fact only
+ * at the fixture, where `pval_rel pabot.aw (fpv FU) (fpv FU)` reduces to
+ * `FU == FU`; that is why no hypothesis appears there.  So the added hypothesis
+ * separates a GENERIC statement from a FIXTURE statement, and does not separate
+ * the two relations.
+ *)
+let gwc_rid2_comp_relates_rid_at (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                 (x: pval v)
+  : Lemma (requires pval_rel s.aw x x)
+          (ensures gwc_rid2_comp #v #cl r s (POp (PVar x) (PVar #v #cl)) (PVar x))
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+         pacrel #v #cl r s' (PVar y1) (PVar y2))
+    with (introduce _ ==> _ with lemma_pacrel_var r s' y1 y2);
+    lemma_pacrel_var r s x x
+
+(** **FACT 2: `pacrel` implies it.**  PROVED, at arbitrary `v`, `cl`, `r`, `s`
+    and both computations.  Every branch takes the right disjunct, or the default
+    clause, unchanged. *)
+let gwc_rid2_comp_of_pacrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                            (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2) (ensures gwc_rid2_comp r s c1 c2)
+  = match c1 with | POp _ _ -> () | _ -> ()
+
+(* ---- 27.1 AGAINST 26.3's SYNTACTIC VERSION ----------------------- *)
+
+(**
+ * **THE SYNTACTIC VERSION IMPLIES THE SEMANTIC ONE.**  PROVED, at arbitrary
+ * `v`, `cl`, `r`, `s` and both computations.  The two disjunctions agree
+ * except in the first conjunct of the left disjunct, and there `f == PVar`
+ * rewrites the obligation to `pafn_rel_at r s PVar PVar`, which is
+ * `lemma_pafn_rel_at_pvar` -- so the Kripke obligation the semantic version
+ * states is DISCHARGED, not assumed, whenever the syntactic test succeeds.
+ *)
+let gwc_rid2_comp_of_rid_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                              (c1 c2: pcomp v cl)
+  : Lemma (requires gwc_rid_comp r s c1 c2) (ensures gwc_rid2_comp r s c1 c2)
+  = gwc_rid_comp_unfold r s c1 c2 ();
+    match c1 with
+    | POp a f ->
+      lemma_pafn_rel_at_pvar #v #cl r s;
+      assert (pafn_rel_at #v #cl r s (PVar #v #cl) (fun (y: pval v) -> PVar y))
+    | _ -> ()
+
+(** **26.3's FACT 2, STATED GENERICALLY.**  PROVED, with the same hypothesis
+    `gwc_rid2_comp_relates_rid_at` carries.  It is stated here for one purpose:
+    to show by machine that the hypothesis belongs to the GENERIC form of the
+    right-identity fact and not to the semantic variant. *)
+let gwc_rid_comp_relates_rid_at (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                                (x: pval v)
+  : Lemma (requires pval_rel s.aw x x)
+          (ensures gwc_rid_comp #v #cl r s (POp (PVar x) (PVar #v #cl)) (PVar x))
+  = lemma_pacrel_var r s x x
+
+(** A value the empty world speaks for nothing about.  `pabot.aw` is `[]`, so
+    `pwlookup_l 0 []` is `None` and this key is related to nothing at `pabot`. *)
+let gwrid2_bad : pval fv = PCtxKey 0
+
+(**
+ * **AND THE HYPOTHESIS IS NECESSARY, FOR BOTH RELATIONS.**  PROVED, by
+ * refutation at one value: `PCtxKey 0` is not `pval_rel`-related to itself at
+ * `pabot`, and at that value BOTH `gwc_rid2_comp` and `gwc_rid_comp` REFUSE the
+ * right-identity redex.  Both refusals go the same way: the left disjunct's
+ * second conjunct is `pacrel r s (PVar x) (PVar x)`, which `lemma_pacrel_var_inv`
+ * turns back into `pval_rel s.aw x x`; the right disjunct is `pacrel` at a `POp`
+ * against a `PVar`, refuted at fuel index `1` by `pacomp_rel`'s final clause.
+ *
+ * So the hypothesis is not a weakness this section introduces: it is a condition
+ * the right-identity fact has at every state, and 26.3 did not have to state it
+ * only because its statement was at the fixture.
+ *)
+let gwc_rid2_comp_rid_needs_refl ()
+  : Lemma (~(pval_rel #fv pabot.aw gwrid2_bad gwrid2_bad) /\
+           ~(gwc_rid2_comp #fv #fcl fcl_rel pabot
+               (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad)) /\
+           ~(gwc_rid_comp #fv #fcl fcl_rel pabot
+               (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad)))
+  = assert_norm (~(pval_rel #fv pabot.aw gwrid2_bad gwrid2_bad));
+    introduce pacrel #fv #fcl fcl_rel pabot (PVar gwrid2_bad) (PVar gwrid2_bad)
+              ==> False
+    with lemma_pacrel_var_inv #fv #fcl fcl_rel pabot gwrid2_bad gwrid2_bad;
+    introduce pacrel #fv #fcl fcl_rel pabot
+                (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad) ==> False
+    with begin
+      pacrel_unfold #fv #fcl fcl_rel pabot
+        (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad) ();
+      assert (pacomp_rel #fv #fcl fcl_rel 1 pabot
+                (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad))
+    end;
+    introduce gwc_rid2_comp #fv #fcl fcl_rel pabot
+                (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad) ==> False
+    with gwc_rid2_comp_unfold #fv #fcl fcl_rel pabot
+           (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad) ();
+    introduce gwc_rid_comp #fv #fcl fcl_rel pabot
+                (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad) ==> False
+    with gwc_rid_comp_unfold #fv #fcl fcl_rel pabot
+           (POp (PVar gwrid2_bad) (PVar #fv #fcl)) (PVar gwrid2_bad) ()
+
+(**
+ * **A STATE WHOSE FRONTIER HAS RUN AHEAD OF ITS WORLD.**  The world is empty and
+ * both counters are `5`.  It is `pawf`, because `pbounded_world 5 5 []` is
+ * vacuous, and it is the state the converse's witness lives at.
+ *
+ * What makes it useful is `paext`'s allocation clause, read at this state: any
+ * `s'` accessible from it that speaks about an index `i` the empty world did not
+ * speak about must satisfy `5 <= i`.  So the keys `0` through `4` are FROZEN --
+ * no accessible state relates them to anything -- and `pafn_rel_at`'s
+ * quantification, which ranges only over RELATED argument pairs, never reaches
+ * them.  `gwrid2_g_rel_pvar` below is where that is proved.
+ *)
+let gwrid2_s0 : pastate = { aw = ([] <: pworld); an1 = 5; an2 = 5 }
+
+let gwrid2_s0_wf () : Lemma (pawf gwrid2_s0 /\ paext gwrid2_s0 gwrid2_s0)
+  = lemma_paext_refl_wf gwrid2_s0
+
+(** The continuation that differs from `PVar` at exactly one argument, and that
+    argument is one of the frozen keys. *)
+let gwrid2_g (y: pval fv) : pcomp fv fcl
+  = match y with
+    | PCtxKey i -> if i = 0 then PVar (PV FU) else PVar y
+    | _ -> PVar y
+
+(** **AND IT IS NOT `PVar`.**  PROVED, and provable precisely because the two
+    functions DISAGREE at an argument: `gwrid2_g (PCtxKey 0)` is `PVar (PV FU)`
+    and `PVar (PCtxKey 0)` is not, by disjointness of `PV` and `PCtxKey`. *)
+let gwrid2_g_not_pvar () : Lemma (~(gwrid2_g == PVar #fv #fcl))
+  = introduce gwrid2_g == PVar #fv #fcl ==> False
+    with assert (gwrid2_g (PCtxKey 0) == PVar #fv #fcl (PCtxKey 0))
+
+(**
+ * **YET IT IS RELATED TO THE IDENTITY AT `gwrid2_s0`.**  PROVED.  The
+ * quantification is over accessible `s'` and over pairs `y1`, `y2` that `s'`
+ * RELATES, and at every such pair `y1` is not `PCtxKey 0`: if it were, `y2`
+ * would be some `PCtxKey j` with `pwlookup_l 0 s'.aw == Some j`, and
+ * `paext_unfold` then forces `5 <= 0`.  So `gwrid2_g y1` is `PVar y1` at every
+ * argument the quantifier can reach, and `lemma_pacrel_var` closes each case.
+ *)
+let gwrid2_g_rel_pvar ()
+  : Lemma (pafn_rel_at #fv #fcl fcl_rel gwrid2_s0 gwrid2_g
+                       (fun (z: pval fv) -> PVar z))
+  = introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' gwrid2_s0 /\ pval_rel s'.aw y1 y2 ==>
+         pacrel #fv #fcl fcl_rel s' (gwrid2_g y1) (PVar y2))
+    with (introduce _ ==> _
+          with begin
+            paext_unfold s' gwrid2_s0 ();
+            match y1, y2 with
+            | PCtxKey i, PCtxKey j ->
+              assert (pwlookup_l i s'.aw == Some j);
+              assert (pwlookup_l i gwrid2_s0.aw == None);
+              assert (i >= 5);
+              lemma_pacrel_var #fv #fcl fcl_rel s' y1 y2
+            | _, _ -> lemma_pacrel_var #fv #fcl fcl_rel s' y1 y2
+          end)
+
+let gwrid2_sep_l : pcomp fv fcl = POp (PVar gwrid_x) gwrid2_g
+
+(**
+ * **THE CONVERSE IS REFUTED, AND HERE IS THE WITNESS.**  PROVED.  At
+ * `gwrid2_s0`, the pair `POp (PVar (fpv FU)) gwrid2_g` against `PVar (fpv FU)`
+ * satisfies `gwc_rid2_comp` through the left disjunct -- `gwrid2_g_rel_pvar` for
+ * the continuation, `lemma_pacrel_var` for the body -- and fails
+ * `gwc_rid_comp`'s BOTH disjuncts: the left because `gwrid2_g` is not `PVar`,
+ * the right because `pacrel` refuses a `POp` against a `PVar` at fuel index `1`.
+ *
+ * So the semantic variant is not merely a restatement of the syntactic one: it
+ * admits continuations that the syntactic test rejects, and the admission is not
+ * vacuous.
+ *)
+let gwc_rid2_comp_not_of_rid_comp ()
+  : Lemma (gwc_rid2_comp #fv #fcl fcl_rel gwrid2_s0 gwrid2_sep_l gwrid_cr /\
+           ~(gwc_rid_comp #fv #fcl fcl_rel gwrid2_s0 gwrid2_sep_l gwrid_cr))
+  = gwrid2_s0_wf ();
+    gwrid2_g_rel_pvar ();
+    assert (pval_rel #fv gwrid2_s0.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel gwrid2_s0 gwrid_x gwrid_x;
+    gwrid2_g_not_pvar ();
+    introduce pacrel #fv #fcl fcl_rel gwrid2_s0 gwrid2_sep_l gwrid_cr ==> False
+    with begin
+      pacrel_unfold #fv #fcl fcl_rel gwrid2_s0 gwrid2_sep_l gwrid_cr ();
+      assert (pacomp_rel #fv #fcl fcl_rel 1 gwrid2_s0 gwrid2_sep_l gwrid_cr)
+    end;
+    introduce gwc_rid_comp #fv #fcl fcl_rel gwrid2_s0 gwrid2_sep_l gwrid_cr ==> False
+    with gwc_rid_comp_unfold #fv #fcl fcl_rel gwrid2_s0 gwrid2_sep_l gwrid_cr ()
+
+(** The same fact as a refuted implication, so that no reader has to assemble
+    the two conjuncts.  PROVED.  Together with `gwc_rid2_comp_of_rid_comp` this
+    is a STRICT implication between these two relations, and it is a statement
+    about these two and about no others: no ordering is claimed here between
+    either of them and `padx_comp` or `gwe_comp`. *)
+let gwc_rid2_comp_strictly_above_rid_comp ()
+  : Lemma (~(forall (s: pastate) (c1 c2: pcomp fv fcl).
+               gwc_rid2_comp #fv #fcl fcl_rel s c1 c2 ==>
+               gwc_rid_comp #fv #fcl fcl_rel s c1 c2))
+  = gwc_rid2_comp_not_of_rid_comp ()
+
+(**
+ * **WHERE THE SEPARATION CANNOT BE FOUND, AND WHY.**  PROVED, at arbitrary
+ * `v`, `cl`, `r`, `s`, `s'`, `f` and `y`: if `f` is related to the identity at
+ * `s` and `y` is `pval_rel`-related to ITSELF at some accessible `s'`, then
+ * `f y` is `PVar y` on the nose.
+ *
+ * The proof is inversion at fuel index `1`: `pacrel r s' (f y) (PVar y)` forces
+ * `f y` to be a `PVar z` with `pval_rel s'.aw z y`, and `pwf_world s'.aw` --
+ * which `paext` carries -- makes that force `z == y`, at a payload by equality
+ * and at a key by the world's injectivity.
+ *)
+let gwc_rid2_pafn_pointwise (#v #cl: Type) (r: pcl_rel_t cl) (s s': pastate)
+                            (f: pval v -> pcomp v cl) (y: pval v)
+  : Lemma (requires pafn_rel_at r s f (fun (z: pval v) -> PVar z) /\
+                    paext s' s /\ pval_rel s'.aw y y)
+          (ensures f y == PVar y)
+  = pafn_rel_at_unfold r s f (fun (z: pval v) -> PVar z) ();
+    assert (pacrel r s' (f y) (PVar y));
+    pacrel_unfold r s' (f y) (PVar y) ();
+    assert (pacomp_rel r 1 s' (f y) (PVar y));
+    lemma_paext_is_pwext s' s;
+    match f y with
+    | PVar z ->
+      (match z, y with
+       | PV _, PV _ -> ()
+       | PCtxKey i, PCtxKey j ->
+         assert (pwlookup_l i s'.aw == Some j);
+         assert (pwlookup_l j s'.aw == Some j);
+         assert (pwlookup_r j s'.aw == Some i);
+         assert (pwlookup_r j s'.aw == Some j)
+       | _, _ -> ())
+    | _ -> ()
+
+(** At `pabot`, a payload is related to itself already.  PROVED. *)
+let gwc_rid2_pafn_pointwise_pv (f: pval fv -> pcomp fv fcl) (a: fv)
+  : Lemma (requires pafn_rel_at fcl_rel pabot f (fun (z: pval fv) -> PVar z))
+          (ensures f (PV a) == PVar (PV a))
+  = lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    assert (pval_rel #fv pabot.aw (PV a) (PV a));
+    gwc_rid2_pafn_pointwise fcl_rel pabot pabot f (PV a)
+
+(** And at `pabot` EVERY key is reachable, which is what distinguishes `pabot`
+    from `gwrid2_s0`: `pabot`'s two frontiers are `0`, so for each `i` the state
+    whose world is `[(i, i)]` and whose frontiers are `i + 1` is accessible, and
+    it relates `PCtxKey i` to itself. *)
+let gwrid2_kw (i: nat) : pastate = { aw = [(i, i)]; an1 = i + 1; an2 = i + 1 }
+
+let gwc_rid2_pafn_pointwise_key (f: pval fv -> pcomp fv fcl) (i: nat)
+  : Lemma (requires pafn_rel_at fcl_rel pabot f (fun (z: pval fv) -> PVar z))
+          (ensures f (PCtxKey i) == PVar (PCtxKey i))
+  = assert (pwlookup_l i (gwrid2_kw i).aw == Some i);
+    assert (pwf_world (gwrid2_kw i).aw);
+    assert (paext (gwrid2_kw i) pabot);
+    assert (pval_rel #fv (gwrid2_kw i).aw (PCtxKey i) (PCtxKey i));
+    gwc_rid2_pafn_pointwise fcl_rel pabot (gwrid2_kw i) f (PCtxKey i)
+
+(** **AT `pabot`, AT THE FIXTURE TYPES, THE COLLAPSE IS TOTAL.**  PROVED, by the
+    two-constructor case split on `pval fv`: a continuation related to the
+    identity at `pabot` agrees with `PVar` at EVERY argument. *)
+let gwc_rid2_pafn_is_pvar_pointwise (f: pval fv -> pcomp fv fcl)
+  : Lemma (requires pafn_rel_at fcl_rel pabot f (fun (z: pval fv) -> PVar z))
+          (ensures forall (y: pval fv). f y == PVar y)
+  = introduce forall (y: pval fv). f y == PVar y
+    with (match y with
+          | PV a -> gwc_rid2_pafn_pointwise_pv f a
+          | PCtxKey i -> gwc_rid2_pafn_pointwise_key f i)
+
+let gwc_rid2_comp_collapses_at_pabot_at
+      (a: pcomp fv fcl) (f: pval fv -> pcomp fv fcl) (c2: pcomp fv fcl)
+  : Lemma (requires gwc_rid2_comp #fv #fcl fcl_rel pabot (POp a f) c2)
+          (ensures (((forall (y: pval fv). f y == PVar y) /\
+                     pacrel #fv #fcl fcl_rel pabot a c2) \/
+                    pacrel #fv #fcl fcl_rel pabot (POp a f) c2))
+  = gwc_rid2_comp_unfold #fv #fcl fcl_rel pabot (POp a f) c2 ();
+    introduce (pafn_rel_at #fv #fcl fcl_rel pabot f
+                           (fun (z: pval fv) -> PVar z) /\
+               pacrel #fv #fcl fcl_rel pabot a c2) ==>
+              (((forall (y: pval fv). f y == PVar y) /\
+                pacrel #fv #fcl fcl_rel pabot a c2) \/
+               pacrel #fv #fcl fcl_rel pabot (POp a f) c2)
+    with gwc_rid2_pafn_is_pvar_pointwise f
+
+(**
+ * **SO AT `pabot` THE TWO RELATIONS DIFFER AT MOST BY THE EQUALITY OF TWO
+ * POINTWISE-EQUAL FUNCTIONS.**  PROVED, in the form stated: at `pabot`, at the
+ * fixture types, `gwc_rid2_comp` at a `POp` head yields either `pacrel` on the
+ * whole pair or a continuation agreeing with `PVar` at every argument together
+ * with `pacrel` on the body.
+ *
+ * **READ THIS AS WHAT IT IS.**  It is a statement about what the left disjunct
+ * yields AT `pabot`.  Combined with `gwc_rid_comp`'s own left disjunct, it says
+ * that a pair separating the two relations AT `pabot` would need an `f`
+ * agreeing with `PVar` at every argument while `f == PVar` fails.  **NO SUCH
+ * PAIR IS EXHIBITED HERE AND NONE IS REFUTED HERE**; what IS settled is that the
+ * separation `gwc_rid2_comp_not_of_rid_comp` exhibits is at `gwrid2_s0`, whose
+ * frozen keys are outside `pafn_rel_at`'s reach, and not at `pabot`, where
+ * nothing is outside its reach.
+ *)
+let gwc_rid2_comp_collapses_at_pabot ()
+  : Lemma (forall (a: pcomp fv fcl) (f: pval fv -> pcomp fv fcl) (c2: pcomp fv fcl).
+             gwc_rid2_comp #fv #fcl fcl_rel pabot (POp a f) c2 ==>
+             (((forall (y: pval fv). f y == PVar y) /\
+               pacrel #fv #fcl fcl_rel pabot a c2) \/
+              pacrel #fv #fcl fcl_rel pabot (POp a f) c2))
+  = introduce forall (a: pcomp fv fcl) (f: pval fv -> pcomp fv fcl) (c2: pcomp fv fcl).
+        (gwc_rid2_comp #fv #fcl fcl_rel pabot (POp a f) c2 ==>
+         (((forall (y: pval fv). f y == PVar y) /\
+           pacrel #fv #fcl fcl_rel pabot a c2) \/
+          pacrel #fv #fcl fcl_rel pabot (POp a f) c2))
+    with (introduce gwc_rid2_comp #fv #fcl fcl_rel pabot (POp a f) c2 ==>
+                    (((forall (y: pval fv). f y == PVar y) /\
+                      pacrel #fv #fcl fcl_rel pabot a c2) \/
+                     pacrel #fv #fcl fcl_rel pabot (POp a f) c2)
+          with gwc_rid2_comp_collapses_at_pabot_at a f c2)
+
+(* ---- 27.2 THE CLAUSE THAT MOTIVATED IT: STILL NOT MET ------------ *)
+
+(**
+ * **WHAT THE LEFT DISJUNCT DOES SUPPLY.**  PROVED, at arbitrary `v`, `cl`, `r`,
+ * `s`, `a1`, `f1` and `c2`.  When `pacrel` refuses the pair and
+ * `gwc_rid2_comp` accepts it, the acceptance carries exactly two things: a
+ * Kripke obligation on the continuation, of `pafn_rel_at`'s shape, and `pacrel`
+ * on the body against the whole right-hand computation.
+ *
+ * This is the sense in which 26.3's recorded doubt is ADDRESSED AS WORDED.  That
+ * doubt was that `gwc_rid_comp` DISCARDS the continuation obligation by testing
+ * `f == PVar` syntactically; `gwc_rid2_comp` does not discard it -- it states it,
+ * and `gwc_rid2_comp_op_projects` recovers it.  Whether that obligation is the
+ * one `pacomp_rel`'s `POp` clause ASKS FOR is a different question, and the two
+ * refutations below answer it NO.
+ *)
+let gwc_rid2_comp_op_projects (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                              (a1: pcomp v cl) (f1: pval v -> pcomp v cl)
+                              (c2: pcomp v cl)
+  : Lemma (requires gwc_rid2_comp r s (POp a1 f1) c2 /\
+                    ~(pacrel r s (POp a1 f1) c2))
+          (ensures pafn_rel_at r s f1 (fun (z: pval v) -> PVar z) /\
+                   pacrel r s a1 c2)
+  = gwc_rid2_comp_unfold r s (POp a1 f1) c2 ()
+
+(** The left side of the first refutation: the right-identity redex placed under
+    one more `POp`, with the identity continuation. *)
+let gwrid2_cl : pcomp fv fcl = POp gwrid_cl (PVar #fv #fcl)
+
+(**
+ * **REFUTATION 1: AT A `POp`/`POp` PAIR, `gwc_rid2_comp` DOES NOT GIVE
+ * `pacomp_rel`.**  PROVED, at fuel index `2`, at `fcl_rel` and `pabot`.
+ *
+ * The pair is `POp gwrid_cl PVar` against `gwrid_cl`, and both sides are `POp`.
+ * `gwc_rid2_comp` accepts it through the left disjunct: the continuation is
+ * `PVar`, and the body `gwrid_cl` is `pacrel`-related to `gwrid_cl` by
+ * `lemma_pacrel_op` -- which is 26.1's `gwrid_each_side_relates_to_itself`
+ * reasoning at the left redex.  `pacomp_rel` at index `2` takes its `POp`/`POp`
+ * clause, whose first conjunct is `pacomp_rel r 1 s gwrid_cl (PVar gwrid_x)` --
+ * a `POp` against a `PVar`, which is the final `| _, _ -> False`.
+ *
+ * **THIS IS WHERE THE DOUBT NOW SITS.**  The clause asks for the two BODIES to
+ * be related to each other; the left disjunct relates the left body to the whole
+ * RIGHT-HAND COMPUTATION, which is a different pair, and at this instance the
+ * two do not coincide.
+ *)
+let gwc_rid2_comp_op_gap ()
+  : Lemma (gwc_rid2_comp #fv #fcl fcl_rel pabot gwrid2_cl gwrid_cl /\
+           ~(pacomp_rel #fv #fcl fcl_rel 2 pabot gwrid2_cl gwrid_cl))
+  = lemma_pabot_wf ();
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    lemma_pafn_rel_at_pvar #fv #fcl fcl_rel pabot;
+    lemma_pacrel_op #fv #fcl fcl_rel pabot (PVar gwrid_x) (PVar gwrid_x)
+                    (PVar #fv #fcl) (PVar #fv #fcl);
+    assert (pafn_rel_at #fv #fcl fcl_rel pabot (PVar #fv #fcl)
+                        (fun (z: pval fv) -> PVar z))
+
+(** The same fact as a refuted implication, quantified over the four components
+    of a `POp`/`POp` pair.  PROVED.  This is the direct answer to the question
+    27.2 asks: `gwc_rid2_comp` at a `POp`/`POp` pair is NOT enough to derive
+    `pacomp_rel` at index `2`, hence not at every index. *)
+let gwc_rid2_comp_op_clause_not_supplied ()
+  : Lemma (~(forall (a1 a2: pcomp fv fcl) (f1 f2: pval fv -> pcomp fv fcl).
+               gwc_rid2_comp #fv #fcl fcl_rel pabot (POp a1 f1) (POp a2 f2) ==>
+               pacomp_rel #fv #fcl fcl_rel 2 pabot (POp a1 f1) (POp a2 f2)))
+  = gwc_rid2_comp_op_gap ()
+
+(** The second refutation's components: a continuation that ignores its argument
+    and returns a fixed payload, the `POp` it sits in, and that `POp` placed
+    under one more `POp` with the identity continuation. *)
+let gwrid2_f2 : pval fv -> pcomp fv fcl = fun _ -> PVar (PV (FI 0))
+let gwrid2_a1 : pcomp fv fcl = POp (PVar gwrid_x) gwrid2_f2
+let gwrid2_dl : pcomp fv fcl = POp gwrid2_a1 (PVar #fv #fcl)
+
+(**
+ * **REFUTATION 2: AND IT SUPPLIES NO RELATION BETWEEN THE TWO CONTINUATIONS AT
+ * ALL.**  PROVED.  The pair is `POp gwrid2_a1 PVar` against `gwrid2_a1`, so the
+ * left continuation is `PVar` and the right continuation is `gwrid2_f2`.
+ * `gwc_rid2_comp` accepts the pair -- `gwrid2_a1` is `pacrel`-related to itself,
+ * because `gwrid2_f2` is related to itself and `PVar gwrid_x` to itself -- while
+ * `pafn_rel_at fcl_rel pabot PVar gwrid2_f2` is REFUTED, by instantiating its
+ * quantifier at `pabot`, `PV FU`, `PV FU` and inverting: it would ask for
+ * `pval_rel pabot.aw (PV FU) (PV (FI 0))`, that is `FU == FI 0`.
+ *
+ * So the obligation `gwc_rid2_comp_op_projects` recovers is an obligation
+ * against the IDENTITY and not against the other side's continuation, and
+ * nothing about the other side's continuation follows from it.
+ *)
+let gwc_rid2_comp_op_no_fn_relation ()
+  : Lemma (gwc_rid2_comp #fv #fcl fcl_rel pabot gwrid2_dl gwrid2_a1 /\
+           ~(pafn_rel_at #fv #fcl fcl_rel pabot (PVar #fv #fcl) gwrid2_f2))
+  = lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    lemma_pafn_rel_at_pvar #fv #fcl fcl_rel pabot;
+    assert (pval_rel #fv pabot.aw (PV (FI 0)) (PV (FI 0)));
+    introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+         pacrel #fv #fcl fcl_rel s' (gwrid2_f2 y1) (gwrid2_f2 y2))
+    with (introduce _ ==> _
+          with lemma_pacrel_var #fv #fcl fcl_rel s' (PV (FI 0)) (PV (FI 0)));
+    assert (pafn_rel_at #fv #fcl fcl_rel pabot gwrid2_f2 gwrid2_f2);
+    lemma_pacrel_op #fv #fcl fcl_rel pabot (PVar gwrid_x) (PVar gwrid_x)
+                    gwrid2_f2 gwrid2_f2;
+    assert (pafn_rel_at #fv #fcl fcl_rel pabot (PVar #fv #fcl)
+                        (fun (z: pval fv) -> PVar z));
+    introduce pafn_rel_at #fv #fcl fcl_rel pabot (PVar #fv #fcl) gwrid2_f2 ==> False
+    with begin
+      pafn_rel_at_unfold #fv #fcl fcl_rel pabot (PVar #fv #fcl) gwrid2_f2 ();
+      assert (pacrel #fv #fcl fcl_rel pabot (PVar (PV FU)) (PVar (PV (FI 0))));
+      lemma_pacrel_var_inv #fv #fcl fcl_rel pabot (PV FU) (PV (FI 0))
+    end
+
+(** The same fact as a refuted implication.  PROVED. *)
+let gwc_rid2_comp_op_no_fn_relation_q ()
+  : Lemma (~(forall (a1 a2: pcomp fv fcl) (f1 f2: pval fv -> pcomp fv fcl).
+               gwc_rid2_comp #fv #fcl fcl_rel pabot (POp a1 f1) (POp a2 f2) ==>
+               pafn_rel_at #fv #fcl fcl_rel pabot f1 f2))
+  = gwc_rid2_comp_op_no_fn_relation ()
+
+(* ---- 27.3 WHAT A PHASE WOULD STILL NEED -------------------------- *)
+
+(**
+ * **MONOTONICITY, AT THE COMPUTATION COMPONENT.**  PROVED, at arbitrary `v`,
+ * `cl`, `r`, `s1`, `s` and both computations, under the SAME hypotheses
+ * `lemma_pacrel_mono` carries: `paext s1 s` and `pcl_mono r`.
+ *
+ * **WHAT THE PROOF SHOWS ABOUT THE COST OF THE NEW DISJUNCT.**  Two of the three
+ * cases are `lemma_pacrel_mono` and nothing else, and they are the cases
+ * `pacrel`'s own monotonicity already covered.  The case introduced by the new
+ * disjunct is `lemma_pafn_rel_at_mono` on the continuation and
+ * `lemma_pacrel_mono` on the body; `lemma_pafn_rel_at_mono` needs NEITHER
+ * `pcl_mono` NOR the step-indexed family's induction, because the statement it
+ * moves is itself a future quantification.  So the new disjunct adds no
+ * hypothesis to this lemma beyond what `pacrel`'s monotonicity already needed.
+ * That is a statement about THIS proof; no comparison with the syntactic
+ * version's monotonicity is made, because none is proved here.
+ *)
+let gwc_rid2_comp_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+                       (c1 c2: pcomp v cl)
+  : Lemma (requires gwc_rid2_comp r s c1 c2 /\ paext s1 s /\ pcl_mono r)
+          (ensures gwc_rid2_comp r s1 c1 c2)
+  = gwc_rid2_comp_unfold r s c1 c2 ();
+    match c1 with
+    | POp a f ->
+      introduce (pafn_rel_at r s f (fun (z: pval v) -> PVar z) /\ pacrel r s a c2)
+                ==> gwc_rid2_comp r s1 c1 c2
+      with (lemma_pafn_rel_at_mono r s1 s f (fun (z: pval v) -> PVar z);
+            lemma_pacrel_mono r s1 s a c2);
+      introduce pacrel r s c1 c2 ==> gwc_rid2_comp r s1 c1 c2
+      with (lemma_pacrel_mono r s1 s c1 c2;
+            gwc_rid2_comp_of_pacrel r s1 c1 c2)
+    | _ -> lemma_pacrel_mono r s1 s c1 c2
+
+(* ---- 27.4 THE CLOSED INSTANCE ------------------------------------ *)
+
+(** **THE RIGHT-IDENTITY PAIR, AT 26.0's FIXTURE.**  PROVED, and the
+    reflexivity hypothesis is discharged there by computation: `gwrid_x` is
+    `PV FU`, so `pval_rel pabot.aw gwrid_x gwrid_x` is `FU == FU`. *)
+let gwc_rid2_comp_relates_rid ()
+  : Lemma (gwc_rid2_comp #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr)
+  = assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    gwc_rid2_comp_relates_rid_at #fv #fcl fcl_rel pabot gwrid_x
+
+(** **AND `pacrel` REFUSES THAT SAME PAIR.**  PROVED, by 26.1's
+    `gwrid_pacrel_refuted`, which is cited and not re-derived. *)
+let gwc_rid2_comp_strictly_weaker ()
+  : Lemma (gwc_rid2_comp #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr /\
+           ~(pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr))
+  = gwc_rid2_comp_relates_rid (); gwrid_pacrel_refuted ()
+
+(** The same fact as a refuted implication.  PROVED.  With
+    `gwc_rid2_comp_of_pacrel` this makes the implication from `pacrel` STRICT. *)
+let gwc_rid2_comp_not_equal_pacrel ()
+  : Lemma (~(forall (c1 c2: pcomp fv fcl).
+               gwc_rid2_comp #fv #fcl fcl_rel pabot c1 c2 ==>
+               pacrel #fv #fcl fcl_rel pabot c1 c2))
+  = gwc_rid2_comp_strictly_weaker ()
+
+(**
+ * **26.1's REFUTATION AND THIS SECTION'S POSITIVE, SIDE BY SIDE, AT ONE PAIR.**
+ * PROVED, and every conjunct is either proved above or cited from 26: the
+ * semantic variant relates the right-identity REDEX, `pacrel` refuses that same
+ * redex, and `gwc_cf` refuses the CONFIGURATION pair built from it at every one
+ * of `gwc_phase`'s seven tags.
+ *
+ * **WHAT THIS DOES NOT SAY.**  It does not say that a phase whose computation
+ * component is `gwc_rid2_comp` would relate the configuration pair: no such
+ * phase exists, no stack or store component is given for it, and 27.2 refutes
+ * that this relation supplies `pacomp_rel`'s `POp` clause.  It says only that
+ * the pair 26.1 refuses is the pair 27.0 relates.
+ *)
+let gwc_rid2_comp_separates_at_rid ()
+  : Lemma (gwc_rid2_comp #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr /\
+           ~(pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr) /\
+           (forall (q: gwc_phase).
+              ~(gwc_cf #fv #fcl q fcl_rel pabot gwrid_cfl gwrid_cfr)))
+  = gwc_rid2_comp_relates_rid ();
+    gwrid_pacrel_refuted ();
+    introduce forall (q: gwc_phase).
+        ~(gwc_cf #fv #fcl q fcl_rel pabot gwrid_cfl gwrid_cfr)
+    with gwrid_no_departure q
+
+(* ================================================================== *)
+(*  27.5 SECTION 27 LEDGER: WHAT THIS GATE SETTLES ABOUT THE CANDIDATE *)
+(* ================================================================== *)
+
+(**
+ * **PROVED HERE.**
+ *
+ *  1. `gwc_rid2_comp_relates_rid_at`, `gwc_rid2_comp_of_pacrel`: the semantic
+ *     variant relates the right-identity redex at arbitrary `r`, `s` and `x`
+ *     under the hypothesis `pval_rel s.aw x x`, and `pacrel` implies it.
+ *     `gwc_rid2_comp_relates_rid` is the fixture instance and
+ *     `gwc_rid2_comp_strictly_weaker` makes that implication strict.
+ *
+ *  2. `gwc_rid_comp_relates_rid_at`, `gwc_rid2_comp_rid_needs_refl`: the
+ *     hypothesis `pval_rel s.aw x x` is carried by the GENERIC form of the
+ *     right-identity fact for BOTH relations, and at `PCtxKey 0` and `pabot`
+ *     BOTH relations refuse the redex.  So it does not separate the two
+ *     relations; 26.3's statement is hypothesis-free because it is a FIXTURE
+ *     statement, where the hypothesis reduces to `FU == FU`.
+ *
+ *  3. `gwc_rid2_comp_of_rid_comp`: 26.3's syntactic version implies the
+ *     semantic one, at arbitrary `v`, `cl`, `r`, `s` and both computations,
+ *     through `lemma_pafn_rel_at_pvar`.
+ *
+ *  4. `gwc_rid2_comp_not_of_rid_comp`, `gwc_rid2_comp_strictly_above_rid_comp`:
+ *     THE CONVERSE IS REFUTED, with a witness -- at `gwrid2_s0`, whose frontiers
+ *     are `5` and whose world is empty, the key `0` is outside every accessible
+ *     state's world, so a continuation that differs from `PVar` only there is
+ *     related to the identity while failing `f == PVar`.  With item 3 this is a
+ *     STRICT implication between these two relations and between no others.
+ *
+ *  5. `gwc_rid2_pafn_pointwise`, `gwc_rid2_pafn_is_pvar_pointwise`,
+ *     `gwc_rid2_comp_collapses_at_pabot`: at `pabot` and the fixture types, a
+ *     continuation related to the identity agrees with `PVar` at EVERY argument,
+ *     so the left disjunct there yields pointwise identity of the continuation.
+ *     Item 4's separation is therefore located at a state where accessibility
+ *     freezes some arguments, and not at `pabot`.
+ *
+ *  6. `gwc_rid2_comp_op_projects`: when `pacrel` refuses a `POp` pair and
+ *     `gwc_rid2_comp` accepts it, the acceptance carries a Kripke obligation on
+ *     the continuation, of `pafn_rel_at`'s shape, and `pacrel` on the body
+ *     against the whole right-hand computation.
+ *
+ *  7. `gwc_rid2_comp_op_gap`, `gwc_rid2_comp_op_clause_not_supplied`,
+ *     `gwc_rid2_comp_op_no_fn_relation`, `gwc_rid2_comp_op_no_fn_relation_q`:
+ *     **THE `POp` CLAUSE IS STILL NOT MET.**  At a `POp`/`POp` pair,
+ *     `gwc_rid2_comp` does not yield `pacomp_rel` at fuel index `2`, and it
+ *     yields NO relation between the two continuations.
+ *
+ *  8. `gwc_rid2_comp_mono`: monotonicity along `paext`, at the computation
+ *     component, under `pcl_mono r`.
+ *
+ *  9. `gwc_rid2_comp_separates_at_rid`: the pair 26.1 refuses at all seven tags
+ *     is the pair 27.0 relates.
+ *
+ * **WHAT 26.3's RECORDED DOUBT COMES TO, EXACTLY.**
+ *
+ *  - 26.3 doubted that `gwc_rid_comp` could serve because it DISCARDS the
+ *    continuation obligation.  As worded, that is addressed: `gwc_rid2_comp`
+ *    states the obligation rather than discarding it, and item 6 recovers it.
+ *
+ *  - **BUT THE DOUBT IS RELOCATED, NOT REMOVED, AND ITEM 7 SAYS WHERE IT NOW
+ *    SITS.**  `pacomp_rel`'s `POp` clause asks for the two BODIES related to each
+ *    other and the two CONTINUATIONS related to each other.  The new disjunct
+ *    relates the left continuation to the IDENTITY and the left body to the
+ *    WHOLE right-hand computation.  Those are different demands, and item 7
+ *    refutes, at named instances, that the second yields the first.
+ *
+ *  - So on the question the gate asked -- does the semantic variant supply what
+ *    `pacomp_rel`'s `POp` clause asks for -- **the answer proved here is NO.**
+ *
+ * **WHAT A PHASE ADMITTING THE RIGHT-IDENTITY DEPARTURE WOULD STILL NEED.**
+ * `gwc_cf` (52050 area) is built from a computation component, a stack
+ * component, a store component, a configuration relation, a tag in `gwc_phase`,
+ * and the transition-compatibility, monotonicity and equivariance results the
+ * existing phases satisfy.  Of those:
+ *
+ *  - the COMPUTATION component is the only one this section touches, and item 8
+ *    supplies its MONOTONICITY;
+ *  - **NOTHING HERE SUPPLIES A STACK COMPONENT, A STORE COMPONENT, A
+ *    CONFIGURATION RELATION, A TAG, A TRANSITION-COMPATIBILITY RESULT OR AN
+ *    EQUIVARIANCE RESULT**, and this section proves nothing about whether the
+ *    semantic variant makes any of those six easier or harder.  No claim in
+ *    either direction is made about them, because none is proved.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. Item 4's refutation is at ONE NAMED STATE, `gwrid2_s0`, at `fcl_rel` and
+ *     at one named pair.  Item 5's collapse is at `pabot` and at the FIXTURE
+ *     TYPES `fv` and `fcl`, and its `PCtxKey` case runs on the two-constructor
+ *     shape of `pval`; neither is a statement about other value types.
+ *
+ *  2. Item 7's two refutations are at `fcl_rel`, at `pabot`, and at fuel index
+ *     `2` and index `1` respectively.  `1` and `2` are `pacomp_rel` FUEL
+ *     INDICES.  Nothing here identifies a unit of fuel with a transition, and
+ *     no transition is taken anywhere in this section.
+ *
+ *  3. The implications proved here are between `gwc_rid2_comp`, `gwc_rid_comp`
+ *     and `pacrel` only.  **NO ORDERING IS CLAIMED BETWEEN ANY OF THEM AND
+ *     `padx_comp` OR `gwe_comp`**, which treat `PSplice`, `PEnterCtx` and
+ *     `PEmit` differently from `pacrel` in both directions, as 26.4 records.
+ *
+ *  4. Sections 17 to 26 are untouched.  No theorem of theirs is restated,
+ *     changed or weakened above; 26.1's `gwrid_pacrel_refuted` and
+ *     `gwrid_no_departure` and 26.3's `gwc_rid_comp_unfold` are CITED, and no
+ *     premise of any section 17 to 25 theorem is discharged here.
+ *
+ *  5. **NOTHING ABOVE SAYS THE RIGHT-IDENTITY DEPARTURE PROBLEM IS SOLVED, AND
+ *     NOTHING ABOVE SAYS THIS RELATION IS THE ONE TO ADOPT.**  26 named a
+ *     candidate; this section examined it and found one implication, one
+ *     refuted converse, and a negative answer to the question that motivated it.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

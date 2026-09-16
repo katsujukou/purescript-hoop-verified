@@ -9994,6 +9994,99 @@ It is a name for what is missing, at one component, and nothing more.
   them can refuse a pair the ordinary relation accepts;
 - the counts remain fuel indices.
 
+#### The candidate relation, examined — the doubt moves rather than clears
+
+The previous gate named a computation relation that admits the right-identity
+departure, and recorded a concrete reason for doubt: it tests the continuation
+*syntactically*, where the ordinary relation's own clause at that head demands a
+Kripke-style relation on it — for every accessible state and every related pair
+of values.
+
+The obvious repair is to replace the equation by that relation: ask the
+continuation to be *related to* the identity continuation rather than to *be*
+it. That variant is defined, and it does relate the right-identity pair and is
+implied by the ordinary relation.
+
+#### It answers the recorded doubt, and does not satisfy the clause
+
+The doubt as recorded was that the continuation obligation is *discarded*. The
+semantic variant does not discard it — it states it, and a projection lemma
+recovers it.
+
+**But the clause is still not met, and the gap is now located rather than
+suspected.** Two refutations pin it:
+
+- the clause at that head asks for the two *bodies* to be related and the two
+  *continuations* to be related **to each other**; the new disjunct supplies the
+  left continuation related **to the identity** and the left body related **to
+  the whole right-hand side**. Different things, and at a named instance the
+  second is shown not to yield the first;
+- from the new relation holding, **the Kripke relation between the two
+  continuations cannot be derived** — refuted with a concrete witness that
+  replaces the right continuation while the pair stays accepted. That is a
+  refutation of the implication to the required relation, not a claim that the
+  two continuations are unrelated in every sense.
+
+A negative, stated exactly, is this gate's deliverable.
+
+#### Where the syntactic and semantic versions come apart
+
+The syntactic version implies the semantic one, generally: the equation
+discharges the Kripke obligation outright.
+
+The converse is **refuted at a concrete witness** — at the fixture types, the
+fixture clause relation, and a state whose world is empty while both frontiers
+stand at five. Accessibility from such a state can only speak about keys at or
+above five, so the keys below it are *frozen*: the quantifier in the Kripke
+relation never reaches them, and a continuation can be related to the identity
+there without being it.
+
+Scope, kept apart: the forward direction is general; the failure of the converse
+is established at that witness, not shown for every instance of the two type
+parameters.
+
+Checked independently: that separating state is **well-formed**. Every
+configuration relation in the file pins well-formedness, so a separation at an
+ill-formed state would have carried much less force. This one does not.
+
+And where the separation does *not* happen is also recorded: at the bottom state
+the frontiers are zero, every key is reachable, and a continuation related to
+the identity agrees with it at every argument. Separating there would need a
+function pointwise equal to the identity without being equal to it — neither
+exhibited nor refuted.
+
+#### A correction to my own brief, made by machine
+
+I briefed this gate claiming the reflexivity side condition was a real
+difference between the two versions — that the syntactic one did not need it.
+
+That was wrong, and the gate proved it wrong. Restating the syntactic version in
+general form requires exactly the same hypothesis; it lands in the conjunct the
+two versions share, while the conjunct they differ in discharges freely. The
+earlier statement appeared not to need it only because it was made at a fixture,
+where the condition reduces to an identity on a constructor. A refutation at a
+value the empty world speaks for nothing about shows the hypothesis is needed by
+**both**.
+
+The precise form: the hypothesis cannot be removed uniformly from either
+version's general statement over arbitrary values. That is not the claim that
+reflexivity is necessary and sufficient at each individual instance.
+
+This is the second consecutive gate where the error in the round was in the
+*briefing* rather than in the work, which is the thing to watch.
+
+#### Not proved
+
+- the right-identity departure problem is not solved, and this candidate is not
+  supported for adoption;
+- of the components a phase would need, only monotonicity along accessibility is
+  proved; the stack component, store component, configuration relation, tag,
+  transition compatibility and equivariance are not supplied, and **no judgement
+  is offered on whether the semantic variant makes any of them easier or
+  harder** — nothing is proved either way;
+- no ordering against the two existing administrative computation relations;
+- the separation at the bottom state.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
