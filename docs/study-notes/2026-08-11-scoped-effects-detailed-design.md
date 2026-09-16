@@ -10174,6 +10174,86 @@ fixture-level version.
   plain tag; the surplus-phase tag gives only the existential pair there;
 - nothing about starts that do not satisfy the four premises.
 
+#### The law's actual shape, and where the run stops being carried
+
+The previous gate factored the right-identity run only where the bound
+computation is a **value**. The law's actual shape binds an arbitrary
+computation. This gate moves to that shape.
+
+At a body satisfying the four premises — well-formedness, the body **related to
+itself**, the two stacks `pakrel`-related, the two stores `pasrel`-related — one
+left step installs the surplus identity frame and the midpoint is a carrier
+pair, at two tags. For a value body the self-relatedness premise reduces to the
+earlier gate's condition on the value; that direction is proved, and no converse
+is claimed.
+
+#### The iteration machinery enters in the middle
+
+Because the midpoint sits at the surplus tag, the iteration theorem applies
+there. Composing the first leg with it gives the whole prefix in one statement,
+at `1+n` against `n`.
+
+**Those are fuel indices**, as everywhere in this development; nothing here says
+either side performs that many transitions.
+
+The composition used the **single-state** form. That is a fact about this proof
+route — neither leg moves the allocation state, so the two legs' states coincide
+— and not a claim that the single-state form is what such a composition needs in
+general.
+
+#### It does not complete the law, and the reason is structural
+
+The iteration premise carries the run **while the body is still executing**. It
+says nothing about the body reaching a value, and nothing about what happens
+when it does. The popping stutter — the previous gate's second leg — is stated
+at a value redex, so at an arbitrary body it is not reached at all.
+
+What exists is a factorisation into three parts of which the middle is
+conditional and the last is out of reach at arbitrary body.
+
+No departure relation is supplied for the arbitrary-body pair. The
+all-seven-tag refutation remains the earlier value fixture result; it is not
+generalized here.
+
+#### The parameter-prefix family misses this line entirely
+
+Worth recording as a negative, and it was found rather than assumed: the family
+for which the previous gate discharged the shape obligation **never meets this
+midpoint at a positive budget**. The midpoint's left stack is headed by a bind
+frame, and that family's condition demands a parameter frame at every position
+it covers.
+
+So the one discharge achieved so far contributes nothing here. The premise had
+to be discharged by computation instead, at a non-value body, and at budget one
+— with that instance proved to stop there.
+
+#### Checked independently: the budget is not pinned at one
+
+That single instance leaves open whether the premise is dischargeable at any
+larger budget. It is. Nesting the bind-with-identity keeps the midpoint's run
+inside the fragment while the nesting lasts: checked at a body with **two**
+nested layers, where the run stays in the fragment at indices zero and one and
+leaves it at index two.
+
+Scope, exactly: this is a **concrete instance at depth two**, establishing that
+the budget is not fixed at one. The general correspondence between nesting depth
+and budget is **not proved** — neither here nor in the file — and this is an
+independent check rather than a theorem in the file.
+
+(My first attempt at this miscounted the layers by one and failed; the body has
+two bind nodes, not three, so the run stays in the fragment for two steps.)
+
+#### Not proved
+
+- no law is proved anywhere;
+- no departure relation is supplied for the arbitrary-body pair, and the
+  all-seven-tag refutation is not generalized to it;
+- the fragment premise is assumed, not discharged, except by computation at one
+  instance;
+- termination of the body is neither proved nor assumed;
+- the general nesting-depth-to-budget correspondence;
+- the counts are fuel indices throughout.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
