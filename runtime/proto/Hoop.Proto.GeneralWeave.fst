@@ -60964,3 +60964,620 @@ let gwc_rid2_comp_separates_at_rid ()
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ================================================================== *)
+(* ---- 28. THE RIGHT-IDENTITY RUN, ONE STEP IN: THE MIDPOINT IS A
+           CARRIER PAIR, AND THE 2:0 FACTORS AS 1:0 THEN 1:0 --------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION ADDS, AND WHAT IT DOES NOT.**  Sections 26 and 27 looked
+ * only at the DEPARTING pair `POp (PVar x) PVar` against `PVar x`: 26 refuted
+ * `gwc_cf` there at all seven tags, 27 examined a candidate computation relation
+ * and came out negative on `pacomp_rel`'s `POp` clause.  This section looks ONE
+ * TRANSITION IN.
+ *
+ * The left side's first transition is the machine's `POp a f -> keep (PStep a
+ * (PBindF f :: k))` clause, already proved at `lemma_arx_step1` (41163) at
+ * arbitrary `lk`, `apply`, `x`, `k`, store and counter.  It lands on
+ * `PStep (PVar x) (PBindF PVar :: k)` -- a stack carrying ONE SURPLUS IDENTITY
+ * BIND FRAME over the right-hand stack, which is exactly the shape `padx_ktop`
+ * (41496) and `gwy_k` (45477) describe and exactly what sections 14 to 25 were
+ * built around.  28.0 proves that that MIDPOINT pair is `gwc_cf`-related at
+ * `GWCPadx` and at `GWCGwy`, generically.
+ *
+ * 28.3 then factors: the `2` : `0` of `lemma_arx_reconverges` is a `1` : `0`
+ * leg from the departure to the midpoint FOLLOWED BY a `1` : `0` leg from the
+ * midpoint to the landing, composed by `gwc_reaches_compose` (54759).
+ *
+ * **NO LAW IS PROVED ANYWHERE IN THIS SECTION.**  A decomposition is not an
+ * adjudication.  26.1's seven refutations stand exactly as they were -- 28.4
+ * re-exhibits them beside the new facts -- and nothing here supplies the
+ * departure relation 26.4 says is missing, nor claims that 26's gap is closed.
+ * What changes is WHERE the missing thing has to sit, and 28.5 states that
+ * precisely and no further.
+ *)
+
+(* ---- 28.0 THE MIDPOINT IS A CARRIER PAIR ------------------------- *)
+
+(**
+ * **THE MIDPOINT IS `gwc_cf`-RELATED AT `GWCPadx`.**  PROVED, at arbitrary `v`,
+ * `cl`, `r`, `s`, `x`, both stacks and both stores.  The hypotheses are exactly
+ * four and each pays for one conjunct of `gwc_cf`:
+ *
+ *   - `pawf s` is `gwc_wf GWCPadx s`, which is `pawf s` because `GWCPadx` is not
+ *     `GWCPacf`;
+ *   - `pval_rel s.aw x x` buys `pacrel r s (PVar x) (PVar x)` through
+ *     `lemma_pacrel_var`.  This is the SAME reflexivity side condition 27
+ *     analysed at `gwc_rid2_comp_relates_rid_at`, and
+ *     `gwc_rid2_comp_rid_needs_refl` already showed it is not removable there;
+ *   - `pakrel r s k1 k2` buys `padx_ktop r s (PBindF PVar :: k1) k2`, since
+ *     `padx_top` at a `PBindF PVar` head asks for `PVar == PVar` and for
+ *     `paframes_rel r n s k1 k2` at every `n`, which is what `pakrel` is;
+ *   - `pasrel r s sto1 sto2` is `gwc_sr GWCPadx` verbatim.
+ *
+ * The two counters are PINNED to `s.an1` and `s.an2` in the statement, as
+ * `gwc_cf` requires everywhere.  `gwc_cf_is_padx_cf` (52220) is what turns the
+ * `padx_cf` reading into the carrier's.
+ *)
+let gwrid_mid_padx_at
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            gwc_cf GWCPadx r s
+              ({ st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } <: pconf v cl)
+              ({ st = PStep (PVar x) k2; store = sto2; next = s.an2 } <: pconf v cl))
+  = let a : pconf v cl = { st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+                           store = sto1; next = s.an1 } in
+    let b : pconf v cl = { st = PStep (PVar x) k2; store = sto2; next = s.an2 } in
+    lemma_pacrel_var r s x x;
+    gwc_cf_is_padx_cf r s a b
+
+(**
+ * **AND AT `GWCGwy` TOO.**  PROVED, under the SAME four hypotheses.  The two
+ * tags differ only in the stack component -- `padx_ktop` against `gwy_k` -- and
+ * `gwy_ktop_is_gwy_k` (45508) carries the first into the second.  The
+ * computation, store, well-formedness and frontier conjuncts are the same terms
+ * in both.
+ *)
+let gwrid_mid_gwy_at
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            gwc_cf GWCGwy r s
+              ({ st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } <: pconf v cl)
+              ({ st = PStep (PVar x) k2; store = sto2; next = s.an2 } <: pconf v cl))
+  = let a : pconf v cl = { st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+                           store = sto1; next = s.an1 } in
+    let b : pconf v cl = { st = PStep (PVar x) k2; store = sto2; next = s.an2 } in
+    lemma_pacrel_var r s x x;
+    gwrid_mid_padx_at r s x k1 k2 sto1 sto2;
+    gwc_cf_is_padx_cf r s a b;
+    padx_cf_unfold r s a b ();
+    padx_st_unfold r s a.st b.st ();
+    gwy_ktop_is_gwy_k r s (PBindF (PVar #v #cl) :: k1) k2;
+    gwc_cf_is_gwy_cf r s a b
+
+(* ---- 28.1 THE LEFT'S FIRST STEP REACHES THE MIDPOINT ------------- *)
+
+(**
+ * **THE FIRST TRANSITION, CITED AND NOT RESTATED.**  `lemma_arx_step1` (41163)
+ * IS ALREADY EXACTLY THIS FACT: at arbitrary `lk`, `apply`, `x`, `k`, store and
+ * counter, `pstep_tr` takes `PStep (POp (PVar x) PVar) k` to
+ * `PStep (PVar x) (PBindF PVar :: k)` with trace `[]`.  Its proof is NOT
+ * touched, restated or re-derived; the first conjunct below is that lemma
+ * applied.
+ *
+ * The second conjunct is the ONLY thing added, and it adds no operational
+ * content: `lemma_prun_one` (13833) re-reads the same transition as a `prun` at
+ * FUEL INDEX `1`, which is the form 28.2 and 28.3 have to consume.  `1` is a
+ * fuel index; nothing here identifies a unit of fuel with a transition, and the
+ * transition claim is `pstep_tr`'s, in the first conjunct.
+ *)
+let gwrid_step1_at (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep_tr lk apply ({ st = PStep (POp (PVar x) PVar) k;
+                                store = sto; next = n0 } <: pconf v cl)
+           == (({ st = PStep (PVar x) (PBindF (PVar #v #cl) :: k);
+                  store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)) /\
+           prun lk apply 1 ({ st = PStep (POp (PVar x) PVar) k;
+                              store = sto; next = n0 } <: pconf v cl)
+           == (({ st = PStep (PVar x) (PBindF (PVar #v #cl) :: k);
+                  store = sto; next = n0 } <: pconf v cl),
+               ([] <: list string)))
+  = lemma_arx_step1 lk apply x k sto n0;
+    lemma_prun_one lk apply
+      ({ st = PStep (POp (PVar x) PVar) k; store = sto; next = n0 } <: pconf v cl)
+      ({ st = PStep (PVar x) (PBindF (PVar #v #cl) :: k);
+         store = sto; next = n0 } <: pconf v cl)
+
+(* ---- 28.2 LEG ONE: DEPARTURE TO MIDPOINT, AT COUNTS 1 AND 0 ------ *)
+
+(**
+ * **THE FIRST LEG IS A `gwc_lands_still`, AT `GWCPadx` AND AT `GWCGwy`.**
+ * PROVED, at arbitrary `lk`, `apply` and under 28.0's four hypotheses.  The left
+ * side's fuel-`1` run is 28.1's; the right side's fuel-`0` run is the identity;
+ * both traces are `[]`; and the pair the two runs land on IS the midpoint, which
+ * 28.0 related at those two tags.
+ *
+ * **NOTE WHAT IS AND IS NOT DEPARTED FROM.**  `gwc_lands_still` does NOT require
+ * the departing pair to be related -- read its definition (55590): three
+ * conjuncts, two about traces and one about the LANDED pair.  So this lemma is
+ * consistent with 26.1's refutation of `gwc_cf` at the departure, for the same
+ * reason `gwrid_lands_still` was, and it is not a departure premise for anything
+ * in sections 17 to 25.
+ *)
+let gwrid_leg1_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            (let cfl : pconf v cl = { st = PStep (POp (PVar x) (PVar #v #cl)) k1;
+                                      store = sto1; next = s.an1 } in
+             let cfr : pconf v cl = { st = PStep (PVar x) k2;
+                                      store = sto2; next = s.an2 } in
+             gwc_lands_still lk apply GWCPadx r s 1 0 cfl cfr /\
+             gwc_lands_still lk apply GWCGwy  r s 1 0 cfl cfr))
+  = let cfl : pconf v cl = { st = PStep (POp (PVar x) (PVar #v #cl)) k1;
+                             store = sto1; next = s.an1 } in
+    let cfr : pconf v cl = { st = PStep (PVar x) k2; store = sto2; next = s.an2 } in
+    gwrid_step1_at lk apply x k1 sto1 s.an1;
+    gwrid_mid_padx_at r s x k1 k2 sto1 sto2;
+    gwrid_mid_gwy_at r s x k1 k2 sto1 sto2;
+    gwc_lands_still_intro lk apply GWCPadx r s 1 0 cfl cfr;
+    gwc_lands_still_intro lk apply GWCGwy  r s 1 0 cfl cfr
+
+(* ---- 28.3 LEG TWO: THE CARRIER'S OWN STUTTER, AND WHAT IT COSTS -- *)
+
+(**
+ * **SECTION 19's STUTTER LEMMA DISCHARGES THE SECOND LEG WHEN THE AMBIENT STACK
+ * IS EMPTY.**  PROVED, by citing `gwc_var_deep_stutter` (54880) and nothing
+ * else about the machine.
+ *
+ * **AND THE EMPTINESS IS `gwc_var_deep_stutter`'s OWN HYPOTHESIS, NOT AN
+ * ARTEFACT OF HOW IT IS CALLED HERE.**  Read its signature: its right-hand
+ * configuration is written `{ st = PStep (PVar x2) ([] <: pstack v cl); ... }`,
+ * with the empty stack LITERAL IN THE STATEMENT.  At the right-identity midpoint
+ * the right-hand stack is the AMBIENT stack `k`, so the citation goes through
+ * exactly when `k == []` and the left-hand stack is the one-frame
+ * `[PBindF PVar]`.  That is the instantiation taken below, and it is why this
+ * lemma carries no stack parameter.
+ *
+ * `pcl_mono r` and `pcl_down r` are `gwc_var_deep_stutter`'s two further
+ * hypotheses and are passed straight through.  The landing tag is `GWCGwr`,
+ * which is that lemma's, and the counts are `1` and `0`, which are that
+ * lemma's -- pinned there, not existential, because at `k2 == []` the
+ * `n2 == 1 ==> Cons? k2` conjunct of `gwc_fit_var_deep` kills the `1 : 1` horn.
+ *)
+let gwrid_leg2_nil_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\ pasrel r s sto1 sto2 /\
+                    pcl_mono r /\ pcl_down r)
+          (ensures
+            (let m1 : pconf v cl =
+               { st = PStep (PVar x) ([PBindF (PVar #v #cl)] <: pstack v cl);
+                 store = sto1; next = s.an1 } in
+             let m2 : pconf v cl =
+               { st = PStep (PVar x) ([] <: pstack v cl);
+                 store = sto2; next = s.an2 } in
+             gwc_lands lk apply GWCGwr r s 1 0 m1 m2))
+  = lemma_pakrel_nil #v #cl r s;
+    gwrid_mid_gwy_at r s x ([] <: pstack v cl) ([] <: pstack v cl) sto1 sto2;
+    gwc_var_deep_stutter lk apply r s x x
+      ([PBindF (PVar #v #cl)] <: pstack v cl) sto1 sto2
+
+(**
+ * **AT AN ARBITRARY AMBIENT STACK, `gwc_fit_var_deep` STILL APPLIES -- BUT ITS
+ * COUNT PAIR IS EXISTENTIAL.**  PROVED, at arbitrary `k1` and `k2`.  This is the
+ * exact statement of what is lost when the emptiness hypothesis above is
+ * dropped: the conclusion is `gwc_fit_var_deep`'s (52487) verbatim, so the
+ * landing at tag `GWCGwr` survives, and `n1 == 1` survives, but the RIGHT count
+ * is only known to be `1` or `0`, and `1` is excluded only by `Cons? k2`
+ * failing.
+ *
+ * So at a NONEMPTY ambient stack this lemma does not by itself say the second
+ * leg is a stutter; the shape fact `n2 == 1 ==> Cons? k2` is satisfiable there.
+ * The next lemma is what settles the count in that case, and it does so by
+ * going to a different lemma.
+ *)
+let gwrid_leg2_deep_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\ pakrel r s k1 k2 /\
+                    pasrel r s sto1 sto2 /\ pcl_mono r /\ pcl_down r)
+          (ensures
+            (let m1 : pconf v cl =
+               { st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } in
+             let m2 : pconf v cl =
+               { st = PStep (PVar x) k2; store = sto2; next = s.an2 } in
+             exists (n1: nat) (n2: nat).
+               n1 == 1 /\ (n2 == 1 \/ n2 == 0) /\ (n2 == 1 ==> Cons? k2) /\
+               gwc_lands lk apply GWCGwr r s n1 n2 m1 m2))
+  = gwrid_mid_gwy_at r s x k1 k2 sto1 sto2;
+    gwc_fit_var_deep lk apply r s x x (PBindF (PVar #v #cl) :: k1) k2 sto1 sto2
+
+(**
+ * **THE DEFINITE `1` : `0` SECOND LEG AT AN ARBITRARY AMBIENT STACK, FROM
+ * `gwy_exit_stutter`.**  PROVED, at arbitrary `k1` and `k2`, with NO
+ * `pcl_mono` / `pcl_down` hypothesis.
+ *
+ * **WHICH LEMMA THIS IS, AND HOW IT STANDS TO THE TWO ABOVE.**
+ * `gwy_exit_stutter` (45678) is section 15's EXIT 1.  It is the lemma
+ * `gwb_var_deep` (51701) itself calls in its `padx_ktop` horn, and
+ * `gwc_fit_var_deep` reaches it only through `gwb_var_deep`, which forgets WHICH
+ * horn fired and therefore existentialises the count.  Going to it directly
+ * keeps the horn, and with it the definite `1` : `0`.
+ *
+ * The landing tag is `GWCPacf`, not `GWCGwr`: `gwy_exit_stutter` concludes
+ * `pacfrel` at the successor, and `gwc_cf_is_pacfrel` (52204) is the reading.
+ * No claim is made here that `GWCPacf` and `GWCGwr` stand in any order; the two
+ * landings are stated at the tags their sources conclude at, and nothing below
+ * needs them compared.
+ *)
+let gwrid_leg2_pacf_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\ pakrel r s k1 k2 /\
+                    pasrel r s sto1 sto2)
+          (ensures
+            (let m1 : pconf v cl =
+               { st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } in
+             let m2 : pconf v cl =
+               { st = PStep (PVar x) k2; store = sto2; next = s.an2 } in
+             gwc_lands_still lk apply GWCPacf r s 1 0 m1 m2))
+  = let m1 : pconf v cl =
+      { st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+        store = sto1; next = s.an1 } in
+    let m2 : pconf v cl =
+      { st = PStep (PVar x) k2; store = sto2; next = s.an2 } in
+    gwrid_mid_gwy_at r s x k1 k2 sto1 sto2;
+    gwc_cf_is_gwy_cf r s m1 m2;
+    gwy_exit_stutter lk apply r s x x (PBindF (PVar #v #cl) :: k1) k2 sto1 sto2;
+    let m1' : pconf v cl = { st = PStep (PVar x) k1; store = sto1; next = s.an1 } in
+    gwc_cf_is_pacfrel r s m1' m2;
+    gwc_lands_still_intro lk apply GWCPacf r s 1 0 m1 m2
+
+(* ---- 28.4 THE DECOMPOSITION ------------------------------------- *)
+
+(**
+ * **THE `2` : `0` FACTORS AS `1` : `0` THEN `1` : `0`, AT AN ARBITRARY AMBIENT
+ * STACK.**  PROVED, at arbitrary `lk`, `apply`, `r`, `s`, `x`, both stacks and
+ * both stores, under 28.0's four hypotheses and nothing else.
+ *
+ * The two legs are 28.2's (landing `GWCPadx`, at the MIDPOINT) and 28.3's
+ * `gwrid_leg2_pacf_at` (landing `GWCPacf`), each lifted to `gwc_reaches_at` by
+ * `gwc_reaches_at_of_lands_still` (55630) -- which is applicable because both
+ * legs' traces are `[]` -- and joined by `gwc_reaches_compose` (54759), whose
+ * counts add SIDE BY SIDE: `1 + 1` on the left, `0 + 0` on the right.
+ *
+ * **THE MIDDLE STATE IS `s` ITSELF, AND IT IS WRITTEN OUT.**  The conclusion is
+ * the `_at` form with both state arguments `s`, so no allocation is claimed and
+ * none happens: neither leg moves a counter, and `paext s s` is
+ * `lemma_paext_refl_wf`'s.
+ *
+ * **WHAT THIS IS AND IS NOT.**  It is a statement about the CARRIER's reach
+ * relation at this pair.  `gwc_reaches_at` does NOT require the departing pair
+ * to be related -- read 54646 -- so this does not contradict and does not repair
+ * 26.1's refutation, and it discharges no premise of any theorem of sections 17
+ * to 25, all of which consume `gwc_cf` AT THE SOURCE.  `2` and `0` are `prun`
+ * FUEL INDICES, as they are in 26.2 and everywhere above.
+ *)
+let gwrid_decompose_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            (let cfl : pconf v cl = { st = PStep (POp (PVar x) (PVar #v #cl)) k1;
+                                      store = sto1; next = s.an1 } in
+             let cfr : pconf v cl = { st = PStep (PVar x) k2;
+                                      store = sto2; next = s.an2 } in
+             gwc_reaches_at lk apply GWCPacf r s s 2 0 cfl cfr))
+  = let cfl : pconf v cl = { st = PStep (POp (PVar x) (PVar #v #cl)) k1;
+                             store = sto1; next = s.an1 } in
+    let cfr : pconf v cl = { st = PStep (PVar x) k2; store = sto2; next = s.an2 } in
+    let m1 : pconf v cl = { st = PStep (PVar x) (PBindF (PVar #v #cl) :: k1);
+                            store = sto1; next = s.an1 } in
+    gwrid_step1_at lk apply x k1 sto1 s.an1;
+    gwrid_leg1_at lk apply r s x k1 k2 sto1 sto2;
+    gwrid_leg2_pacf_at lk apply r s x k1 k2 sto1 sto2;
+    gwc_reaches_at_of_lands_still lk apply GWCPadx r s 1 0 cfl cfr;
+    gwc_reaches_at_of_lands_still lk apply GWCPacf r s 1 0 m1 cfr;
+    assert (fst (prun lk apply 1 cfl) == m1);
+    assert (fst (prun lk apply 0 cfr) == cfr);
+    gwc_reaches_compose lk apply GWCPadx GWCPacf r s s s 1 0 1 0 cfl cfr
+
+(**
+ * **THE SAME FACTORISATION WITH SECTION 19's STUTTER AS THE SECOND LEG.**
+ * PROVED, and the price is the one 28.3 located: the ambient stack must be
+ * EMPTY, because that is where `gwc_var_deep_stutter` is stated, and
+ * `pcl_mono r` and `pcl_down r` must be supplied, because that is what it asks
+ * for.  With those, the second leg is that lemma's `1` : `0` at tag `GWCGwr`,
+ * lifted by `gwc_reaches_of_lands` (54723) -- whose two trace premises are
+ * discharged here from the shape, `lemma_arx_step2` giving the left run's `[]`
+ * and fuel `0` giving the right's -- and joined by `gwc_reaches_then` (54789).
+ *
+ * The conclusion is the state-HIDDEN `gwc_reaches`, not the `_at` form:
+ * `gwc_lands` existentialises the state its landing is taken at, so the composite
+ * cannot name it.  Nothing here says that state is `s`; `gwc_lands`'s own
+ * disjunct says only that it is `s` or `paalloc s`.
+ *)
+let gwrid_decompose_nil_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw x x /\ pasrel r s sto1 sto2 /\
+                    pcl_mono r /\ pcl_down r)
+          (ensures
+            (let cfl : pconf v cl =
+               { st = PStep (POp (PVar x) (PVar #v #cl)) ([] <: pstack v cl);
+                 store = sto1; next = s.an1 } in
+             let cfr : pconf v cl =
+               { st = PStep (PVar x) ([] <: pstack v cl);
+                 store = sto2; next = s.an2 } in
+             gwc_reaches lk apply GWCGwr r s 2 0 cfl cfr))
+  = let cfl : pconf v cl =
+      { st = PStep (POp (PVar x) (PVar #v #cl)) ([] <: pstack v cl);
+        store = sto1; next = s.an1 } in
+    let cfr : pconf v cl =
+      { st = PStep (PVar x) ([] <: pstack v cl); store = sto2; next = s.an2 } in
+    let m1 : pconf v cl =
+      { st = PStep (PVar x) ([PBindF (PVar #v #cl)] <: pstack v cl);
+        store = sto1; next = s.an1 } in
+    let m1' : pconf v cl =
+      { st = PStep (PVar x) ([] <: pstack v cl); store = sto1; next = s.an1 } in
+    lemma_pakrel_nil #v #cl r s;
+    gwrid_step1_at lk apply x ([] <: pstack v cl) sto1 s.an1;
+    gwrid_leg1_at lk apply r s x ([] <: pstack v cl) ([] <: pstack v cl) sto1 sto2;
+    gwrid_leg2_nil_at lk apply r s x sto1 sto2;
+    lemma_arx_step2 lk apply x ([] <: pstack v cl) sto1 s.an1;
+    lemma_prun_one lk apply m1 m1';
+    gwc_reaches_of_lands lk apply GWCGwr r s 1 0 m1 cfr;
+    gwc_reaches_at_of_lands_still lk apply GWCPadx r s 1 0 cfl cfr;
+    assert (fst (prun lk apply 1 cfl) == m1);
+    assert (fst (prun lk apply 0 cfr) == cfr);
+    gwc_reaches_then lk apply GWCPadx GWCGwr r s s 1 0 1 0 cfl cfr
+
+(* ---- 28.5 THE CLOSED INSTANCE, AT 26.0's FIXTURE ----------------- *)
+
+(**
+ * **THE MIDPOINT CONFIGURATION.**  26.0's fixture has the EMPTY ambient stack,
+ * so the midpoint's left stack is the one-frame `[PBindF PVar]` and its right
+ * stack is `gwrid_k`, which is `[]`.  Store and counter are 26.0's, untouched by
+ * the transition.
+ *)
+let gwrid_km : pstack fv fcl = [PBindF (PVar #fv #fcl)]
+let gwrid_cfm : pconf fv fcl =
+  { st = PStep (PVar gwrid_x) gwrid_km; store = gwrid_sto; next = 0 }
+
+(** **THE MIDPOINT IS RELATED AT `GWCPadx` AND AT `GWCGwy`.**  PROVED, at
+    `fcl_rel` and `pabot`, by instantiating 28.0.  `pval_rel pabot.aw gwrid_x
+    gwrid_x` reduces to `FU == FU` at this fixture, which is why no hypothesis
+    appears; `pakrel` at the two empty stacks is `lemma_pakrel_nil`. *)
+let gwrid_mid_related ()
+  : Lemma (gwc_cf #fv #fcl GWCPadx fcl_rel pabot gwrid_cfm gwrid_cfr /\
+           gwc_cf #fv #fcl GWCGwy  fcl_rel pabot gwrid_cfm gwrid_cfr)
+  = lemma_pabot_wf ();
+    lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    gwrid_mid_padx_at #fv #fcl fcl_rel pabot gwrid_x gwrid_k gwrid_k
+                      gwrid_sto gwrid_sto;
+    gwrid_mid_gwy_at #fv #fcl fcl_rel pabot gwrid_x gwrid_k gwrid_k
+                     gwrid_sto gwrid_sto
+
+(**
+ * **AND IT IS A GENUINE CARRIER PAIR: `GWCPacf` REFUSES IT.**  PROVED, at this
+ * fixture.  `gwc_kd GWCPacf` is plain `pakrel`, and
+ * `guard_padx_ktop_is_not_pakrel` (41616) already refutes `pakrel` between
+ * `[PBindF PVar]` and `[]` -- that refutation is CITED, not re-proved.
+ *
+ * So the two tags 28.0 supplies are not decoration at this pair: the midpoint is
+ * related at the two surplus-frame tags and NOT at the tag that is `pacfrel`.
+ * This is a refutation at ONE NAMED PAIR at ONE tag, and says nothing about
+ * `gwc_cf GWCPacf` elsewhere.
+ *)
+let gwrid_mid_not_pacf ()
+  : Lemma (~(gwc_cf #fv #fcl GWCPacf fcl_rel pabot gwrid_cfm gwrid_cfr))
+  = introduce gwc_cf #fv #fcl GWCPacf fcl_rel pabot gwrid_cfm gwrid_cfr ==> False
+    with begin
+      gwc_cf_unfold #fv #fcl GWCPacf fcl_rel pabot gwrid_cfm gwrid_cfr ();
+      gwc_st_unfold #fv #fcl GWCPacf fcl_rel pabot gwrid_cfm.st gwrid_cfr.st ();
+      guard_padx_ktop_is_not_pakrel #fv #fcl fcl_rel pabot
+    end
+
+(** **THE TWO LEGS AND THE TWO COMPOSITES, AT THE FIXTURE.**  PROVED, at
+    arbitrary `lk` and `apply`, each conjunct an instance of 28.1 to 28.4.  The
+    fixture's ambient stack is empty, so BOTH second-leg routes apply here: the
+    `GWCGwr` one through `gwc_var_deep_stutter` and the `GWCPacf` one through
+    `gwy_exit_stutter`. *)
+let gwrid_decompose (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma (prun lk apply 1 gwrid_cfl == (gwrid_cfm, ([] <: list string)) /\
+           gwc_lands_still lk apply GWCPadx fcl_rel pabot 1 0 gwrid_cfl gwrid_cfr /\
+           gwc_lands_still lk apply GWCGwy  fcl_rel pabot 1 0 gwrid_cfl gwrid_cfr /\
+           gwc_lands lk apply GWCGwr fcl_rel pabot 1 0 gwrid_cfm gwrid_cfr /\
+           gwc_lands_still lk apply GWCPacf fcl_rel pabot 1 0 gwrid_cfm gwrid_cfr /\
+           gwc_reaches lk apply GWCGwr fcl_rel pabot 2 0 gwrid_cfl gwrid_cfr /\
+           gwc_reaches_at lk apply GWCPacf fcl_rel pabot pabot 2 0
+                          gwrid_cfl gwrid_cfr)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_mono (); lemma_fcl_rel_down ();
+    lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    gwrid_step1_at lk apply gwrid_x gwrid_k gwrid_sto 0;
+    gwrid_leg1_at lk apply fcl_rel pabot gwrid_x gwrid_k gwrid_k
+                  gwrid_sto gwrid_sto;
+    gwrid_leg2_nil_at lk apply fcl_rel pabot gwrid_x gwrid_sto gwrid_sto;
+    gwrid_leg2_pacf_at lk apply fcl_rel pabot gwrid_x gwrid_k gwrid_k
+                       gwrid_sto gwrid_sto;
+    gwrid_decompose_nil_at lk apply fcl_rel pabot gwrid_x gwrid_sto gwrid_sto;
+    gwrid_decompose_at lk apply fcl_rel pabot gwrid_x gwrid_k gwrid_k
+                       gwrid_sto gwrid_sto
+
+(**
+ * **THE THREE CONFIGURATIONS, SIDE BY SIDE.**  PROVED, at arbitrary `lk` and
+ * `apply`.  Reading the conjuncts in order:
+ *
+ *   - `gwrid_cfl` against `gwrid_cfr` -- the DEPARTURE -- is refuted at every one
+ *     of the seven tags.  This conjunct is `gwrid_no_departure` (26.1), CITED;
+ *     nothing here weakens or revisits it.
+ *   - `gwrid_cfm` against `gwrid_cfr` -- the MIDPOINT -- is related at `GWCPadx`
+ *     and at `GWCGwy`, and refuted at `GWCPacf`.
+ *   - `gwrid_cfr` against itself -- the LANDING -- is related at `GWCPacf`.  This
+ *     conjunct is `gwrid_landed_pair_related` (26.2), CITED.
+ *   - the three runs: fuel `1` from the departure lands on the midpoint, fuel `1`
+ *     from the midpoint lands on `gwrid_cfr`, and fuel `2` from the departure
+ *     lands on `gwrid_cfr` -- the last being `lemma_arx_prun_two`, cited, which
+ *     is what makes the two one-step readings a factorisation OF THAT RUN rather
+ *     than of a run that resembles it.
+ *   - and the two composite reaches, at fuel indices `2` and `0`.
+ *
+ * Every numeral is a `prun` FUEL INDEX.  The transition claims live in
+ * `gwrid_step1_at`'s first conjunct and in `lemma_arx_step2`, both over
+ * `pstep_tr`, and neither is restated here.
+ *)
+let gwrid_three_configs (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma ((forall (q: gwc_phase).
+              ~(gwc_cf #fv #fcl q fcl_rel pabot gwrid_cfl gwrid_cfr)) /\
+           gwc_cf #fv #fcl GWCPadx fcl_rel pabot gwrid_cfm gwrid_cfr /\
+           gwc_cf #fv #fcl GWCGwy  fcl_rel pabot gwrid_cfm gwrid_cfr /\
+           ~(gwc_cf #fv #fcl GWCPacf fcl_rel pabot gwrid_cfm gwrid_cfr) /\
+           gwc_cf #fv #fcl GWCPacf fcl_rel pabot gwrid_cfr gwrid_cfr /\
+           prun lk apply 1 gwrid_cfl == (gwrid_cfm, ([] <: list string)) /\
+           prun lk apply 1 gwrid_cfm == (gwrid_cfr, ([] <: list string)) /\
+           prun lk apply 2 gwrid_cfl == (gwrid_cfr, ([] <: list string)) /\
+           gwc_reaches lk apply GWCGwr fcl_rel pabot 2 0 gwrid_cfl gwrid_cfr /\
+           gwc_reaches_at lk apply GWCPacf fcl_rel pabot pabot 2 0
+                          gwrid_cfl gwrid_cfr)
+  = introduce forall (q: gwc_phase).
+      ~(gwc_cf #fv #fcl q fcl_rel pabot gwrid_cfl gwrid_cfr)
+    with gwrid_no_departure q;
+    gwrid_mid_related ();
+    gwrid_mid_not_pacf ();
+    gwrid_landed_pair_related ();
+    gwrid_decompose lk apply;
+    lemma_arx_step2 lk apply gwrid_x gwrid_k gwrid_sto 0;
+    lemma_prun_one lk apply gwrid_cfm gwrid_cfr;
+    lemma_arx_prun_two lk apply gwrid_x gwrid_k gwrid_sto 0
+
+(* ================================================================== *)
+(*  28.6 SECTION 28 LEDGER: WHAT THIS GATE SETTLES, AND WHAT IT DOES   *)
+(*       TO 26.4's LOCALISATION                                        *)
+(* ================================================================== *)
+
+(**
+ * **PROVED HERE.**
+ *
+ *  1. `gwrid_mid_padx_at`, `gwrid_mid_gwy_at`: at arbitrary `r`, `s`, `x`, both
+ *     stacks and both stores, under `pawf s`, `pval_rel s.aw x x`,
+ *     `pakrel r s k1 k2` and `pasrel r s sto1 sto2`, the pair
+ *     `PStep (PVar x) (PBindF PVar :: k1)` against `PStep (PVar x) k2` is
+ *     `gwc_cf`-related at `GWCPadx` and at `GWCGwy`.
+ *
+ *  2. `gwrid_step1_at`: `lemma_arx_step1` CITED, plus its `prun`-at-fuel-`1`
+ *     reading through `lemma_prun_one`.  No transition fact is re-derived.
+ *
+ *  3. `gwrid_leg1_at`: the first leg is `gwc_lands_still` at counts `1` and `0`,
+ *     at `GWCPadx` and at `GWCGwy`.
+ *
+ *  4. `gwrid_leg2_nil_at`, `gwrid_leg2_deep_at`, `gwrid_leg2_pacf_at`: the
+ *     second leg, three ways -- section 19's `gwc_var_deep_stutter` at an EMPTY
+ *     ambient stack (counts `1` : `0`, tag `GWCGwr`); `gwc_fit_var_deep` at an
+ *     arbitrary one (tag `GWCGwr`, count pair EXISTENTIAL); and
+ *     `gwy_exit_stutter` at an arbitrary one (counts `1` : `0`, tag `GWCPacf`).
+ *
+ *  5. `gwrid_decompose_at`, `gwrid_decompose_nil_at`: the factorisation.  At an
+ *     arbitrary ambient stack, `gwc_reaches_at ... GWCPacf ... s s 2 0` from the
+ *     departure to the landing, through the midpoint.  At an empty one and with
+ *     `pcl_mono` / `pcl_down`, `gwc_reaches ... GWCGwr ... 2 0` with section
+ *     19's stutter as the second leg.
+ *
+ *  6. `gwrid_cfm`, `gwrid_mid_related`, `gwrid_mid_not_pacf`,
+ *     `gwrid_decompose`, `gwrid_three_configs`: the closed instance at 26.0's
+ *     fixture, with the three configurations and their relations side by side.
+ *
+ * **WHAT THE SECOND LEG COST, EXACTLY.**  The question this gate was set was
+ * whether the second leg could be discharged by CITING the existing stutter
+ * lemma.  It can, and `gwrid_leg2_nil_at` is the citation -- but
+ * `gwc_var_deep_stutter` is stated with the RIGHT-HAND STACK LITERALLY `[]`, so
+ * the citation covers the right-identity midpoint exactly when the AMBIENT STACK
+ * IS EMPTY.  That is satisfied at 26.0's fixture and is not satisfied in
+ * general.  At an arbitrary ambient stack `gwc_fit_var_deep` still applies but
+ * leaves the right count existential, and the definite `1` : `0` comes instead
+ * from `gwy_exit_stutter`, which is the lemma `gwb_var_deep` takes that horn
+ * from and which `gwc_fit_var_deep` reaches only after the horn has been
+ * forgotten.  So the second leg IS inside the existing machinery at every
+ * ambient stack; which lemma of it must be cited depends on the stack.
+ *
+ * **WHAT THIS DOES TO 26.4's LOCALISATION -- A QUALIFICATION, NOT A
+ * RETRACTION.**  26.4 concluded that a DEPARTURE relation is the first blocker
+ * exposed by the present machinery at this pair.  That conclusion is not
+ * touched: `gwrid_three_configs`'s first conjunct re-exhibits `gwrid_no_departure`
+ * at all seven tags, and no lemma above relates the departing pair.  What the
+ * above adds is that the pair is OUT of the un-related region after ONE
+ * TRANSITION:
+ *
+ *   - at step zero the pair has no `gwc_cf` at any tag (26.1);
+ *   - at step one the pair is `gwc_cf` at `GWCPadx` and at `GWCGwy` (28.0), and
+ *     the transition that gets it there is the machine's `POp` clause, already
+ *     proved at `lemma_arx_step1`;
+ *   - and the remainder of the run is the carrier's own stutter (28.3), composed
+ *     by the carrier's own composition lemma (28.4).
+ *
+ * So what is missing at this pair is a relation covering ONE SPECIFIC
+ * TRANSITION -- the one that installs the identity bind frame -- rather than a
+ * relation covering the whole run.  **THAT IS A STATEMENT ABOUT WHAT THE PROOFS
+ * ABOVE COVER AND WHAT THEY DO NOT.**  It is NOT a claim that adding such a
+ * relation would complete anything, NOT a claim that this transition is the only
+ * thing missing, and NOT a claim that any law is proved: no law is proved
+ * anywhere in this section, no departure relation is defined anywhere in it, no
+ * tag is added to `gwc_phase`, and 26's gap is not closed.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. `gwc_lands_still`, `gwc_lands`, `gwc_reaches` and `gwc_reaches_at` all
+ *     constrain the LANDED pair and not the departing one.  Every result above
+ *     is therefore consistent with 26.1's refutation, and none of them discharges
+ *     a premise of any theorem of sections 17 to 25: `gwc_iterate`,
+ *     `gwc_iterate_alloc` and `gwc_param_lands` all consume `gwc_cf` AT THE
+ *     SOURCE, and the source here is the departing pair.
+ *
+ *  2. Every numeral is a `prun` FUEL INDEX.  Nothing above identifies a unit of
+ *     fuel with a transition.  The transition content is `lemma_arx_step1`'s and
+ *     `lemma_arx_step2`'s, both over `pstep_tr`, both CITED and neither
+ *     re-derived.
+ *
+ *  3. `gwrid_mid_not_pacf` is a refutation at ONE NAMED PAIR, at ONE tag, at
+ *     `fcl_rel` and `pabot`.  It says nothing about `gwc_cf GWCPacf` elsewhere,
+ *     and it is `guard_padx_ktop_is_not_pakrel`'s refutation cited, not a new
+ *     one.
+ *
+ *  4. `GWCPadx`, `GWCGwy`, `GWCGwr` and `GWCPacf` all occur above as LANDING or
+ *     RELATION tags.  No ordering among them is stated or proved here, and the
+ *     two second-leg landings -- `GWCGwr` and `GWCPacf` -- are stated at the tags
+ *     their source lemmas conclude at and are not compared.
+ *
+ *  5. Sections 26 and 27 are untouched.  No statement of theirs is edited,
+ *     restated, weakened or withdrawn; 28.5 CITES `gwrid_no_departure` and
+ *     `gwrid_landed_pair_related` and changes neither.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

@@ -10087,6 +10087,93 @@ This is the second consecutive gate where the error in the round was in the
 - no ordering against the two existing administrative computation relations;
 - the separation at the bottom state.
 
+#### One step in, the pair is already inside the machinery
+
+The two preceding gates both looked only at the departure, and both concluded
+something about a missing relation there. One step in, the picture is different.
+
+The left side steps to a value node over a stack carrying a **surplus identity
+bind frame**. That is exactly what the `administrative` stack relations describe
+— the ones the whole development from the administrative sections onward was
+built for. Proved at arbitrary arguments, under four hypotheses
+(well-formedness, reflexivity of the value relation at that value, the two
+stacks related, the two stores related): the once-stepped pair is a genuine
+carrier pair, at two tags.
+
+#### The run factors, and the whole of it is one reach
+
+The reconvergence's `2:0` factors as `1:0` then `1:0`, through that midpoint, at
+**arbitrary `pakrel`-related ambient stacks** — and the composite is a single
+reach statement at the plain tag. The four premises above are carried
+throughout; the theorem does not hold of an arbitrary raw pair of stacks.
+
+The first leg cites the existing step lemma and **does not re-prove the
+transition fact**; what is added is a reading of that same transition through
+the run function at fuel one, which the composition consumes.
+
+**The indices are fuel indices.** The `2:0` of the reach and the two `1:0`s of
+its legs index the run function's fuel. That the left performs two actual
+transitions and the right none is a separate, operational fact, and it comes
+from the two step lemmas over the transition function — not from anything in
+this gate.
+
+#### Where the second leg loses definiteness, exactly
+
+The anticipated difficulty was real and is now located.
+
+The stutter lemma from the surplus-phase sections is stated with its right-hand
+stack *literally* empty. At the right-identity midpoint the right stack is the
+ambient one, so that citation covers the case where the ambient stack is empty
+and no more.
+
+At arbitrary ambient stack the carrier's own fitting lemma still applies, but
+its **count pair stays existential** — that is precisely what dropping emptiness
+costs. A definite `1:0` at arbitrary ambient stack is available, from the
+underlying stutter lemma that the carrier fitting is derived from: the carrier
+version reaches it only after the surplus horn has been forgotten, and that
+forgetting is where the count goes existential.
+
+#### What this does to the earlier localisation
+
+Not a retraction. The departure refutation stands, and is re-exhibited.
+
+The accurate statement is that **the existing carrier's proof coverage does not
+include the departing pair; it begins at the midpoint, one transition in.** What
+is missing is still a departure relation — what this gate does is locate *where*
+that gap sits, not narrow it to something whose repair would suffice. Nothing
+here shows that supplying a relation for that transition would close the law, or
+that no further obstruction lies behind it.
+
+#### Checked independently
+
+The earlier gate exhibited a landing whose departure is refused at one fixture.
+With the reach now generic, the two halves can be put together: at arbitrary
+value types, clause relation, state, value, both stacks and both stores —
+**those parameters satisfying the four premises**, namely well-formedness, the
+value related to itself, the stacks `pakrel`-related and the stores
+`pasrel`-related — the `2:0` reach holds **and** the departure is refused at all
+seven tags, in one statement. It is not an unconditional statement: without the
+four premises the reach half does not follow. (The refutation half needs none of
+them, which is why it is stated separately in the file.)
+
+So the asymmetry found at a fixture is generic throughout these admissible
+related starts, rather than a property of that one pair. This is an independent
+check and **not a theorem in the file** — the file still carries the
+fixture-level version.
+
+#### Not proved
+
+- **no law is proved anywhere.** A factorisation is not an adjudication, and the
+  file says so in its own section heading and ledger;
+- no relation for the transition that installs the identity frame;
+- the previous gate's negative result about the candidate computation relation
+  stands, and nothing here supports adopting it;
+- of the components a phase would need, still only monotonicity along
+  accessibility;
+- the definite count at arbitrary `pakrel`-related ambient stack comes at the
+  plain tag; the surplus-phase tag gives only the existential pair there;
+- nothing about starts that do not satisfy the four premises.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
