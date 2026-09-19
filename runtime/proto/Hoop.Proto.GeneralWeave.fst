@@ -62086,3 +62086,559 @@ let gwridg_instance_stops (lk: plookup_t fcl) (apply: papply_t fv fcl)
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ================================================================== *)
+(* ---- 30. THE THIRD LEG ATTACHED: THE RIGHT-IDENTITY RUN FACTORED
+           END TO END, UNDER TWO ASSUMED PREMISES ------------------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION ADDS, AND WHAT IT DOES NOT.**  Section 29 carried the
+ * right-identity run from the departure `POp a PVar` against `a` through the
+ * midpoint and across the body's execution, and stopped there: 29.4's fourth
+ * item records that the final stutter -- the transition that POPS the surplus
+ * `PBindF PVar` frame -- is stated in 28.3 at a `PVar` redex only, so at an
+ * arbitrary body 29 reaches no statement of it.  This section attaches that
+ * third leg.
+ *
+ * It can only be attached under a PREMISE saying the body HAS become a value.
+ * Legs 1 and 2 do not deliver one: 29.3's fragment premise carries the run WHILE
+ * the body executes and, by `gwc_redepartable_excludes_heads`, is false at the
+ * first index at which the left side presents a value to the surplus frame.  So
+ * 30.1 states a VALUE-AT-`n` PREMISE, names it as a premise, and assumes it.
+ *
+ * The composite below therefore stands on TWO assumed premises -- 29.3's
+ * fragment premise and 30.1's value-at-`n` premise -- neither of which is
+ * discharged here at arbitrary body.  **NO LAW IS PROVED ANYWHERE IN THIS
+ * SECTION.**  A factorisation under two assumed premises is not a proof of right
+ * identity, is not an adjudication of it, and is not a measure of distance from
+ * one: the premises are exactly the content a proof would have to supply.  Every
+ * numeral below is a `prun` FUEL INDEX, as everywhere above; nothing here
+ * identifies a unit of fuel with a transition.
+ *)
+
+(* ---- 30.0 THE MIDPOINT SHAPE AT TWO RELATED COMPUTATIONS --------- *)
+
+(**
+ * **THE SURPLUS-FRAME PAIR IS `gwc_cf`-RELATED AT `GWCPadx` WHEN THE TWO BODIES
+ * ARE `pacrel`-RELATED TO EACH OTHER.**  PROVED, at arbitrary `v`, `cl`, `r`,
+ * `s`, `c1`, `c2`, at arbitrary `pakrel`-related stacks and `pasrel`-related
+ * stores.  The proof is 29.0's verbatim -- `gwc_cf_is_padx_cf` (52220) and the
+ * unfolding of `padx_cf` -- with the diagonal `pacrel r s a a` replaced by
+ * `pacrel r s c1 c2`.
+ *
+ * 29.0's `gwridg_mid_padx_at` is the DIAGONAL instance `c1 == c2 == a` of this
+ * one.  That is a statement about the two signatures and nothing more; 29.0 is
+ * not edited, not replaced, and is still the lemma 29.2 and 29.3 cite.
+ *)
+let gwridg_mid_padx_two_at
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pacrel r s c1 c2 /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            gwc_cf GWCPadx r s
+              ({ st = PStep c1 (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } <: pconf v cl)
+              ({ st = PStep c2 k2; store = sto2; next = s.an2 } <: pconf v cl))
+  = let m1 : pconf v cl = { st = PStep c1 (PBindF (PVar #v #cl) :: k1);
+                            store = sto1; next = s.an1 } in
+    let m2 : pconf v cl = { st = PStep c2 k2; store = sto2; next = s.an2 } in
+    gwc_cf_is_padx_cf r s m1 m2
+
+(** **AND AT `GWCGwy` TOO.**  PROVED, under the same hypotheses, by the same
+    route 29.0 takes: `gwy_ktop_is_gwy_k` (45508) carries `padx_ktop` into
+    `gwy_k`, and `gwc_cf_is_gwy_cf` (52236) is the reading.  This is the tag the
+    third leg's source lemma departs from, which is why it is proved and not
+    left as a remark. *)
+let gwridg_mid_gwy_two_at
+    (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (c1 c2: pcomp v cl) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pacrel r s c1 c2 /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            gwc_cf GWCGwy r s
+              ({ st = PStep c1 (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } <: pconf v cl)
+              ({ st = PStep c2 k2; store = sto2; next = s.an2 } <: pconf v cl))
+  = let m1 : pconf v cl = { st = PStep c1 (PBindF (PVar #v #cl) :: k1);
+                            store = sto1; next = s.an1 } in
+    let m2 : pconf v cl = { st = PStep c2 k2; store = sto2; next = s.an2 } in
+    gwridg_mid_padx_two_at r s c1 c2 k1 k2 sto1 sto2;
+    gwc_cf_is_padx_cf r s m1 m2;
+    padx_cf_unfold r s m1 m2 ();
+    padx_st_unfold r s m1.st m2.st ();
+    gwy_ktop_is_gwy_k r s (PBindF (PVar #v #cl) :: k1) k2;
+    gwc_cf_is_gwy_cf r s m1 m2
+
+(* ---- 30.1 LEG THREE, AT TWO RELATED VALUES ----------------------- *)
+
+(**
+ * **THE THIRD LEG IS A `gwc_lands_still` AT `1` : `0`, AT `GWCPacf`, AT
+ * ARBITRARY `pakrel`-RELATED STACKS.**  PROVED, at arbitrary `lk`, `apply`, `r`,
+ * `s`, at two values related by `pval_rel s.aw y1 y2`, at arbitrary
+ * `pakrel`-related `k1'`, `k2'` and `pasrel`-related stores.
+ *
+ * This is 28.3's `gwrid_leg2_pacf_at` with the two sides' values allowed to
+ * DIFFER: its source, `gwy_exit_stutter` (45678), already carries two value
+ * parameters `x1`, `x2`, and 28.3 passed `x x` because 28's departing pair was
+ * `POp (PVar x) PVar` against `PVar x`.  Here the two values arrive from a run
+ * and there is no reason in the statement to identify them, so they are not
+ * identified.  `gwrid_leg2_pacf_at` is the DIAGONAL instance `y1 == y2` of this
+ * lemma; 28.3 is untouched and is still what 28.4 cites.
+ *
+ * The landing tag is `GWCPacf`, which is `gwy_exit_stutter`'s -- it concludes
+ * `pacfrel` at the successor, read across by `gwc_cf_is_pacfrel` (52204).  No
+ * claim is made here that `GWCPacf` stands in any order against `GWCGwy` or any
+ * other tag.  `1` and `0` are `prun` FUEL INDICES; the transition claim is
+ * `gwy_exit_stutter`'s, over `pstep_tr`, and is not re-derived.
+ *)
+let gwridg_leg3_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (y1 y2: pval v) (k1' k2': pstack v cl) (sto1' sto2': pstore v cl)
+  : Lemma (requires pawf s /\ pval_rel s.aw y1 y2 /\ pakrel r s k1' k2' /\
+                    pasrel r s sto1' sto2')
+          (ensures
+            (let vl1 : pconf v cl =
+               { st = PStep (PVar y1) (PBindF (PVar #v #cl) :: k1');
+                 store = sto1'; next = s.an1 } in
+             let vl2 : pconf v cl =
+               { st = PStep (PVar y2) k2'; store = sto2'; next = s.an2 } in
+             gwc_lands_still lk apply GWCPacf r s 1 0 vl1 vl2))
+  = let vl1 : pconf v cl =
+      { st = PStep (PVar y1) (PBindF (PVar #v #cl) :: k1');
+        store = sto1'; next = s.an1 } in
+    let vl2 : pconf v cl =
+      { st = PStep (PVar y2) k2'; store = sto2'; next = s.an2 } in
+    lemma_pacrel_var r s y1 y2;
+    gwridg_mid_gwy_two_at r s (PVar #v #cl y1) (PVar #v #cl y2) k1' k2'
+                          sto1' sto2';
+    gwc_cf_is_gwy_cf r s vl1 vl2;
+    gwridg_mid_padx_two_at r s (PVar #v #cl y1) (PVar #v #cl y2) k1' k2'
+                           sto1' sto2';
+    gwc_cf_is_padx_cf r s vl1 vl2;
+    padx_cf_unfold r s vl1 vl2 ();
+    padx_st_unfold r s vl1.st vl2.st ();
+    gwy_exit_stutter lk apply r s y1 y2 (PBindF (PVar #v #cl) :: k1') k2'
+                     sto1' sto2';
+    let vl1' : pconf v cl =
+      { st = PStep (PVar y1) k1'; store = sto1'; next = s.an1 } in
+    gwc_cf_is_pacfrel r s vl1' vl2;
+    gwc_lands_still_intro lk apply GWCPacf r s 1 0 vl1 vl2
+
+(* ---- 30.2 THE THREE-LEG COMPOSITION ------------------------------ *)
+
+(**
+ * **THE TWO PREMISES, NAMED.**  The theorem below takes 29.0's four hypotheses
+ * (`pawf s`, `pacrel r s a a`, `pakrel r s k1 k2`, `pasrel r s sto1 sto2`),
+ * `pcl_down r` -- which is `gwc_iterate`'s -- and then TWO further premises,
+ * neither of which any lemma of this file discharges at arbitrary `a`:
+ *
+ *   - THE FRAGMENT PREMISE.  29.3's, written exactly as 23.4 writes it, on the
+ *     LEFT run FROM THE MIDPOINT: `forall (i: nat). i < n ==> gwc_redepartable
+ *     (fst (prun lk apply i m1))`.  It is a HYPOTHESIS here, as it is there.
+ *
+ *   - THE VALUE-AT-`n` PREMISE.  A HYPOTHESIS, stated here for the first time.
+ *     It says that at fuel index `n` from the midpoint the left run has arrived
+ *     at `PStep (PVar y1) (PBindF PVar :: k1')` and the right run at
+ *     `PStep (PVar y2) k2'`, both with empty trace and with the counters where
+ *     `gwc_cf` pins them, and that the residues are related as 30.1 requires:
+ *     `pval_rel s.aw y1 y2`, `pakrel r s k1' k2'`, `pasrel r s sto1' sto2'`.
+ *     `y1`, `y2`, `k1'`, `k2'`, `sto1'` and `sto2'` are PARAMETERS of the
+ *     theorem, so the premise names its own witnesses rather than
+ *     existentialising them.
+ *
+ * **WHY THE SECOND PREMISE IS NOT DERIVED, AND WHY IT COULD NOT BE HERE.**  The
+ * middle leg's conclusion is a `gwc_lands_still`, which constrains the landed
+ * pair by `gwc_cf` and does not NAME it; `gwc_lands_still_compose` needs the
+ * third leg stated AT the named landed configurations.  Beyond that, the
+ * fragment premise says nothing about the run finishing --
+ * `gwc_redepartable_excludes_heads` makes it FALSE at a `PVar` redex over a
+ * `PBindF` head -- so it cannot yield a value at index `n` and does not.  This
+ * premise supplies what it does not.
+ *
+ * **THE STATEMENT.**  PROVED as an implication and nothing more: from the
+ * right-identity departure `POp a PVar` against `a`, at counts `n + 2` on the
+ * left and `n` on the right, `gwc_lands_still` at `GWCPacf`, and the same in the
+ * `gwc_reaches_at` form with both state arguments `s`.
+ *
+ * **WHICH COMPOSE LEMMA, AND WHY THAT ONE.**  `gwc_lands_still_compose` (20.2),
+ * the SINGLE-STATE form, again -- not `gwc_lands_still_compose_at` (21.3).  29's
+ * reason was that neither of its two legs moves the allocation state, and that
+ * reason survives leg 3: `gwridg_leg3_at` concludes `gwc_lands_still ... r s 1 0`
+ * at the SAME `s` its hypotheses are taken at, because `gwy_exit_stutter` pins
+ * both counters to `s.an1` and `s.an2` and its successor keeps them.  So all
+ * three legs are stated at one `s` and 21.3's two-state form is not needed.  The
+ * counts add SIDE BY SIDE: `(1 + n) + 1` on the left, `n + 0` on the right,
+ * never mixed.  `gwc_reaches_at_of_lands_still` (55630) adds the reach form,
+ * with `paext s s` from `lemma_paext_refl_wf` and `pawf s` from the hypotheses.
+ *
+ * `n + 2` and `n` are `prun` FUEL INDICES.
+ *)
+let gwridg_three_legs_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n: nat)
+    (a: pcomp v cl) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+    (y1 y2: pval v) (k1' k2': pstack v cl) (sto1' sto2': pstore v cl)
+  : Lemma (requires pawf s /\ pcl_down r /\ pacrel r s a a /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2 /\
+                    (forall (i: nat). i < n ==>
+                       gwc_redepartable
+                         (fst (prun lk apply i
+                                 ({ st = PStep a (PBindF (PVar #v #cl) :: k1);
+                                    store = sto1; next = s.an1 } <: pconf v cl)))) /\
+                    prun lk apply n
+                      ({ st = PStep a (PBindF (PVar #v #cl) :: k1);
+                         store = sto1; next = s.an1 } <: pconf v cl)
+                      == (({ st = PStep (PVar y1) (PBindF (PVar #v #cl) :: k1');
+                             store = sto1'; next = s.an1 } <: pconf v cl),
+                          ([] <: list string)) /\
+                    prun lk apply n
+                      ({ st = PStep a k2; store = sto2; next = s.an2 }
+                       <: pconf v cl)
+                      == (({ st = PStep (PVar y2) k2';
+                             store = sto2'; next = s.an2 } <: pconf v cl),
+                          ([] <: list string)) /\
+                    pval_rel s.aw y1 y2 /\ pakrel r s k1' k2' /\
+                    pasrel r s sto1' sto2')
+          (ensures
+            (let cfl : pconf v cl = { st = PStep (POp a (PVar #v #cl)) k1;
+                                      store = sto1; next = s.an1 } in
+             let cfr : pconf v cl = { st = PStep a k2;
+                                      store = sto2; next = s.an2 } in
+             gwc_lands_still lk apply GWCPacf r s (n + 2) n cfl cfr /\
+             gwc_reaches_at lk apply GWCPacf r s s (n + 2) n cfl cfr))
+  = let cfl : pconf v cl = { st = PStep (POp a (PVar #v #cl)) k1;
+                             store = sto1; next = s.an1 } in
+    let cfr : pconf v cl = { st = PStep a k2; store = sto2; next = s.an2 } in
+    let m1 : pconf v cl = { st = PStep a (PBindF (PVar #v #cl) :: k1);
+                            store = sto1; next = s.an1 } in
+    let vl1 : pconf v cl =
+      { st = PStep (PVar y1) (PBindF (PVar #v #cl) :: k1');
+        store = sto1'; next = s.an1 } in
+    let vl2 : pconf v cl =
+      { st = PStep (PVar y2) k2'; store = sto2'; next = s.an2 } in
+    gwridg_first_two_legs_at lk apply r s n a k1 k2 sto1 sto2;
+    gwridg_step1_at lk apply a k1 sto1 s.an1;
+    lemma_prun_cat lk apply 1 n cfl m1 vl1;
+    gwridg_leg3_at lk apply r s y1 y2 k1' k2' sto1' sto2';
+    assert (fst (prun lk apply (1 + n) cfl) == vl1);
+    assert (fst (prun lk apply n cfr) == vl2);
+    gwc_lands_still_compose lk apply GWCGwy GWCPacf r s (1 + n) n 1 0 cfl cfr;
+    assert ((1 + n) + 1 == n + 2);
+    assert (n + 0 == n);
+    assert (gwc_lands_still lk apply GWCPacf r s (n + 2) n cfl cfr);
+    gwc_reaches_at_of_lands_still lk apply GWCPacf r s (n + 2) n cfl cfr
+
+(* ---- 30.3 THE `n == 0` DEGENERATION, AGAINST SECTION 28 ---------- *)
+
+(**
+ * **AT `n == 0` AND A VALUE BODY THE COMPOSITE IS `2` : `0`, WHICH IS 28.4's.**
+ * PROVED, by instantiating 30.2 at `n` zero and `a == PVar x`.  The four
+ * premises of 30.2 that are not 28.4's are met by computation at that
+ * instantiation:
+ *
+ *   - `pacrel r s (PVar x) (PVar x)` is `gwridg_value_body_hypothesis` (29.0)
+ *     from `pval_rel s.aw x x`, which is 28.4's own hypothesis;
+ *   - the fragment premise is `forall (i: nat). i < 0 ==> ...`, vacuous;
+ *   - the value-at-`n` premise is `prun lk apply 0 m == (m, [])` on each side,
+ *     which is `prun`'s fuel-zero clause, with `y1 == y2 == x`, `k1' == k1`,
+ *     `k2' == k2` and the stores unchanged;
+ *   - `pval_rel s.aw x x`, `pakrel r s k1 k2`, `pasrel r s sto1 sto2` are 28.4's.
+ *
+ * The conclusion's second conjunct is `gwrid_decompose_at`'s (28.4) statement
+ * VERBATIM: `gwc_reaches_at lk apply GWCPacf r s s 2 0 cfl cfr` at the same
+ * departure and landing.  So 30.2's general count `n + 2` : `n` agrees at `n`
+ * zero with the count section 28 obtained first, by the route section 28 did not
+ * take.
+ *
+ * **ONE HYPOTHESIS MORE THAN 28.4, AND IT IS NOT REMOVED HERE.**  28.4 proves
+ * its `2` : `0` under 28.0's four hypotheses and nothing else.  This corollary
+ * additionally requires `pcl_down r`, which enters through 29.3's
+ * `gwridg_mid_iterate_at` and is `gwc_iterate`'s own hypothesis; the middle leg
+ * is traversed at `n` zero rather than bypassed, and 23.4 asks for `pcl_down`
+ * whatever `n` is.  Nothing below removes it, and nothing below claims 28.4 is
+ * subsumed: 28.4 remains the statement with the smaller hypothesis set and is
+ * untouched.
+ *)
+let gwridg_three_legs_value_body_at
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pcl_down r /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            (let cfl : pconf v cl =
+               { st = PStep (POp (PVar #v #cl x) (PVar #v #cl)) k1;
+                 store = sto1; next = s.an1 } in
+             let cfr : pconf v cl = { st = PStep (PVar #v #cl x) k2;
+                                      store = sto2; next = s.an2 } in
+             gwc_lands_still lk apply GWCPacf r s 2 0 cfl cfr /\
+             gwc_reaches_at lk apply GWCPacf r s s 2 0 cfl cfr))
+  = gwridg_value_body_hypothesis #v #cl r s x;
+    gwridg_three_legs_at lk apply r s 0 (PVar #v #cl x) k1 k2 sto1 sto2
+                         x x k1 k2 sto1 sto2
+
+(** **AND IT IS LITERALLY 28.4's CONCLUSION.**  PROVED, at arbitrary `lk`,
+    `apply`, `r`, `s`, `x`, both stacks and both stores, under the corollary's
+    hypotheses: the `gwc_reaches_at ... GWCPacf ... s s 2 0` that 30.3 derives
+    through three legs and the one `gwrid_decompose_at` derives through two are
+    the same proposition, so the two routes agree at this instantiation.  This
+    conjunction is a CONSISTENCY CHECK between two proofs in this file; it is not
+    a new landing, and it says nothing about any `n` other than zero. *)
+let gwridg_degeneration_matches_28
+    (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate)
+    (x: pval v) (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pcl_down r /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            (let cfl : pconf v cl =
+               { st = PStep (POp (PVar #v #cl x) (PVar #v #cl)) k1;
+                 store = sto1; next = s.an1 } in
+             let cfr : pconf v cl = { st = PStep (PVar #v #cl x) k2;
+                                      store = sto2; next = s.an2 } in
+             gwc_reaches_at lk apply GWCPacf r s s 2 0 cfl cfr))
+  = gwridg_three_legs_value_body_at lk apply r s x k1 k2 sto1 sto2;
+    gwrid_decompose_at lk apply r s x k1 k2 sto1 sto2
+
+(* ---- 30.4 THE CLOSED INSTANCE, AT 29.5's NON-VALUE BODY ---------- *)
+
+(**
+ * **THE TWO SINGLETON `PBindF PVar` STACKS ARE `pakrel`-RELATED.**  PROVED, at
+ * arbitrary `r` and `s`, from `lemma_pafn_rel_at_pvar`, `lemma_pafrel_bind`,
+ * `lemma_pakrel_cons` and `lemma_pakrel_nil`.  This is the residue the third leg
+ * needs at 29.5's instance, where the ambient stack is empty and one ordinary
+ * bind frame has been installed on each side.
+ *)
+let gwridg_pakrel_one_bind (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+  : Lemma (pakrel #v #cl r s [PBindF (PVar #v #cl)] [PBindF (PVar #v #cl)])
+  = lemma_pafn_rel_at_pvar #v #cl r s;
+    lemma_pafrel_bind #v #cl r s (PVar #v #cl) (PVar #v #cl);
+    lemma_pakrel_nil #v #cl r s;
+    lemma_pakrel_cons #v #cl r s (PBindF (PVar #v #cl)) (PBindF (PVar #v #cl))
+                      [] []
+
+(**
+ * **THE VALUE 29.5's INSTANCE REACHES AT `n` ONE, ON BOTH SIDES.**  The body is
+ * 29.5's `gwridg_body`, which is `POp (PVar gwrid_x) PVar`; one transition on
+ * each side turns it into `PVar gwrid_x` under one freshly installed
+ * `PBindF PVar` frame.  So at fuel index one from the midpoint the left run is at
+ * `gwridg_vl1` -- the value under TWO bind frames, the surplus one on top -- and
+ * the right run is at `gwridg_vl2`, the value under the ONE frame its own
+ * transition installed.
+ *)
+let gwridg_vl1 : pconf fv fcl =
+  { st = PStep (PVar gwrid_x)
+           (PBindF (PVar #fv #fcl) :: [PBindF (PVar #fv #fcl)]);
+    store = gwrid_sto; next = 0 }
+let gwridg_vl2 : pconf fv fcl =
+  { st = PStep (PVar gwrid_x) [PBindF (PVar #fv #fcl)];
+    store = gwrid_sto; next = 0 }
+
+(** **THE VALUE-AT-`n` PREMISE, DISCHARGED AT `n` ONE FOR THIS INSTANCE.**
+    PROVED, at arbitrary `lk` and `apply`.  Both `prun` equalities are
+    `gwridg_step1_at` (29.1) at the two stacks -- the first transition does not
+    inspect the body, and here the body is itself a `POp` -- and the three
+    relational conjuncts are `pval_rel` at `gwrid_x` (immediate at this fixture),
+    `gwridg_pakrel_one_bind`, and `pasrel` at the two empty stores.
+
+    So at this instance the premise 30.2 assumes is a THEOREM, at `n` one.  That
+    is one body at one index; nothing here discharges it at any other `n`, at any
+    other body, or at arbitrary body. *)
+let gwridg_value_at_one (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma (prun lk apply 1 gwridg_cfm == (gwridg_vl1, ([] <: list string)) /\
+           prun lk apply 1 gwridg_cfr == (gwridg_vl2, ([] <: list string)) /\
+           pval_rel #fv pabot.aw gwrid_x gwrid_x /\
+           pakrel #fv #fcl fcl_rel pabot
+                  [PBindF (PVar #fv #fcl)] [PBindF (PVar #fv #fcl)] /\
+           pasrel #fv #fcl fcl_rel pabot gwrid_sto gwrid_sto)
+  = lemma_pabot_wf ();
+    gwridg_step1_at lk apply (PVar #fv #fcl gwrid_x)
+                    (PBindF (PVar #fv #fcl) :: gwrid_k) gwrid_sto 0;
+    gwridg_step1_at lk apply (PVar #fv #fcl gwrid_x) gwrid_k gwrid_sto 0;
+    gwridg_pakrel_one_bind #fv #fcl fcl_rel pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x)
+
+(**
+ * **ALL THREE LEGS FIRE AT THIS INSTANCE, AT `3` : `1`.**  PROVED, at arbitrary
+ * `lk` and `apply`, with NO hypothesis: `pawf pabot` is `lemma_pabot_wf`,
+ * `pcl_down fcl_rel` is `lemma_fcl_rel_down`, `pakrel` at the two empty ambient
+ * stacks is `lemma_pakrel_nil`, `pasrel` at the two empty stores is immediate,
+ * the body's self-relation is `gwridg_body_selfrel` (29.5), the fragment premise
+ * at `n` one is `gwridg_shape_one` (29.5) and the value-at-`n` premise at `n` one
+ * is `gwridg_value_at_one` above.
+ *
+ * The count is 30.2's `n + 2` : `n` at `n` one, so `3` : `1`.  Compare 29.5's
+ * `gwridg_instance`, which stops after two legs at `2` : `1` at the same
+ * departure: the third leg adds ONE to the left index and NOTHING to the right,
+ * because `gwy_exit_stutter` is a left-only stutter.  Both numerals are `prun`
+ * FUEL INDICES.
+ *
+ * The premise 29.5 records as FAILING at `n` two -- `gwridg_instance_stops` --
+ * is the FRAGMENT premise, and it is not needed at `n` two here: this
+ * instantiation is at `n` one, and the configuration `gwridg_instance_stops`
+ * names is exactly the one the value-at-`n` premise reports as the value the run
+ * has reached.  The index at which the fragment premise fails and the index at
+ * which the body has become a value are the SAME index for this body; that is a
+ * fact about this instance and is not claimed for any other.
+ *)
+let gwridg_three_legs_instance (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma (~(PVar? gwridg_body) /\
+           prun lk apply 1 gwridg_cfm == (gwridg_vl1, ([] <: list string)) /\
+           prun lk apply 1 gwridg_cfr == (gwridg_vl2, ([] <: list string)) /\
+           gwc_lands_still lk apply GWCPacf fcl_rel pabot 1 0
+                           gwridg_vl1 gwridg_vl2 /\
+           gwc_lands_still lk apply GWCPacf fcl_rel pabot 3 1
+                           gwridg_cfl gwridg_cfr /\
+           gwc_reaches_at lk apply GWCPacf fcl_rel pabot pabot 3 1
+                          gwridg_cfl gwridg_cfr)
+  = lemma_pabot_wf ();
+    lemma_fcl_rel_down ();
+    lemma_pakrel_nil #fv #fcl fcl_rel pabot;
+    gwridg_body_selfrel ();
+    gwridg_shape_one lk apply;
+    gwridg_value_at_one lk apply;
+    gwridg_pakrel_one_bind #fv #fcl fcl_rel pabot;
+    gwridg_leg3_at lk apply fcl_rel pabot gwrid_x gwrid_x
+                   [PBindF (PVar #fv #fcl)] [PBindF (PVar #fv #fcl)]
+                   gwrid_sto gwrid_sto;
+    gwridg_three_legs_at lk apply fcl_rel pabot 1 gwridg_body gwrid_k gwrid_k
+                         gwrid_sto gwrid_sto gwrid_x gwrid_x
+                         [PBindF (PVar #fv #fcl)] [PBindF (PVar #fv #fcl)]
+                         gwrid_sto gwrid_sto
+
+(**
+ * **THE DEPARTING PAIR OF THIS INSTANCE IS STILL NOT SHOWN RELATED.**  PROVED,
+ * at arbitrary `lk` and `apply`: the conjuncts above are all `gwc_lands_still`
+ * and `gwc_reaches_at` facts, and both constrain the LANDED pair and the two
+ * traces only -- read 55590 and 54646.  The statement below records what IS
+ * exhibited about `gwridg_cfl` against `gwridg_cfr`: the landing at `3` : `1`,
+ * and, separately, that this file exhibits no `gwc_cf` at that departing pair at
+ * any tag.
+ *
+ * That second part is stated here as what it is -- a statement about the
+ * conclusion of the lemma below, which mentions only landings -- and NOT as a
+ * refutation.  26.1's seven-tag refutation is at 26.0's VALUE FIXTURE,
+ * `POp (PVar x) PVar` against `PVar x`, and is not generalised: `gwridg_cfl`
+ * against `gwridg_cfr` is a different pair, at a `POp` body, and no lemma of this
+ * file refutes `gwc_cf` there.
+ *)
+let gwridg_three_legs_instance_departure (lk: plookup_t fcl) (apply: papply_t fv fcl)
+  : Lemma (gwc_lands_still lk apply GWCPacf fcl_rel pabot 3 1
+                           gwridg_cfl gwridg_cfr /\
+           gwc_lands_still lk apply GWCGwy fcl_rel pabot 2 1
+                           gwridg_cfl gwridg_cfr)
+  = gwridg_three_legs_instance lk apply;
+    gwridg_instance lk apply
+
+(* ================================================================== *)
+(*  30.5 SECTION 30 LEDGER: THE RUN IS FACTORED END TO END, UNDER TWO  *)
+(*       ASSUMED PREMISES                                              *)
+(* ================================================================== *)
+
+(**
+ * **PROVED HERE.**
+ *
+ *  1. `gwridg_mid_padx_two_at`, `gwridg_mid_gwy_two_at`: at arbitrary `r`, `s`,
+ *     at two `pacrel`-related computations, at arbitrary `pakrel`-related stacks
+ *     and `pasrel`-related stores, the pair `PStep c1 (PBindF PVar :: k1)`
+ *     against `PStep c2 k2` is `gwc_cf`-related at `GWCPadx` and at `GWCGwy`.
+ *     29.0's two lemmas are the diagonal instances and are untouched.
+ *
+ *  2. `gwridg_leg3_at`: the third leg, `gwc_lands_still` at `GWCPacf` at counts
+ *     `1` : `0`, at arbitrary `pakrel`-related stacks and at two `pval_rel`
+ *     related values, by CITING `gwy_exit_stutter` (45678).  28.3's
+ *     `gwrid_leg2_pacf_at` is the diagonal instance and is untouched.
+ *
+ *  3. `gwridg_three_legs_at`: THE THREE-LEG COMPOSITION.  From the right-identity
+ *     departure `POp a PVar` against `a` at an ARBITRARY `a`, at arbitrary
+ *     `pakrel`-related stacks and `pasrel`-related stores, under `pawf s`,
+ *     `pcl_down r`, `pacrel r s a a`, 29.3's FRAGMENT PREMISE and 30.2's
+ *     VALUE-AT-`n` PREMISE: `gwc_lands_still` and `gwc_reaches_at` at `GWCPacf`
+ *     at counts `n + 2` : `n`, with both state arguments `s`.  The compose lemma
+ *     is `gwc_lands_still_compose` (20.2), the single-state form, applicable
+ *     because no leg moves a counter -- leg 3 included, since `gwy_exit_stutter`
+ *     pins both counters and its successor keeps them.
+ *
+ *  4. `gwridg_three_legs_value_body_at`, `gwridg_degeneration_matches_28`: at
+ *     `n` zero and a value body the composite is `2` : `0`, and the
+ *     `gwc_reaches_at` conjunct is `gwrid_decompose_at`'s (28.4) VERBATIM.  The
+ *     degeneration therefore matches section 28's count -- under one hypothesis
+ *     more than 28.4 takes, `pcl_down r`, which enters through `gwc_iterate` and
+ *     is not removed here.
+ *
+ *  5. `gwridg_pakrel_one_bind`, `gwridg_vl1`, `gwridg_vl2`,
+ *     `gwridg_value_at_one`, `gwridg_three_legs_instance`,
+ *     `gwridg_three_legs_instance_departure`: the closed instance at 29.5's
+ *     non-value body `POp (PVar gwrid_x) PVar`.  Both assumed premises are
+ *     DISCHARGED there at `n` one -- the fragment premise by 29.5's
+ *     `gwridg_shape_one`, the value-at-`n` premise by `gwridg_value_at_one` --
+ *     and all three legs fire, at `3` : `1`.
+ *
+ * **WHAT REMAINS AFTER THIS.**  Four items, each a statement about what has and
+ * has not been proved in this file.
+ *
+ *  1. THE RUN IS FACTORED END TO END, AND THE FACTORISATION STANDS ON TWO
+ *     ASSUMED PREMISES.  `gwridg_three_legs_at` is the whole run from departure
+ *     to the pop of the surplus frame, at an arbitrary body.  Its fragment
+ *     premise and its value-at-`n` premise are HYPOTHESES.  Neither is discharged
+ *     for any program at arbitrary `n`: the only discharge in this file is at ONE
+ *     closed body at `n` one (29.5's `gwridg_shape_one` and 30.4's
+ *     `gwridg_value_at_one`), and section 25's discharge of the fragment premise
+ *     does not reach the midpoint, by `gwridg_mid_stack_outside_param_family`
+ *     (29.5).  A factorisation under two assumed premises is not a proof of right
+ *     identity and is not an adjudication of it.
+ *
+ *  2. THE DEPARTING PAIR STILL HAS NO RELATION SUPPLIED AT AN ARBITRARY BODY.
+ *     No lemma of sections 28, 29 or 30 relates `POp a PVar` against `a` by
+ *     `gwc_cf` at any tag, at any `a`, and none is claimed.  Every landing above
+ *     is a `gwc_lands_still` or `gwc_reaches_at` fact, both of which constrain the
+ *     LANDED pair only.  The seven-tag refutation of 26.1 is at 26.0's VALUE
+ *     FIXTURE -- `POp (PVar x) PVar` against `PVar x` -- and this file does not
+ *     generalise it: nothing above refutes `gwc_cf` at a departing pair with a
+ *     non-value body, including 30.4's own `gwridg_cfl` against `gwridg_cfr`.
+ *
+ *  3. TERMINATION OF THE BODY IS NOW AN EXPLICIT PREMISE.  29.4's third item
+ *     recorded that the body's reaching a value was neither proved nor assumed.
+ *     30.2 assumes it, in the value-at-`n` form.  THAT IS A CHANGE IN
+ *     BOOKKEEPING AND NOT IN WHAT IS PROVED: an absence has become a named
+ *     hypothesis, which makes the obligation visible in the signature and moves
+ *     nothing into the proved column.  The hypothesis is strictly more than
+ *     termination -- it also fixes the residual stacks, the stores and the
+ *     relation between the two landed values -- and none of those parts is
+ *     derived here either.
+ *
+ *  4. NO LAW IS PROVED.  Right identity is not proved here, not adjudicated
+ *     here, and not shown to be near either.  No tag is added to `gwc_phase`, no
+ *     departure relation is defined, no statement of sections 23, 25, 26, 27, 28
+ *     or 29 is edited, restated, weakened or withdrawn, and 26's gap is not
+ *     closed.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. Every numeral above is a `prun` FUEL INDEX.  Nothing above identifies a
+ *     unit of fuel with a transition.  The transition content is
+ *     `gwridg_step1_at`'s first conjunct and `gwy_exit_stutter`'s `pstep_tr`
+ *     conjunct, both CITED and neither re-derived.
+ *
+ *  2. `GWCPadx`, `GWCGwy` and `GWCPacf` occur above as relation and landing tags.
+ *     No ordering among the seven tags is stated or proved here, and the
+ *     composite's tag is the THIRD leg's because that is what
+ *     `gwc_lands_still_compose` concludes at.
+ *
+ *  3. `gwridg_mid_padx_two_at` and `gwridg_leg3_at` are two-sided forms whose
+ *     diagonals are 29.0's and 28.3's.  That relation between signatures is all
+ *     that is claimed; no lemma of 28 or 29 is replaced, and 28.4 and 29.5 still
+ *     cite the lemmas they cited.
+ *
+ *  4. `gwridg_degeneration_matches_28` is a consistency check between two proofs
+ *     in this file at ONE instantiation, `n` zero at a value body.  It says
+ *     nothing about any other `n`, and it is not a new landing.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

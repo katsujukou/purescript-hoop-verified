@@ -10254,6 +10254,87 @@ two bind nodes, not three, so the run stays in the fragment for two steps.)
 - the general nesting-depth-to-budget correspondence;
 - the counts are fuel indices throughout.
 
+#### The third leg attaches, and the run is factored end to end
+
+Until now the popping leg had never been composed onto the other two. It is now.
+
+For a body satisfying the base premises — including the body **related to
+itself** — together with the fragment premise and the value-at-`n` premise, and
+at `pakrel`-related stacks and `pasrel`-related stores, the whole run is one
+landing at `n+2` against `n`. These remain **fuel indices**.
+
+The composition is still the single-state one, and for the same reason as
+before: the third leg's source lemma pins both counters, so **the allocation
+state** does not move across any of the three legs. That is about the allocation
+state only — it is not a claim that the machine configuration or the store are
+unchanged, and they are not.
+
+#### It degenerates to the earlier case, with one hypothesis more
+
+At `n` zero the statement becomes the earlier gate's `2:0`, and that is proved
+as a corollary rather than asserted.
+
+Honest difference, recorded in the file: the corollary carries one hypothesis
+the earlier result does not — the downward-closure condition. It **enters
+through the iteration theorem and is not removed along this proof route, even at
+zero**; that it is semantically necessary here is not shown, and no experiment
+either way is offered. So this is a **consistency check between two routes**,
+not a subsumption of the earlier one.
+
+#### Two premises, and what the second one really says
+
+Both are assumed.
+
+The value-at-`n` premise is **stronger than the body's evaluation reaching the
+designated value redex**: it also fixes the residual stacks, the stores, and the
+relation between the two sides' values. And because a residual stack remains, it
+is not termination of the machine configuration in any sense — the run has more
+to do after it.
+
+So what changed in this gate's bookkeeping is that **body-to-value became an
+explicit premise** where before it was simply absent. That is a change in what
+the statement says out loud, not in what has been proved.
+
+The file also records why the premise is not derivable from what precedes it:
+the middle leg's conclusion does not *name* the pair it lands on, and the
+fragment premise is false exactly when a value is reached, so it cannot imply
+reaching one.
+
+#### The two sides' values need not agree
+
+Found while doing the work, not assumed: the popping lemma underneath was
+already stated at two separate values, so the composition needs only that the
+two values be *related*, not identical. The earlier statements are the diagonal
+case of this, and are unchanged.
+
+#### Checked independently, at the closed instance
+
+The file treats `n+2 : n` as fuel indices throughout and does not settle whether
+they are transition counts at the one closed instance. That is decidable by
+computation, so it was decided.
+
+At that instance — a **non-value** body, at the file's fixture stacks and stores
+— the `3 : 1` are transition counts: the left moves at each of its three units,
+the right at its one, all four left configurations are pairwise distinct, and
+**the two sides finish on the same configuration**. A reconvergence at a
+non-value body, witnessed by computation.
+
+Scope: that closed instance only. This is an independent check and not a theorem
+in the file, and nothing here makes the general statement's indices transition
+counts.
+
+#### Not proved
+
+- no law is proved;
+- **no departure relation is supplied for the arbitrary-body pair**, and the
+  all-seven-tag refutation remains the earlier value-fixture result — there is
+  no lemma refuting a non-value body's departing pair;
+- the two premises are **not discharged uniformly over arbitrary bodies**; that
+  one closed body at `n` one is the only joint discharge exhibited in the file;
+- the parameter-prefix family from an earlier gate does not reach this midpoint
+  at any positive budget, so that discharge contributes nothing here;
+- the counts in the general statement are fuel indices.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
