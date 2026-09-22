@@ -10335,6 +10335,78 @@ counts.
   at any positive budget, so that discharge contributes nothing here;
 - the counts in the general statement are fuel indices.
 
+#### Both assumed premises discharged, for an unbounded family
+
+The three-leg factorisation stood on two assumed premises. For one family of
+bodies — the bind-with-identity nested `n` deep around a value — **both are now
+discharged at arbitrary `n`**, and the main statement's hypothesis list is
+exactly the base one from the previous gate:
+
+well-formedness, downward-closure on the clause relation, the value related to
+itself, the two stacks `pakrel`-related, the two stores `pasrel`-related.
+
+Those five remain. What left the statement is the *fragment* premise and the
+*value-at-`n`* premise — for this syntactic family only. Even the body's
+self-relatedness, which I expected to need as a hypothesis, came out by
+induction from the value's.
+
+#### The fragment premise cost nothing at all
+
+It discharges with **no hypotheses**: below index `n` at least one nesting layer
+remains, so the redex is a bind node, and the fragment predicate's first arm
+admits that at any stack.
+
+Worth recording against two gates ago: the parameter-prefix family, for which
+the shape obligation was first discharged, was proved not to reach this midpoint
+at any positive budget. It is not used here and was not needed — a different arm
+of the same predicate was applicable from the start.
+
+#### Both sides move through the middle
+
+The middle leg advances both sides by the same index, so the right accrues bind
+frames too. At the end each side carries `n` of them over its own ambient stack,
+and the two residuals are `pakrel`-related.
+
+The frame relation at an identity bind frame is available without extra
+hypotheses **beyond the ambient tails being related** — it does not relate
+arbitrary stack pairs, and nothing here says it does.
+
+#### Why this still is not the law
+
+The conclusion is a reach-and-factorisation statement: it constrains the
+**landed pair and the two traces**. It is not a source or departure relation and
+it is not an observation theorem, and those are what a law about the two
+programs would have to be stated in terms of. No tag is added, no departure
+relation is defined, and the gap located three gates ago is not closed.
+
+The family is also a syntactic construction. Nothing in the file elaborates a
+surface program into it, and nothing claims a program produces one.
+
+#### Checked independently: the family reconverges
+
+The file concludes that the landed pair is **related** at the plain tag.
+Relation is not equality, and the file does not say the two sides meet.
+
+At depth two — beyond any closed equality witness exhibited in the file — they
+do: the left at fuel four and the right at fuel two land on **literally the same
+configuration**, both traces empty, from two departures that are different
+terms.
+
+Scope: that closed instance at depth two only. Reconvergence to the same
+configuration at arbitrary `n` is **not proved**, here or in the file, and this
+is an independent check rather than a theorem in it.
+
+#### Not proved
+
+- no law is proved; what is proved is a factorisation of the run;
+- no departure relation for the arbitrary-body pair, and the seven-tag
+  refutation remains the earlier value-fixture result;
+- the discharge is proved for one family; **no discharge for another body is
+  established**, which is not a claim that no other body admits one;
+- nothing about which surface programs produce such bodies;
+- reconvergence at arbitrary `n`;
+- the counts are fuel indices.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

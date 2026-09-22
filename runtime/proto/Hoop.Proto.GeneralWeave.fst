@@ -62642,3 +62642,548 @@ let gwridg_three_legs_instance_departure (lk: plookup_t fcl) (apply: papply_t fv
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ================================================================== *)
+(* ---- 31. BOTH PREMISES DISCHARGED FOR AN UNBOUNDED FAMILY: THE
+           BIND-WITH-IDENTITY NESTED `n` DEEP AROUND A VALUE --------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION ADDS, AND WHAT IT DOES NOT.**  30.5's first item records
+ * that `gwridg_three_legs_at` stands on two HYPOTHESES -- 29.3's fragment premise
+ * and 30.2's value-at-`n` premise -- and that the only joint discharge exhibited
+ * in this file is at ONE closed body at `n` one, 29.5's `gwridg_shape_one`
+ * together with 30.4's `gwridg_value_at_one`.  This section discharges BOTH, at
+ * arbitrary `n`, for one SYNTACTICALLY DESCRIBED family of bodies: the
+ * bind-with-identity nested `n` deep around a value,
+ *
+ *     `gwridn_body 0 x == PVar x`,
+ *     `gwridn_body (n + 1) x == POp (gwridn_body n x) PVar`.
+ *
+ * The result, 31.4's `gwridn_three_legs`, is `gwridg_three_legs_at`'s conclusion
+ * at this family with NEITHER assumed premise left in its statement.  Its
+ * hypotheses are `pawf s`, `pcl_down r`, `pval_rel s.aw x x`, `pakrel r s k1 k2`
+ * and `pasrel r s sto1 sto2` -- exactly 30.3's list, which is 28.0's four plus
+ * `gwc_iterate`'s `pcl_down r`.  The body's own self-relatedness,
+ * `pacrel r s a a`, is NOT a hypothesis: for this family it comes out by
+ * induction from `pval_rel s.aw x x` (31.0's `gwridn_body_selfrel`).
+ *
+ * **WHAT THIS IS NOT.**  It is ONE family, described by a syntactic
+ * construction, and nothing in this file says that any surface program produces
+ * such a body: `gwridn_body` is built here, by this section, out of `POp` and
+ * `PVar`, and no lemma anywhere in this file elaborates a surface term into it.
+ * Right identity is NOT proved here, NOT adjudicated here, and NOT shown to be
+ * near either.  What is proved is a FACTORISATION OF THE RUN with the two
+ * premises discharged, which is a statement about how the left run decomposes and
+ * where it lands -- not a law relating the two programs.  In particular
+ * `gwc_lands_still` and `gwc_reaches_at` constrain the LANDED pair and the two
+ * traces only, as 29.6 and 30.5 both record, so nothing below relates the
+ * DEPARTING pair `POp a PVar` against `a` at any tag, and nothing below is
+ * claimed to.
+ *
+ * Every numeral below is a `prun` FUEL INDEX, as everywhere above; nothing here
+ * identifies a unit of fuel with a transition.
+ *)
+
+(* ---- 31.0 THE FAMILY, AND THE FRAME STACK ------------------------ *)
+
+(**
+ * **THE `n`-FOLD NESTING, AND THE `n`-FOLD BIND-FRAME PREFIX.**  Two total
+ * functions, each structurally recursive on its `nat` argument.  `gwridn_body n x`
+ * is the bind-with-identity applied `n` times around the value `x`;
+ * `gwridn_binds n k` is the stack `k` with `n` copies of `PBindF PVar` pushed on
+ * top.  They are the two halves of one shape: each transition of the left run
+ * moves one layer of the first into one frame of the second, which is what 31.1
+ * states.
+ *)
+let rec gwridn_body (#v #cl: Type) (n: nat) (x: pval v)
+  : Tot (pcomp v cl) (decreases n)
+  = if n = 0 then PVar #v #cl x
+    else POp (gwridn_body #v #cl (n - 1) x) (PVar #v #cl)
+
+let rec gwridn_binds (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Tot (pstack v cl) (decreases n)
+  = if n = 0 then k
+    else PBindF (PVar #v #cl) :: gwridn_binds #v #cl (n - 1) k
+
+(** **THE FOUR DEFINING EQUATIONS, AND THE ONE SHAPE FACT.**  PROVED, each by
+    computation: the two functions' zero and successor clauses, and the
+    observation that at a positive index the body is a `POp`.  That last one is
+    what 31.2 spends; it is recorded separately because it is the only property of
+    the family the fragment predicate looks at. *)
+let gwridn_body_zero (#v #cl: Type) (x: pval v)
+  : Lemma (gwridn_body #v #cl 0 x == PVar #v #cl x)
+  = ()
+
+let gwridn_body_succ (#v #cl: Type) (n: nat) (x: pval v)
+  : Lemma (gwridn_body #v #cl (n + 1) x
+           == POp (gwridn_body #v #cl n x) (PVar #v #cl))
+  = ()
+
+let gwridn_binds_zero (#v #cl: Type) (k: pstack v cl)
+  : Lemma (gwridn_binds #v #cl 0 k == k)
+  = ()
+
+let gwridn_binds_succ (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Lemma (gwridn_binds #v #cl (n + 1) k
+           == PBindF (PVar #v #cl) :: gwridn_binds #v #cl n k)
+  = ()
+
+let gwridn_body_is_op (#v #cl: Type) (n: nat) (x: pval v)
+  : Lemma (requires n > 0) (ensures POp? (gwridn_body #v #cl n x))
+  = ()
+
+(** **PUSHING ONE FRAME UNDER THE PREFIX IS PUSHING IT OVER.**  PROVED, by
+    induction on `n`.  All `n + 1` frames are the SAME frame, `PBindF PVar`, so
+    the prefix commutes with one more of itself; this is the step that lets 31.3
+    read the left run's landed stack as `PBindF PVar :: k1'` with `k1'` the
+    `n`-fold prefix, which is the shape 30.2's value-at-`n` premise asks for. *)
+let rec gwridn_binds_push (#v #cl: Type) (n: nat) (k: pstack v cl)
+  : Lemma (ensures gwridn_binds #v #cl n (PBindF (PVar #v #cl) :: k)
+                   == PBindF (PVar #v #cl) :: gwridn_binds #v #cl n k)
+          (decreases n)
+  = if n = 0 then () else gwridn_binds_push #v #cl (n - 1) k
+
+(**
+ * **THE `n`-FOLD PREFIX IS `pakrel`-RELATED TO ITSELF OVER `pakrel`-RELATED
+ * TAILS.**  PROVED, at arbitrary `r`, `s` and `n`, by induction on `n`.  The base
+ * is the hypothesis.  The step is `lemma_pafn_rel_at_pvar` -- the identity
+ * function is `pafn_rel_at`-related to itself, FREELY, at every `r` and `s` --
+ * then `lemma_pafrel_bind` to make that a frame relation at `PBindF PVar`, then
+ * `lemma_pakrel_cons`.
+ *
+ * So the relation between the two residual stacks costs nothing beyond the
+ * relation between the ambient ones.  That is a fact about `PBindF PVar` and not
+ * about bind frames in general: `lemma_pafrel_bind` at an arbitrary pair of
+ * functions asks for `pafn_rel_at r s g1 g2`, which at the identity is
+ * `lemma_pafn_rel_at_pvar`'s and at nothing else is supplied here.
+ *)
+let rec gwridn_binds_pakrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (n: nat) (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2)
+          (ensures pakrel r s (gwridn_binds #v #cl n k1) (gwridn_binds #v #cl n k2))
+          (decreases n)
+  = if n = 0 then ()
+    else begin
+      gwridn_binds_pakrel #v #cl r s (n - 1) k1 k2;
+      lemma_pafn_rel_at_pvar #v #cl r s;
+      lemma_pafrel_bind #v #cl r s (PVar #v #cl) (PVar #v #cl);
+      lemma_pakrel_cons #v #cl r s (PBindF (PVar #v #cl)) (PBindF (PVar #v #cl))
+                        (gwridn_binds #v #cl (n - 1) k1)
+                        (gwridn_binds #v #cl (n - 1) k2)
+    end
+
+(**
+ * **THE FAMILY'S BODY IS `pacrel`-RELATED TO ITSELF, FROM THE VALUE'S OWN
+ * SELF-RELATION.**  PROVED, at arbitrary `r`, `s`, `n` and `x`, by induction on
+ * `n`, under `pval_rel s.aw x x` and nothing else.  The base is
+ * `lemma_pacrel_var`; the step is `lemma_pafn_rel_at_pvar` and `lemma_pacrel_op`.
+ * This is 29.5's `gwridg_body_selfrel` generalised from its two-layer instance to
+ * the whole family, by the same three lemmas it uses.
+ *
+ * So for THIS family `pacrel r s a a` -- which is 29.0's second hypothesis and
+ * therefore 30.2's -- does NOT have to be assumed: it comes out by induction, and
+ * 31.4's statement carries `pval_rel s.aw x x` in its place.
+ *)
+let rec gwridn_body_selfrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+    (n: nat) (x: pval v)
+  : Lemma (requires pval_rel s.aw x x)
+          (ensures pacrel r s (gwridn_body #v #cl n x) (gwridn_body #v #cl n x))
+          (decreases n)
+  = if n = 0 then lemma_pacrel_var #v #cl r s x x
+    else begin
+      gwridn_body_selfrel #v #cl r s (n - 1) x;
+      lemma_pafn_rel_at_pvar #v #cl r s;
+      lemma_pacrel_op #v #cl r s
+        (gwridn_body #v #cl (n - 1) x) (gwridn_body #v #cl (n - 1) x)
+        (PVar #v #cl) (PVar #v #cl)
+    end
+
+(* ---- 31.1 THE RUN, IN CLOSED FORM, AT EVERY INDEX ---------------- *)
+
+(**
+ * **THE RUN OF THE FAMILY, IN CLOSED FORM, FROM AN ARBITRARY STACK.**  PROVED, at
+ * arbitrary `lk`, `apply`, `i`, `m`, `x`, `k`, store and counter, by induction on
+ * `i`.  At fuel index `i` the configuration `PStep (gwridn_body (i + m) x) k` has
+ * become `PStep (gwridn_body m x) (gwridn_binds i k)`: `i` layers of the nesting
+ * have been consumed, `i` bind frames have accrued on top of `k`, and the store
+ * and the counter are UNCHANGED.  The trace is `[]` throughout.
+ *
+ * The two arguments are written `i` and `m` rather than `i` and `n - i` so that
+ * the statement typechecks with no side condition; `i + m` is the family's index
+ * at the start and `m` is what is left at `i`.
+ *
+ * The step is `gwridg_step1_at` (29.1) -- the first transition does not inspect
+ * the body, and here the body at a positive index is itself a `POp` -- then the
+ * induction hypothesis at `i - 1` over the stack with one more frame, then
+ * `gwridn_binds_push` to move that frame outside the prefix, then
+ * `lemma_prun_cat` (13842) to concatenate the two silent segments.  `i` is a
+ * `prun` FUEL INDEX; the transition content is `gwridg_step1_at`'s first
+ * conjunct, over `pstep_tr`, and is not re-derived.
+ *
+ * **BOTH SIDES ARE INSTANCES OF THIS ONE LEMMA.**  The left run from the midpoint
+ * is this at `k == PBindF PVar :: k1` and the right run from its own start is this
+ * at `k == k2`.  The two differ only in the stack they are given, because the
+ * right side of the right-identity pair STEPS TOO: 29.3's middle leg advances
+ * both sides by the same index, so the right run accrues bind frames of its own.
+ *)
+let rec gwridn_run (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (i m: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (ensures
+            prun lk apply i
+              ({ st = PStep (gwridn_body #v #cl (i + m) x) k;
+                 store = sto; next = n0 } <: pconf v cl)
+            == (({ st = PStep (gwridn_body #v #cl m x) (gwridn_binds #v #cl i k);
+                   store = sto; next = n0 } <: pconf v cl),
+                ([] <: list string)))
+          (decreases i)
+  = if i = 0 then ()
+    else begin
+      let j : nat = i - 1 in
+      let cf0 : pconf v cl =
+        { st = PStep (gwridn_body #v #cl (i + m) x) k; store = sto; next = n0 } in
+      let cf1 : pconf v cl =
+        { st = PStep (gwridn_body #v #cl (j + m) x) (PBindF (PVar #v #cl) :: k);
+          store = sto; next = n0 } in
+      let cf2 : pconf v cl =
+        { st = PStep (gwridn_body #v #cl m x) (gwridn_binds #v #cl i k);
+          store = sto; next = n0 } in
+      assert (gwridn_body #v #cl (i + m) x
+              == POp (gwridn_body #v #cl (j + m) x) (PVar #v #cl));
+      gwridg_step1_at lk apply (gwridn_body #v #cl (j + m) x) k sto n0;
+      assert (prun lk apply 1 cf0 == (cf1, ([] <: list string)));
+      gwridn_run lk apply j m x (PBindF (PVar #v #cl) :: k) sto n0;
+      gwridn_binds_push #v #cl j k;
+      assert (gwridn_binds #v #cl j (PBindF (PVar #v #cl) :: k)
+              == gwridn_binds #v #cl i k);
+      assert (prun lk apply j cf1 == (cf2, ([] <: list string)));
+      lemma_prun_cat lk apply 1 j cf0 cf1 cf2
+    end
+
+(* ---- 31.2 THE FRAGMENT PREMISE, DISCHARGED ----------------------- *)
+
+(**
+ * **AT A POSITIVE REMAINDER THE LANDED REDEX IS A NESTING NODE, HENCE IN 23.2's
+ * FRAGMENT.**  PROVED, at arbitrary `lk`, `apply`, `i`, `x`, `k`, store and
+ * counter, under `m > 0`.  31.1 puts the configuration at fuel index `i` at
+ * `PStep (gwridn_body m x) (gwridn_binds i k)`, and at `m > 0` that body is a
+ * `POp` by `gwridn_body_is_op`.  `gwc_redepartable_ck`'s FIRST arm admits `POp`
+ * at EVERY stack, so the stack plays no part here and none is required of it.
+ *)
+let gwridn_frag_index (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (i m: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires m > 0)
+          (ensures
+            gwc_redepartable
+              (fst (prun lk apply i
+                      ({ st = PStep (gwridn_body #v #cl (i + m) x) k;
+                         store = sto; next = n0 } <: pconf v cl))))
+  = gwridn_run lk apply i m x k sto n0;
+    gwridn_body_is_op #v #cl m x;
+    assert (gwc_redepartable_ck (gwridn_body #v #cl m x)
+                                (gwridn_binds #v #cl i k))
+
+(** **THE SAME, INDEXED BY THE FAMILY'S OWN DEPTH.**  PROVED, at `i < n`, by
+    `gwridn_frag_index` at remainder `n - i`, which is positive exactly because
+    `i < n`.  This is the form the quantifier below consumes. *)
+let gwridn_frag_below (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n i: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (requires i < n)
+          (ensures
+            gwc_redepartable
+              (fst (prun lk apply i
+                      ({ st = PStep (gwridn_body #v #cl n x) k;
+                         store = sto; next = n0 } <: pconf v cl))))
+  = gwridn_frag_index lk apply i (n - i) x k sto n0
+
+(**
+ * **29.3's FRAGMENT PREMISE, DISCHARGED FOR THIS FAMILY AT ARBITRARY `n`.**
+ * PROVED, at arbitrary `lk`, `apply`, `s`, `n`, `x`, `k1` and `sto1`, with NO
+ * hypothesis at all.  The statement is 23.4's premise written exactly as 29.3 and
+ * 30.2 write it -- `forall (i: nat). i < n ==> gwc_redepartable (fst (prun lk
+ * apply i m1))` with `m1` the MIDPOINT's left configuration -- at
+ * `a == gwridn_body n x`.
+ *
+ * It is discharged from the family's DESCRIPTION alone: at every index strictly
+ * below `n` at least one nesting layer is left, so the redex is a `POp`.  The
+ * ambient stack `k1` is arbitrary and unconstrained, which matters because 29.5's
+ * `gwridg_mid_stack_outside_param_family` rules the midpoint's left stack out of
+ * section 25's `gwc_param_prefix` family at every positive budget; this discharge
+ * does not go through 25.3 and does not need to.
+ *
+ * At `n` zero the statement is vacuous, and it is proved here at every `n`, not
+ * only at the one index 29.5 reached.  Nowhere else in this file is 23.4's
+ * fragment premise discharged at the midpoint at an unbounded family of indices.
+ *)
+let gwridn_fragment_premise (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (s: pastate) (n: nat) (x: pval v) (k1: pstack v cl) (sto1: pstore v cl)
+  : Lemma (forall (i: nat). i < n ==>
+             gwc_redepartable
+               (fst (prun lk apply i
+                       ({ st = PStep (gwridn_body #v #cl n x)
+                                 (PBindF (PVar #v #cl) :: k1);
+                          store = sto1; next = s.an1 } <: pconf v cl))))
+  = introduce forall (i: nat). i < n ==>
+        gwc_redepartable
+          (fst (prun lk apply i
+                  ({ st = PStep (gwridn_body #v #cl n x)
+                            (PBindF (PVar #v #cl) :: k1);
+                     store = sto1; next = s.an1 } <: pconf v cl)))
+    with introduce _ ==> _
+    with gwridn_frag_below lk apply n i x
+                           (PBindF (PVar #v #cl) :: k1) sto1 s.an1
+
+(* ---- 31.3 THE VALUE-AT-`n` PREMISE, DISCHARGED ------------------- *)
+
+(**
+ * **30.2's VALUE-AT-`n` PREMISE, ALL FIVE CONJUNCTS, DISCHARGED FOR THIS FAMILY
+ * AT ARBITRARY `n`.**  PROVED, at arbitrary `lk`, `apply`, `r`, `s`, `n`, `x`,
+ * both stacks and both stores, under THREE hypotheses -- `pval_rel s.aw x x`,
+ * `pakrel r s k1 k2` and `pasrel r s sto1 sto2` -- all three of which are already
+ * hypotheses of 30.2 itself, the first through 28.0's value relation.
+ *
+ * The witnesses are named by the statement, as 30.2's parameters are: the two
+ * landed values are BOTH `x`, the two residual stacks are the `n`-fold bind
+ * prefixes `gwridn_binds n k1` and `gwridn_binds n k2`, and the two stores are
+ * `sto1` and `sto2` unchanged, because no transition of this run touches a store.
+ *
+ * The five conjuncts, in 30.2's order:
+ *
+ *   - the LEFT run's fuel-`n` landing: 31.1 at `i == n`, `m == 0` and stack
+ *     `PBindF PVar :: k1`, giving body `PVar x` over
+ *     `gwridn_binds n (PBindF PVar :: k1)`, which `gwridn_binds_push` rewrites to
+ *     `PBindF PVar :: gwridn_binds n k1` -- the surplus frame back on top, which
+ *     is exactly the shape leg three departs from;
+ *   - the RIGHT run's fuel-`n` landing: 31.1 at `i == n`, `m == 0` and stack `k2`,
+ *     giving `PVar x` over `gwridn_binds n k2`.  The right side has accrued `n`
+ *     bind frames of its own, one per index, because the middle leg advances it
+ *     too;
+ *   - `pval_rel s.aw y1 y2` at `y1 == y2 == x`, which is the HYPOTHESIS
+ *     `pval_rel s.aw x x`, taken in exactly as 28.0, 29.0 and 30.3 take it and
+ *     derived from nothing;
+ *   - `pakrel r s k1' k2'` at the two prefixes, which is
+ *     `gwridn_binds_pakrel` from `pakrel r s k1 k2`;
+ *   - `pasrel r s sto1 sto2`, the hypothesis, unchanged along the run.
+ *
+ * `n` is a `prun` FUEL INDEX.  Note what this does and does not say about
+ * termination: it says the run of THIS family reaches a `PVar` redex at fuel
+ * index `n`.  This section establishes no such fact for another body, which is
+ * NOT a claim that no other body admits one.  30.5's third item stands unaltered
+ * at an arbitrary body.
+ *)
+let gwridn_value_premise (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n: nat) (x: pval v)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pval_rel s.aw x x /\ pakrel r s k1 k2 /\
+                    pasrel r s sto1 sto2)
+          (ensures
+            prun lk apply n
+              ({ st = PStep (gwridn_body #v #cl n x)
+                        (PBindF (PVar #v #cl) :: k1);
+                 store = sto1; next = s.an1 } <: pconf v cl)
+              == (({ st = PStep (PVar #v #cl x)
+                           (PBindF (PVar #v #cl) :: gwridn_binds #v #cl n k1);
+                     store = sto1; next = s.an1 } <: pconf v cl),
+                  ([] <: list string)) /\
+            prun lk apply n
+              ({ st = PStep (gwridn_body #v #cl n x) k2;
+                 store = sto2; next = s.an2 } <: pconf v cl)
+              == (({ st = PStep (PVar #v #cl x) (gwridn_binds #v #cl n k2);
+                     store = sto2; next = s.an2 } <: pconf v cl),
+                  ([] <: list string)) /\
+            pval_rel s.aw x x /\
+            pakrel r s (gwridn_binds #v #cl n k1) (gwridn_binds #v #cl n k2) /\
+            pasrel r s sto1 sto2)
+  = gwridn_run lk apply n 0 x (PBindF (PVar #v #cl) :: k1) sto1 s.an1;
+    gwridn_binds_push #v #cl n k1;
+    gwridn_run lk apply n 0 x k2 sto2 s.an2;
+    gwridn_binds_pakrel #v #cl r s n k1 k2
+
+(* ---- 31.4 THE UNCONDITIONAL FACTORISATION, FOR THIS FAMILY ------- *)
+
+(**
+ * **30.2's THREE-LEG THEOREM AT THIS FAMILY, WITH NEITHER ASSUMED PREMISE LEFT.**
+ * PROVED, at arbitrary `lk`, `apply`, `r`, `s`, `n`, `x`, both stacks and both
+ * stores.  The hypothesis list is, in full:
+ *
+ *     `pawf s`, `pcl_down r`, `pval_rel s.aw x x`,
+ *     `pakrel r s k1 k2`, `pasrel r s sto1 sto2`.
+ *
+ * That is 30.3's list verbatim -- 28.0's four with `pacrel` replaced by the
+ * value's own relation, plus `gwc_iterate`'s `pcl_down r`.  Neither 29.3's
+ * fragment premise nor 30.2's value-at-`n` premise appears: 31.2 and 31.3 supply
+ * them, and `pacrel r s a a` is supplied by 31.0's `gwridn_body_selfrel`, BY
+ * INDUCTION and not by hypothesis.
+ *
+ * The departing pair is `PStep (gwridn_body (n + 1) x) k1` against
+ * `PStep (gwridn_body n x) k2` -- and the left side IS the family one layer
+ * deeper, since `POp (gwridn_body n x) PVar` is `gwridn_body (n + 1) x` by
+ * `gwridn_body_succ`.  The conclusion is `gwc_lands_still` and `gwc_reaches_at` at
+ * `GWCPacf` at counts `n + 2` : `n`, with both state arguments `s`.
+ *
+ * **WHAT THIS IS.**  A FACTORISATION OF THE RUN of one syntactically constructed
+ * family, at arbitrary depth, with both of section 30's assumed premises
+ * discharged.  Three legs: 29.2's `1` : `0` to the midpoint, 29.3's `n` : `n`
+ * across the nesting, 30.1's `1` : `0` popping the surplus frame.
+ *
+ * **WHAT THIS IS NOT.**  It is not a proof of right identity and not an
+ * adjudication of it.  `gwc_lands_still` and `gwc_reaches_at` constrain the LANDED
+ * pair and the two traces, not the departing pair, so this says nothing about
+ * whether `POp a PVar` and `a` are related at any tag -- 30.5's second item stands
+ * unaltered, here as elsewhere.  It is one family, and nothing in this file says
+ * any surface program elaborates to a member of it: `gwridn_body` is defined in
+ * 31.0 out of `POp` and `PVar` and is connected to no elaborator.  Every numeral
+ * is a `prun` FUEL INDEX.
+ *)
+let gwridn_three_legs (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (n: nat) (x: pval v)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pcl_down r /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            (let cfl : pconf v cl =
+               { st = PStep (gwridn_body #v #cl (n + 1) x) k1;
+                 store = sto1; next = s.an1 } in
+             let cfr : pconf v cl =
+               { st = PStep (gwridn_body #v #cl n x) k2;
+                 store = sto2; next = s.an2 } in
+             gwc_lands_still lk apply GWCPacf r s (n + 2) n cfl cfr /\
+             gwc_reaches_at lk apply GWCPacf r s s (n + 2) n cfl cfr))
+  = gwridn_body_succ #v #cl n x;
+    gwridn_body_selfrel #v #cl r s n x;
+    gwridn_fragment_premise lk apply s n x k1 sto1;
+    gwridn_value_premise lk apply r s n x k1 k2 sto1 sto2;
+    gwridn_binds_pakrel #v #cl r s n k1 k2;
+    gwridg_three_legs_at lk apply r s n (gwridn_body #v #cl n x) k1 k2 sto1 sto2
+                         x x (gwridn_binds #v #cl n k1) (gwridn_binds #v #cl n k2)
+                         sto1 sto2
+
+(** **AND AT DEPTH ZERO IT IS 30.3's `2` : `0`.**  PROVED, by
+    `gwridn_three_legs` at `n` zero, where `gwridn_body 1 x` is
+    `POp (PVar x) PVar` and `gwridn_body 0 x` is `PVar x`.  So this family's
+    factorisation agrees at its own base with the count section 28 obtained first
+    and 30.3 re-obtained.  This is a CONSISTENCY CHECK between two statements in
+    this file at one instantiation; it is not a new landing, and it says nothing
+    about any `n` other than zero. *)
+let gwridn_three_legs_at_zero (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (r: pcl_rel_t cl) (s: pastate) (x: pval v)
+    (k1 k2: pstack v cl) (sto1 sto2: pstore v cl)
+  : Lemma (requires pawf s /\ pcl_down r /\ pval_rel s.aw x x /\
+                    pakrel r s k1 k2 /\ pasrel r s sto1 sto2)
+          (ensures
+            (let cfl : pconf v cl =
+               { st = PStep (POp (PVar #v #cl x) (PVar #v #cl)) k1;
+                 store = sto1; next = s.an1 } in
+             let cfr : pconf v cl =
+               { st = PStep (PVar #v #cl x) k2;
+                 store = sto2; next = s.an2 } in
+             gwc_lands_still lk apply GWCPacf r s 2 0 cfl cfr /\
+             gwc_reaches_at lk apply GWCPacf r s s 2 0 cfl cfr))
+  = gwridn_three_legs lk apply r s 0 x k1 k2 sto1 sto2
+
+(* ================================================================== *)
+(*  31.5 SECTION 31 LEDGER: BOTH PREMISES DISCHARGED, FOR ONE FAMILY,  *)
+(*       AT ARBITRARY DEPTH                                            *)
+(* ================================================================== *)
+
+(**
+ * **PROVED HERE.**
+ *
+ *  1. `gwridn_body`, `gwridn_binds` and their five defining/shape facts
+ *     (`gwridn_body_zero`, `gwridn_body_succ`, `gwridn_binds_zero`,
+ *     `gwridn_binds_succ`, `gwridn_body_is_op`), plus `gwridn_binds_push`: the
+ *     family, the `n`-fold bind-frame prefix, and the fact that pushing one more
+ *     `PBindF PVar` under the prefix is pushing it over.
+ *     `gwridn_binds_pakrel`: the prefix is `pakrel`-related to itself over
+ *     `pakrel`-related tails, at arbitrary `r`, `s`, `n`, by
+ *     `lemma_pafn_rel_at_pvar`, `lemma_pafrel_bind` and `lemma_pakrel_cons`.
+ *     `gwridn_body_selfrel`: `pacrel r s (gwridn_body n x) (gwridn_body n x)`
+ *     from `pval_rel s.aw x x`, BY INDUCTION -- it is not assumed.
+ *
+ *  2. `gwridn_run`: the run in closed form, at every fuel index `i`, from an
+ *     arbitrary stack -- `PStep (gwridn_body (i + m) x) k` becomes
+ *     `PStep (gwridn_body m x) (gwridn_binds i k)`, store and counter unchanged,
+ *     trace `[]`.  Both sides of the right-identity pair are instances: the left
+ *     at `k == PBindF PVar :: k1`, the right at `k == k2`.  By `gwridg_step1_at`
+ *     (29.1) and `lemma_prun_cat` (13842).
+ *
+ *  3. `gwridn_frag_index`, `gwridn_frag_below`, `gwridn_fragment_premise`:
+ *     29.3's / 30.2's FRAGMENT PREMISE, DISCHARGED for this family at arbitrary
+ *     `n`, with NO hypothesis, because at every index below `n` the redex is a
+ *     `POp` and `gwc_redepartable_ck`'s first arm admits `POp` at every stack.
+ *
+ *  4. `gwridn_value_premise`: 30.2's VALUE-AT-`n` PREMISE, ALL FIVE CONJUNCTS,
+ *     DISCHARGED for this family at arbitrary `n`, under `pval_rel s.aw x x`,
+ *     `pakrel r s k1 k2` and `pasrel r s sto1 sto2` -- three hypotheses 30.2
+ *     already carries.  Witnesses: both values `x`, both residual stacks the
+ *     `n`-fold prefixes, both stores unchanged.
+ *
+ *  5. `gwridn_three_legs`: 30.2's three-leg theorem at this family with NEITHER
+ *     assumed premise in its statement.  Hypotheses in full: `pawf s`,
+ *     `pcl_down r`, `pval_rel s.aw x x`, `pakrel r s k1 k2`,
+ *     `pasrel r s sto1 sto2`.  Conclusion: `gwc_lands_still` and `gwc_reaches_at`
+ *     at `GWCPacf` at `n + 2` : `n`, from `PStep (gwridn_body (n + 1) x) k1`
+ *     against `PStep (gwridn_body n x) k2`.
+ *     `gwridn_three_legs_at_zero`: at depth zero this is the `2` : `0` of 30.3.
+ *
+ * **WHAT THIS IS, AND WHAT IT IS NOT.**  Four items, each a statement about what
+ * has and has not been proved in this file.
+ *
+ *  1. WHAT IS DISCHARGED IS THE TWO PREMISES, FOR ONE FAMILY.  30.5's first item
+ *     recorded that the only joint discharge in this file was at ONE closed body
+ *     at `n` one.  That is no longer the only one: 31.2 and 31.3 discharge both at
+ *     arbitrary `n` for `gwridn_body`.  This section proves the discharge for ONE
+ *     family; no discharge for another body is established here, which is NOT a
+ *     claim that no other body admits one.  30.5's first item is otherwise
+ *     unaltered, and
+ *     `gwridg_three_legs_at` still carries both premises as hypotheses at an
+ *     arbitrary body.
+ *
+ *  2. THE FAMILY IS A SYNTACTIC CONSTRUCTION AND NOTHING SAYS A PROGRAM PRODUCES
+ *     IT.  `gwridn_body` is built in 31.0 out of `POp` and `PVar`.  No lemma
+ *     anywhere in this file elaborates a surface term into it, and no lemma
+ *     anywhere in this file says that the surface right-identity redex of any
+ *     program has this shape.  That gap is not narrowed here and is not measured
+ *     here.
+ *
+ *  3. NO LAW IS PROVED.  What 31.4 proves is a FACTORISATION OF THE RUN with both
+ *     premises discharged, not a law about the two programs.  Right identity is
+ *     not proved here, not adjudicated here, and not shown to be near either.  The
+ *     departing pair is still related by nothing this file exhibits: every
+ *     conclusion above is a `gwc_lands_still` or `gwc_reaches_at` fact, both of
+ *     which constrain the LANDED pair and the two traces only.  No tag is added to
+ *     `gwc_phase`, no departure relation is defined, and 26's gap is not closed.
+ *
+ *  4. NOTHING ABOVE IS EDITED INTO ANY EARLIER SECTION.  Sections 23, 25, 26, 27,
+ *     28, 29 and 30 are untouched.  This section CITES `gwridg_step1_at`,
+ *     `gwridg_three_legs_at`, `lemma_prun_cat`, `lemma_pacrel_var`,
+ *     `lemma_pacrel_op`, `lemma_pafn_rel_at_pvar`, `lemma_pafrel_bind` and
+ *     `lemma_pakrel_cons`, and changes none of them.  In particular 30.4's closed
+ *     instance is not replaced: `gwridg_body` is `POp (PVar gwrid_x) PVar`, which
+ *     is `gwridn_body 1 gwrid_x` in shape, but 30.4 is stated at the fixture's own
+ *     `fv`, `fcl`, `fcl_rel` and `pabot` and is left exactly as written.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. Every numeral above is a `prun` FUEL INDEX.  Nothing above identifies a
+ *     unit of fuel with a transition.  The transition content is
+ *     `gwridg_step1_at`'s first conjunct and `gwy_exit_stutter`'s `pstep_tr`
+ *     conjunct, both reached by CITATION through 30.2 and neither re-derived.
+ *
+ *  2. `GWCPacf` occurs above as a landing tag, inherited from 30.2's conclusion.
+ *     No ordering among the seven tags is stated or proved here.
+ *
+ *  3. `gwridn_binds_pakrel` holds because the frame relation at `PBindF PVar` is
+ *     free, by `lemma_pafn_rel_at_pvar`.  Nothing above supplies a frame relation
+ *     at any other bind function, and the argument does not extend to one along
+ *     this proof route.
+ *
+ *  4. `gwridn_body_selfrel` discharges `pacrel r s a a` for THIS family only.  At
+ *     an arbitrary body that conjunct remains a hypothesis of 29.0, 29.3, 30.2 and
+ *     30.3, exactly as before.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)
