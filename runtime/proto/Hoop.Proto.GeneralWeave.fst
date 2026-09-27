@@ -64509,3 +64509,996 @@ let gwro_zero_routes_agree (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v 
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+
+(* ================================================================== *)
+(* ---- 34. WHERE SECTION 33's CONCLUSION SITS RELATIVE TO THE
+           ALLOCATION-INDEXED OBSERVATIONS: THE RESIDUE, AND THE TWO
+           ROUTES SIDE BY SIDE -------------------------------------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION SETTLES.**  Section 33 proved
+ *
+ *     `pobs_tr_eq lk apply (pbind (gwridn_body n x) PVar) (gwridn_body n x)`
+ *
+ * with no hypothesis, and 33.5 recorded that the position of that conclusion
+ * relative to `paobs_tr_le_pub` (37091) was left undetermined.  This section
+ * determines it, and what it determines is an EQUIVALENCE between the public
+ * form and something else -- not an implication from 33.3.
+ *
+ * **THE RESULT, IN ONE LINE.**  For this family, at arbitrary `b`, `n` and `x`,
+ *
+ *     `paobs_tr_le_pub b (pbind (gwridn_body n x) PVar) (gwridn_body n x)`
+ *       <==>  `gwrp_final_diag b (gwridn_body n x)`
+ *
+ * where `gwrp_final_diag` (34.3) MENTIONS ONE OF THE TWO COMPUTATIONS and
+ * compares nothing: it says that at every ambient store, counter and equivariant
+ * stack, every landed observation of that one computation admits a state at
+ * which the landed VALUE is `pval_rel`-related TO ITSELF and the landed STORE is
+ * `pasrel`-related TO ITSELF, both frontiers sitting on the landed counter, the
+ * state well formed and `paext`-accessible from `padiag sto n0`.  34.4 proves the
+ * residue sufficient, for BOTH directions of the pair; 34.5 proves it necessary;
+ * 34.6 collects the two.
+ *
+ * **WHAT ITEM 1 ACTUALLY FOUND -- A NEGATIVE, AND WHERE IT SITS.**  The
+ * implication asked about,
+ *
+ *     33.3's conclusion  ==>  `paobs_tr_le_pub b (pbind (gwridn_body n x) PVar)
+ *                                                (gwridn_body n x)`,
+ *
+ * IS NOT DISCHARGED BELOW, in either direction of the pair.  What is discharged
+ * is the implication WITH THE RESIDUE SUPPLIED (34.6), and in that proof 33.3's
+ * conclusion is not used at all.  The reason the residue cannot be read off
+ * 33.3's conclusion is a fact about the two propositions that can be checked by
+ * looking at them: `pobs_tr_eq` (4738) is built out of `pconverges_tr` alone, and
+ * so contains no `pworld`, no `pastate`, no `pcl_rel_t` and no store
+ * correspondence, while the residue's two load-bearing conjuncts are
+ *
+ *     `pval_rel s'.aw x1 x1`   and   `pasrel b.pb_rel s' t1 t1`,
+ *
+ * which are exactly a world-indexed value relation and a state-indexed store
+ * relation, at the LANDED value and the LANDED store.  Those are the two
+ * conjuncts named as the obstruction.  34.1 shows the obstruction is NOT the
+ * final store and NOT the final counter as data -- the reconvergence supplies
+ * both, at equality -- and 34.3's last lemma shows it is NOT that the residue's
+ * conclusion is unsatisfiable.
+ *
+ * Read that as what it is.  Item 1's finding is a NEGATIVE, located: the
+ * implication is not established here, and 34.6 says that establishing it would
+ * be the same thing as establishing `gwrp_final_diag` outright, because 33.3's
+ * conclusion is itself unconditional.  It is NOT a claim that the residue is
+ * false, and NOT a claim that no proof of it exists.
+ *
+ * **WHAT IS BUILT.**
+ *
+ *   - 34.0: the silent-prefix bridge at `paconverges` -- 33.2 with the store and
+ *     the counter carried;
+ *   - 34.1: the reconvergence at `paconverges`: the two runs agree on the trace,
+ *     the value, the final store and the final counter;
+ *   - 34.2: `paconverges` determines all four observables of a configuration;
+ *   - 34.3: the residue, and its conclusion discharged at a still observation;
+ *   - 34.4: the residue suffices, for BOTH directions of the pair;
+ *   - 34.5: the residue is necessary;
+ *   - 34.6: the characterisation, 33.3's conclusion beside it, and the
+ *     implication in the only form that is proved;
+ *   - 34.7: the two routes' ENTRY CONDITIONS, written next to each other;
+ *   - 34.8: what a `parid`-indexed counterpart of the `pacrel` bridge would
+ *     require -- named, not built;
+ *   - 34.9: the ledger.
+ *)
+
+(* ---- 34.0 THE SILENT-PREFIX BRIDGE, AT `paconverges` ------------- *)
+
+(**
+ * **A SILENT RUN ONTO A `PStep` CONFIGURATION PRESERVES ALLOCATION-AWARE
+ * CONVERGENCE, IN BOTH DIRECTIONS.**  PROVED, at arbitrary `m`, from
+ * `lemma_prun_split` (8684) and `lemma_prun_stable` (3087) alone.
+ *
+ * It is 33.2 with two more projections read off the landed configuration: the
+ * final store and the final counter.  The case analysis is 33.2's verbatim --
+ * the `n < m` case is vacuous because `lemma_prun_stable` would make `cf'.st` a
+ * `PDone`, which `PStep? cf'.st` refuses -- and the extra projections do not
+ * change it, because `lemma_prun_stable` carries the WHOLE result and
+ * `lemma_prun_split` decomposes the WHOLE run.
+ *
+ * `paconverges_unfold` (36679) is used in hypothesis position for the reason the
+ * file records everywhere: an application of a `GTot prop` definition is an atom
+ * in hypothesis position and the existential inside it is otherwise invisible.
+ *)
+let gwrp_silent_prefix (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (m: nat) (cf cf': pconf v cl) (tr: list string) (y: pval v)
+    (t1: pstore v cl) (m1: nat)
+  : Lemma (requires prun lk apply m cf == (cf', ([] <: list string)) /\
+                    PStep? cf'.st)
+          (ensures (paconverges lk apply cf tr y t1 m1 <==>
+                    paconverges lk apply cf' tr y t1 m1))
+  = introduce paconverges lk apply cf tr y t1 m1 ==>
+              paconverges lk apply cf' tr y t1 m1
+    with begin
+      paconverges_unfold lk apply cf tr y t1 m1 ();
+      eliminate exists (n: nat).
+          (fst (prun lk apply n cf)).st == PDone y /\
+          snd (prun lk apply n cf) == tr /\
+          (fst (prun lk apply n cf)).store == t1 /\
+          (fst (prun lk apply n cf)).next == m1
+      with
+        (if n < m
+         then begin
+           lemma_prun_stable lk apply n (m - n) cf;
+           assert (prun lk apply m cf == prun lk apply n cf);
+           assert False;
+           lemma_paconverges_at lk apply cf' 0 tr y t1 m1
+         end
+         else begin
+           lemma_prun_split lk apply m (n - m) cf;
+           lemma_paconverges_at lk apply cf' (n - m) tr y t1 m1
+         end)
+    end;
+    introduce paconverges lk apply cf' tr y t1 m1 ==>
+              paconverges lk apply cf tr y t1 m1
+    with begin
+      paconverges_unfold lk apply cf' tr y t1 m1 ();
+      eliminate exists (p: nat).
+          (fst (prun lk apply p cf')).st == PDone y /\
+          snd (prun lk apply p cf') == tr /\
+          (fst (prun lk apply p cf')).store == t1 /\
+          (fst (prun lk apply p cf')).next == m1
+      with
+        (lemma_prun_split lk apply m p cf;
+         lemma_paconverges_at lk apply cf (m + p) tr y t1 m1)
+    end
+
+(* ---- 34.1 THE RECONVERGENCE, AT `paconverges` -------------------- *)
+
+(**
+ * **THE TWO RUNS AGREE ON THE TRACE, THE VALUE, THE FINAL STORE AND THE FINAL
+ * COUNTER.**  PROVED, at arbitrary `lk`, `apply`, `n`, `x`, `k`, `sto` and `n0`,
+ * WITH NO HYPOTHESIS.
+ *
+ * This is 33.1 read through 34.0 instead of through 33.2.  Its conclusion names
+ * two projections `pobs_tr_eq` does not name -- the final store and the final
+ * counter -- and pins both by EQUALITY across the pair.  No implication between
+ * this proposition and 33.3's is stated or proved here, in either direction;
+ * what is used below is this one.
+ *
+ * The proof is three citations: `gwro_pbind_in_family` (33.0) to read the left
+ * side as a member of the family, `gwro_reconverge` (33.1) for the two `prun`
+ * equations, and `gwrp_silent_prefix` twice at the one common configuration.
+ *)
+let gwrp_reconverge (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (y: pval v) (t1: pstore v cl) (m1: nat)
+  : Lemma (ensures
+            (paconverges lk apply
+               ({ st = PStep (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) k;
+                  store = sto; next = n0 } <: pconf v cl) tr y t1 m1
+             <==>
+             paconverges lk apply
+               ({ st = PStep (gwridn_body #v #cl n x) k;
+                  store = sto; next = n0 } <: pconf v cl) tr y t1 m1))
+  = let cfl : pconf v cl =
+      { st = PStep (gwridn_body #v #cl (n + 1) x) k; store = sto; next = n0 } in
+    let cfr : pconf v cl =
+      { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+    let meet : pconf v cl =
+      { st = PStep (PVar #v #cl x) (gwridn_binds #v #cl n k);
+        store = sto; next = n0 } in
+    gwro_pbind_in_family #v #cl n x;
+    gwridn_body_succ #v #cl n x;
+    gwro_reconverge lk apply n x k sto n0;
+    gwrp_silent_prefix lk apply (n + 2) cfl meet tr y t1 m1;
+    gwrp_silent_prefix lk apply n cfr meet tr y t1 m1
+
+(* ---- 34.2 `paconverges` DETERMINES ALL FOUR OBSERVABLES ---------- *)
+
+(**
+ * **A CONFIGURATION CONVERGES TO AT MOST ONE TRACE, ONE VALUE, ONE FINAL STORE
+ * AND ONE FINAL COUNTER.**  PROVED, from `lemma_prun_stable` (3087) alone.
+ *
+ * It is `lemma_pconverges_tr_unique` (4688) with the two extra projections, and
+ * the proof is that lemma's: the smaller of the two witnesses has already left
+ * the stepping shapes, so stability carries its whole result forward to the
+ * larger and the two readings coincide.  34.5 needs exactly this, to identify
+ * the witness the public form hands back with the one it was given.
+ *)
+let gwrp_paconverges_unique (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (cf: pconf v cl) (tr1 tr2: list string) (x1 x2: pval v)
+    (t1 t2: pstore v cl) (m1 m2: nat)
+  : Lemma (requires paconverges lk apply cf tr1 x1 t1 m1 /\
+                    paconverges lk apply cf tr2 x2 t2 m2)
+          (ensures tr1 == tr2 /\ x1 == x2 /\ t1 == t2 /\ m1 == m2)
+  = paconverges_unfold lk apply cf tr1 x1 t1 m1 ();
+    paconverges_unfold lk apply cf tr2 x2 t2 m2 ();
+    eliminate exists (n1: nat).
+        (fst (prun lk apply n1 cf)).st == PDone x1 /\
+        snd (prun lk apply n1 cf) == tr1 /\
+        (fst (prun lk apply n1 cf)).store == t1 /\
+        (fst (prun lk apply n1 cf)).next == m1
+    with
+      (eliminate exists (n2: nat).
+           (fst (prun lk apply n2 cf)).st == PDone x2 /\
+           snd (prun lk apply n2 cf) == tr2 /\
+           (fst (prun lk apply n2 cf)).store == t2 /\
+           (fst (prun lk apply n2 cf)).next == m2
+       with
+         (if n1 <= n2
+          then lemma_prun_stable lk apply n1 (n2 - n1) cf
+          else lemma_prun_stable lk apply n2 (n1 - n2) cf))
+
+(* ---- 34.3 THE RESIDUE ------------------------------------------- *)
+
+(**
+ * **THE DIAGONAL SELF-RELATION OF ONE LANDED OBSERVATION.**  It is the
+ * existential `paobs_tr_le_pub_at` (37073) asks for, with BOTH SIDES OF EVERY
+ * COMPARISON SET TO THE LEFT ONE: the value against itself, the final store
+ * against itself, and the two frontiers of the witness state both equal to the
+ * one final counter.
+ *
+ * Nothing in it compares two computations, and nothing in it mentions a second
+ * run.  That is what 34.6 turns on.
+ *)
+let gwrp_diag_at (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl) (n0: nat)
+                 (x1: pval v) (t1: pstore v cl) (m1: nat)
+  : GTot prop
+  = exists (s': pastate).
+      s'.an1 == m1 /\ s'.an2 == m1 /\
+      pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+      paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+      pval_rel s'.aw x1 x1 /\ pasrel b.pb_rel s' t1 t1
+
+(**
+ * **THE RESIDUE ITSELF.**  The diagonal self-relation, at EVERY landed
+ * observation of ONE computation, under the public form's OWN three hypotheses
+ * on the initial ambient data.
+ *
+ * Note which computation it mentions: `c`, once.  It is not a relation between
+ * two computations, and there is nothing in it for a symmetry claim to be about.
+ *)
+let gwrp_final_diag (#v #cl: Type) (b: paboundary v cl) (c: pcomp v cl)
+  : GTot prop
+  = forall (sto: pstore v cl) (n0: nat) (k: pstack v cl) (tr: list string)
+           (x1: pval v) (t1: pstore v cl) (m1: nat).
+      (pequivariant_k_at b.pb_rel (panchor sto) k /\
+       pstore_equivariant_at b.pb_rel sto /\
+       psfresh sto n0 /\
+       paconverges b.pb_lk b.pb_apply
+                   ({ st = PStep c k; store = sto; next = n0 } <: pconf v cl)
+                   tr x1 t1 m1) ==>
+      gwrp_diag_at b sto n0 x1 t1 m1
+
+(** The `squash`-to-`squash` cast, for the reason `pacrel_unfold` (31152)
+    records. *)
+let gwrp_final_diag_unfold (#v #cl: Type) (b: paboundary v cl) (c: pcomp v cl)
+                           (h: squash (gwrp_final_diag b c))
+  : squash (forall (sto: pstore v cl) (n0: nat) (k: pstack v cl) (tr: list string)
+                   (x1: pval v) (t1: pstore v cl) (m1: nat).
+              (pequivariant_k_at b.pb_rel (panchor sto) k /\
+               pstore_equivariant_at b.pb_rel sto /\
+               psfresh sto n0 /\
+               paconverges b.pb_lk b.pb_apply
+                           ({ st = PStep c k; store = sto; next = n0 } <: pconf v cl)
+                           tr x1 t1 m1) ==>
+              gwrp_diag_at b sto n0 x1 t1 m1)
+  = h
+
+(** The residue, instantiated.  PROVED, by the cast.  It is split out so that
+    34.4 never has to instantiate a seven-place quantifier inside a nest of
+    `introduce`s. *)
+let gwrp_final_diag_at (#v #cl: Type) (b: paboundary v cl) (c: pcomp v cl)
+    (sto: pstore v cl) (n0: nat) (k: pstack v cl) (tr: list string)
+    (x1: pval v) (t1: pstore v cl) (m1: nat)
+  : Lemma (requires gwrp_final_diag b c /\
+                    pequivariant_k_at b.pb_rel (panchor sto) k /\
+                    pstore_equivariant_at b.pb_rel sto /\
+                    psfresh sto n0 /\
+                    paconverges b.pb_lk b.pb_apply
+                      ({ st = PStep c k; store = sto; next = n0 } <: pconf v cl)
+                      tr x1 t1 m1)
+          (ensures gwrp_diag_at b sto n0 x1 t1 m1)
+  = gwrp_final_diag_unfold b c ()
+
+(**
+ * **THE RESIDUE'S CONCLUSION IS SATISFIABLE, AND HERE IS AN INSTANCE.**  PROVED:
+ * at a final store and a final counter EQUAL TO THE INITIAL ONES, the diagonal
+ * state `padiag sto n0` discharges `gwrp_diag_at` itself -- `lemma_panchor_wf`
+ * gives the world's well-formedness, `lemma_padiag_wf` gives `pawf`,
+ * `lemma_paext_refl` the accessibility, `lemma_pwext_refl` the world extension,
+ * and `lemma_padiag_srel` the store conjunct, from `pstore_equivariant_at` and
+ * nothing else.  The value conjunct is supplied as a hypothesis.
+ *
+ * **THIS IS A NON-VACUITY CHECK AND NOT A DISCHARGE OF THE RESIDUE.**  It says
+ * `gwrp_diag_at` can hold.  It says nothing about whether every landed
+ * observation of `gwridn_body n x` at every equivariant ambient stack satisfies
+ * it, because it assumes the landed store and counter are the initial ones, and
+ * no lemma here says a run of this family leaves them so.
+ *)
+let gwrp_diag_at_still (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl)
+    (n0: nat) (x1: pval v)
+  : Lemma (requires psfresh sto n0 /\ pstore_equivariant_at b.pb_rel sto /\
+                    pval_rel (panchor sto) x1 x1)
+          (ensures gwrp_diag_at b sto n0 x1 sto n0)
+  = lemma_panchor_wf #v #cl sto;
+    lemma_padiag_wf #v #cl sto n0;
+    lemma_padiag_srel b.pb_rel sto n0;
+    lemma_paext_refl (padiag #v #cl sto n0);
+    lemma_pwext_refl (panchor #v #cl sto);
+    introduce exists (s': pastate).
+        (s'.an1 == n0 /\ s'.an2 == n0 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+         paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+         pval_rel s'.aw x1 x1 /\ pasrel b.pb_rel s' sto sto)
+    with (padiag #v #cl sto n0) and ()
+
+(* ---- 34.4 THE RESIDUE SUFFICES ---------------------------------- *)
+
+(**
+ * **THE PUBLIC EXISTENTIAL, ANSWERED DIAGONALLY.**  PROVED.  Given a landed
+ * observation of the computation the public form's CONSEQUENT is about, and the
+ * diagonal self-relation at that observation, the public existential is answered
+ * by that very value, that very store and the residue's own state.
+ *
+ * This is where the two sides of the pair are put together, and it puts them
+ * together by NOT distinguishing them.
+ *)
+let gwrp_pub_witness (#v #cl: Type) (b: paboundary v cl)
+    (cb: pcomp v cl) (sto: pstore v cl) (n0: nat) (k: pstack v cl)
+    (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat)
+  : Lemma (requires paconverges b.pb_lk b.pb_apply
+                      ({ st = PStep cb k; store = sto; next = n0 } <: pconf v cl)
+                      tr x1 t1 m1 /\
+                    gwrp_diag_at b sto n0 x1 t1 m1)
+          (ensures exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                     s'.an1 == m1 /\
+                     paconverges b.pb_lk b.pb_apply
+                       ({ st = PStep cb k; store = sto; next = n0 } <: pconf v cl)
+                       tr x2 t2 s'.an2 /\
+                     pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+                     paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+                     pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2)
+  = eliminate exists (s': pastate).
+        (s'.an1 == m1 /\ s'.an2 == m1 /\
+         pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+         paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+         pval_rel s'.aw x1 x1 /\ pasrel b.pb_rel s' t1 t1)
+    with
+      (introduce exists (y2: pval v) (u2: pstore v cl) (s'': pastate).
+           (s''.an1 == m1 /\
+            paconverges b.pb_lk b.pb_apply
+              ({ st = PStep cb k; store = sto; next = n0 } <: pconf v cl)
+              tr y2 u2 s''.an2 /\
+            pwf_world s''.aw /\ pwext s''.aw (panchor sto) /\
+            paext s'' (padiag #v #cl sto n0) /\ pawf s'' /\
+            pval_rel s''.aw x1 y2 /\ pasrel b.pb_rel s'' t1 u2)
+       with x1 t1 s' and ())
+
+(**
+ * **THE RESIDUE SUFFICES, LEFT TO RIGHT.**  PROVED, from `gwrp_reconverge`
+ * (34.1), `gwrp_final_diag_at` (34.3) and `gwrp_pub_witness`.
+ *
+ * The public form's three hypotheses on the initial data are passed straight
+ * through to the residue; the left side's landed observation is transported to
+ * the right side by the reconvergence, which preserves all four projections; and
+ * the existential is then answered diagonally.
+ *)
+let gwrp_pub_le_lr (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+  : Lemma (requires gwrp_final_diag b (gwridn_body #v #cl n x))
+          (ensures paobs_tr_le_pub b
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                     (gwridn_body #v #cl n x))
+  = introduce forall (sto: pstore v cl) (n0: nat).
+      paobs_tr_le_pub_at b sto n0
+        (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) (gwridn_body #v #cl n x)
+    with
+      (introduce forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                        (t1: pstore v cl) (m1: nat).
+          ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+            pstore_equivariant_at b.pb_rel sto /\
+            psfresh sto n0 /\
+            paconverges b.pb_lk b.pb_apply
+              ({ st = PStep (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) k;
+                 store = sto; next = n0 } <: pconf v cl) tr x1 t1 m1) ==>
+           (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+              s'.an1 == m1 /\
+              paconverges b.pb_lk b.pb_apply
+                ({ st = PStep (gwridn_body #v #cl n x) k;
+                   store = sto; next = n0 } <: pconf v cl) tr x2 t2 s'.an2 /\
+              pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+              paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+              pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2))
+       with
+         (introduce _ ==> _
+          with begin
+            gwrp_reconverge b.pb_lk b.pb_apply n x k sto n0 tr x1 t1 m1;
+            gwrp_final_diag_at b (gwridn_body #v #cl n x) sto n0 k tr x1 t1 m1;
+            gwrp_pub_witness b (gwridn_body #v #cl n x) sto n0 k tr x1 t1 m1
+          end))
+
+(**
+ * **AND RIGHT TO LEFT.**  PROVED, by the same three citations with the two
+ * configurations exchanged.  The reconvergence is a BICONDITIONAL, so the
+ * transport costs nothing extra in this direction.
+ *)
+let gwrp_pub_le_rl (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+  : Lemma (requires gwrp_final_diag b (gwridn_body #v #cl n x))
+          (ensures paobs_tr_le_pub b
+                     (gwridn_body #v #cl n x)
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl)))
+  = introduce forall (sto: pstore v cl) (n0: nat).
+      paobs_tr_le_pub_at b sto n0
+        (gwridn_body #v #cl n x) (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+    with
+      (introduce forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                        (t1: pstore v cl) (m1: nat).
+          ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+            pstore_equivariant_at b.pb_rel sto /\
+            psfresh sto n0 /\
+            paconverges b.pb_lk b.pb_apply
+              ({ st = PStep (gwridn_body #v #cl n x) k;
+                 store = sto; next = n0 } <: pconf v cl) tr x1 t1 m1) ==>
+           (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+              s'.an1 == m1 /\
+              paconverges b.pb_lk b.pb_apply
+                ({ st = PStep (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) k;
+                   store = sto; next = n0 } <: pconf v cl) tr x2 t2 s'.an2 /\
+              pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+              paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+              pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2))
+       with
+         (introduce _ ==> _
+          with begin
+            gwrp_reconverge b.pb_lk b.pb_apply n x k sto n0 tr x1 t1 m1;
+            gwrp_final_diag_at b (gwridn_body #v #cl n x) sto n0 k tr x1 t1 m1;
+            gwrp_pub_witness b (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                             sto n0 k tr x1 t1 m1
+          end))
+
+(** **THE PAIR, FROM THE RESIDUE.**  PROVED, the two halves together. *)
+let gwrp_pub_of_final_diag (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+  : Lemma (requires gwrp_final_diag b (gwridn_body #v #cl n x))
+          (ensures paobs_tr_le_pub b
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                     (gwridn_body #v #cl n x) /\
+                   paobs_tr_le_pub b
+                     (gwridn_body #v #cl n x)
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl)))
+  = gwrp_pub_le_lr b n x; gwrp_pub_le_rl b n x
+
+(* ---- 34.5 THE RESIDUE IS NECESSARY ------------------------------ *)
+
+(**
+ * **AND THE PUBLIC STATEMENT GIVES THE RESIDUE BACK.**  PROVED, from
+ * `gwrp_reconverge` (34.1) and `gwrp_paconverges_unique` (34.2).
+ *
+ * Given a landed observation of the RIGHT side, the reconvergence produces the
+ * same observation of the LEFT side, which is what the public form's antecedent
+ * asks for; the public form then hands back `x2`, `t2` and `s'` with the right
+ * side converging to `(tr, x2, t2, s'.an2)`.  Uniqueness identifies that with
+ * `(tr, x1, t1, m1)`, so `s'.an2 == m1` and the two comparisons
+ * `pval_rel s'.aw x1 x2` and `pasrel b.pb_rel s' t1 t2` ARE the diagonal ones.
+ * The witness state is the public form's own.
+ *
+ * `paobs_tr_le_pub_unfold` (38858) and `paobs_tr_le_pub_at_unfold` (38218) are
+ * the two casts that make the quantifiers inside the hypothesis visible.
+ *)
+let gwrp_final_diag_of_pub (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+  : Lemma (requires paobs_tr_le_pub b
+                      (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                      (gwridn_body #v #cl n x))
+          (ensures gwrp_final_diag b (gwridn_body #v #cl n x))
+  = paobs_tr_le_pub_unfold b
+      (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) (gwridn_body #v #cl n x) ();
+    introduce forall (sto: pstore v cl) (n0: nat) (k: pstack v cl)
+                     (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+        pstore_equivariant_at b.pb_rel sto /\
+        psfresh sto n0 /\
+        paconverges b.pb_lk b.pb_apply
+          ({ st = PStep (gwridn_body #v #cl n x) k;
+             store = sto; next = n0 } <: pconf v cl) tr x1 t1 m1) ==>
+       gwrp_diag_at b sto n0 x1 t1 m1)
+    with
+      (introduce _ ==> _
+       with begin
+         let cfr : pconf v cl =
+           { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+         gwrp_reconverge b.pb_lk b.pb_apply n x k sto n0 tr x1 t1 m1;
+         paobs_tr_le_pub_at_unfold b sto n0
+           (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+           (gwridn_body #v #cl n x) ();
+         eliminate exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+             (s'.an1 == m1 /\
+              paconverges b.pb_lk b.pb_apply cfr tr x2 t2 s'.an2 /\
+              pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+              paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+              pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2)
+         with begin
+           gwrp_paconverges_unique b.pb_lk b.pb_apply cfr tr tr x1 x2 t1 t2 m1 s'.an2;
+           introduce exists (s'': pastate).
+               (s''.an1 == m1 /\ s''.an2 == m1 /\
+                pwf_world s''.aw /\ pwext s''.aw (panchor sto) /\
+                paext s'' (padiag #v #cl sto n0) /\ pawf s'' /\
+                pval_rel s''.aw x1 x1 /\ pasrel b.pb_rel s'' t1 t1)
+           with s' and ()
+         end
+       end)
+
+(* ---- 34.6 THE CHARACTERISATION, AND 33.3 BESIDE IT --------------- *)
+
+(**
+ * **THE ALLOCATION-INDEXED PUBLIC STATEMENT AT THIS PAIR IS EXACTLY THE
+ * RESIDUE.**  PROVED, both directions, at arbitrary `b`, `n` and `x`: 34.4 one
+ * way and 34.5 the other.
+ *
+ * **WHAT THIS SETTLES ABOUT SECTION 33's POSITION.**  At a FIXED `b` and for
+ * THIS family, `paobs_tr_le_pub` holds exactly when a UNARY proposition holds --
+ * one that mentions only ONE of the two computations.  By 34.5 any route to the
+ * public statement at this pair yields it; by 34.4 any route to it yields the
+ * public statement.  So every proof route to the public statement must, in the
+ * end, establish this unary residue.
+ *
+ * **THAT IS NOT INDEPENDENCE FROM THE RELATION, AND MUST NOT BE READ AS IT.**
+ * `gwrp_final_diag` is stated AT `b`, and its body uses `b.pb_rel` -- through
+ * `pasrel b.pb_rel` inside `gwrp_diag_at`.  Change the boundary relation and the
+ * residue's own content changes with it.  Nothing here says the public statement
+ * is equally easy or equally hard under every choice of relation, and nothing
+ * here says relation design cannot reach it; what is said is only that whatever
+ * the route, the residue AT THAT `b` is what has to come out at the end.
+ *
+ * That is a statement about these two propositions, at this family's pair.  No
+ * implication between 33.3's conclusion and the public form is proved here in
+ * either direction, and none is claimed.
+ *)
+let gwrp_pub_iff_final_diag (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+  : Lemma (ensures (paobs_tr_le_pub b
+                      (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                      (gwridn_body #v #cl n x)
+                    <==> gwrp_final_diag b (gwridn_body #v #cl n x)))
+  = introduce paobs_tr_le_pub b
+                (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                (gwridn_body #v #cl n x)
+              ==> gwrp_final_diag b (gwridn_body #v #cl n x)
+    with gwrp_final_diag_of_pub b n x;
+    introduce gwrp_final_diag b (gwridn_body #v #cl n x)
+              ==> paobs_tr_le_pub b
+                    (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                    (gwridn_body #v #cl n x)
+    with gwrp_pub_le_lr b n x
+
+(** **33.3's CONCLUSION, AT A BOUNDARY's OWN INTERPRETER.**  PROVED, by citation
+    of `gwro_right_identity` (64326), with no hypothesis.  It is written down so
+    that the antecedent of the implication this section was asked about stands at
+    the same arguments as the consequent. *)
+let gwrp_pobs_tr_eq_at_boundary (#v #cl: Type) (b: paboundary v cl)
+    (n: nat) (x: pval v)
+  : Lemma (ensures pobs_tr_eq b.pb_lk b.pb_apply
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                     (gwridn_body #v #cl n x))
+  = gwro_right_identity b.pb_lk b.pb_apply n x
+
+(**
+ * **THE IMPLICATION THIS SECTION WAS ASKED ABOUT, AND WHAT IS PROVED OF IT.**
+ * PROVED, in the only form the work above supports: the implication holds WITH
+ * THE RESIDUE AS ANTECEDENT, and 33.3's conclusion -- the second conjunct -- is
+ * not used in that proof.
+ *
+ * **THE FINDING, STATED EXACTLY.**  The implication
+ * "33.3's conclusion `==>` the public statement" is NOT discharged here.  Read
+ * the second conjunct together with `gwrp_pub_iff_final_diag`: 33.3's conclusion
+ * is UNCONDITIONAL, so discharging that implication would make the public
+ * statement unconditional, and hence -- by 34.6 -- would discharge
+ * `gwrp_final_diag` outright.  No lemma is cited here that discharges
+ * `gwrp_final_diag`, and this section does not discharge it.
+ *
+ * **WHAT THE OBSTRUCTION IS, AND WHAT IS ONLY A CANDIDATE INSIDE IT.**  The
+ * obstruction established by 34.6 is `gwrp_final_diag` IN ITS ENTIRETY.  Its
+ * body, `gwrp_diag_at`, carries EIGHT conjuncts -- the two frontier equations,
+ * `pwf_world`, `pwext`, `paext`, `pawf`, and the two self-relations -- and
+ * nothing here discharges any of them at an arbitrary landed observation.
+ *
+ * Two of the eight are singled out only as the CANDIDATE CORE, on the ground of
+ * SHAPE: `pobs_tr_eq` (4738) unfolds to `pobs_tr_le` and thence to
+ * `pconverges_tr` (4673), in which no `pworld`, no `pastate`, no `pcl_rel_t` and
+ * no store correspondence occurs at all -- so 33.3's vocabulary is not a source
+ * for `pval_rel s'.aw x1 x1` or `pasrel b.pb_rel s' t1 t1`.
+ *
+ * **THE OTHER SIX ARE NOT SHOWN TO BE FREE.**  The trace, the value, the final
+ * store and the final counter are pinned by equality ACROSS THE PAIR by 34.1,
+ * which is a fact about the two sides agreeing and not a discharge of any
+ * conjunct.  `gwrp_diag_at_still` discharges all eight TOGETHER at ONE point --
+ * a landed store and counter equal to the initial ones -- and that is a
+ * satisfiability witness at that point, not an elimination of the state-shape
+ * conjuncts at an arbitrary landed observation.  Calling the two self-relations
+ * the exact obstruction would overstate what is proved.
+ *)
+let gwrp_implication_with_residue (#v #cl: Type) (b: paboundary v cl)
+    (n: nat) (x: pval v)
+  : Lemma (ensures (gwrp_final_diag b (gwridn_body #v #cl n x) ==>
+                     (paobs_tr_le_pub b
+                        (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                        (gwridn_body #v #cl n x) /\
+                      paobs_tr_le_pub b
+                        (gwridn_body #v #cl n x)
+                        (pbind (gwridn_body #v #cl n x) (PVar #v #cl)))) /\
+                   pobs_tr_eq b.pb_lk b.pb_apply
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                     (gwridn_body #v #cl n x))
+  = gwrp_pobs_tr_eq_at_boundary b n x;
+    introduce gwrp_final_diag b (gwridn_body #v #cl n x) ==>
+              (paobs_tr_le_pub b
+                 (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                 (gwridn_body #v #cl n x) /\
+               paobs_tr_le_pub b
+                 (gwridn_body #v #cl n x)
+                 (pbind (gwridn_body #v #cl n x) (PVar #v #cl)))
+    with gwrp_pub_of_final_diag b n x
+
+(* ---- 34.7 THE TWO ROUTES' ENTRY CONDITIONS, SIDE BY SIDE --------- *)
+
+(**
+ * **ROUTE A's ENTRY CONDITION, AND WHERE IT LEADS.**  PROVED, as an implication,
+ * by citation of `lemma_paobs_pub_of_pacrel_diag` (37155) and nothing else.  The
+ * entry condition is `pacrel` at the DIAGONAL state, at every fresh store and
+ * counter.
+ *)
+let gwrp_route_a (#v #cl: Type) (b: paboundary v cl) (c1 c2: pcomp v cl)
+  : Lemma (ensures ((forall (sto: pstore v cl) (n0: nat).
+                       psfresh sto n0 ==>
+                       pacrel b.pb_rel (padiag #v #cl sto n0) c1 c2)
+                    ==> paobs_tr_le_pub b c1 c2))
+  = introduce (forall (sto: pstore v cl) (n0: nat).
+                 psfresh sto n0 ==>
+                 pacrel b.pb_rel (padiag #v #cl sto n0) c1 c2)
+              ==> paobs_tr_le_pub b c1 c2
+    with lemma_paobs_pub_of_pacrel_diag b c1 c2
+
+(** **26.0's PAIR IS THIS FAMILY's PAIR AT INDEX ZERO.**  PROVED, by computation:
+    `gwridn_body 0 x` is `PVar x` and `pbind` is `POp`, so `gwrid_cl` and
+    `gwrid_cr` are the two sides of the right-identity pair at `n == 0` and
+    `x == gwrid_x`.  Stated so that the refutation below is visibly about this
+    family and not about a pair that merely resembles it. *)
+let gwrp_fixture_is_family_zero ()
+  : Lemma (gwrid_cl == pbind (gwridn_body #fv #fcl 0 gwrid_x) (PVar #fv #fcl) /\
+           gwrid_cr == gwridn_body #fv #fcl 0 gwrid_x)
+  = gwro_pbind_in_family #fv #fcl 0 gwrid_x
+
+(** **AND THE DIAGONAL STATE AT 26.0's AMBIENT DATA IS `pabot`.**  PROVED, by
+    computation: `panchor []` is `[]` and both frontiers are `0`; the empty store
+    is fresh for every counter. *)
+let gwrp_diag_at_fixture ()
+  : Lemma (padiag #fv #fcl gwrid_sto 0 == pabot /\ psfresh #fv #fcl gwrid_sto 0)
+  = ()
+
+(**
+ * **ROUTE A's ENTRY CONDITION IS REFUTED AT THIS FAMILY, AT INDEX ZERO.**
+ * PROVED, and the refutation is `gwrid_pacrel_refuted` (59909), CITED AND NOT
+ * RE-PROVED: `pacrel` has no clause joining a `POp` head to a `PVar` head, so at
+ * fuel index `1` the pair falls into `pacomp_rel`'s `| _, _ -> False`.
+ *
+ * The instance is `sto == []`, `n0 == 0`, at which `padiag` IS `pabot` and
+ * `psfresh` holds; so the quantified entry condition of `gwrp_route_a` fails at
+ * `faboundary`, at `n == 0` and `x == gwrid_x`.
+ *
+ * **WHAT THIS IS AND IS NOT.**  It refutes THE ENTRY CONDITION, not the
+ * conclusion: `gwrp_route_a` is an implication, and a false antecedent says
+ * nothing about `paobs_tr_le_pub`.  It is stated at `faboundary`, at one index
+ * and one value; no claim is made about other boundaries, other indices or other
+ * values.
+ *)
+let gwrp_route_a_entry_refuted ()
+  : Lemma (~(forall (sto: pstore fv fcl) (n0: nat).
+               psfresh sto n0 ==>
+               pacrel faboundary.pb_rel (padiag #fv #fcl sto n0)
+                 (pbind (gwridn_body #fv #fcl 0 gwrid_x) (PVar #fv #fcl))
+                 (gwridn_body #fv #fcl 0 gwrid_x)))
+  = gwrp_fixture_is_family_zero ();
+    gwrp_diag_at_fixture ();
+    gwrid_pacrel_refuted ()
+
+(**
+ * **THE TWO ROUTES, AS PROPOSITIONS, AT ONE SET OF ARGUMENTS.**  PROVED, three
+ * conjuncts:
+ *
+ *  1. ROUTE A -- its entry condition is `pacrel` at the diagonal, and from it
+ *     `lemma_paobs_pub_of_pacrel_diag` yields `paobs_tr_le_pub`.  Written as an
+ *     implication because that is all this route is;
+ *  2. ROUTE B -- its entry condition is the RECONVERGENCE, and it is DISCHARGED,
+ *     with no hypothesis, by `gwro_reconverge` (33.1) read through
+ *     `gwro_pbind_in_family` (33.0);
+ *  3. and route B's entry condition in the form 34.1 puts it: the two sides'
+ *     landed observations coincide in all four projections.
+ *
+ * The difference is then a matter of record rather than of prose.  Route A's
+ * entry condition is REFUTED at this family's index-zero instance
+ * (`gwrp_route_a_entry_refuted`, citing 26.1 and not re-proving it); route B's
+ * entry condition is PROVED, at every index, with no hypothesis.  Route A's
+ * output is `paobs_tr_le_pub`; route B's output reaches `paobs_tr_le_pub` when
+ * the residue is supplied (34.4) and, by 34.5, only then.
+ *
+ * **NEITHER ROUTE IS SHOWN TO SUBSUME THE OTHER.**  Route A's entry condition is
+ * not shown to follow from route B's, and route B's is not shown to follow from
+ * route A's; nothing above or below states either implication.
+ *)
+let gwrp_two_routes (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+    (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+    (tr: list string) (y: pval v) (t1: pstore v cl) (m1: nat)
+  : Lemma (ensures
+            (* 1 -- ROUTE A: entry condition, and its output *)
+            ((forall (s: pstore v cl) (m: nat).
+                 psfresh s m ==>
+                 pacrel b.pb_rel (padiag #v #cl s m)
+                   (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                   (gwridn_body #v #cl n x))
+              ==> paobs_tr_le_pub b
+                    (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                    (gwridn_body #v #cl n x)) /\
+            (* 2 -- ROUTE B: entry condition, discharged *)
+            (let cfl : pconf v cl =
+               { st = PStep (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) k;
+                 store = sto; next = n0 } in
+             let cfr : pconf v cl =
+               { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+             let meet : pconf v cl =
+               { st = PStep (PVar #v #cl x) (gwridn_binds #v #cl n k);
+                 store = sto; next = n0 } in
+             prun b.pb_lk b.pb_apply (n + 2) cfl == (meet, ([] <: list string)) /\
+             prun b.pb_lk b.pb_apply n cfr == (meet, ([] <: list string))) /\
+            (* 3 -- and what it buys at the allocation-indexed observable *)
+            (paconverges b.pb_lk b.pb_apply
+               ({ st = PStep (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) k;
+                  store = sto; next = n0 } <: pconf v cl) tr y t1 m1
+             <==>
+             paconverges b.pb_lk b.pb_apply
+               ({ st = PStep (gwridn_body #v #cl n x) k;
+                  store = sto; next = n0 } <: pconf v cl) tr y t1 m1))
+  = gwrp_route_a b (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                   (gwridn_body #v #cl n x);
+    gwro_pbind_in_family #v #cl n x;
+    gwro_reconverge b.pb_lk b.pb_apply n x k sto n0;
+    gwrp_reconverge b.pb_lk b.pb_apply n x k sto n0 tr y t1 m1
+
+(* ---- 34.8 WHAT A `parid`-INDEXED BRIDGE WOULD REQUIRE ------------ *)
+
+(**
+ * **THE BRIDGE FACTORS, AND ONLY THE HEAD OF IT IS STATED AT `pacrel`.**  PROVED,
+ * for the tail: `lemma_paobs_pub_at_of_paired` (37099) takes `paobs_tr_le_at` at
+ * the diagonal to `paobs_tr_le_pub_at`, and its statement mentions no relation on
+ * computations.
+ *
+ * So the chain `lemma_paobs_pub_of_pacrel_diag` runs is
+ *
+ *     `pacrel` at `padiag`
+ *       --[ lemma_paobs_tr_le_at_of_pacrel, 36964 ]-->  `paobs_tr_le_at`
+ *       --[ lemma_paobs_pub_at_of_paired,   37099 ]-->  `paobs_tr_le_pub_at`
+ *
+ * and the second arrow is reusable at any relation on computations, because its
+ * statement names none.  The `pacrel`-specific content of the bridge is the first
+ * arrow.
+ *)
+let gwrp_bridge_tail_is_relation_free (#v #cl: Type) (b: paboundary v cl)
+    (sto: pstore v cl) (n0: nat) (c1 c2: pcomp v cl)
+  : Lemma (requires psfresh sto n0 /\
+                    paobs_tr_le_at b (padiag #v #cl sto n0) c1 c2)
+          (ensures paobs_tr_le_pub_at b sto n0 c1 c2)
+  = lemma_paobs_pub_at_of_paired b sto n0 c1 c2
+
+(**
+ * **THE OBLIGATION, NAMED: A `parid`-INDEXED FIRST ARROW.**  PROVED as an
+ * IMPLICATION, at arbitrary `b`, `n` and `x`: IF `parid`-relatedness at a
+ * well-formed state implied `paobs_tr_le_at` at that state, THEN 32.6's
+ * departing pair would reach `paobs_tr_le_pub`, and by 33.0 that pair IS the
+ * right-identity pair of this family.
+ *
+ * `parid_ridn_departs` (63535) supplies the antecedent's hypothesis at every
+ * index under `pval_rel s.aw x x`, which is why that side condition is carried
+ * here; `lemma_padiag_wf` supplies `pawf`.  The `psfresh`-free case is vacuous
+ * for the reason it is vacuous in `lemma_paobs_pub_of_pacrel_diag`: `psfresh sto
+ * n0` is a conjunct of the public form's own antecedent.
+ *
+ * **WHAT WOULD HAVE TO BE RE-ESTABLISHED AT `parid`, BY NAME.**  The antecedent
+ * is the `parid` counterpart of `lemma_paobs_tr_le_at_of_pacrel` (36964).  Read
+ * at 36964, that lemma's proof is `lemma_paboundary_premises` (35534) --
+ * relation-free, reusable as it stands -- and two citations, and each of the two
+ * is stated at `pacrel` or at the configuration relation built from it:
+ *
+ *  1. `lemma_pacfrel_of_parts` (36954) -- assembling `pacrel` at the computation
+ *     component, `pakrel` at the stack component and `pasrel` at the store
+ *     component into `pacfrel` (34719).  A `parid` counterpart needs a
+ *     configuration relation whose `PStep`/`PStep` clause asks `parid`; `pastrel`
+ *     (34709) as it stands asks `pacrel`;
+ *  2. `lemma_paobs_le_cf_of_pacfrel` (36912) -- one-directional observational
+ *     compatibility of related configurations -- which is `lemma_paobs_at_fuel`
+ *     (36866) at the eliminated fuel, which is in turn
+ *     `lemma_parun_compat` (35771), THE RUN THEOREM, stated at `pacfrel` and
+ *     built on `lemma_pastep_tr_compat` (35276), together with
+ *     `lemma_pastrel_done_inv` (36857), the `PDone` inversion, stated at
+ *     `pastrel`.
+ *
+ * `lemma_padiag_wf`, `lemma_padiag_krel` and `lemma_padiag_srel` are not on this
+ * list: their statements do not name a relation on computations, and they are
+ * reusable as they stand, as `gwrp_bridge_tail_is_relation_free` records for the
+ * tail.
+ *
+ * **AND ONE ITEM ON THAT LIST MEETS A REFUTATION ALREADY IN THIS FILE.**  It is
+ * item 2, and it meets it through item 1's choice of stack component.
+ * `parid_bind_frames_not_pafn_rel` (63851) exhibits a `parid`-related pair of
+ * continuations whose two `PBindF` frames are NOT `pafrel`-related, and a `POp`
+ * step pushes exactly those frames onto the two stacks.  So a run theorem for a
+ * configuration relation that keeps `pakrel` AS IT STANDS at the stack component
+ * -- the DIRECT componentwise construction 32.11 names -- does not close.
+ * 32.11's own doc comment scopes that, and this one repeats the scope: it is
+ * about THAT construction.  A configuration relation narrowing its domain, or
+ * pairing `parid` with a stack relation other than `pakrel`, is neither built nor
+ * refuted there or here.
+ *
+ * The rest of item 2 -- whether a run theorem at `parid` holds under some other
+ * stack component, and whether the `PDone` inversion carries over -- HAS NOT BEEN
+ * INVESTIGATED.  No lemma in this file states a transition-compatibility or
+ * run-compatibility result at `parid`, and no lemma in this file refutes one;
+ * 32.13's ledger records the same, and this is a report of what was looked for
+ * here, not a claim about what exists.
+ *
+ * **NOTHING IS BUILT HERE.**  The lemma below is an implication whose antecedent
+ * is a hypothesis.  It is not discharged above, not discharged below, and not
+ * claimed to be dischargeable.
+ *)
+let gwrp_parid_bridge_would_suffice (#v #cl: Type) (b: paboundary v cl)
+    (n: nat) (x: pval v)
+  : Lemma (requires (forall (s: pastate) (d1 d2: pcomp v cl).
+                       pawf s /\ parid b.pb_rel s d1 d2 ==>
+                       paobs_tr_le_at b s d1 d2) /\
+                    (forall (sto: pstore v cl) (n0: nat).
+                       psfresh sto n0 ==> pval_rel (panchor sto) x x))
+          (ensures paobs_tr_le_pub b
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                     (gwridn_body #v #cl n x))
+  = gwro_pbind_in_family #v #cl n x;
+    introduce forall (sto: pstore v cl) (n0: nat).
+      paobs_tr_le_pub_at b sto n0
+        (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) (gwridn_body #v #cl n x)
+    with
+      (if psfresh sto n0
+       then begin
+         lemma_padiag_wf #v #cl sto n0;
+         assert (pval_rel (padiag #v #cl sto n0).aw x x);
+         parid_ridn_departs b.pb_rel (padiag #v #cl sto n0) n x;
+         assert (paobs_tr_le_at b (padiag #v #cl sto n0)
+                   (gwridn_body #v #cl (n + 1) x) (gwridn_body #v #cl n x));
+         gwrp_bridge_tail_is_relation_free b sto n0
+           (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+           (gwridn_body #v #cl n x)
+       end
+       else
+         (introduce forall (k: pstack v cl) (tr: list string) (x1: pval v)
+                           (t1: pstore v cl) (m1: nat).
+            ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+              pstore_equivariant_at b.pb_rel sto /\
+              psfresh sto n0 /\
+              paconverges b.pb_lk b.pb_apply
+                ({ st = PStep (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) k;
+                   store = sto; next = n0 } <: pconf v cl) tr x1 t1 m1) ==>
+             (exists (x2: pval v) (t2: pstore v cl) (s': pastate).
+                s'.an1 == m1 /\
+                paconverges b.pb_lk b.pb_apply
+                  ({ st = PStep (gwridn_body #v #cl n x) k;
+                     store = sto; next = n0 } <: pconf v cl) tr x2 t2 s'.an2 /\
+                pwf_world s'.aw /\ pwext s'.aw (panchor sto) /\
+                paext s' (padiag #v #cl sto n0) /\ pawf s' /\
+                pval_rel s'.aw x1 x2 /\ pasrel b.pb_rel s' t1 t2))
+          with (introduce _ ==> _ with ())))
+
+(* ---- 34.9 THE LEDGER --------------------------------------------- *)
+
+(**
+ * **WHAT SECTION 34 SETTLES.**
+ *
+ *  1. ROUTE B's OUTPUT MOVES TO THE ALLOCATION-INDEXED LAYER EXACTLY MODULO THE
+ *     RESIDUE, AND NOT OTHERWISE.  `gwrp_pub_iff_final_diag` proves
+ *     `paobs_tr_le_pub b (pbind (gwridn_body n x) PVar) (gwridn_body n x)`
+ *     equivalent to `gwrp_final_diag b (gwridn_body n x)`, at arbitrary `b`, `n`
+ *     and `x`.  So the answer to the question this gate asked is: not
+ *     unconditionally, and the condition is named, is one-sided, and is not a
+ *     relation between the two computations.
+ *
+ *  2. THE IMPLICATION ITEM 1 ASKED ABOUT IS NOT DISCHARGED, AND THE RESIDUE IS
+ *     NAMED.  `gwrp_implication_with_residue` proves it with the RESIDUE as
+ *     antecedent and records 33.3's conclusion, unconditional, beside it; 33.3's
+ *     conclusion is not used in that proof.  **THE ESTABLISHED OBSTRUCTION IS
+ *     `gwrp_final_diag` IN ITS ENTIRETY**, all eight conjuncts of `gwrp_diag_at`
+ *     included; no theorem here accounts for any of them at an arbitrary landed
+ *     observation.  `pval_rel s'.aw x1 x1` and `pasrel b.pb_rel s' t1 t1` are
+ *     singled out as a CANDIDATE CORE, and only on the ground that `pobs_tr_eq`
+ *     unfolds to `pconverges_tr`, in which no `pworld`, `pastate`, `pcl_rel_t` or
+ *     store correspondence occurs -- so 33.3's vocabulary cannot supply them.
+ *     `gwrp_reconverge` pins the trace, the value, the final store and the final
+ *     counter ACROSS THE PAIR, which is agreement between the sides and not a
+ *     discharge; `gwrp_diag_at_still` satisfies all eight together at ONE point,
+ *     which is satisfiability there and not elimination in general.
+ *
+ *  3. THE OBSTRUCTION IS NOT SHOWN TO BE FATAL.  `gwrp_diag_at_still` discharges
+ *     `gwrp_diag_at` at a landed store and counter equal to the initial ones, so
+ *     the residue's conclusion is satisfiable.  Whether the residue holds at
+ *     every equivariant ambient stack is neither proved nor refuted here, and no
+ *     lemma cited here carries `pstore_equivariant_at` from an initial store to a
+ *     landed one.
+ *
+ *  4. NEITHER ROUTE IS SHOWN TO SUBSUME THE OTHER.  `gwrp_two_routes` puts the
+ *     two entry conditions at one set of arguments: route A's is `pacrel` at
+ *     `padiag`, REFUTED at this family's index-zero instance by
+ *     `gwrp_route_a_entry_refuted` (citing 26.1, not re-proving it); route B's is
+ *     the reconvergence, PROVED at every index (citing 33.1, not re-proving it).
+ *     NO IMPLICATION BETWEEN THE TWO ENTRY CONDITIONS IS STATED ANYWHERE IN THIS
+ *     SECTION, in either direction.  What is proved is that one is false at a
+ *     named instance and the other true at every instance of the family -- a
+ *     difference between the conditions, not a containment of the routes.
+ *
+ *  5. ITEM 3's OBLIGATION IS NAMED AND NOT BUILT.
+ *     `gwrp_bridge_tail_is_relation_free` proves that the second half of
+ *     `lemma_paobs_pub_of_pacrel_diag`'s chain has a statement naming no relation
+ *     on computations, so the `pacrel`-specific content of the bridge is
+ *     `lemma_paobs_tr_le_at_of_pacrel`.  `gwrp_parid_bridge_would_suffice` proves
+ *     that a `parid` counterpart of THAT lemma, together with
+ *     `pval_rel (panchor sto) x x`, reaches the public statement for this family.
+ *     The lemmas that counterpart would have to re-establish are named in its doc
+ *     comment: `lemma_pacfrel_of_parts` (with `pastrel`/`pacfrel`), and
+ *     `lemma_paobs_le_cf_of_pacfrel` through `lemma_paobs_at_fuel` to
+ *     `lemma_parun_compat`, `lemma_pastep_tr_compat` and
+ *     `lemma_pastrel_done_inv`.  The second of the two meets 32.11's refutation
+ *     for the DIRECT componentwise construction; the rest has not been
+ *     investigated, here or elsewhere in this file.  NOTHING IS BUILT: the
+ *     antecedent is a hypothesis of the lemma and is discharged nowhere.
+ *
+ *  6. NO LAW BEYOND SECTION 33's FAMILY STATEMENT IS PROVED ANYWHERE ABOVE.
+ *     Every unconditional conclusion in this section is about `prun`,
+ *     `paconverges`, the residue, or a citation of 33.3; the only
+ *     `paobs_tr_le_pub` conclusions above stand under a hypothesis --
+ *     `gwrp_final_diag` in 34.4 and 34.6, the `parid` bridge in 34.8.
+ *     Associativity, left identity at an arbitrary body, transparency and the
+ *     anchored law are untouched, and nothing above bears on
+ *     `guard_ref_ops_refutes_left_identity` or on any other refutation in this
+ *     file.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. `gwrp_final_diag` and `gwrp_diag_at` are DEFINITIONS introduced here.  They
+ *     are not stated or proved to be equivalent to anything else in the file, and
+ *     the equivalence in item 1 is at THIS family's pair and at no other.
+ *
+ *  2. `gwrp_route_a_entry_refuted` is at `faboundary`, at `n == 0`, at
+ *     `x == gwrid_x`, and at `sto == []`, `n0 == 0`.  It refutes a QUANTIFIED
+ *     ENTRY CONDITION by one instance; it says nothing about `paobs_tr_le_pub` at
+ *     that pair, because `gwrp_route_a` is an implication.  No claim is made
+ *     about other boundaries, other indices or other values.
+ *
+ *  3. `gwrp_parid_bridge_would_suffice` carries TWO hypotheses, and the second --
+ *     `pval_rel (panchor sto) x x` at every fresh `(sto, n0)` -- is not removed
+ *     along this proof route, because `parid_ridn_departs` requires it.  Nothing
+ *     above says some other route could not do without it.
+ *
+ *  4. `gwrp_diag_at_still` assumes the landed store and counter are the initial
+ *     ones.  Nothing above says a run of this family at an arbitrary equivariant
+ *     ambient stack leaves them so, and nothing above says it does not.
+ *
+ *  5. The numerals `n + 2`, `n + 1`, `1` and `n` inherited from 33.1 are `prun`
+ *     FUEL INDICES, as 33.5 records.  Nothing above identifies a unit of fuel
+ *     with a transition, and this section asserts no transition directly.
+ *
+ *  6. The absence claims above are scoped to this file and to what is cited here:
+ *     "no lemma cited here carries the store equivariance to the landed store",
+ *     "the rest of item 2 has not been investigated".  They are reports of what
+ *     was looked for and found here, not claims about what exists.
+ *
+ *  7. NO DEFINITION OR PROOF ABOVE THIS SECTION IS CHANGED BY IT.  This section
+ *     adds definitions and lemmas under the `gwrp_` prefix only.  Out of sections
+ *     23 to 33 it cites `gwridn_body`, `gwridn_binds`, `gwridn_body_succ`,
+ *     `gwrid_cl`, `gwrid_cr`, `gwrid_sto`, `gwrid_x`, `gwrid_pacrel_refuted`
+ *     (26.1), `parid`, `parid_ridn_departs` (32.6), `gwro_pbind_in_family`
+ *     (33.0), `gwro_reconverge` (33.1) and `gwro_right_identity` (33.3), and it
+ *     alters none of them.  26.1's seven refutations, 27.2's refutation, 32.11's
+ *     obstruction and 32.12's limits stand as written.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

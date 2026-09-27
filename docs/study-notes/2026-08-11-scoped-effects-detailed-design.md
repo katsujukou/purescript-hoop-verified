@@ -10522,6 +10522,102 @@ general. Neither is checked.
   is refuted;
 - anything about the other four laws.
 
+#### Two routes to an observation, and where the earlier result sits
+
+There are two ways to reach an observational statement in this development, and
+they have different characters.
+
+**Through the relation.** A bridge already existed: relatedness at every
+diagonal state yields the allocation-indexed public observation relation. Its
+entry condition is the ordinary computation relation, which an earlier gate
+refuted for the right-identity departing pair — so this route is blocked there,
+and that refutation is now cited beside the bridge rather than recalled from
+prose.
+
+**Through reconvergence.** The previous gate's family result uses no relation at
+all: the two runs meet, so nothing is compared.
+
+Both entry conditions are now written down as one proposition at one set of
+arguments — route A's refuted at a concrete boundary, route B's proved at every
+depth. **Neither is shown to subsume the other**, in either direction.
+
+#### The earlier result's position is an equivalence, not an implication
+
+The question was whether the family result transfers to the allocation-indexed
+layer. It does not transfer unconditionally, and what came back instead is
+sharper than a blocked implication: at a **fixed boundary** and for **this
+family**, the allocation-indexed public statement is *equivalent* to a **unary**
+property — one that mentions only one of the two computations, quantified over
+all its landed observations.
+
+So every proof route to the public statement at this pair must, in the end,
+establish that unary residue.
+
+**Three things that do not follow.** It is not independence from the relation:
+the residue is stated at the boundary and its body uses the boundary's own
+relation, so changing the relation changes the residue's content. It does not
+say the public statement is equally easy under every choice of relation. And it
+does not say relation design cannot reach it.
+
+#### The residue is the whole of it, not two conjuncts
+
+The established obstruction is that unary property **in its entirety** — eight
+atomic conditions: two frontier equations, world well-formedness, world
+extension, accessibility, state well-formedness, and two self-relations at the
+landed value and store. **No theorem here discharges any of them at an arbitrary
+landed observation.**
+
+Two of the eight are singled out only as a **candidate core**, and only on a
+ground of shape: the family result's own vocabulary unfolds to a convergence
+predicate in which no world, no allocation state, no clause relation and no
+store correspondence occurs at all — so it cannot be a source for those two.
+
+The other six are **not shown to be free**, and the attributions have to be kept
+apart:
+
+- the observational equivalence itself does not observe the final store or
+  counter;
+- the trace, value, final store and final counter are pinned by a separately
+  proved reconvergence lemma — that is **agreement across the pair**, not the
+  discharge of any conjunct;
+- all eight are satisfied together at **one point**, a landed store and counter
+  equal to the initial ones. That is satisfiability there, not elimination at an
+  arbitrary landed observation.
+
+Calling the two self-relations the exact obstruction would overstate what is
+proved.
+
+#### What the recursive departure relation would need
+
+The bridge's second half carries no computation relation at all — proved — so
+the ordinary relation appears in exactly one place: the first arrow. The
+obligations a counterpart at the recursive relation would have to re-establish
+are named: a configuration relation asking for it, and the run theorem beneath
+it together with its transition-compatibility and value-inversion lemmas.
+
+One of those connects to a refutation already on record: the run theorem reaches
+the stack component, where the direct componentwise construction is refuted.
+**A design pairing the recursive relation with some other stack relation, or
+carrying a unary invariant, is not investigated** — neither built nor refuted.
+
+#### Checked independently
+
+The residue's two self-relation conjuncts hold at the file's own boundary and
+bottom state.
+
+Scope, exactly: that is **satisfiability at one point**. The unary property
+quantifies over every landed observation, and nothing here establishes it there.
+An independent check, not a theorem in the file.
+
+#### Not proved
+
+- no law beyond the previous gate's family statement, anywhere;
+- every lemma here concluding the public statement does so under an assumption —
+  either the residue or a hypothesised bridge at the recursive relation;
+- the residue at an arbitrary landed observation, in either direction;
+- any containment between the two routes;
+- the first arrow at the recursive relation.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
