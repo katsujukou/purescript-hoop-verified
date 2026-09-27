@@ -63187,3 +63187,1325 @@ let gwridn_three_legs_at_zero (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ================================================================== *)
+(* ---- 32. THE DEPARTURE RELATION: IDENTITY BINDS ABSORBED ALONG THE
+           `POp` SPINE, WITH A CONGRUENCE BESIDE THEM ---------------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION BUILDS, AND WHY THE TWO EARLIER CANDIDATES COULD NOT.**
+ * 26.1 refuted the DEPARTING pair of the right-identity redex at every one of
+ * `gwc_phase`'s seven tags, and 26.4 recorded that a departure relation is the
+ * first blocker the present machinery exposes at that pair.  26.3 named a
+ * syntactic candidate, `gwc_rid_comp`; 27 replaced its syntactic test by the
+ * Kripke obligation the clause is built from, giving `gwc_rid2_comp`, and
+ * refuted THAT -- `gwc_rid2_comp_op_gap` exhibits a `POp`/`POp` pair the
+ * candidate accepts and `pacomp_rel` refuses at fuel index `2`.
+ *
+ * Both candidates are FLAT.  Each is `pacrel` with one extra disjunct bolted on
+ * at the top `POp`, and `pacrel` is what they recurse into.  That flatness is
+ * THE DEFECT 27.2's REFUTATION EXPOSES -- not shown here to be the whole of what
+ * is wrong with them, and this section leaves transition compatibility and the
+ * stack component open for `parid` too.  27.2's pair is an instance of it: the
+ * pair it uses
+ * is the right-identity redex placed under ONE MORE identity bind, so absorbing
+ * the outer bind leaves an inner one that only `pacrel` is then asked about --
+ * and `pacrel` is exactly what refuses it.
+ *
+ * `parid_rel` is the same idea made RECURSIVE.  At a `POp` head it offers two
+ * arms and recurses into ITSELF at both:
+ *
+ *   - the ABSORBING arm -- the continuation is related to the IDENTITY, at
+ *     every accessible state and every related argument pair, and the body is
+ *     related to the whole right-hand computation.  The obligation on the
+ *     continuation is `parid_rel` against `PVar` and NOT `pafn_rel_at` against
+ *     `PVar`, so a continuation that itself binds with the identity counts as
+ *     an identity continuation;
+ *   - the CONGRUENCE arm -- bodies related, continuations related pointwise
+ *     over the future quantifier, both by `parid_rel`.
+ *
+ * At every other head it IS `pacomp_rel` at the same index, unchanged and
+ * un-weakened.  Nothing else moves.
+ *
+ * **WHAT IS SETTLED HERE, BY PROOF.**
+ *
+ *   - 32.1: `pacomp_rel` implies it index by index, so `pacrel` implies
+ *     `parid`;
+ *   - 32.2: at a `PVar`/`PVar` pair it is exactly the value relation, both
+ *     ways -- it identifies no two values the world does not identify;
+ *   - 32.3: an identity bind on the left is ABSORBED at an ARBITRARY body and
+ *     an ARBITRARY right-hand computation.  26 and 27 had a positive only at a
+ *     VALUE body;
+ *   - 32.4: the `POp`/`POp` CONGRUENCE, and an inversion that is honestly
+ *     weaker than its converse;
+ *   - 32.5: monotonicity along `paext`, under the hypotheses
+ *     `lemma_pacrel_mono` already carries and no others;
+ *   - 32.6: the DEPARTING pair of section 31's family is related, at every `n`;
+ *   - 32.7: 27.2's two fixtures, with the new positive beside the old
+ *     refutation;
+ *   - 32.8: the absorbing arm is strictly wider than 27.0's obligation;
+ *   - 32.9: THE STRUCTURAL SEPARATION -- 27.0's candidate is NOT a congruence
+ *     at `POp`, and at the same four components `parid` is;
+ *   - 32.10: `parid` CONTAINS both earlier candidates, and strictly;
+ *   - 32.11: what the next gate will hit -- `parid`-related continuations need
+ *     NOT be `pafn_rel_at`-related, so THE DIRECT COMPONENTWISE PHASE (all
+ *     `parid` pairs at the computation component, `pakrel` kept as it stands at
+ *     the stack component) cannot close; a phase narrowing its domain, or
+ *     pairing `parid` with some other stack relation, is neither built nor
+ *     refuted there;
+ *   - 32.12: the limits, each a proved refutation rather than a concession;
+ *   - 32.13: the ledger.
+ *
+ * **WHAT THIS SECTION IS NOT.**  It is a relation on COMPUTATIONS.  There is no
+ * configuration relation here, no stack component, no store component, no tag,
+ * and NO TRANSITION COMPATIBILITY OF ANY KIND: nothing below says that a
+ * machine step preserves `parid`, and every carrier theorem in this file
+ * consumes a departure premise stated at `gwc_cf`, which `parid` is not at any
+ * tag.  26.1's seven refutations are therefore UNTOUCHED and remain true as
+ * written -- they are about `gwc_cf`, and this section adds no tag to
+ * `gwc_phase` and edits nothing above.  RIGHT IDENTITY IS NOT PROVED HERE, not
+ * adjudicated here, and not shown to be near either.
+ *)
+(* ---- 32.0 THE DEPARTURE RELATION --------------------------------- *)
+
+(** The step-indexed departure relation: at a `POp` head it either ABSORBS the
+    left continuation (left disjunct, recursively against `PVar`) or acts as a
+    congruence (right disjunct); at every other head it is `pacomp_rel`. *)
+let rec parid_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                  (c1 c2: pcomp v cl)
+  : GTot prop (decreases n)
+  = if n = 0 then True
+    else
+      match c1 with
+      | POp a1 f1 ->
+        ((forall (s': pastate) (y1 y2: pval v).
+            paext s' s /\ pval_rel s'.aw y1 y2 ==>
+            parid_rel r (n - 1) s' (f1 y1) (PVar y2))
+         /\ parid_rel r (n - 1) s a1 c2)
+        \/
+        (match c2 with
+         | POp a2 f2 ->
+           parid_rel r (n - 1) s a1 a2 /\
+           (forall (s': pastate) (y1 y2: pval v).
+              paext s' s /\ pval_rel s'.aw y1 y2 ==>
+              parid_rel r (n - 1) s' (f1 y1) (f2 y2))
+         | _ -> False)
+      | _ -> pacomp_rel r n s c1 c2
+
+(** The intersection of the approximants, as `pacrel` is of `pacomp_rel`. *)
+let parid (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : GTot prop
+  = forall (n: nat). parid_rel r n s c1 c2
+
+(** The two `squash`-to-`squash` casts, for the reason `pacrel_unfold` records:
+    an application in hypothesis position is an ATOM and the disjunction and the
+    quantifiers inside it are otherwise invisible. *)
+let parid_rel_unfold (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                     (c1 c2: pcomp v cl)
+                     (h: squash (parid_rel r n s c1 c2))
+  : squash (if n = 0 then True
+            else
+              match c1 with
+              | POp a1 f1 ->
+                ((forall (s': pastate) (y1 y2: pval v).
+                    paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                    parid_rel r (n - 1) s' (f1 y1) (PVar y2))
+                 /\ parid_rel r (n - 1) s a1 c2)
+                \/
+                (match c2 with
+                 | POp a2 f2 ->
+                   parid_rel r (n - 1) s a1 a2 /\
+                   (forall (s': pastate) (y1 y2: pval v).
+                      paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                      parid_rel r (n - 1) s' (f1 y1) (f2 y2))
+                 | _ -> False)
+              | _ -> pacomp_rel r n s c1 c2)
+  = h
+
+let parid_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+                 (h: squash (parid r s c1 c2))
+  : squash (forall (n: nat). parid_rel r n s c1 c2)
+  = h
+
+(* ---- 32.1 IT IS A WEAKENING OF THE FAMILY ------------------------ *)
+
+(** **`pacomp_rel` IMPLIES IT, INDEX BY INDEX.**  PROVED, at arbitrary `v`,
+    `cl`, `r`, `s` and both computations, by induction on `n`.  A `POp`/`POp`
+    pair takes the RIGHT disjunct -- the congruence one -- and every other head
+    is the default clause unchanged. *)
+let rec parid_rel_of_pacomp_rel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                                (c1 c2: pcomp v cl)
+  : Lemma (requires pacomp_rel r n s c1 c2)
+          (ensures parid_rel r n s c1 c2)
+          (decreases n)
+  = if n = 0 then ()
+    else
+      match c1, c2 with
+      | POp a1 f1, POp a2 f2 ->
+        parid_rel_of_pacomp_rel r (n - 1) s a1 a2;
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             parid_rel r (n - 1) s' (f1 y1) (f2 y2))
+        with (introduce _ ==> _
+              with parid_rel_of_pacomp_rel r (n - 1) s' (f1 y1) (f2 y2))
+      | _, _ -> ()
+
+(** **AND SO `pacrel` IMPLIES `parid`.**  PROVED, at arbitrary `v`, `cl`, `r`,
+    `s` and both computations. *)
+let parid_of_pacrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (c1 c2: pcomp v cl)
+  : Lemma (requires pacrel r s c1 c2) (ensures parid r s c1 c2)
+  = pacrel_unfold r s c1 c2 ();
+    introduce forall (n: nat). parid_rel r n s c1 c2
+    with parid_rel_of_pacomp_rel r n s c1 c2
+
+(* ---- 32.2 AT A VALUE PAIR IT IS EXACTLY THE VALUE RELATION -------- *)
+
+(** **BOTH DIRECTIONS.**  PROVED, at arbitrary `v`, `cl`, `r`, `s` and both
+    values: the `PVar` head takes the default clause, so `parid` at a
+    `PVar`/`PVar` pair is `pval_rel s.aw x1 x2` and nothing more.  The inversion
+    reads the default clause at index `1`. *)
+let parid_var (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (x1 x2: pval v)
+  : Lemma (requires pval_rel s.aw x1 x2)
+          (ensures parid #v #cl r s (PVar x1) (PVar x2))
+  = lemma_pacrel_var #v #cl r s x1 x2;
+    parid_of_pacrel #v #cl r s (PVar x1) (PVar x2)
+
+let parid_var_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (x1 x2: pval v)
+  : Lemma (requires parid #v #cl r s (PVar x1) (PVar x2))
+          (ensures pval_rel s.aw x1 x2)
+  = parid_unfold #v #cl r s (PVar x1) (PVar x2) ();
+    parid_rel_unfold #v #cl r 1 s (PVar x1) (PVar x2) ();
+    assert (pacomp_rel #v #cl r 1 s (PVar x1) (PVar x2))
+
+(* ---- 32.3 THE HEADLINE: IDENTITY BINDS ARE ABSORBED ON THE LEFT --- *)
+
+(** **THE LEFT DISJUNCT, IN `parid` FORM.**  PROVED, at arbitrary `v`, `cl`,
+    `r`, `s`, `a1`, `f1` and `c2`: a `POp` whose continuation is `parid`-related
+    to the IDENTITY at every accessible state and every related argument pair,
+    and whose body is `parid`-related to `c2`, is `parid`-related to `c2`. *)
+let parid_op_left (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (a1: pcomp v cl) (f1: pval v -> pcomp v cl) (c2: pcomp v cl)
+  : Lemma (requires parid r s a1 c2 /\
+                    (forall (s': pastate) (y1 y2: pval v).
+                       paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                       parid r s' (f1 y1) (PVar y2)))
+          (ensures parid r s (POp a1 f1) c2)
+  = introduce forall (n: nat). parid_rel r n s (POp a1 f1) c2
+    with (if n = 0 then ()
+          else begin
+            assert (parid_rel r (n - 1) s a1 c2);
+            introduce forall (s': pastate) (y1 y2: pval v).
+                (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                 parid_rel r (n - 1) s' (f1 y1) (PVar y2))
+            with (introduce _ ==> _ with assert (parid r s' (f1 y1) (PVar y2)))
+          end)
+
+(** **AN IDENTITY BIND ON THE LEFT IS ABSORBED, AT AN ARBITRARY BODY AND AN
+    ARBITRARY RIGHT-HAND COMPUTATION.**  PROVED, at arbitrary `v`, `cl`, `r` and
+    `s`: `parid_op_left` at `f1 == PVar`, whose continuation obligation is
+    `parid_var` and costs no hypothesis. *)
+let parid_op_pvar (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (a: pcomp v cl) (c2: pcomp v cl)
+  : Lemma (requires parid r s a c2)
+          (ensures parid r s (POp a (PVar #v #cl)) c2)
+  = introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+         parid #v #cl r s' (PVar y1) (PVar y2))
+    with (introduce _ ==> _ with parid_var #v #cl r s' y1 y2);
+    parid_op_left r s a (PVar #v #cl) c2
+
+(** **THE RIGHT-IDENTITY REDEX IS RELATED, AT AN ARBITRARY SELF-RELATED BODY.**
+    PROVED, at arbitrary `v`, `cl`, `r`, `s` and `a`, under `pacrel r s a a`. *)
+let parid_rid_at (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (a: pcomp v cl)
+  : Lemma (requires pacrel r s a a)
+          (ensures parid r s (POp a (PVar #v #cl)) a)
+  = parid_of_pacrel r s a a;
+    parid_op_pvar r s a a
+
+(* ---- 32.4 THE CONGRUENCE, AND WHAT INVERSION GIVES BACK ----------- *)
+
+(** **THE `POp`/`POp` CONGRUENCE.**  PROVED, at arbitrary `v`, `cl`, `r`, `s`
+    and the four components, from `parid` on the bodies and `parid` on the
+    continuations over every accessible state and related argument pair.  This is
+    `lemma_pacrel_op`'s proof at the new relation, through the RIGHT disjunct. *)
+let parid_op (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+             (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires parid r s a1 a2 /\
+                    (forall (s': pastate) (y1 y2: pval v).
+                       paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                       parid r s' (f1 y1) (f2 y2)))
+          (ensures parid r s (POp a1 f1) (POp a2 f2))
+  = introduce forall (n: nat). parid_rel r n s (POp a1 f1) (POp a2 f2)
+    with (if n = 0 then ()
+          else begin
+            assert (parid_rel r (n - 1) s a1 a2);
+            introduce forall (s': pastate) (y1 y2: pval v).
+                (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                 parid_rel r (n - 1) s' (f1 y1) (f2 y2))
+            with (introduce _ ==> _ with assert (parid r s' (f1 y1) (f2 y2)))
+          end)
+
+(** **AND THE INVERSION GIVES BACK ONLY THE DISJUNCTION, INDEX BY INDEX.**
+    PROVED, at arbitrary `v`, `cl`, `r`, `s` and the four components.  **IT IS
+    NOT THE CONVERSE OF `parid_op`**: the disjunct taken may differ from index to
+    index, and the left one says nothing about `a2`, `f2` at all. *)
+let parid_op_inv (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                 (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+  : Lemma (requires parid r s (POp a1 f1) (POp a2 f2))
+          (ensures forall (n: nat).
+                     ((forall (s': pastate) (y1 y2: pval v).
+                         paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                         parid_rel r n s' (f1 y1) (PVar y2))
+                      /\ parid_rel r n s a1 (POp a2 f2))
+                     \/
+                     (parid_rel r n s a1 a2 /\
+                      (forall (s': pastate) (y1 y2: pval v).
+                         paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                         parid_rel r n s' (f1 y1) (f2 y2))))
+  = parid_unfold r s (POp a1 f1) (POp a2 f2) ();
+    introduce forall (n: nat).
+        (((forall (s': pastate) (y1 y2: pval v).
+             paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             parid_rel r n s' (f1 y1) (PVar y2))
+          /\ parid_rel r n s a1 (POp a2 f2))
+         \/
+         (parid_rel r n s a1 a2 /\
+          (forall (s': pastate) (y1 y2: pval v).
+             paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             parid_rel r n s' (f1 y1) (f2 y2))))
+    with parid_rel_unfold r (n + 1) s (POp a1 f1) (POp a2 f2) ()
+
+(* ---- 32.5 MONOTONICITY ALONG `paext` ----------------------------- *)
+
+(** **MONOTONE, INDEX BY INDEX, UNDER `paext s1 s` AND `pcl_mono r`.**  PROVED,
+    at arbitrary `v`, `cl`, `r`, `n`, both states and both computations, by
+    induction on `n`.  `lemma_paext_future_shrinks` moves BOTH continuation
+    quantifiers with no induction -- their domain shrinks exactly as the state
+    grows -- so the induction is spent only on the bodies; the default branch is
+    `lemma_pacomp_rel_mono` and is where `pcl_mono` is consumed.
+
+    The `lemma_paext_future_shrinks` call is LOAD-BEARING: with it removed the
+    lemma does not verify. *)
+let rec parid_rel_mono (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s1 s: pastate)
+                       (c1 c2: pcomp v cl)
+  : Lemma (requires parid_rel r n s c1 c2 /\ paext s1 s /\ pcl_mono r)
+          (ensures parid_rel r n s1 c1 c2)
+          (decreases n)
+  = if n = 0 then ()
+    else begin
+      lemma_paext_future_shrinks s1 s;
+      match c1 with
+      | POp a1 f1 ->
+        parid_rel_unfold r n s c1 c2 ();
+        introduce ((forall (s': pastate) (y1 y2: pval v).
+                      paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                      parid_rel r (n - 1) s' (f1 y1) (PVar y2))
+                   /\ parid_rel r (n - 1) s a1 c2)
+                  ==> parid_rel r n s1 c1 c2
+        with parid_rel_mono r (n - 1) s1 s a1 c2;
+        (match c2 with
+         | POp a2 f2 ->
+           introduce (parid_rel r (n - 1) s a1 a2 /\
+                      (forall (s': pastate) (y1 y2: pval v).
+                         paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                         parid_rel r (n - 1) s' (f1 y1) (f2 y2)))
+                     ==> parid_rel r n s1 c1 c2
+           with parid_rel_mono r (n - 1) s1 s a1 a2
+         | _ -> ())
+      | _ -> lemma_pacomp_rel_mono r n s1 s c1 c2
+    end
+
+(** The intersection of monotone approximants, exactly as `lemma_pacrel_mono`. *)
+let parid_mono (#v #cl: Type) (r: pcl_rel_t cl) (s1 s: pastate)
+               (c1 c2: pcomp v cl)
+  : Lemma (requires parid r s c1 c2 /\ paext s1 s /\ pcl_mono r)
+          (ensures parid r s1 c1 c2)
+  = parid_unfold r s c1 c2 ();
+    introduce forall (n: nat). parid_rel r n s1 c1 c2
+    with parid_rel_mono r n s1 s c1 c2
+
+(* ---- 32.6 THE DEPARTING PAIR OF SECTION 31's FAMILY -------------- *)
+
+(** **31's FAMILY DEPARTS RELATED, AT EVERY `n`.**  PROVED, at arbitrary `v`,
+    `cl`, `r`, `s`, `n` and `x`, under `pval_rel s.aw x x` and nothing else.
+    `gwridn_body_succ` reads the left side as a `POp` with the identity
+    continuation and `gwridn_body_selfrel` supplies the body's self-relation;
+    neither is re-derived here. *)
+let parid_ridn_departs (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (n: nat) (x: pval v)
+  : Lemma (requires pval_rel s.aw x x)
+          (ensures parid r s (gwridn_body #v #cl (n + 1) x)
+                             (gwridn_body #v #cl n x))
+  = gwridn_body_selfrel #v #cl r s n x;
+    gwridn_body_succ #v #cl n x;
+    parid_rid_at #v #cl r s (gwridn_body #v #cl n x)
+
+(* ---- 32.7 27.2's TWO FIXTURES, NOW POSITIVE ---------------------- *)
+
+(** `gwrid_cl` is `pacrel`-related to itself at `pabot`.  PROVED. *)
+let parid_rid2_cl () : Lemma (pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cl)
+  = lemma_pabot_wf ();
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    lemma_pafn_rel_at_pvar #fv #fcl fcl_rel pabot;
+    lemma_pacrel_op #fv #fcl fcl_rel pabot (PVar gwrid_x) (PVar gwrid_x)
+                    (PVar #fv #fcl) (PVar #fv #fcl)
+
+(** **27.2's REFUTATION 1, BESIDE THE NEW POSITIVE.**  PROVED: `parid` relates
+    27.2's `POp`/`POp` pair, and the second conjunct is
+    `gwc_rid2_comp_op_gap`'s refutation of `pacomp_rel` at index `2` at that same
+    pair, cited and not re-proved. *)
+let parid_at_rid2_gap_pair ()
+  : Lemma (parid #fv #fcl fcl_rel pabot gwrid2_cl gwrid_cl /\
+           ~(pacomp_rel #fv #fcl fcl_rel 2 pabot gwrid2_cl gwrid_cl))
+  = parid_rid2_cl ();
+    parid_rid_at #fv #fcl fcl_rel pabot gwrid_cl;
+    gwc_rid2_comp_op_gap ()
+
+(** `gwrid2_a1` is `pacrel`-related to itself at `pabot`.  PROVED. *)
+let parid_rid2_a1 () : Lemma (pacrel #fv #fcl fcl_rel pabot gwrid2_a1 gwrid2_a1)
+  = lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    assert (pval_rel #fv pabot.aw (PV (FI 0)) (PV (FI 0)));
+    introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+         pacrel #fv #fcl fcl_rel s' (gwrid2_f2 y1) (gwrid2_f2 y2))
+    with (introduce _ ==> _
+          with lemma_pacrel_var #fv #fcl fcl_rel s' (PV (FI 0)) (PV (FI 0)));
+    assert (pafn_rel_at #fv #fcl fcl_rel pabot gwrid2_f2 gwrid2_f2);
+    lemma_pacrel_op #fv #fcl fcl_rel pabot (PVar gwrid_x) (PVar gwrid_x)
+                    gwrid2_f2 gwrid2_f2
+
+(** **27.2's REFUTATION 2, BESIDE THE NEW POSITIVE.**  PROVED: `parid` relates
+    27.2's second pair through the LEFT disjunct, which asks nothing of the right
+    continuation -- and `gwc_rid2_comp_op_no_fn_relation`, cited and not
+    re-proved, is the fact that THE REQUIRED `pafn_rel_at` RELATION IS REFUTED
+    there, at that pair.  That is one named relation at one named pair; it is
+    not the claim that the two continuations stand in no relation at all. *)
+let parid_at_rid2_no_fn_pair ()
+  : Lemma (parid #fv #fcl fcl_rel pabot gwrid2_dl gwrid2_a1 /\
+           ~(pafn_rel_at #fv #fcl fcl_rel pabot (PVar #fv #fcl) gwrid2_f2))
+  = parid_rid2_a1 ();
+    parid_rid_at #fv #fcl fcl_rel pabot gwrid2_a1;
+    gwc_rid2_comp_op_no_fn_relation ()
+
+(* ---- 32.8 THE LEFT DISJUNCT IS WIDER THAN 27.0's OBLIGATION ------ *)
+
+(** A continuation that is `pure` composed with `pure`. *)
+let parid_nested_id (y: pval fv) : pcomp fv fcl = POp (PVar y) (PVar #fv #fcl)
+
+(** **A POSITIVE NO `pafn_rel_at`-AGAINST-`PVar` OBLIGATION COULD GIVE.**
+    PROVED, at `fcl_rel` and `pabot`: `parid` absorbs the bind whose continuation
+    is itself an identity bind, while `pafn_rel_at fcl_rel pabot f PVar` -- 27.0's
+    obligation at the same `f` -- is REFUTED, by instantiating it at `pabot` and
+    `gwrid_x` and citing `gwrid_pacrel_refuted`. *)
+let parid_absorbs_nested_identity ()
+  : Lemma (parid #fv #fcl fcl_rel pabot
+             (POp (PVar gwrid_x) parid_nested_id) (PVar gwrid_x) /\
+           ~(pafn_rel_at #fv #fcl fcl_rel pabot parid_nested_id (PVar #fv #fcl)))
+  = lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    parid_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+         parid #fv #fcl fcl_rel s' (parid_nested_id y1) (PVar y2))
+    with (introduce _ ==> _
+          with begin
+            parid_var #fv #fcl fcl_rel s' y1 y2;
+            parid_op_pvar #fv #fcl fcl_rel s' (PVar y1) (PVar y2)
+          end);
+    parid_op_left #fv #fcl fcl_rel pabot (PVar gwrid_x) parid_nested_id
+                  (PVar gwrid_x);
+    introduce pafn_rel_at #fv #fcl fcl_rel pabot parid_nested_id (PVar #fv #fcl)
+              ==> False
+    with begin
+      pafn_rel_at_unfold #fv #fcl fcl_rel pabot parid_nested_id (PVar #fv #fcl) ();
+      assert (pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr);
+      gwrid_pacrel_refuted ()
+    end
+
+(* ---- 32.9 THE CONGRUENCE SEPARATES THE TWO RELATIONS ------------- *)
+
+(** `gwrid2_f2` -- the continuation that ignores its argument and returns
+    `PV (FI 0)` -- is `pafn_rel_at`-related to ITSELF at `pabot`.  PROVED; this
+    is the derivation inside `gwc_rid2_comp_op_no_fn_relation`, cut out so that
+    32.9 can use it as a premise. *)
+let parid_g2_selfrel ()
+  : Lemma (pafn_rel_at #fv #fcl fcl_rel pabot gwrid2_f2 gwrid2_f2)
+  = lemma_pabot_wf ();
+    assert (pval_rel #fv pabot.aw (PV (FI 0)) (PV (FI 0)));
+    introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+         pacrel #fv #fcl fcl_rel s' (gwrid2_f2 y1) (gwrid2_f2 y2))
+    with (introduce _ ==> _
+          with lemma_pacrel_var #fv #fcl fcl_rel s' (PV (FI 0)) (PV (FI 0)))
+
+(**
+ * **27's CANDIDATE IS NOT A CONGRUENCE AT `POp`/`POp`.**  PROVED, at `fcl_rel`
+ * and `pabot`.  The two premises a congruence would consume are supplied --
+ * `gwc_rid2_comp_relates_rid` on the bodies and `parid_g2_selfrel` on the
+ * continuations -- and the conclusion is REFUTED, both disjuncts of
+ * `gwc_rid2_comp` at the `POp` head dying separately:
+ *
+ *   - the left disjunct's FIRST conjunct, `pafn_rel_at fcl_rel pabot gwrid2_f2
+ *     PVar`, instantiated at `pabot` and `PV FU` twice, asks for
+ *     `pacrel pabot (PVar (PV (FI 0))) (PVar (PV FU))`, which
+ *     `lemma_pacrel_var_inv` turns into `FI 0 == FU`;
+ *   - the right disjunct, `pacrel` on the whole pair, yields
+ *     `pacrel pabot gwrid_cl gwrid_cr` by `lemma_pacrel_op_inv`, which is
+ *     `gwrid_pacrel_refuted`.
+ *)
+let gwc_rid2_comp_not_a_congruence ()
+  : Lemma (gwc_rid2_comp #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr /\
+           pafn_rel_at #fv #fcl fcl_rel pabot gwrid2_f2 gwrid2_f2 /\
+           ~(gwc_rid2_comp #fv #fcl fcl_rel pabot
+               (POp gwrid_cl gwrid2_f2) (POp gwrid_cr gwrid2_f2)))
+  = gwc_rid2_comp_relates_rid ();
+    parid_g2_selfrel ();
+    lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    introduce pafn_rel_at #fv #fcl fcl_rel pabot gwrid2_f2
+                          (fun (z: pval fv) -> PVar z) ==> False
+    with begin
+      pafn_rel_at_unfold #fv #fcl fcl_rel pabot gwrid2_f2
+                         (fun (z: pval fv) -> PVar z) ();
+      assert (pval_rel #fv pabot.aw (PV FU) (PV FU));
+      assert (pacrel #fv #fcl fcl_rel pabot (PVar (PV (FI 0))) (PVar (PV FU)));
+      lemma_pacrel_var_inv #fv #fcl fcl_rel pabot (PV (FI 0)) (PV FU)
+    end;
+    introduce pacrel #fv #fcl fcl_rel pabot
+                (POp gwrid_cl gwrid2_f2) (POp gwrid_cr gwrid2_f2) ==> False
+    with begin
+      lemma_pacrel_op_inv #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr
+                          gwrid2_f2 gwrid2_f2;
+      gwrid_pacrel_refuted ()
+    end;
+    introduce gwc_rid2_comp #fv #fcl fcl_rel pabot
+                (POp gwrid_cl gwrid2_f2) (POp gwrid_cr gwrid2_f2) ==> False
+    with gwc_rid2_comp_unfold #fv #fcl fcl_rel pabot
+           (POp gwrid_cl gwrid2_f2) (POp gwrid_cr gwrid2_f2) ()
+
+(** **AND `parid` IS A CONGRUENCE THERE.**  PROVED, at the SAME four components,
+    by `parid_op`: the bodies are `parid`-related by `parid_rid_at`, and the two
+    continuations are `parid`-related at every accessible state and every related
+    argument pair by `parid_g2_selfrel` followed by `parid_of_pacrel`. *)
+let parid_is_a_congruence_there ()
+  : Lemma (parid #fv #fcl fcl_rel pabot
+             (POp gwrid_cl gwrid2_f2) (POp gwrid_cr gwrid2_f2))
+  = lemma_pabot_wf ();
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    parid_rid_at #fv #fcl fcl_rel pabot (PVar gwrid_x);
+    parid_g2_selfrel ();
+    pafn_rel_at_unfold #fv #fcl fcl_rel pabot gwrid2_f2 gwrid2_f2 ();
+    introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+         parid #fv #fcl fcl_rel s' (gwrid2_f2 y1) (gwrid2_f2 y2))
+    with (introduce _ ==> _
+          with parid_of_pacrel #fv #fcl fcl_rel s'
+                 (gwrid2_f2 y1) (gwrid2_f2 y2));
+    parid_op #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr gwrid2_f2 gwrid2_f2
+
+(**
+ * **THE SEPARATION, IN ONE STATEMENT.**  PROVED, at `fcl_rel` and `pabot`: at
+ * ONE `POp`/`POp` pair whose bodies both relations accept and whose two
+ * continuations are the SAME function, `parid` relates the pair and
+ * `gwc_rid2_comp` REFUSES it.  This is the structural reason 27 could not close:
+ * the candidate is not recursive, so its left disjunct cannot be re-entered
+ * under a congruence step, and its right disjunct is `pacrel`, which the bodies
+ * already fail.
+ *)
+let parid_congruence_separates ()
+  : Lemma (parid #fv #fcl fcl_rel pabot
+             (POp gwrid_cl gwrid2_f2) (POp gwrid_cr gwrid2_f2) /\
+           ~(gwc_rid2_comp #fv #fcl fcl_rel pabot
+               (POp gwrid_cl gwrid2_f2) (POp gwrid_cr gwrid2_f2)))
+  = parid_is_a_congruence_there ();
+    gwc_rid2_comp_not_a_congruence ()
+
+(** **`pacrel` REFUSES A `POp` AGAINST A `PVar`, GENERICALLY.**  PROVED, at
+    arbitrary `v`, `cl`, `r`, `s`, `a`, `f` and `x`: `pacomp_rel`'s final
+    `| _, _ -> False` at index `1`.  This is `gwrid_pacrel_refuted`'s argument
+    with the fixture removed, factored out because 32.10 needs it at a pair that
+    is not 26.0's. *)
+let parid_pacrel_op_vs_var (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                           (a: pcomp v cl) (f: pval v -> pcomp v cl) (x: pval v)
+  : Lemma (~(pacrel r s (POp a f) (PVar x)))
+  = introduce pacrel r s (POp a f) (PVar x) ==> False
+    with begin
+      pacrel_unfold r s (POp a f) (PVar x) ();
+      assert (pacomp_rel r 1 s (POp a f) (PVar x))
+    end
+
+(* ---- 32.10 IT CONTAINS BOTH EARLIER CANDIDATES, STRICTLY --------- *)
+
+(**
+ * **27.0's CANDIDATE IMPLIES IT.**  PROVED, at arbitrary `v`, `cl`, `r`, `s` and
+ * both computations.  At a `POp` head the left disjunct's two conjuncts are
+ * exactly what the ABSORPTION arm consumes, once `parid_of_pacrel` has moved
+ * them across: `pafn_rel_at r s f PVar` gives the continuation obligation
+ * pointwise and `pacrel r s a c2` gives the body.  The right disjunct and every
+ * other head are `parid_of_pacrel` alone.
+ *)
+let parid_of_rid2_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (c1 c2: pcomp v cl)
+  : Lemma (requires gwc_rid2_comp r s c1 c2) (ensures parid r s c1 c2)
+  = gwc_rid2_comp_unfold r s c1 c2 ();
+    match c1 with
+    | POp a f ->
+      introduce (pafn_rel_at r s f (fun (z: pval v) -> PVar z) /\
+                 pacrel r s a c2) ==> parid r s c1 c2
+      with begin
+        pafn_rel_at_unfold r s f (fun (z: pval v) -> PVar z) ();
+        parid_of_pacrel r s a c2;
+        introduce forall (s': pastate) (y1 y2: pval v).
+            (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+             parid r s' (f y1) (PVar y2))
+        with (introduce _ ==> _
+              with parid_of_pacrel r s' (f y1) (PVar y2));
+        parid_op_left r s a f c2
+      end;
+      introduce pacrel r s c1 c2 ==> parid r s c1 c2
+      with parid_of_pacrel r s c1 c2
+    | _ -> parid_of_pacrel r s c1 c2
+
+(** **AND SO DOES 26.3's SYNTACTIC CANDIDATE.**  PROVED, at arbitrary `v`, `cl`,
+    `r`, `s` and both computations, as a corollary through 27.1's
+    `gwc_rid2_comp_of_rid_comp`, which is cited and not re-proved. *)
+let parid_of_rid_comp (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                      (c1 c2: pcomp v cl)
+  : Lemma (requires gwc_rid_comp r s c1 c2) (ensures parid r s c1 c2)
+  = gwc_rid2_comp_of_rid_comp r s c1 c2;
+    parid_of_rid2_comp r s c1 c2
+
+(**
+ * **AND THE CONTAINMENT IS STRICT.**  PROVED, at `fcl_rel` and `pabot`, and the
+ * separating pair is 32.8's: the bind whose continuation is itself an identity
+ * bind.  `gwc_rid2_comp` refuses it and both disjuncts die --
+ *
+ *   - the left disjunct's first conjunct is `pafn_rel_at fcl_rel pabot
+ *     parid_nested_id PVar`, which instantiated at `pabot` and `gwrid_x` asks for
+ *     `pacrel pabot gwrid_cl gwrid_cr` and is `gwrid_pacrel_refuted`;
+ *   - the right disjunct is `pacrel` at a `POp` against a `PVar`, which is
+ *     `pacomp_rel`'s final `| _, _ -> False` at index `1`.
+ *)
+let parid_strictly_above_rid2_comp ()
+  : Lemma (parid #fv #fcl fcl_rel pabot
+             (POp (PVar gwrid_x) parid_nested_id) (PVar gwrid_x) /\
+           ~(gwc_rid2_comp #fv #fcl fcl_rel pabot
+               (POp (PVar gwrid_x) parid_nested_id) (PVar gwrid_x)))
+  = parid_absorbs_nested_identity ();
+    lemma_pabot_wf ();
+    lemma_paext_refl_wf pabot;
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    introduce pafn_rel_at #fv #fcl fcl_rel pabot parid_nested_id
+                          (fun (z: pval fv) -> PVar z) ==> False
+    with begin
+      pafn_rel_at_unfold #fv #fcl fcl_rel pabot parid_nested_id
+                         (fun (z: pval fv) -> PVar z) ();
+      assert (pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr);
+      gwrid_pacrel_refuted ()
+    end;
+    parid_pacrel_op_vs_var #fv #fcl fcl_rel pabot
+      (PVar gwrid_x) parid_nested_id gwrid_x;
+    introduce gwc_rid2_comp #fv #fcl fcl_rel pabot
+                (POp (PVar gwrid_x) parid_nested_id) (PVar gwrid_x) ==> False
+    with gwc_rid2_comp_unfold #fv #fcl fcl_rel pabot
+           (POp (PVar gwrid_x) parid_nested_id) (PVar gwrid_x) ()
+
+(* ---- 32.11 WHAT THE NEXT GATE WILL HIT: THE STACK COMPONENT ------ *)
+
+(**
+ * **A `parid`-RELATED PAIR OF CONTINUATIONS THAT IS NOT `pafn_rel_at`-RELATED,
+ * AND THE BIND FRAMES IT WOULD BECOME.**  PROVED, at `fcl_rel` and `pabot`, in
+ * three conjuncts:
+ *
+ *  1. `parid_nested_id` and `PVar` ARE `parid`-related at every accessible state
+ *     and every related argument pair -- `parid_var` then `parid_op_pvar`, the
+ *     derivation 32.8 already runs;
+ *  2. they are NOT `pafn_rel_at`-related, which is
+ *     `parid_absorbs_nested_identity`'s second conjunct, cited;
+ *  3. therefore the two `PBindF` frames they become are NOT `pafrel`-related,
+ *     by `lemma_pafrel_bind_inv` read contrapositively -- `paframe_rel`'s
+ *     `PBindF` clause (31017) is a `pacomp_rel` obligation at every index, and
+ *     that is `pafn_rel_at`.
+ *
+ * **SO THE DIRECT COMPONENTWISE PHASE -- `parid` AT THE COMPUTATION COMPONENT
+ * AND `pakrel` KEPT AS IT STANDS AT THE STACK COMPONENT -- DOES NOT CLOSE.**
+ * The congruence arm relates two `POp`s whose continuations are `parid`-related
+ * and nothing stronger; one machine step turns those continuations into two
+ * `PBindF` frames, and `pafrel` at a `PBindF` pair asks for exactly the relation
+ * conjunct 2 refutes.
+ *
+ * **THAT IS RELATIVE TO THAT CONSTRUCTION AND NOT TO EVERY PHASE OVER `parid`.**
+ * A phase that narrowed its domain by some further invariant, or that paired
+ * `parid` with a stack relation other than `pakrel`, is neither built nor
+ * refuted here; nothing above rules one out.  This names the obstruction for the
+ * direct construction; it does not repair it, and no replacement stack relation
+ * is proposed or built here.
+ *)
+let parid_bind_frames_not_pafn_rel ()
+  : Lemma ((forall (s': pastate) (y1 y2: pval fv).
+              paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+              parid #fv #fcl fcl_rel s' (parid_nested_id y1)
+                                        (PVar #fv #fcl y2)) /\
+           ~(pafn_rel_at #fv #fcl fcl_rel pabot parid_nested_id
+                         (PVar #fv #fcl)) /\
+           ~(pafrel #fv #fcl fcl_rel pabot
+               (PBindF parid_nested_id) (PBindF (PVar #fv #fcl))))
+  = parid_absorbs_nested_identity ();
+    introduce forall (s': pastate) (y1 y2: pval fv).
+        (paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+         parid #fv #fcl fcl_rel s' (parid_nested_id y1) (PVar #fv #fcl y2))
+    with (introduce _ ==> _
+          with begin
+            parid_var #fv #fcl fcl_rel s' y1 y2;
+            parid_op_pvar #fv #fcl fcl_rel s' (PVar y1) (PVar y2)
+          end);
+    introduce pafrel #fv #fcl fcl_rel pabot
+                (PBindF parid_nested_id) (PBindF (PVar #fv #fcl)) ==> False
+    with lemma_pafrel_bind_inv #fv #fcl fcl_rel pabot
+           parid_nested_id (PVar #fv #fcl)
+(* ---- 32.12 THE HONEST LIMITS ------------------------------------- *)
+
+(** **IT IS NOT SYMMETRIC.**  PROVED, at `fcl_rel` and `pabot`: the
+    right-identity redex is related to the value, and the value is NOT related to
+    the redex -- a `PVar` head takes the default clause, which is
+    `pacomp_rel`'s `| _, _ -> False` at index `1`. *)
+let parid_not_symmetric ()
+  : Lemma (parid #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr /\
+           ~(parid #fv #fcl fcl_rel pabot gwrid_cr gwrid_cl))
+  = lemma_pabot_wf ();
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    lemma_pacrel_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    parid_rid_at #fv #fcl fcl_rel pabot (PVar gwrid_x);
+    introduce parid #fv #fcl fcl_rel pabot gwrid_cr gwrid_cl ==> False
+    with begin
+      parid_unfold #fv #fcl fcl_rel pabot gwrid_cr gwrid_cl ();
+      parid_rel_unfold #fv #fcl fcl_rel 1 pabot gwrid_cr gwrid_cl ();
+      assert (pacomp_rel #fv #fcl fcl_rel 1 pabot gwrid_cr gwrid_cl)
+    end
+
+(** The same redex placed under one `PEmit`. *)
+let parid_emit_l : pcomp fv fcl = PEmit "e" gwrid_cl
+let parid_emit_r : pcomp fv fcl = PEmit "e" gwrid_cr
+
+(** **THE ABSORPTION IS SPINE-LOCAL.**  PROVED, at `fcl_rel` and `pabot`: one
+    `PEmit` above the redex and the pair is REFUSED, because a non-`POp` head
+    delegates to `pacomp_rel`, which at index `2` descends into the two bodies
+    and reaches `| _, _ -> False` at index `1`. *)
+let parid_is_spine_local ()
+  : Lemma (~(parid #fv #fcl fcl_rel pabot parid_emit_l parid_emit_r))
+  = introduce parid #fv #fcl fcl_rel pabot parid_emit_l parid_emit_r ==> False
+    with begin
+      parid_unfold #fv #fcl fcl_rel pabot parid_emit_l parid_emit_r ();
+      parid_rel_unfold #fv #fcl fcl_rel 2 pabot parid_emit_l parid_emit_r ();
+      assert (pacomp_rel #fv #fcl fcl_rel 2 pabot parid_emit_l parid_emit_r)
+    end
+
+(** **THE WEAKENING IS STRICT.**  PROVED, at 26.0's pair: `parid` relates it and
+    `pacrel` refuses it, the refusal being `gwrid_pacrel_refuted`, cited. *)
+let parid_strictly_weaker ()
+  : Lemma (parid #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr /\
+           ~(pacrel #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr))
+  = parid_not_symmetric ();
+    gwrid_pacrel_refuted ()
+
+
+(* ================================================================== *)
+(*  32.13 SECTION 32 LEDGER: A DEPARTURE RELATION EXISTS, AND IT IS    *)
+(*        NOT A LAW, NOT A PHASE, AND NOT YET CONNECTED TO             *)
+(*        TRANSITIONS -- NO TRANSITION-COMPATIBILITY THEOREM IS        *)
+(*        STATED HERE, AND NONE IS REFUTED EITHER                      *)
+(* ================================================================== *)
+
+(**
+ * **PROVED HERE.**
+ *
+ *  1. `parid_rel` and `parid`: a step-indexed computation relation with two
+ *     arms at a `POp` head -- ABSORBING and CONGRUENCE -- each recursing into
+ *     `parid_rel` itself, and `pacomp_rel` unchanged at every other head; plus
+ *     the two `squash`-to-`squash` casts, for the reason `pacrel_unfold`
+ *     records.
+ *
+ *  2. `parid_rel_of_pacomp_rel`, `parid_of_pacrel`: `pacomp_rel` implies it
+ *     index by index, by induction on the index, and so `pacrel` implies
+ *     `parid`.  `parid_var` / `parid_var_inv`: at a `PVar`/`PVar` pair it is
+ *     EXACTLY `pval_rel s.aw x1 x2`, in both directions.
+ *
+ *  3. `parid_op_left`, `parid_op_pvar`, `parid_rid_at`: an identity bind on the
+ *     left is ABSORBED, at an ARBITRARY body and an ARBITRARY right-hand
+ *     computation; the right-identity redex `POp a PVar` is related to `a`
+ *     under `pacrel r s a a` and nothing else.  26.3 and 27.0 had a positive
+ *     only at a VALUE body, and `gwc_rid2_comp_rid_needs_refl` already showed
+ *     the reflexivity hypothesis belongs to the generic statement rather than
+ *     to any one candidate.
+ *
+ *  4. `parid_op`: the `POp`/`POp` CONGRUENCE, from `parid` on the bodies and
+ *     `parid` on the continuations over the future quantifier.
+ *     `parid_op_inv`: the inversion, and it is NOT the converse -- it returns
+ *     the DISJUNCTION at each index, the disjunct taken may differ from index
+ *     to index, and the absorbing one says nothing about the right-hand side's
+ *     body or continuation at all.
+ *
+ *  5. `parid_rel_mono`, `parid_mono`: monotone along `paext` under
+ *     `pcl_mono r` -- `lemma_pacrel_mono`'s hypothesis list exactly, with no
+ *     addition.  The two continuation quantifiers move by
+ *     `lemma_paext_future_shrinks` and the induction is spent on the bodies
+ *     alone.
+ *
+ *  6. `parid_ridn_departs`: section 31's family DEPARTS RELATED, at arbitrary
+ *     `n`, under `pval_rel s.aw x x` and nothing else.  31 factored that pair's
+ *     run end to end while relating nothing about its departure; this relates
+ *     the departure and proves nothing about the run.  The two results are
+ *     about the same family and are not composed anywhere.
+ *
+ *  7. `parid_at_rid2_gap_pair`, `parid_at_rid2_no_fn_pair`: 27.2's two
+ *     fixtures, with the new positive beside the old refutation.  Neither
+ *     refutation is re-derived; both are cited.
+ *
+ *  8. `parid_absorbs_nested_identity`: the absorbing arm is STRICTLY WIDER than
+ *     27.0's obligation -- it accepts a continuation that is `pure` composed
+ *     with `pure`, at which `pafn_rel_at r s f PVar` is REFUTED.
+ *
+ *  9. `gwc_rid2_comp_not_a_congruence` against `parid_is_a_congruence_there`,
+ *     joined in `parid_congruence_separates`: at ONE named quadruple of
+ *     components -- two bodies both relations accept, and the SAME function on
+ *     both sides as the continuation -- 27.0's candidate REFUSES the
+ *     `POp`/`POp` pair that a congruence rule would have produced, and `parid`
+ *     accepts it.  Both of the candidate's disjuncts are killed separately and
+ *     both killings are load-bearing.  This is the structural reason 27 stopped,
+ *     exhibited rather than asserted.
+ *
+ * 10. `parid_of_rid2_comp`, `parid_of_rid_comp`: `parid` CONTAINS both earlier
+ *     candidates, the second through 27.1, which is cited and not re-proved.
+ *     `parid_strictly_above_rid2_comp`: the containment is STRICT, at 32.8's
+ *     nested identity.  `parid_pacrel_op_vs_var`, factored out of
+ *     `gwrid_pacrel_refuted`'s argument, is the generic form of 26.1's refusal:
+ *     `pacrel` refuses a `POp` against a `PVar` at every `r`, `s`, body,
+ *     continuation and value.
+ *
+ * 11. `parid_bind_frames_not_pafn_rel`: two continuations that ARE `parid`-
+ *     related at every accessible state and every related argument pair, that
+ *     are NOT `pafn_rel_at`-related, and whose two `PBindF` frames are
+ *     therefore NOT `pafrel`-related, by `lemma_pafrel_bind_inv`.
+ *
+ * 12. `parid_not_symmetric`, `parid_is_spine_local`, `parid_strictly_weaker`:
+ *     the limits, each a proved refutation.
+ *
+ * **WHAT THIS IS, AND WHAT IT IS NOT.**
+ *
+ *  1. IT IS A RELATION ON COMPUTATIONS AND NOTHING ELSE.  No configuration
+ *     relation is defined here, no stack component, no store component, no
+ *     well-formedness component, and no tag is added to `gwc_phase`.  26.1's
+ *     seven refutations are statements about `gwc_cf` and are UNALTERED: they
+ *     remain true exactly as written, and nothing above narrows them.
+ *
+ *  2. NO TRANSITION COMPATIBILITY IS PROVED, OF ANY KIND.  Nothing above says
+ *     that a machine step preserves `parid`, that two configurations departing
+ *     `parid`-related reach anything, or that any departure premise anywhere in
+ *     this file is discharged.  Every carrier theorem of sections 23 to 31
+ *     consumes a premise stated at `gwc_cf`, and `parid` is not `gwc_cf` at any
+ *     tag.  **THE FIRST BLOCKER 26.4 LOCALISED IS THEREFORE NOT REMOVED**: what
+ *     26.4 recorded is that a departure relation is the first thing that fails,
+ *     AND that nothing shows supplying one would let the adjudication go
+ *     through.  This section supplies a relation.  It says nothing about the
+ *     second half of that sentence, and item 11 is one reason to expect work
+ *     there.
+ *
+ *  3. NO LAW IS PROVED.  Right identity is not proved here, not adjudicated
+ *     here, and not shown to be near either.  `parid` is ASYMMETRIC and proved
+ *     to be, so it is at most one half of an equivalence, and which half it is
+ *     has not been connected to any observation in this file.
+ *
+ *  4. THE NEXT OBSTRUCTION IS NAMED, AND IT IS NAMED BY A REFUTATION.  The
+ *     congruence arm relates two `POp`s whose continuations are related by
+ *     `parid` and by nothing stronger; one machine step turns those two
+ *     continuations into two `PBindF` frames, and `pafrel` at a `PBindF` pair
+ *     asks for exactly the relation item 11 refutes.  So THE DIRECT
+ *     COMPONENTWISE PHASE -- all `parid` pairs at the computation component and
+ *     `pakrel` kept as it stands at the stack component -- DOES NOT CLOSE.  That
+ *     is relative to THAT construction: a phase that narrowed its domain by a
+ *     further invariant, or that paired `parid` with a stack relation other than
+ *     `pakrel`, is neither built nor refuted anywhere above, and nothing rules
+ *     one out.  No replacement stack relation is defined here, none is proposed,
+ *     and nothing here says one exists.
+ *
+ *  5. NOTHING SAYS A SURFACE PROGRAM PRODUCES ANY OF THESE TERMS.  As in 31,
+ *     every term above is a syntactic construction; no lemma anywhere in this
+ *     file elaborates a surface term into one.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. `parid` is proved STRICTLY WEAKER than `pacrel` and STRICTLY WIDER than
+ *     `gwc_rid2_comp`.  No ordering is stated or proved between `parid` and
+ *     `padx_comp` or `gwe_comp`, and 26.4's boundary 3 -- that those two are
+ *     not classified as weakenings of `pacrel` either -- is unaffected.
+ *
+ *  2. TRANSITIVITY IS NOT PROVED, in either the step-indexed or the closed
+ *     form, and is not used.  Nor is any composition of two absorptions other
+ *     than the one the absorbing arm performs by recursing into itself.
+ *
+ *  3. The absorption is SPINE-LOCAL, and this is proved rather than conceded:
+ *     one `PEmit` above the redex and the pair is refused, because a non-`POp`
+ *     head delegates to `pacomp_rel`.  A relation absorbing identity binds
+ *     under every head would be a different construction; it is not built here
+ *     and nothing here says it is needed or that it is not.
+ *
+ *  4. `parid_op_inv` is the only inversion offered and it is weaker than the
+ *     congruence it inverts.  In particular nothing above recovers, from
+ *     `parid` at a `POp`/`POp` pair, any relation between the two
+ *     continuations.
+ *
+ *  5. Every closed instance above is at `fv`, `fcl`, `fcl_rel` and `pabot`,
+ *     with the fixtures 26.0 and 27 already built.  No fixture is added except
+ *     `parid_nested_id`, `parid_emit_l` and `parid_emit_r`, and no closed
+ *     instance is an absence claim about any other pair or any other state.
+ *
+ *  6. Sections 23 to 31 are untouched.  This section CITES
+ *     `gwc_rid2_comp_relates_rid`, `gwc_rid2_comp_of_rid_comp`,
+ *     `gwc_rid2_comp_unfold`, `gwc_rid2_comp_op_gap`,
+ *     `gwc_rid2_comp_op_no_fn_relation`, `gwrid_pacrel_refuted`,
+ *     `gwridn_body_succ`, `gwridn_body_selfrel`, `lemma_pacomp_rel_mono`,
+ *     `lemma_paext_future_shrinks`, `lemma_paext_refl_wf`, `lemma_pabot_wf`,
+ *     `lemma_pacrel_var`, `lemma_pacrel_var_inv`, `lemma_pacrel_op`,
+ *     `lemma_pacrel_op_inv`, `lemma_pafn_rel_at_pvar` and
+ *     `lemma_pafrel_bind_inv`, and changes none of them.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is
+ * left standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)
+
+(* ================================================================== *)
+(* ---- 33. RIGHT IDENTITY AT `pobs_tr_eq`, FOR SECTION 31's FAMILY:
+           THE TWO RUNS RECONVERGE ------------------------------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION PROVES, AND AT WHICH RELATION.**  One proposition, and it
+ * is the shape a law is stated in:
+ *
+ *     `pobs_tr_eq lk apply (pbind (gwridn_body n x) PVar) (gwridn_body n x)`
+ *
+ * at arbitrary `lk`, `apply`, `n` and `x`, WITH NO HYPOTHESIS.  `pobs_tr_eq`
+ * (4738) is the file's trace-aware observational equivalence, the relation whose
+ * own doc comment records that the five laws are stated over it from B1.8 on,
+ * and `lemma_pobs_tr_eq_pbind_left` (4938) is the LEFT identity at it.  This is
+ * the right-hand counterpart, for one family of bodies.
+ *
+ * **WHY THIS PROOF ROUTE GOES THROUGH HERE AND DOES NOT COVER AN ARBITRARY
+ * COMPUTATION.**  `pobs_tr_le`
+ * quantifies over a COMMON stack, store and counter on both sides.  At a common
+ * ambient stack the two runs of this family MEET: 31.1's closed form drives
+ * `PStep (gwridn_body (n + 1) x) k` in `n + 1` fuel indices to
+ * `PStep (PVar x) (gwridn_binds (n + 1) k)`, one further transition pops the
+ * outermost `PBindF PVar` against the value and lands on
+ * `PStep (PVar x) (gwridn_binds n k)` -- and the SAME closed form drives
+ * `PStep (gwridn_body n x) k` to that very configuration in `n`.  Both segments
+ * are silent.  So the two sides are not compared: they are shown to be, after
+ * their own prefixes, the same configuration, and a configuration converges to
+ * what it converges to.
+ *
+ * That route is available BECAUSE THE FAMILY IS CLOSED UNDER THE IDENTITY BIND:
+ * `pbind (gwridn_body n x) PVar` IS `gwridn_body (n + 1) x`, by
+ * `gwridn_body_succ` and the fact that `pbind` is `POp`.  At an arbitrary `c`,
+ * `pbind c PVar` is not in the family, the extra `PBindF PVar` frame sits on the
+ * stack for as long as `c` runs, and nothing below says the two runs meet.  This
+ * section states nothing about that case.
+ *
+ * Note what that does NOT say.  It is a statement about THIS ROUTE, not about
+ * the phenomenon: nothing above shows that runs outside the family fail to
+ * meet, and nothing above shows they do.  The route needs a SILENT common
+ * prefix, which 33.2's bridge is stated at; a body whose prefix emits is
+ * outside the route whatever its runs do.
+ *
+ * **WHAT IS BUILT.**
+ *
+ *   - 33.0: the family is closed under the identity bind -- the one shape fact
+ *     the rest of the section reads the statement through;
+ *   - 33.1: the RECONVERGENCE -- at a common stack, store and counter, the two
+ *     runs reach one common configuration, silently, at fuel indices `n + 2`
+ *     and `n`;
+ *   - 33.2: the SILENT-PREFIX BRIDGE -- a silent run of `m` fuel indices onto a
+ *     `PStep` configuration preserves trace-aware convergence in BOTH
+ *     directions.  `lemma_pconverges_tr_silent` (4888) is the one-step version;
+ *     no multi-step version is cited by anything below because none was found in
+ *     this file, and 33.2 is built rather than cited;
+ *   - 33.3: the proposition above;
+ *   - 33.4: the `n == 0` case, by two routes, and the check that they are the
+ *     same proposition;
+ *   - 33.5: the ledger, which fences what this is.
+ *)
+
+(* ---- 33.0 THE FAMILY IS CLOSED UNDER THE IDENTITY BIND ----------- *)
+
+(**
+ * **BINDING THE FAMILY WITH THE IDENTITY STAYS IN THE FAMILY, ONE INDEX UP.**
+ * PROVED, by computation.  `pbind` is `unfold`ed to `POp` and `gwridn_body`'s
+ * successor clause is `POp (gwridn_body n x) PVar`, so the two sides are the same
+ * term; `gwridn_body_succ` (31.0) is the equation being read.
+ *
+ * This is the whole reason the section's statement is about a redex at all.  The
+ * left-hand side of the right-identity pair, at this family, is ANOTHER MEMBER of
+ * the family, so 31.1's closed form applies to it as well as to the right-hand
+ * side -- and that is what 33.1 uses.  It is a fact about this family and not
+ * about `pbind`: nothing here says any other set of computations is closed under
+ * the identity bind.
+ *)
+let gwro_pbind_in_family (#v #cl: Type) (n: nat) (x: pval v)
+  : Lemma (ensures pbind (gwridn_body #v #cl n x) (PVar #v #cl)
+                   == gwridn_body #v #cl (n + 1) x)
+  = gwridn_body_succ #v #cl n x
+
+(* ---- 33.1 THE RECONVERGENCE, AT A COMMON AMBIENT STACK ----------- *)
+
+(**
+ * **THE TWO RUNS MEET, SILENTLY, AT FUEL INDICES `n + 2` AND `n`.**  PROVED, at
+ * arbitrary `lk`, `apply`, `n`, `x`, `k`, store and counter.  Both sides start
+ * from the SAME stack, the SAME store and the SAME counter -- which is the only
+ * shape `pobs_tr_le` offers -- and both land on
+ * `PStep (PVar x) (gwridn_binds n k)` with an empty trace and with the store and
+ * the counter untouched.
+ *
+ * The proof is three citations and one composition.  `gwridn_run` (31.1) at
+ * `i == n + 1`, `m == 0` drives the left side to
+ * `PStep (PVar x) (gwridn_binds (n + 1) k)`; `gwridn_binds_succ` (31.0) reads that
+ * stack as `PBindF PVar :: gwridn_binds n k`; the machine's `PVar`-against-a-bind-frame
+ * clause turns that into the meet in ONE transition, re-read as a `prun` at fuel
+ * index `1` by `lemma_prun_one` (13833); `lemma_prun_cat` (13842) concatenates the
+ * two silent segments.  The right side is `gwridn_run` at `i == n`, `m == 0` and
+ * nothing else.
+ *
+ * `n + 2`, `n + 1`, `1` and `n` are `prun` FUEL INDICES.  The transition content
+ * of the middle step is the `pstep_tr` assertion, and is the only transition this
+ * section asserts directly; the rest is 31.1's, by citation.
+ *
+ * **NO STATE, NO RELATION, NO TAG.**  The statement mentions neither `pastate`
+ * nor `pcl_rel_t` nor `gwc_phase`, and neither does its proof.  It is a pair of
+ * equations between `prun` results.
+ *)
+let gwro_reconverge (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                    (n: nat) (x: pval v) (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (ensures
+            (let cfl : pconf v cl =
+               { st = PStep (gwridn_body #v #cl (n + 1) x) k; store = sto; next = n0 } in
+             let cfr : pconf v cl =
+               { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+             let meet : pconf v cl =
+               { st = PStep (PVar #v #cl x) (gwridn_binds #v #cl n k);
+                 store = sto; next = n0 } in
+             prun lk apply (n + 2) cfl == (meet, ([] <: list string)) /\
+             prun lk apply n cfr == (meet, ([] <: list string))))
+  = let cfl : pconf v cl =
+      { st = PStep (gwridn_body #v #cl (n + 1) x) k; store = sto; next = n0 } in
+    let cfr : pconf v cl =
+      { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+    let mid : pconf v cl =
+      { st = PStep (PVar #v #cl x) (gwridn_binds #v #cl (n + 1) k);
+        store = sto; next = n0 } in
+    let meet : pconf v cl =
+      { st = PStep (PVar #v #cl x) (gwridn_binds #v #cl n k);
+        store = sto; next = n0 } in
+    gwridn_run lk apply (n + 1) 0 x k sto n0;
+    gwridn_run lk apply n 0 x k sto n0;
+    gwridn_binds_succ #v #cl n k;
+    assert (prun lk apply (n + 1) cfl == (mid, ([] <: list string)));
+    assert (pstep_tr lk apply mid == (meet, ([] <: list string)));
+    lemma_prun_one lk apply mid meet;
+    lemma_prun_cat lk apply (n + 1) 1 cfl mid meet
+
+(* ---- 33.2 THE SILENT-PREFIX BRIDGE, AT ANY NUMBER OF INDICES ----- *)
+
+(**
+ * **A SILENT RUN ONTO A `PStep` CONFIGURATION PRESERVES TRACE-AWARE CONVERGENCE,
+ * IN BOTH DIRECTIONS.**  PROVED, at arbitrary `m`, from `lemma_prun_split` (8684)
+ * and `lemma_prun_stable` (3087) alone.
+ *
+ * `lemma_pconverges_tr_silent` (4888) is the ONE-STEP version of this and takes
+ * `psilent`.  NO LEMMA CITED HERE is a multi-step version: this statement is
+ * built, not cited, and the search that preceded it found no `pconverges_tr`
+ * lemma in this file at a fuel index other than zero or one.  That is a
+ * statement about what was found here and about this file, and not about what
+ * exists.
+ *
+ * **THE TWO DIRECTIONS ARE NOT SYMMETRIC, AND THE HARD ONE IS `==>`.**
+ *
+ *   - `<==` is the shift.  A witness `p` from `cf'` becomes `m + p` here:
+ *     `lemma_prun_split` decomposes the run of `m + p` into the hypothesised
+ *     silent run of `m` and the witness run of `p`, and the trace is `[] @ tr`,
+ *     which is `tr` by `append`'s first equation.
+ *
+ *   - `==>` has to deal with a witness `n` SMALLER THAN `m` -- a run of `cf`
+ *     that converges BEFORE the prefix is exhausted -- and this is the case
+ *     `PStep? cf'.st` is in the hypothesis for.  If `n < m` then the run of `n`
+ *     has already left the stepping shapes, so `lemma_prun_stable` carries its
+ *     WHOLE result, configuration and trace, forward to `m`; but the run of `m`
+ *     is `(cf', [])` by hypothesis, so `cf'.st` would be that `PDone`, and
+ *     `PStep? cf'.st` refuses it.  The case is therefore vacuous, and it is
+ *     discharged and not excluded.  At `n >= m` the decomposition is
+ *     `lemma_prun_split` again, at `m` and `n - m`.
+ *
+ * Nothing here requires the intermediate configurations to be `PStep`s, and
+ * nothing here requires the prefix to be silent step by step: the hypothesis is
+ * about the run of `m` as a whole, which is the form 33.1 produces.
+ *)
+let gwro_silent_prefix (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (m: nat) (cf cf': pconf v cl) (tr: list string) (y: pval v)
+  : Lemma (requires prun lk apply m cf == (cf', ([] <: list string)) /\
+                    PStep? cf'.st)
+          (ensures (pconverges_tr lk apply cf tr y <==>
+                    pconverges_tr lk apply cf' tr y))
+  = introduce pconverges_tr lk apply cf tr y ==> pconverges_tr lk apply cf' tr y
+    with
+      (eliminate exists (n: nat).
+           (fst (prun lk apply n cf)).st == PDone y /\ snd (prun lk apply n cf) == tr
+       with
+         (if n < m
+          then begin
+            lemma_prun_stable lk apply n (m - n) cf;
+            assert (prun lk apply m cf == prun lk apply n cf);
+            assert False;
+            introduce exists (p: nat).
+                (fst (prun lk apply p cf')).st == PDone y /\
+                snd (prun lk apply p cf') == tr
+            with 0 and ()
+          end
+          else begin
+            lemma_prun_split lk apply m (n - m) cf;
+            introduce exists (p: nat).
+                (fst (prun lk apply p cf')).st == PDone y /\
+                snd (prun lk apply p cf') == tr
+            with (n - m) and ()
+          end));
+    introduce pconverges_tr lk apply cf' tr y ==> pconverges_tr lk apply cf tr y
+    with
+      (eliminate exists (p: nat).
+           (fst (prun lk apply p cf')).st == PDone y /\
+           snd (prun lk apply p cf') == tr
+       with
+         (lemma_prun_split lk apply m p cf;
+          introduce exists (n: nat).
+              (fst (prun lk apply n cf)).st == PDone y /\ snd (prun lk apply n cf) == tr
+          with (m + p) and ()))
+
+(* ---- 33.3 RIGHT IDENTITY AT `pobs_tr_eq`, FOR THE FAMILY --------- *)
+
+(**
+ * **THE INNER MONAD'S RIGHT IDENTITY, AT THE FILE'S OBSERVATIONAL EQUIVALENCE,
+ * FOR SECTION 31's FAMILY OF BODIES.**  PROVED, at arbitrary `lk`, `apply`, `n`
+ * and `x`.
+ *
+ * **THE HYPOTHESIS LIST IS EMPTY, AND THAT IS MOST OF THE POINT.**  There is no
+ * `pawf`, no `pacrel`, no `pakrel`, no `pasrel`, no `pcl_rel_t`, no `pastate`, no
+ * tag and no well-formedness side condition.  `pobs_tr_eq` is stated purely over
+ * convergence, and the two runs converge or fail to converge together because
+ * they become the same configuration.  Sections 26 to 31 carried hypotheses
+ * because they were proving a statement about a CARRIER relation at two
+ * configurations that differ in store and counter; this statement is about one
+ * store and one counter on both sides, and needs none of them.
+ *
+ * The proof is 33.1 once and 33.2 twice, at the one common configuration.  Both
+ * `prun` equations 33.1 supplies have an empty trace and land on a `PStep`, which
+ * is exactly 33.2's hypothesis, so the two bridges compose into the biconditional
+ * `pobs_tr_le` needs in each direction.
+ *
+ * **WHAT THE STATEMENT SAYS AND DOES NOT SAY.**  It says that at EVERY stack,
+ * store, counter, trace and value, `pbind (gwridn_body n x) PVar` converges
+ * exactly when `gwridn_body n x` does, to the same trace and the same value.  It
+ * says nothing about any computation outside the family, and 33.0 is why: the
+ * family is closed under the identity bind, so the left-hand side is itself a
+ * member and 31.1's closed form drives it.  At an arbitrary `c` no lemma in this
+ * file supplies a closed form for `pbind c PVar`, and none is claimed.
+ *)
+let gwro_right_identity (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (n: nat) (x: pval v)
+  : Lemma (ensures pobs_tr_eq lk apply
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                     (gwridn_body #v #cl n x))
+  = gwro_pbind_in_family #v #cl n x;
+    introduce forall (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+                     (tr: list string) (y: pval v).
+      (pconverges_tr lk apply
+         ({ st = PStep (pbind (gwridn_body #v #cl n x) (PVar #v #cl)) k;
+            store = sto; next = n0 } <: pconf v cl) tr y <==>
+       pconverges_tr lk apply
+         ({ st = PStep (gwridn_body #v #cl n x) k;
+            store = sto; next = n0 } <: pconf v cl) tr y)
+    with
+      (let cfl : pconf v cl =
+         { st = PStep (gwridn_body #v #cl (n + 1) x) k; store = sto; next = n0 } in
+       let cfr : pconf v cl =
+         { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+       let meet : pconf v cl =
+         { st = PStep (PVar #v #cl x) (gwridn_binds #v #cl n k);
+           store = sto; next = n0 } in
+       gwridn_body_succ #v #cl n x;
+       gwro_reconverge lk apply n x k sto n0;
+       gwro_silent_prefix lk apply (n + 2) cfl meet tr y;
+       gwro_silent_prefix lk apply n cfr meet tr y)
+
+(* ---- 33.4 THE `n == 0` CASE, BY TWO ROUTES ---------------------- *)
+
+(**
+ * **AT `n == 0` THE STATEMENT IS `pbind (PVar x) PVar` AGAINST `PVar x`.**
+ * PROVED, as the zero instance of 33.3.  `gwridn_body 0 x` IS `PVar x` by the
+ * family's zero clause, so no rewriting is needed.
+ *)
+let gwro_right_identity_zero (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v)
+  : Lemma (ensures pobs_tr_eq lk apply
+                     (pbind (PVar #v #cl x) (PVar #v #cl)) (PVar #v #cl x))
+  = gwro_right_identity lk apply 0 x
+
+(**
+ * **THE SAME PROPOSITION, BY THE LEFT-IDENTITY ROUTE.**  PROVED, and it is a
+ * CONSISTENCY CHECK rather than a second theorem.
+ *
+ * `lemma_pobs_tr_eq_pbind_left` (4938) proves `pobs_tr_eq (pbind (PVar x) f) (f x)`
+ * at an arbitrary `f`.  Instantiated at `f == PVar` its conclusion is
+ * `pobs_tr_eq (pbind (PVar x) PVar) (PVar x)` -- the SAME proposition 33.4's
+ * first lemma proves, because `PVar x` is both `f x` at the identity and the
+ * family's body at index zero.  So the `n == 0` case of 33.3 was already
+ * available by a different route, and the two agree.
+ *
+ * **THIS IS NOT A DUPLICATION AND NOT A STRENGTHENING.**  The left-identity route
+ * covers `n == 0` and NO OTHER INDEX: at `n > 0` the left-hand side is
+ * `pbind (gwridn_body n x) PVar` with a non-value body, which is not of the shape
+ * `pbind (PVar x) f`, so `lemma_pobs_tr_eq_pbind_left` does not apply to it.
+ * What the check establishes is agreement at the one index where both routes
+ * reach, not that either subsumes the other.
+ *)
+let gwro_right_identity_zero_via_left (#v #cl: Type)
+    (lk: plookup_t cl) (apply: papply_t v cl) (x: pval v)
+  : Lemma (ensures pobs_tr_eq lk apply
+                     (pbind (PVar #v #cl x) (PVar #v #cl)) (PVar #v #cl x))
+  = lemma_pobs_tr_eq_pbind_left lk apply x (PVar #v #cl)
+
+(** **THE TWO STATEMENTS ARE ONE STATEMENT.**  PROVED, by computation: 33.3 at
+    `n == 0` and the left-identity instance are the same proposition, because
+    `gwridn_body 0 x` and `PVar x` are the same term.  This is what makes the
+    agreement above a check on the two proofs and not a coincidence between two
+    readings. *)
+let gwro_zero_routes_agree (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+    (x: pval v)
+  : Lemma (ensures (pobs_tr_eq lk apply
+                      (pbind (gwridn_body #v #cl 0 x) (PVar #v #cl))
+                      (gwridn_body #v #cl 0 x)
+                    <==>
+                    pobs_tr_eq lk apply
+                      (pbind (PVar #v #cl x) (PVar #v #cl)) (PVar #v #cl x)))
+  = ()
+
+(* ---- 33.5 THE LEDGER --------------------------------------------- *)
+
+(**
+ * **WHAT SECTION 33 IS.**
+ *
+ *  1. IT IS RIGHT IDENTITY AT `pobs_tr_eq`, FOR ONE SYNTACTIC FAMILY OF BODIES.
+ *     `gwro_right_identity` proves
+ *     `pobs_tr_eq lk apply (pbind (gwridn_body n x) PVar) (gwridn_body n x)` at
+ *     arbitrary `lk`, `apply`, `n` and `x`, WITH NO HYPOTHESIS OF ANY KIND.  That
+ *     relation is the file's own trace-aware observational equivalence, the one
+ *     `lemma_pobs_tr_eq_pbind_left` states LEFT identity over, so this is the
+ *     first law-shaped statement in the line that began at section 26.
+ *
+ *  2. IT IS NOT RIGHT IDENTITY AT AN ARBITRARY COMPUTATION.  `gwridn_body n x`
+ *     is a CONSTRUCTION -- 31.0's `n`-fold nesting of the identity bind around a
+ *     value -- and the proof route depends on the family being closed under the
+ *     identity bind (33.0), so that 31.1's closed form drives the left-hand side
+ *     as well as the right.  At an arbitrary `c` there is no such closed form in
+ *     this file, `pbind c PVar` is not in the family, and NOTHING BELOW OR ABOVE
+ *     says the two runs meet.  No claim is made about that case, in either
+ *     direction.
+ *
+ *  3. NOTHING ELABORATES A SURFACE PROGRAM INTO THIS FAMILY.  As in 31 and 32,
+ *     every term above is a syntactic construction; no lemma anywhere in this
+ *     file takes a surface term to a `gwridn_body`.  So this is a law at a family
+ *     of terms and not a law about anything a user writes.
+ *
+ *  4. NO CLAIM ABOUT THE OTHER FOUR LAWS.  Associativity, left identity at an
+ *     arbitrary body, transparency and the anchored law are untouched.  Nothing
+ *     above bears on `guard_ref_ops_refutes_left_identity` or on any other
+ *     refutation in this file, all of which are about `ref_ops`' scope operations
+ *     and none of which is about `pbind` against `PVar`.
+ *
+ *  5. THE CARRIER IS NOT USED BY THESE PROOFS, AND HERE IS THE CITATION LIST.
+ *     From the run-level line, sections 26 to 32, the three proofs above cite
+ *     EXACTLY: `gwridn_body` and `gwridn_binds` (31.0's definitions),
+ *     `gwridn_body_succ` and `gwridn_binds_succ` (31.0), and `gwridn_run` (31.1).
+ *     Nothing from 26, 27, 28, 30 or 32 is cited, and nothing from 31.2, 31.3 or
+ *     31.4 -- not `gwridn_fragment_premise`, not `gwridn_value_premise`, not
+ *     `gwridn_three_legs`.  No lemma cited by the three proofs above mentions
+ *     `pacrel`, `pakrel`, `pasrel`, `pastate`, `pcl_rel_t`, `gwc_phase`,
+ *     `gwc_cf`, `gwc_lands_still` or `parid_rel`.  The remaining citations are
+ *     from B1.7, B1.8 and the run-composition block: `pbind`, `prun`, `pstep_tr`,
+ *     `pconverges_tr`, `pobs_tr_eq`, `lemma_prun_one`, `lemma_prun_cat`,
+ *     `lemma_prun_split`, `lemma_prun_stable` and
+ *     `lemma_pobs_tr_eq_pbind_left`.
+ *
+ *     `gwridn_run` is cited and not re-proved, and ITS OWN proof (31.1) cites
+ *     `gwridg_step1_at` (29.1) and `gwridn_binds_push` (31.0).  So the dependency
+ *     on section 29 is through that one transition lemma and through nothing
+ *     else.
+ *
+ *  6. WHAT ITEM 5 DOES AND DOES NOT ESTABLISH.  It establishes that THIS
+ *     observational statement, at THIS family, is reached without the carrier.
+ *     It does NOT establish that the carrier was unnecessary: sections 26 to 32
+ *     state relations between two configurations that may differ in store and in
+ *     counter, and `pobs_tr_le` fixes ONE store and ONE counter on both sides, so
+ *     the two are not the same obligation and neither is proved to imply the
+ *     other here.  What the citation list shows is where the difficulty lay for
+ *     this pair: at a common ambient state the two runs reconverge, and
+ *     reconvergence needs no relation.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. Every numeral in 33.1 -- `n + 2`, `n + 1`, `1`, `n` -- is a `prun` FUEL
+ *     INDEX.  Nothing above identifies a unit of fuel with a transition.  The one
+ *     transition claim asserted directly is `pstep_tr` at the midpoint; the rest
+ *     is 31.1's, by citation.
+ *
+ *  2. `gwro_silent_prefix` REQUIRES `PStep? cf'.st`, and 33.2's doc comment says
+ *     which case that hypothesis discharges.  Dropping it would make the `==>`
+ *     direction false as stated, since a `cf` that has already converged inside
+ *     the prefix has a witness the successor configuration cannot be given.
+ *
+ *  3. NO MULTI-STEP SILENT BRIDGE IS CITED because none was found in this file;
+ *     `lemma_pconverges_tr_silent` (4888) is the one-step version and is NOT used
+ *     above.  That is a report of a search over this file and not a claim that no
+ *     such lemma exists.
+ *
+ *  4. `gwro_right_identity_zero_via_left` reaches the `n == 0` case only.  It is
+ *     not stated or proved to reach any other index, and 33.3 is not stated or
+ *     proved to be the only route to `n == 0`.
+ *
+ *  5. `gwro_pbind_in_family` is about THIS family.  Nothing above says any other
+ *     set of computations is closed under the identity bind, and nothing above
+ *     says no other set is.
+ *
+ *  6. NO DEFINITION OR PROOF ABOVE THIS SECTION IS CHANGED BY IT.  This section
+ *     adds definitions and lemmas under the `gwro_` prefix; it does not alter,
+ *     restate or weaken any earlier definition or lemma, and it cites only 31.0
+ *     and 31.1 out of sections 23 to 32.  In particular 26.1's seven
+ *     refutations, 27.2's refutation and 32.12's limits are unaffected: they are
+ *     statements about `gwc_cf`, `gwc_rid2_comp` and `parid_rel`, none of which
+ *     occurs above.
+ *
+ *     **BUT THE PATCH THAT ADDS THIS SECTION IS NOT CONFINED TO IT.**  The same
+ *     change set applies post-review COMMENT LIMITATIONS inside section 32 --
+ *     its 32.13 heading, its overview line for 32.11, its ledger item 4, and two
+ *     doc comments at 32.7 and 32.11.  Those are prose only: no `parid_rel`
+ *     definition, lemma statement or proof body is touched.  A reader comparing
+ *     the diff should expect to see section 32 in it.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

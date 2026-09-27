@@ -10407,6 +10407,121 @@ is an independent check rather than a theorem in it.
 - reconvergence at arbitrary `n`;
 - the counts are fuel indices.
 
+#### A recursive departure relation, adopted after review
+
+This section arrived in the working tree without a dispatch recorded in the
+session that produced the surrounding work. Its provenance is not established.
+It was reviewed independently before being taken in, the review found no defect
+in the proofs, and four prose overclaims were limited before adoption. What
+follows describes it as it now stands.
+
+Both earlier candidates for a departure relation were **flat**: the ordinary
+relation with one extra disjunct bolted on at the bind head, recursing back into
+the ordinary relation. The recursive relation offers two arms at a bind head and
+recurses into *itself* at both — an absorbing arm and a congruence arm.
+
+Proved of it: the ordinary relation implies it; it contains both earlier
+candidates, strictly; it relates the right-identity redex; it is **asymmetric**,
+and proved so; and the separation from the earlier candidates is structural
+rather than exhibited at a lucky pair.
+
+#### What the recursive relation does not yet reach
+
+Two limits, both stated as proved refutations rather than concessions, and both
+limited in scope during review.
+
+**No transition-compatibility theorem is stated for it, and none is refuted.**
+The earlier heading claimed incompatibility with any transition; nothing
+establishes that, and the corrected heading says only that the connection to
+transitions has not been made.
+
+**The direct componentwise phase does not close.** Taking every related pair at
+the computation component while keeping the existing stack relation unchanged
+fails: the congruence arm relates two bind nodes whose continuations are related
+by the new relation and nothing stronger, one machine step turns those into two
+bind frames, and the frame relation there asks for exactly what is refuted.
+
+That is relative to **that construction**. A phase narrowing its domain by some
+further invariant, or pairing the new relation with a different stack relation,
+is neither built nor refuted — nothing rules one out.
+
+#### Right identity at the file's own observational equivalence
+
+Separately, and by a route that turns out to be almost independent of the
+carrier: the trace-aware observational equivalence is the relation the five laws
+are stated over, and the left identity is already proved there in a few lines.
+
+The right-hand counterpart now holds **for the nested-identity family**, with
+**no hypotheses at all** — no well-formedness, no clause relation, no allocation
+state, no tag:
+
+> the bind of a family body with the identity continuation is observationally
+> equivalent to that body, at arbitrary interpreter parameters, arbitrary depth
+> and arbitrary value.
+
+The exact reach, and it should not be read past: this is **not** general right
+identity. It is right identity **for one infinite syntactic family of bodies**,
+stated at the formal observational equivalence the laws are written in. Nothing
+in the file elaborates a surface program into that family.
+
+#### Why the route works, and what carries it
+
+The observation relation quantifies over a **common** stack, store and counter
+on both sides. At a common ambient stack the two runs of this family *meet* —
+the family is closed under the identity bind, so both sides are instances of one
+closed-form run lemma, and after their own prefixes they are the *same
+configuration*. Two configurations that are equal converge to whatever they
+converge to; nothing is compared.
+
+The one new ingredient is a **silent-prefix bridge**: an empty-trace prefix of
+any length can be crossed in both directions. Its side condition — that the
+configuration reached is still a step configuration — is what rules out
+convergence *inside* the prefix. **The bridge assumes this side condition; the
+right-identity proof discharges it from the explicit meet configuration.**
+
+The `n` zero case coincides with the existing left-identity route, proved to be
+the same proposition rather than asserted to be.
+
+#### What the carrier was and was not needed for
+
+Out of the run-level development the proof uses **two definitions** — the
+family's bodies and its bind-frame prefix — and **three lemmas** directly: the
+two shape equations for those definitions, and the closed-form run. Two further
+lemmas are reached only inside that closed-form run's own proof: one transition
+lemma from an earlier gate, and a push equation for the frame prefix. The reach,
+composition, iteration and phase machinery is not used.
+
+That does **not** show the carrier was unnecessary. The run-level sections
+relate two configurations whose stores and counters *may differ*; the
+observational relation fixes a common store and counter on both sides. Those
+are not the same obligation, and neither is proved to imply the other.
+
+#### Checked independently: what the family restriction buys
+
+The family's bodies are built from bind and value nodes only, and the bridge is
+stated at a silent prefix — so a body that emits is outside the route.
+
+At an emitting body, **outside the family**, the two sides still meet: at
+arbitrary ambient stack, store and counter, left at fuel three and right at fuel
+one reach the same configuration with equal traces `["e"]`. The bridge does not
+apply there for one specific reason — the common prefix trace is not empty.
+
+What that supports, exactly: the family restriction is **not a necessary
+condition for the reconvergence phenomenon**, since one instance outside it
+reconverges. It does not support the stronger readings that the restriction is
+*purely* an artifact of the route, or that emitting bodies reconverge in
+general. Neither is checked.
+
+#### Not proved
+
+- general right identity, at an arbitrary computation;
+- that any surface program produces a family body;
+- transition compatibility for the recursive departure relation, in either
+  direction;
+- that no phase over that relation can close — only the direct componentwise one
+  is refuted;
+- anything about the other four laws.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
