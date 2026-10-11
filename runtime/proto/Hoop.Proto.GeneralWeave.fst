@@ -65502,3 +65502,489 @@ let gwrp_parid_bridge_would_suffice (#v #cl: Type) (b: paboundary v cl)
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+(* ================================================================== *)
+(* ---- 35. THE RESIDUE, DISCHARGED BY RUNNING THE DIAGONAL, AND THE
+           ALLOCATION-INDEXED PUBLIC STATEMENT FOR THE PAYLOAD
+           MEMBERS OF SECTION 31's FAMILY ---------------------------- *)
+(* ================================================================== *)
+
+(**
+ * **WHAT THIS SECTION SETTLES.**  34.6 proved that, at a fixed `b` and for
+ * section 31's family, the allocation-indexed public statement at the
+ * right-identity pair is EQUIVALENT to the unary residue
+ * `gwrp_final_diag b (gwridn_body n x)`, and 34.9 recorded that no lemma cited
+ * there discharges that residue.  This section discharges it, under one side
+ * condition on `x`, by a route 34 did not take: it RUNS THE DIAGONAL.
+ *
+ * **THE ROUTE, IN ONE LINE.**  The residue asks for self-relatedness at every
+ * landed observation of ONE computation.  Self-relatedness at a landed
+ * observation is what `lemma_parun_compat` (35771) hands back when it is applied
+ * to a configuration RELATED TO ITSELF; and the configuration
+ * `PStep (gwridn_body n x) k` at the ambient store, counter and stack IS related
+ * to itself at `padiag sto n0`, by `lemma_padiag_wf`, `lemma_padiag_krel`,
+ * `lemma_padiag_srel` and `gwridn_body_selfrel` (31.0) -- the three `padiag`
+ * transport lemmas, and the family's own self-relation, read at ONE
+ * configuration rather than at two.
+ *
+ * **WHAT IT COSTS.**  `gwridn_body_selfrel` requires `pval_rel s.aw x x`, which
+ * at the diagonal is `pval_rel (panchor sto) x x`.  That is the reflexivity side
+ * condition `gwrp_diag_at_still` (34.3) and `gwrp_parid_bridge_would_suffice`
+ * (34.8) carry in the same anchored form, and this section carries it too -- as a
+ * hypothesis QUANTIFIED over the stores the residue's own antecedent admits
+ * (35.3), not at one store.  35.5 discharges that hypothesis outright for
+ * the PAYLOAD members of the family, `x == PV a`, because `pval_rel w (PV a)
+ * (PV a)` is `a == a` at every world; 35.6 shows it is not available at every
+ * store for the HANDLE members, `x == PCtxKey i`, by exhibiting a store at which
+ * it fails.
+ *
+ * **WHAT IS NOT PROVED HERE.**  Right identity is not proved in general.  What is
+ * proved is one boundary-parametric statement about one syntactic family --
+ * `gwridn_body`, which 31.0 builds out of `POp` and `PVar`, and which no lemma in
+ * this file connects to the elaboration of any surface program.
+ *)
+
+(* ---- 35.0 THE DIAGONAL ENTRY ------------------------------------- *)
+
+(**
+ * **THE FAMILY's DEPARTING CONFIGURATION IS RELATED TO ITSELF AT THE
+ * DIAGONAL.**  PROVED, from the public form's OWN three hypotheses on the
+ * initial ambient data together with `pval_rel (panchor sto) x x`.
+ *
+ * `pacfrel` is three things: the states correspond, the stores correspond, and
+ * each counter IS its frontier.  At the diagonal state the last is `n0 == n0`
+ * twice; the store conjunct is `lemma_padiag_srel`, which needs
+ * `pstore_equivariant_at` and nothing else; and the state conjunct, at a
+ * `PStep`, is `pacrel` on the bodies and `pakrel` on the stacks -- the second is
+ * `lemma_padiag_krel` from `pequivariant_k_at`, and the first is
+ * `gwridn_body_selfrel` (31.0) at the diagonal's world, which IS `panchor sto`.
+ *
+ * `lemma_padiag_wf` is cited for `pawf`, which the run theorem needs next and
+ * which is not part of `pacfrel`.
+ *)
+let gwrd_diag_selfrel
+    (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl) (n0: nat)
+    (k: pstack v cl) (n: nat) (x: pval v)
+  : Lemma (requires pequivariant_k_at b.pb_rel (panchor sto) k /\
+                    pstore_equivariant_at b.pb_rel sto /\
+                    psfresh sto n0 /\
+                    pval_rel (panchor sto) x x)
+          (ensures
+            (let sd = padiag #v #cl sto n0 in
+             pawf sd /\
+             pacfrel b.pb_rel sd
+               ({ st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 })
+               ({ st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 })))
+  = let sd = padiag #v #cl sto n0 in
+    lemma_padiag_wf #v #cl sto n0;
+    lemma_padiag_krel b.pb_rel sto n0 k;
+    lemma_padiag_srel b.pb_rel sto n0;
+    assert (sd.aw == panchor sto);
+    gwridn_body_selfrel b.pb_rel sd n x
+
+(* ---- 35.1 RUN THE DIAGONAL, AT ONE FUEL -------------------------- *)
+
+(**
+ * **ALL EIGHT CONJUNCTS OF `gwrp_diag_at`, OFF ONE APPLICATION OF THE RUN
+ * THEOREM.**  PROVED, at an arbitrary fuel index at which the diagonal
+ * configuration has landed on `PDone x1` with store `t1` and counter `m1`.
+ *
+ * `lemma_parun_compat` (35771), applied at `padiag sto n0` to the departing
+ * configuration AGAINST ITSELF, returns a state `s'` with `paext s' (padiag sto
+ * n0)`, `pawf s'`, the additive frontier equation, and `pacfrel b.pb_rel s'`
+ * between the landed configuration and ITSELF.  That state is the witness, and
+ * the eight conjuncts are read off it as follows.
+ *
+ *  1-2.  `s'.an1 == m1` and `s'.an2 == m1`.  `pacfrel` pins EACH counter to ITS
+ *        frontier, and here both counters are the counter of the SAME landed
+ *        configuration, namely `m1`; so both frontiers are `m1`.  Independently,
+ *        the run theorem's additive equation `s'.an1 + sd.an2 == s'.an2 + sd.an1`
+ *        at `sd.an1 == sd.an2 == n0` gives `s'.an1 == s'.an2`.
+ *  3-4.  `pwf_world s'.aw` and `pwext s'.aw (panchor sto)`.  `lemma_paext_is_pwext`
+ *        (30874) turns `paext s' sd` into exactly these two, at `sd.aw`, and
+ *        `sd.aw` IS `panchor sto` by the definition of `padiag`.
+ *  5-6.  `paext s' (padiag sto n0)` and `pawf s'`.  Returned by the run theorem
+ *        verbatim.
+ *  7.    `pval_rel s'.aw x1 x1`.  `pacfrel` gives `pastrel b.pb_rel s'` between
+ *        the landed state and itself; the landed state is `PDone x1`, and
+ *        `lemma_pastrel_done_inv` (36857) is the inversion of `pastrel` at a
+ *        `PDone` on the left.
+ *  8.    `pasrel b.pb_rel s' t1 t1`.  The store conjunct of `pacfrel`, at the
+ *        landed store, which is `t1`.
+ *
+ * **NO STORE EQUIVARIANCE IS CARRIED ALONG THE RUN.**  `pstore_equivariant_at`
+ * is used here only at the INITIAL store, through 35.0, to enter the run.  The
+ * landed store's conjunct is `pasrel` at `s'`, which the run theorem produces;
+ * nothing below asks whether `pstore_equivariant_at b.pb_rel t1` holds, and
+ * nothing below proves it.
+ *)
+let gwrd_diag_at_fuel
+    (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl) (n0: nat)
+    (k: pstack v cl) (n: nat) (x: pval v) (fuel: nat)
+    (x1: pval v) (t1: pstore v cl) (m1: nat)
+  : Lemma (requires pequivariant_k_at b.pb_rel (panchor sto) k /\
+                    pstore_equivariant_at b.pb_rel sto /\
+                    psfresh sto n0 /\
+                    pval_rel (panchor sto) x x /\
+                    (fst (prun b.pb_lk b.pb_apply fuel
+                            ({ st = PStep (gwridn_body #v #cl n x) k;
+                               store = sto; next = n0 } <: pconf v cl))).st
+                      == PDone x1 /\
+                    (fst (prun b.pb_lk b.pb_apply fuel
+                            ({ st = PStep (gwridn_body #v #cl n x) k;
+                               store = sto; next = n0 } <: pconf v cl))).store
+                      == t1 /\
+                    (fst (prun b.pb_lk b.pb_apply fuel
+                            ({ st = PStep (gwridn_body #v #cl n x) k;
+                               store = sto; next = n0 } <: pconf v cl))).next
+                      == m1)
+          (ensures gwrp_diag_at b sto n0 x1 t1 m1)
+  = let cf : pconf v cl =
+      { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+    let sd : pastate = padiag #v #cl sto n0 in
+    lemma_paboundary_premises b;
+    gwrd_diag_selfrel b sto n0 k n x;
+    assert (sd.aw == panchor sto);
+    lemma_parun_compat b.pb_rel b.pb_lk b.pb_apply fuel sd cf cf;
+    eliminate exists (s': pastate).
+        (paext s' sd /\ pawf s' /\
+         s'.an1 + sd.an2 == s'.an2 + sd.an1 /\
+         pacfrel b.pb_rel s' (fst (prun b.pb_lk b.pb_apply fuel cf))
+                             (fst (prun b.pb_lk b.pb_apply fuel cf)))
+    with begin
+      pacfrel_unfold b.pb_rel s'
+        (fst (prun b.pb_lk b.pb_apply fuel cf))
+        (fst (prun b.pb_lk b.pb_apply fuel cf)) ();
+      lemma_pastrel_done_inv b.pb_rel s' x1 (PDone #v #cl x1);
+      lemma_paext_is_pwext s' sd;
+      introduce exists (s'': pastate).
+          (s''.an1 == m1 /\ s''.an2 == m1 /\
+           pwf_world s''.aw /\ pwext s''.aw (panchor sto) /\
+           paext s'' (padiag #v #cl sto n0) /\ pawf s'' /\
+           pval_rel s''.aw x1 x1 /\ pasrel b.pb_rel s'' t1 t1)
+      with s' and ()
+    end
+
+(* ---- 35.2 AND AT A LANDED OBSERVATION ---------------------------- *)
+
+(**
+ * **THE SAME, WITH THE FUEL INDEX QUANTIFIED AWAY.**  PROVED.  `paconverges` is
+ * an existential over the fuel index, so `paconverges_unfold` (36679) exposes it
+ * and 35.1 answers at the index it produces.  The trace plays no part: no
+ * conjunct of `gwrp_diag_at` mentions it.
+ *)
+let gwrd_diag_at_converges
+    (#v #cl: Type) (b: paboundary v cl) (sto: pstore v cl) (n0: nat)
+    (k: pstack v cl) (n: nat) (x: pval v)
+    (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat)
+  : Lemma (requires pequivariant_k_at b.pb_rel (panchor sto) k /\
+                    pstore_equivariant_at b.pb_rel sto /\
+                    psfresh sto n0 /\
+                    pval_rel (panchor sto) x x /\
+                    paconverges b.pb_lk b.pb_apply
+                      ({ st = PStep (gwridn_body #v #cl n x) k;
+                         store = sto; next = n0 } <: pconf v cl) tr x1 t1 m1)
+          (ensures gwrp_diag_at b sto n0 x1 t1 m1)
+  = let cf : pconf v cl =
+      { st = PStep (gwridn_body #v #cl n x) k; store = sto; next = n0 } in
+    paconverges_unfold b.pb_lk b.pb_apply cf tr x1 t1 m1 ();
+    eliminate exists (fuel: nat).
+        ((fst (prun b.pb_lk b.pb_apply fuel cf)).st == PDone x1 /\
+         snd (prun b.pb_lk b.pb_apply fuel cf) == tr /\
+         (fst (prun b.pb_lk b.pb_apply fuel cf)).store == t1 /\
+         (fst (prun b.pb_lk b.pb_apply fuel cf)).next == m1)
+    with (gwrd_diag_at_fuel b sto n0 k n x fuel x1 t1 m1)
+
+(* ---- 35.3 THE SIDE CONDITION, AS A PROPOSITION ------------------- *)
+
+(**
+ * **THE REFLEXIVITY SIDE CONDITION, QUANTIFIED OVER THE STORES THE RESIDUE's
+ * ANTECEDENT ADMITS.**  The residue quantifies over EVERY initial store; 35.1
+ * needs `pval_rel (panchor sto) x x` at each one it is applied to.  So the
+ * hypothesis has to be a quantified one, and this is it -- restricted to the
+ * stores the residue's own antecedent lets through, which are those the boundary
+ * relation finds equivariant.
+ *
+ * It is one store quantifier and no more: the counter and the ambient stack do
+ * not occur in it, because `panchor sto` does not depend on them.
+ *)
+let gwrd_val_selfrel (#v #cl: Type) (b: paboundary v cl) (x: pval v) : GTot prop
+  = forall (sto: pstore v cl).
+      pstore_equivariant_at b.pb_rel sto ==> pval_rel (panchor sto) x x
+
+(** The `squash`-to-`squash` cast, for the reason `pacrel_unfold` (31152)
+    records: a `GTot prop` in hypothesis position is an atom, and the store
+    quantifier inside it is otherwise invisible. *)
+let gwrd_val_selfrel_unfold (#v #cl: Type) (b: paboundary v cl) (x: pval v)
+                            (h: squash (gwrd_val_selfrel b x))
+  : squash (forall (sto: pstore v cl).
+              pstore_equivariant_at b.pb_rel sto ==> pval_rel (panchor sto) x x)
+  = h
+
+(* ---- 35.4 THE RESIDUE, DISCHARGED -------------------------------- *)
+
+(**
+ * **`gwrp_final_diag` FOR SECTION 31's FAMILY.**  PROVED, at arbitrary `b`, `n`
+ * and `x`, under the single hypothesis `gwrd_val_selfrel b x`.
+ *
+ * This is the proposition 34.9 item 2 named as the established obstruction, all
+ * eight conjuncts of `gwrp_diag_at` included.  It is discharged by 35.2 at each
+ * landed observation the residue's antecedent supplies, and the residue's own
+ * three hypotheses are exactly the three 35.2 needs beyond the side condition.
+ *)
+let gwrd_final_diag (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+  : Lemma (requires gwrd_val_selfrel b x)
+          (ensures gwrp_final_diag b (gwridn_body #v #cl n x))
+  = gwrd_val_selfrel_unfold b x ();
+    introduce forall (sto: pstore v cl) (n0: nat) (k: pstack v cl)
+                     (tr: list string) (x1: pval v) (t1: pstore v cl) (m1: nat).
+      ((pequivariant_k_at b.pb_rel (panchor sto) k /\
+        pstore_equivariant_at b.pb_rel sto /\
+        psfresh sto n0 /\
+        paconverges b.pb_lk b.pb_apply
+          ({ st = PStep (gwridn_body #v #cl n x) k;
+             store = sto; next = n0 } <: pconf v cl) tr x1 t1 m1) ==>
+       gwrp_diag_at b sto n0 x1 t1 m1)
+    with
+      (introduce _ ==> _
+       with gwrd_diag_at_converges b sto n0 k n x tr x1 t1 m1)
+
+(**
+ * **AND THE ALLOCATION-INDEXED PUBLIC STATEMENT, THROUGH 34.6.**  PROVED, both
+ * directions of the right-identity pair, at arbitrary `b`, `n` and `x`, under
+ * `gwrd_val_selfrel b x`.
+ *
+ * The left-to-right half is 34.6's equivalence, read right to left, at the
+ * residue 35.4 has just supplied; the right-to-left half is `gwrp_pub_le_rl`
+ * (34.4) at the same residue.  Neither is re-proved here.
+ *)
+let gwrd_pub_pair (#v #cl: Type) (b: paboundary v cl) (n: nat) (x: pval v)
+  : Lemma (requires gwrd_val_selfrel b x)
+          (ensures paobs_tr_le_pub b
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl))
+                     (gwridn_body #v #cl n x) /\
+                   paobs_tr_le_pub b
+                     (gwridn_body #v #cl n x)
+                     (pbind (gwridn_body #v #cl n x) (PVar #v #cl)))
+  = gwrd_final_diag b n x;
+    gwrp_pub_iff_final_diag b n x;
+    gwrp_pub_le_rl b n x
+
+(* ---- 35.5 THE PAYLOAD MEMBERS: NO SIDE CONDITION LEFT ------------ *)
+
+(**
+ * **AT A PAYLOAD VALUE THE SIDE CONDITION IS FREE.**  PROVED, at every world and
+ * therefore at every anchor: `pval_rel w (PV a) (PV a)` is the clause
+ * `| PV a, PV b -> a == b`, which is reflexivity of `==` and mentions no world.
+ *)
+let gwrd_val_selfrel_pv (#v #cl: Type) (b: paboundary v cl) (a: v)
+  : Lemma (ensures gwrd_val_selfrel b (PV #v a))
+  = ()
+
+(**
+ * **THE ALLOCATION-INDEXED PUBLIC RIGHT-IDENTITY STATEMENT FOR THE PAYLOAD
+ * MEMBERS OF SECTION 31's FAMILY, WITH NO HYPOTHESIS.**  PROVED, at arbitrary
+ * `b`, arbitrary `n` and arbitrary payload `a`.
+ *
+ * **WHAT IT SAYS.**  It says `paobs_tr_le_pub` in both directions: under the
+ * three ambient hypotheses `paobs_tr_le_pub_at` carries inside its own quantifier
+ * -- `pequivariant_k_at` on the stack, `pstore_equivariant_at` on the store,
+ * `psfresh` on the counter -- each side's landed observation is MATCHED by one of
+ * the other side's: same trace, the two values `pval_rel`-related at a
+ * well-formed world extending `panchor sto`, the two final stores
+ * `pasrel`-related at a state accessible from `padiag sto n0`, and the FIRST
+ * side's final counter sitting on that state's first frontier.  The two sides'
+ * landed data are not asserted EQUAL; they are asserted related at that state.
+ *
+ * **WHAT IT IS NOT.**  It is not right identity in general, and it is not a law
+ * about `pbind`.  `gwridn_body` is a syntactic construction introduced in 31.0
+ * out of `POp` and `PVar`; no lemma in this file elaborates a surface program
+ * into it, and nothing here says anything about a computation outside the family.
+ * Nor is anything claimed about the HANDLE members `PCtxKey i`: 35.6 refutes
+ * the side condition itself there, by `gwrd_key_side_condition_false`, at
+ * EVERY boundary and EVERY index, so this route delivers nothing at a handle
+ * value.
+ *)
+let gwrd_pub_pair_pv (#v #cl: Type) (b: paboundary v cl) (n: nat) (a: v)
+  : Lemma (ensures paobs_tr_le_pub b
+                     (pbind (gwridn_body #v #cl n (PV #v a)) (PVar #v #cl))
+                     (gwridn_body #v #cl n (PV #v a)) /\
+                   paobs_tr_le_pub b
+                     (gwridn_body #v #cl n (PV #v a))
+                     (pbind (gwridn_body #v #cl n (PV #v a)) (PVar #v #cl)))
+  = gwrd_val_selfrel_pv #v #cl b a;
+    gwrd_pub_pair b n (PV #v a)
+
+(* ---- 35.6 THE HANDLE MEMBERS: WHERE THE SIDE CONDITION STANDS ---- *)
+
+(**
+ * **AT A HANDLE VALUE THE SIDE CONDITION IS EXACTLY PRESENCE IN THE STORE.**
+ * PROVED, by `lemma_panchor_l` (5201): the anchor pins a key to ITSELF when the
+ * store has it and to nothing when it does not, so `pval_rel (panchor sto)
+ * (PCtxKey i) (PCtxKey i)` -- which is `pwlookup_l i (panchor sto) == Some i` --
+ * holds exactly when `pstore_lookup i sto` is a `Some`.
+ *)
+let gwrd_key_selfrel_iff (#v #cl: Type) (i: nat) (sto: pstore v cl)
+  : Lemma (ensures (pval_rel (panchor sto) (PCtxKey #v i) (PCtxKey #v i)
+                    <==> Some? (pstore_lookup i sto)))
+  = lemma_panchor_l i sto
+
+(**
+ * **SO IT IS NOT AVAILABLE AT EVERY STORE.**  PROVED, at the EMPTY store, which
+ * has no key at all: `pval_rel (panchor [])` relates no handle to itself.
+ *
+ * **AND THE GUARD DOES NOT SAVE IT.**  It might look as though
+ * `gwrd_val_selfrel b (PCtxKey i)` escapes this, its store quantifier being
+ * guarded by `pstore_equivariant_at b.pb_rel sto`.  It does not: the EMPTY store
+ * satisfies that guard VACUOUSLY -- `pstore_equivariant_at` quantifies over the
+ * indices present in the store, and the empty store has none -- so the empty
+ * store is an instance of the guarded quantifier too.  `gwrd_val_selfrel b
+ * (PCtxKey i)` is therefore FALSE, at every boundary and every index.
+ *
+ * **WHAT THAT DOES AND DOES NOT AFFECT.**  It does not refute the CONCLUSION of
+ * 35.4 or of `gwrd_pub_pair` at a handle value: those are implications, and a
+ * false antecedent decides nothing about a consequent -- it makes them VACUOUS
+ * at such a value, which is a different thing from refuting them.  So the
+ * contrast with 35.5 is sharper than a difference of degree: at a payload value
+ * the side condition holds at every store and `gwrd_pub_pair_pv` is
+ * unconditional; at a handle value the side condition is not merely unproved but
+ * false, and this section's route delivers nothing there.
+ *)
+let gwrd_key_selfrel_fails_at_empty (#v #cl: Type) (i: nat)
+  : Lemma (ensures ~(pval_rel (panchor #v #cl ([] <: pstore v cl))
+                       (PCtxKey #v i) (PCtxKey #v i)))
+  = gwrd_key_selfrel_iff #v #cl i ([] <: pstore v cl)
+
+(** **THE EMPTY STORE IS EQUIVARIANT, VACUOUSLY.**  PROVED: `pstore_equivariant_at`
+    quantifies over the indices the store maps, and the empty store maps none, so
+    the guard is satisfied there whatever the clause relation is. *)
+let gwrd_empty_store_equivariant (#v #cl: Type) (r: pcl_rel_t cl)
+  : Lemma (ensures pstore_equivariant_at #v #cl r ([] <: pstore v cl))
+  = introduce forall (i: nat) (cx: pctx v cl).
+      (pstore_lookup i ([] <: pstore v cl) == Some cx ==>
+       pequivariant_ctx_at r (panchor ([] <: pstore v cl)) cx)
+    with (introduce _ ==> _ with ())
+
+(** **SO THE SIDE CONDITION IS FALSE AT A HANDLE VALUE.**  PROVED, as a
+    refutation, at EVERY boundary and EVERY index: the empty store meets the
+    guard by the lemma above and refutes the guarded body by
+    `gwrd_key_selfrel_iff`.  This is the proposition the doc comment above
+    states; it is here so that the statement is checked rather than argued. *)
+let gwrd_key_side_condition_false (#v #cl: Type) (b: paboundary v cl) (i: nat)
+  : Lemma (ensures ~(gwrd_val_selfrel b (PCtxKey #v i)))
+  = gwrd_empty_store_equivariant #v #cl b.pb_rel;
+    gwrd_key_selfrel_iff #v #cl i ([] <: pstore v cl);
+    assert_norm (pstore_lookup i ([] <: pstore v cl) == None);
+    introduce gwrd_val_selfrel b (PCtxKey #v i) ==> False
+    with (gwrd_val_selfrel_unfold b (PCtxKey #v i) ())
+
+(* ---- 35.7 THE LEDGER --------------------------------------------- *)
+
+(**
+ * **WHAT SECTION 35 SETTLES.**
+ *
+ *  1. THE RESIDUE IS DISCHARGED, UNDER ONE SIDE CONDITION.  `gwrd_final_diag`
+ *     proves `gwrp_final_diag b (gwridn_body n x)` at arbitrary `b`, `n` and `x`,
+ *     from `gwrd_val_selfrel b x` alone.  34.9 item 2 named that residue -- all
+ *     eight conjuncts of `gwrp_diag_at` -- as the established obstruction; it is
+ *     no longer standing, at this family, under that hypothesis.
+ *
+ *  2. ALL EIGHT CONJUNCTS COME OUT OF ONE APPLICATION OF THE RUN THEOREM.  35.1
+ *     records which conjunct comes from where: the two frontier equations from
+ *     `pacfrel`'s two counter identities at the ONE landed configuration; the two
+ *     world conjuncts from `lemma_paext_is_pwext` at `paext s' (padiag sto n0)`;
+ *     `paext` and `pawf` from the run theorem verbatim; the value conjunct from
+ *     `lemma_pastrel_done_inv`; the store conjunct from `pacfrel`'s store
+ *     component.  Each of the EIGHT is accounted for there, and the account uses
+ *     nothing beyond the run theorem's own output and two inversions of it.
+ *
+ *  3. THE FAMILY's RESULT SITS IN THE ALLOCATION-INDEXED HIERARCHY, UNDER NAMED
+ *     HYPOTHESES.  `gwrd_pub_pair` proves both directions of
+ *     `paobs_tr_le_pub` at the right-identity pair, at arbitrary `b`, `n` and
+ *     `x`, under `gwrd_val_selfrel b x`.  For the PAYLOAD members
+ *     `x == PV a` the hypothesis is discharged (35.5), so `gwrd_pub_pair_pv`
+ *     stands with NO hypothesis at arbitrary `b`, `n` and `a`.
+ *
+ *  4. THE ROUTE IS THE DIAGONAL, AND 34.6 IS WHAT MAKES IT SUFFICIENT.  The
+ *     equivalence `gwrp_pub_iff_final_diag` is CITED, not re-proved; the residue
+ *     is not the public statement, and 34.6 is what turns the one into the other
+ *     here.
+ *     `gwrp_pub_le_rl` is likewise cited for the second direction.  Section 34's
+ *     own limits are untouched: this section proves no implication between 33.3's
+ *     conclusion and the public form, and refutes none.
+ *
+ *  5. STORE-EQUIVARIANCE PRESERVATION ALONG A RUN IS STILL NOT PROVED, AND WAS
+ *     NOT NEEDED.  34.9 item 3 recorded that no lemma cited there carries
+ *     `pstore_equivariant_at` from an initial store to a landed one.  This
+ *     section does not carry it either.  It uses `pstore_equivariant_at` ONLY at
+ *     the initial store, in 35.0, to build `pacfrel` at `padiag sto n0`; the
+ *     landed store's obligation is `pasrel b.pb_rel s' t1 t1`, which
+ *     `lemma_parun_compat` produces directly.  Whether
+ *     `pstore_equivariant_at b.pb_rel t1` holds is not asked and not answered
+ *     anywhere in this section.
+ *
+ *  6. NO GENERAL LAW IS PROVED.  Everything above is about `gwridn_body`, the
+ *     syntactic family 31.0 builds out of `POp` and `PVar`.  RIGHT IDENTITY IS
+ *     NOT PROVED IN GENERAL, and no lemma in this file elaborates a surface
+ *     program into a member of this family.  Associativity, left identity at an
+ *     arbitrary body, transparency and the anchored law are untouched, and
+ *     nothing above bears on `guard_ref_ops_refutes_left_identity` or on any
+ *     other refutation in this file.
+ *
+ * **BOUNDARIES.**
+ *
+ *  1. `gwrd_pub_pair` carries `gwrd_val_selfrel b x` and not less.  The
+ *     hypothesis is QUANTIFIED over stores -- it is needed at every store the
+ *     residue's antecedent admits, not at one -- because `gwrp_final_diag`
+ *     quantifies over the initial store and 35.1 is applied at each such store.
+ *     It is guarded by `pstore_equivariant_at b.pb_rel sto`, so it is not
+ *     required at stores the boundary relation does not find equivariant.
+ *     Nothing above says some other route could do without it.
+ *
+ *  2. `gwrd_pub_pair_pv` is unconditional in its STATEMENT, at arbitrary `b`,
+ *     arbitrary `n` and arbitrary `a`.  Its conclusion is `paobs_tr_le_pub`,
+ *     whose own body carries the three ambient hypotheses inside the quantifier,
+ *     so "no hypothesis" means no hypothesis BEYOND those, not that the
+ *     comparison holds at arbitrary ambient data.
+ *
+ *  3. THE HANDLE CASE, IN THREE STEPS.
+ *
+ *     `gwrd_key_selfrel_fails_at_empty` refutes the self-relation of a handle
+ *     value AT THE EMPTY STORE, by computing the anchor there.
+ *
+ *     `gwrd_key_side_condition_false` puts that together with
+ *     `gwrd_empty_store_equivariant` -- the empty store meets
+ *     `pstore_equivariant_at` VACUOUSLY, having no index to be non-equivariant
+ *     at -- and so refutes THE SIDE CONDITION ITSELF, `gwrd_val_selfrel b
+ *     (PCtxKey i)`, at EVERY boundary and EVERY index.  The guard does not save
+ *     the handle case.
+ *
+ *     It does NOT refute the public conclusion.  35.4 and `gwrd_pub_pair` are
+ *     implications; a false antecedent makes them VACUOUS at a handle value,
+ *     which is not the same as refuting them.  Whether `paobs_tr_le_pub` holds
+ *     at a handle value is neither proved nor refuted anywhere above -- this
+ *     section's route simply delivers nothing there.
+ *
+ *  4. `gwrd_diag_at_fuel`'s `fuel` is a `prun` FUEL INDEX, as 33.5 and 34.9 item
+ *     5 record.  Nothing above identifies a unit of fuel with a transition, and
+ *     this section asserts no transition directly.
+ *
+ *  5. The absence claims above are scoped to this file and to what is cited here:
+ *     "this section does not carry store equivariance to the landed store", "no
+ *     lemma in this file elaborates a surface program into this family".  They
+ *     are reports of what was looked for and found here, not claims about what
+ *     exists.
+ *
+ *  6. NO DEFINITION OR PROOF ABOVE THIS SECTION IS CHANGED BY IT.  This section
+ *     adds definitions and lemmas under the `gwrd_` prefix only.  Out of sections
+ *     23 to 34 it cites `gwridn_body` and `gwridn_body_selfrel` (31.0),
+ *     `gwrp_diag_at`, `gwrp_final_diag`, `gwrp_pub_le_rl` and
+ *     `gwrp_pub_iff_final_diag` (34.3, 34.4, 34.6), and it alters none of them.
+ *     26.1's seven refutations, 27.2's refutation, 32.11's obstruction, 32.12's
+ *     limits and 34.9's ledger stand as written.
+ *
+ * NOTHING above is discharged by an escape hatch: no unproved obligation is left
+ * standing, no hypothesis is postulated, no bodiless `val` is declared, no
+ * expected-failure marker is used, and no resource-limit or option pragma is
+ * issued.  Every proof above runs at the file's default settings.
+ *)

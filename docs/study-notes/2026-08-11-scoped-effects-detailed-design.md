@@ -10618,6 +10618,137 @@ An independent check, not a theorem in the file.
 - any containment between the two routes;
 - the first arrow at the recursive relation.
 
+#### The residue, discharged by running the diagonal
+
+The previous gate left a single unary residue, `gwrp_final_diag`, standing
+between the family's right identity at `pobs_tr_eq` and the allocation-indexed
+public form. This gate discharges it.
+
+The route is `gwrd_diag_selfrel` -> `lemma_parun_compat` -> `gwrd_diag_at_fuel`
+-> `gwrd_diag_at_converges` -> `gwrd_final_diag` -> `gwrd_pub_pair`. It runs the
+DIAGONAL state `padiag sto n0`, with the departing configuration against ITSELF,
+rather than relating two different configurations.
+
+`gwrd_diag_selfrel` supplies the entry: at the diagonal, whose world is
+`panchor sto`, the configuration is `pacfrel`-related to itself, and `pawf`
+holds. It cites `lemma_padiag_wf`, `lemma_padiag_krel`, `lemma_padiag_srel` and
+`gwridn_body_selfrel`; none of them is re-proved here.
+
+#### All eight conjuncts, from one run and two projections
+
+`gwrp_diag_at` is eight atomic conjuncts joined by seven `/\`.
+`gwrd_diag_at_fuel` obtains all eight at an arbitrary fuel index at which the
+diagonal configuration has landed on `PDone x1`.
+
+The exact shape, since a looser reading is available: **one application of
+`lemma_parun_compat`, whose output is then projected and inverted by
+`lemma_paext_is_pwext` and `lemma_pastrel_done_inv` to give the eight
+conditions.** The run theorem's raw conclusion is not by itself the eight
+conjuncts. It is one state witness carrying `paext`, `pawf`, the additive
+frontier equation and `pacfrel` of the landed configuration with itself; the two
+named lemmas are what turn that into the residue's shape.
+
+The two counter conjuncts, `s'.an1 == m1` and `s'.an2 == m1`, come out together
+for one reason: `pacfrel` pins each counter to its own frontier, and here both
+counters belong to the SAME landed configuration.
+
+`gwrd_diag_at_converges` quantifies the fuel index away through
+`paconverges_unfold`. The trace plays no part — no conjunct of `gwrp_diag_at`
+mentions it.
+
+#### The public statement for the family, under one side condition
+
+`gwrd_final_diag` proves `gwrp_final_diag b (gwridn_body n x)` at arbitrary `b`,
+`n` and `x`, under the single hypothesis `gwrd_val_selfrel b x`: the value is
+self-related at the anchor of every store the residue's own antecedent admits.
+The residue supplies the three ambient hypotheses together with the
+landed-observation premise `paconverges`; the side condition supplies the
+additional value self-relation required by `gwrd_diag_at_converges`.
+
+`gwrd_pub_pair` then gives `paobs_tr_le_pub` in BOTH directions, under that same
+hypothesis. Neither direction is re-proved here: left to right is the previous
+gate's equivalence read right to left, and right to left is `gwrp_pub_le_rl`.
+
+#### The payload members carry no external hypothesis
+
+At a payload value the side condition is free. `pval_rel w (PV a) (PV a)` is the
+clause `| PV a, PV b -> a == b`, which is reflexivity of `==` and mentions no
+world, so `gwrd_val_selfrel_pv` holds at every boundary. `gwrd_pub_pair_pv`
+therefore states both directions of the public form at arbitrary `b`, arbitrary
+`n` and arbitrary payload `a`.
+
+Scope, exactly: **no external hypothesis on the theorem. That does not remove
+the three ambient conditions carried INSIDE `paobs_tr_le_pub`** --
+`pequivariant_k_at` on the stack, `pstore_equivariant_at` on the store,
+`psfresh` on the counter. Those sit under the public statement's own quantifier
+and stand exactly where they stood before.
+
+#### The handle members, in three steps
+
+`gwrd_key_selfrel_fails_at_empty` refutes the self-relation of a handle value AT
+THE EMPTY STORE, by computing the anchor there.
+
+`gwrd_key_side_condition_false` puts that together with
+`gwrd_empty_store_equivariant` — the empty store meets `pstore_equivariant_at`
+VACUOUSLY, having no index to be non-equivariant at — and so refutes THE SIDE
+CONDITION ITSELF, `gwrd_val_selfrel b (PCtxKey i)`, at every boundary and every
+index. The guard does not save the handle case.
+
+It does NOT refute the public conclusion. `gwrd_final_diag` and `gwrd_pub_pair`
+are implications, and a false antecedent makes them VACUOUS at a handle value,
+which is not the same as refuting them. **Whether `paobs_tr_le_pub` holds at a
+handle value is neither proved nor refuted anywhere above**; this section's
+route simply delivers nothing there.
+
+#### What store-equivariance preservation was not needed for
+
+Preservation of `pstore_equivariant_at` along a run appears nowhere in this
+route. It was expected to and it did not: the diagonal entry needs equivariance
+only at the DEPARTING store, and everything after that is read off the run
+theorem's state witness.
+
+Scope, exactly: **that property remains unproved, and it is shown unnecessary
+for THIS route only.** Nothing here says another route could avoid it.
+
+#### Where this leaves the ledger
+
+The previous gate showed that the gap between the family's statement at
+`pobs_tr_eq` and the allocation-indexed public form is EXACTLY the unary residue
+`gwrp_final_diag` — not a matter of comparison strength, and not
+relation-independent.
+
+What this gate adds, exactly: **at a fixed boundary and for this family, the
+residue is discharged under `gwrd_val_selfrel b x`. At the payload members that
+side condition is itself discharged unconditionally, so both directions of the
+public observation hold at arbitrary `b`, `n` and `a`.**
+
+Three things that do not follow. `gwridn_body` is a syntactic construction built
+in 31.0 out of `POp` and `PVar`, and no lemma in this file elaborates a surface
+program into it. Nothing here is a general right-identity law for arbitrary
+`pbind` bodies; it is a statement about one infinite family. And nothing here
+reaches a computation outside that family.
+
+#### Checked independently
+
+The empty store satisfies `pstore_equivariant_at` vacuously — it has no index
+at which to be non-equivariant — so the equivariance hypothesis cannot rule the
+empty store out, and the handle case is not saved by it.
+
+That check found a real error in an earlier scoping claim, and its content is
+now in the file as two lemmas rather than as prose: an independent check
+promoted to a theorem.
+
+#### Not proved
+
+- right identity at an arbitrary computation;
+- the public form at a handle member, in either direction;
+- any replacement side condition or public-observation result for handle
+  values;
+- preservation of store equivariance along a run;
+- any elaboration of a surface program into the family's body;
+- a departure relation for the arbitrary-body pair;
+- the other four laws.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or
