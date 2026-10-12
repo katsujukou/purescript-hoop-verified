@@ -10712,10 +10712,10 @@ for THIS route only.** Nothing here says another route could avoid it.
 
 #### Where this leaves the ledger
 
-The previous gate showed that the gap between the family's statement at
-`pobs_tr_eq` and the allocation-indexed public form is EXACTLY the unary residue
-`gwrp_final_diag` — not a matter of comparison strength, and not
-relation-independent.
+The previous gate showed that, at a FIXED BOUNDARY and for this family, the gap
+between the family's statement at `pobs_tr_eq` and the allocation-indexed public
+form is EXACTLY the unary residue `gwrp_final_diag` — not a matter of comparison
+strength, and not relation-independent.
 
 What this gate adds, exactly: **at a fixed boundary and for this family, the
 residue is discharged under `gwrd_val_selfrel b x`. At the payload members that
@@ -10845,12 +10845,12 @@ PAIR. **It is not the claim that `parid`'s absorbing arm is impossible, and it
 is not a claim about stack relations in general.** A relation with a surplus
 frame on the left is not refuted here.
 
-#### The surplus relation: right shape, wrong width
+#### The surplus relation admits the asymmetry and refuses the continuation
 
-`padx_stack` already is non-shape-preserving in exactly the right way, and it
-ACCEPTS `[PBindF PVar]` against the empty stack. So the length mismatch on
-which the two shape-preserving relations refuse the absorbing arm is not, by
-itself, what a surplus-frame relation objects to.
+`padx_stack` ADMITS the length asymmetry the absorbing arm needs: it relates
+`[PBindF PVar]` to the empty stack. So the length mismatch on which the two
+shape-preserving relations refuse the absorbing arm is not, by itself, what a
+surplus-frame relation objects to.
 
 But its deletion arm asks `f == PVar` LITERALLY, and it therefore REFUSES
 `[PBindF parid_nested_id]` against the empty stack even though

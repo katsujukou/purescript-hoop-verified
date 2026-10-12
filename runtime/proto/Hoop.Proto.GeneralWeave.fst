@@ -66488,7 +66488,8 @@ let gwfa_absorbing_step_leaves_the_shape
                 [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl))
     end
 
-(* ---- 36.4 THE SURPLUS RELATION: RIGHT SHAPE, WRONG WIDTH --------- *)
+(* ---- 36.4 THE SURPLUS RELATION: ASYMMETRY ADMITTED, CONTINUATION  *)
+(*          REFUSED -------------------------------------------------- *)
 
 (** The `squash`-to-`squash` cast for `padx_k` (41526), in the style of
     `padx_ktop_unfold` (41500). *)
