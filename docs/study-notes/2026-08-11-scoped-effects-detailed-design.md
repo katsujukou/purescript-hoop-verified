@@ -10749,6 +10749,165 @@ promoted to a theorem.
 - a departure relation for the arbitrary-body pair;
 - the other four laws.
 
+#### Two transitions, and which arm survives them
+
+The previous gate's `gwrp_parid_bridge_would_suffice` names, in prose, what a
+`parid`-indexed first arrow would have to re-establish. This gate turns the
+part of that prose that is about the STACK COMPONENT into machine-checked
+content, and no more than that part.
+
+What is asked, and only this: take ONE `pstep` at a `POp` head and ONE `pstep`
+at a `PBindF` return, and ask whether `parid`'s two arms — CONGRUENCE and
+ABSORBING — survive them when the stack relation is allowed to change. The two
+transitions are pinned first, on `pstep` alone and mentioning no relation:
+`POp a f` over `k` pushes `PBindF f` and leaves the store and counter alone;
+`PVar x` over `PBindF f :: k` pops the frame and applies `f` to `x`.
+
+What is not asked and not answered: the dispatcher over the other `pcomp`
+heads, a transition-compatibility theorem, a run theorem, a configuration
+relation at `parid`, the store component, and the `PDone` inversion. **No
+lemma in the section states one and no lemma in the section refutes one**, and
+the two earlier ledgers are unchanged by it.
+
+#### The known refutation, now at a transition
+
+The direct componentwise construction was already refuted at the level of
+FRAMES. This gate re-runs that refutation at the level of an actual machine
+step, so the obstruction is visible as a fact about the transition and not only
+as a fact about `paframe_rel`'s `PBindF` clause.
+
+A congruence-arm pair is built, one `pstep` is taken on each side at the empty
+stack, and the two stacks it leaves — `[PBindF parid_nested_id]` against
+`[PBindF PVar]` — are refused by `pakrel`. Scope, exactly: **that refutes
+`pakrel` at that pair, and says nothing about any other relation.**
+
+#### A stack relation that closes the congruence arm
+
+`paridf_stack` / `paridk` is `paframes_rel` / `pakrel` with one clause changed:
+at two `PBindF` frames it asks `parid_rel` where `paframe_rel` asks
+`pacomp_rel`, at the same index and under the same future quantifier. It is
+SHAPE-PRESERVING — its final clause is `False`.
+
+Two results carry the congruence arm across both transitions. Given the
+congruence arm's two conjuncts and `paridk` on the two stacks, the two `POp`
+successors have `parid`-related computations and `paridk`-related stacks; and
+at a `PBindF` return, the popped continuations applied to two related values
+are `parid`-related and the two tails `paridk`-related.
+
+Scope, exactly, in three parts. **The congruence arm's two conjuncts are
+ASSUMED, not derived**: `parid` at a `POp`/`POp` pair is a DISJUNCTION, the
+inversion lemma returns only that disjunction, and no lemma here chooses a
+disjunct. The return result is under `pawf s`, which is what the reflexivity
+of `paext` wants; the `POp` result is at an arbitrary state. And it is ONE
+step at ONE head: no other `pcomp` head and no other value rule is stepped.
+
+#### The replacement is neither cosmetic nor vacuous
+
+Two facts settle that the changed clause is doing work.
+
+`paridk` RELATES the very pair `pakrel` refuses. So the relation admits the
+pair that broke the direct componentwise construction, rather than refusing it
+along with `pakrel` and leaving the obstruction where it was.
+
+And it is obtained by INSTANTIATING the congruence-arm result at a concrete
+pair, which buys a second thing: **that result's three hypotheses are met at a
+concrete pair**, so the positive half of this gate is not vacuous.
+
+Scope, exactly, and the comparison is deliberately asymmetric. What is proved
+is: `pakrel` implies `paridk` at arbitrary types, `r`, `s` and both stacks; and
+the converse fails at ONE concrete pair, at the file's own relation and bottom
+state. **That is not the claim that `paridk` is strictly wider than `pakrel`
+in general.** No separating instance at an arbitrary `r` and `s` is exhibited,
+`paridk` is not claimed to be a minimal weakening, and it is not claimed to be
+the repair the first arrow needs.
+
+#### The absorbing arm, and the shape it breaks
+
+The absorbing arm relates `POp a1 f1` to a `c2` whose head need not be `POp`.
+So the left steps and the right does not, and the left stack gains a frame the
+right's does not have. Both relations in hand are shape-preserving, so both
+refuse the result.
+
+The two refusals fire at different indices, and the difference is a design fact
+about the new relation rather than an accident. `pakrel`'s refusal fires at
+index `1`: `paframes_rel` is `True` at index `0` and enforces equal length only
+from index `1`. `paridk`'s fires at EVERY index, index `0` included, because
+`paridf_stack` carries no `n = 0` guard and a cons against a nil reaches its
+final `False` clause outright.
+
+At index `0`, the two approximants agree on equal-length stacks and part on
+length-mismatched stacks. **This statement is only about index `0`**; at higher
+indices the changed `PBindF` clause also separates equal-length stacks, as the
+congruence-arm witness shows.
+
+Scope, exactly: this is a refutation about TWO NAMED RELATIONS at ONE NAMED
+PAIR. **It is not the claim that `parid`'s absorbing arm is impossible, and it
+is not a claim about stack relations in general.** A relation with a surplus
+frame on the left is not refuted here.
+
+#### The surplus relation: right shape, wrong width
+
+`padx_stack` already is non-shape-preserving in exactly the right way, and it
+ACCEPTS `[PBindF PVar]` against the empty stack. So the length mismatch on
+which the two shape-preserving relations refuse the absorbing arm is not, by
+itself, what a surplus-frame relation objects to.
+
+But its deletion arm asks `f == PVar` LITERALLY, and it therefore REFUSES
+`[PBindF parid_nested_id]` against the empty stack even though
+`parid_nested_id` and `PVar` ARE `parid`-related at every accessible state and
+every related argument pair. The refusal is a FUNCTION DISEQUALITY and nothing
+deeper: the deletion arm forces the two continuations equal, hence equal at
+`gwrid_x`, and there one side is a `POp` and the other a `PVar`.
+
+The named gap: **a stack relation whose deletion arm asked `parid`-to-`PVar`
+instead of literal equality is neither built nor refuted here.** Nothing here
+rules one out and nothing here supplies one.
+
+#### Checked independently
+
+Two checks, and each changed the section.
+
+The first refuted a sentence in it. The section's own comment claimed the new
+relation is "trivial at index `0` exactly as `paframes_rel` is". It is not: at
+index `0` `paframes_rel` accepts a length-mismatched pair and `paridf_stack`
+refuses it. The section contradicted itself, because its own absorbing-arm
+comment already said this correctly; the comment was corrected.
+
+The second supplied something the section was missing. `paridk` appeared in no
+positive conclusion at a concrete pair anywhere in it: every concrete
+occurrence was a hypothesis or a refutation. So the section proved the
+implication from `pakrel` and separately refuted `pakrel` at the obstructing
+pair, without ever showing that the new relation ACCEPTS that pair — leaving
+open that the replacement is too narrow to matter. The check closed it, and
+its content is now in the file as two lemmas rather than as prose.
+
+#### Not proved
+
+- whether the congruence arm's two conjuncts can be DERIVED from `parid` at a
+  `POp`/`POp` pair — the arm choice itself is open;
+- every `pcomp` head other than `POp`, and every value rule other than the
+  `PBindF` one;
+- whether the named absorbing-arm pair gets past under a relation that is not
+  shape-preserving, in particular one whose deletion arm asks
+  `parid`-to-`PVar`;
+- any comparison of `pakrel` and `paridk` at an arbitrary `r` and `s`;
+- the first arrow itself: a configuration relation at `parid`, the store
+  component, the dispatcher, the run theorem and the `PDone` inversion are all
+  untouched;
+- a departure relation for the arbitrary-body pair, any elaboration of a
+  surface program into a family body, and the other four laws.
+
+#### A reading, not a result
+
+As a reading of the design rather than a consequence of any of it: one of the
+principal branches in taking the arbitrary-body departure relation forward is
+whether to introduce a non-shape-preserving stack relation to receive the
+absorbing arm, or to separate the absorbing arm into a different phase or
+domain. **That is a design judgement drawn from the two open items above —
+its necessity, its uniqueness, and its being the logically first obstacle are
+none of them proved.** The arm choice is itself unresolved, which is why this
+is one branch among others and not the branch.
+
 ### A discriminating example: `catch` against a prompt-local `Var`
 
 Can the recovery of a `catch` see the protected block's writes — global — or

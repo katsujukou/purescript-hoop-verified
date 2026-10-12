@@ -65988,3 +65988,679 @@ let gwrd_key_side_condition_false (#v #cl: Type) (b: paboundary v cl) (i: nat)
  * expected-failure marker is used, and no resource-limit or option pragma is
  * issued.  Every proof above runs at the file's default settings.
  *)
+
+
+(* ================================================================== *)
+(*  36. THE FIRST ARROW AT `parid`, AT ONE `POp` PUSH AND ONE          *)
+(*      `PBindF` RETURN: WHICH ARM SURVIVES A CHANGE OF STACK          *)
+(*      RELATION                                                       *)
+(*                                                                     *)
+(*  34.8's `gwrp_parid_bridge_would_suffice` NAMES, in prose, what a   *)
+(*  `parid`-indexed first arrow would have to re-establish.  This      *)
+(*  section turns the part of that prose that is about the STACK       *)
+(*  COMPONENT into machine-checked content, and no more than that      *)
+(*  part.                                                              *)
+(*                                                                     *)
+(*  WHAT IS ASKED HERE, AND ONLY THIS: take ONE `pstep` at a `POp`     *)
+(*  head and ONE `pstep` at a `PBindF` return, and ask whether the     *)
+(*  two arms of `parid` -- CONGRUENCE and ABSORBING -- survive them    *)
+(*  when the stack relation is allowed to change.                      *)
+(*                                                                     *)
+(*  WHAT IS NOT ASKED, AND NOT ANSWERED IN THIS SECTION: the           *)
+(*  dispatcher over the other `pcomp` heads, a transition-             *)
+(*  compatibility theorem, a run theorem, a configuration relation     *)
+(*  at `parid`, the store component, and the `PDone` inversion.  No    *)
+(*  lemma in this section states one and no lemma in this section      *)
+(*  refutes one; 32.13's and 34.9's ledgers are unchanged by it.       *)
+(* ================================================================== *)
+
+(* ---- 36.0 THE TWO TRANSITIONS, PINNED ---------------------------- *)
+
+(**
+ * **PROVED**, at arbitrary `v`, `cl`, `lk`, `apply`, body, continuation, stack,
+ * store and counter: one `pstep` at a `POp` head moves the body into the
+ * computation position and PUSHES the continuation as a `PBindF` frame, leaving
+ * the store and the counter alone.  This is `pstep`'s `POp` rule (2665) read
+ * back, and it mentions no relation.
+ *)
+let gwfa_op_pushes_bind (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                        (a: pcomp v cl) (f: pval v -> pcomp v cl)
+                        (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep lk apply
+             ({ st = PStep (POp a f) k; store = sto; next = n0 } <: pconf v cl)
+           == ({ st = PStep a (PBindF f :: k); store = sto; next = n0 }
+               <: pconf v cl))
+  = ()
+
+(**
+ * **PROVED**, at arbitrary types, `lk`, `apply`, value, continuation, stack,
+ * store and counter: one `pstep` at a `PVar` head over a `PBindF` frame POPS
+ * that frame and applies the continuation to the value, leaving the store and
+ * the counter alone.  This is `pstep`'s `PVar`/`PBindF` rule (2724), and it
+ * mentions no relation.
+ *)
+let gwfa_bind_returns (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+                      (x: pval v) (f: pval v -> pcomp v cl)
+                      (k: pstack v cl) (sto: pstore v cl) (n0: nat)
+  : Lemma (pstep lk apply
+             ({ st = PStep (PVar x) (PBindF f :: k); store = sto; next = n0 }
+              <: pconf v cl)
+           == ({ st = PStep (f x) k; store = sto; next = n0 } <: pconf v cl))
+  = ()
+
+(* ---- 36.1 THE KNOWN REFUTATION, AT AN ACTUAL TRANSITION ---------- *)
+
+(**
+ * **REFUTED FOR `pakrel`, AT THE PAIR NAMED HERE**; the other three conjuncts
+ * are PROVED.  At `fcl_rel` and `pabot`.
+ *
+ * 32.11's `parid_bind_frames_not_pafn_rel` (63851) refutes the direct
+ * componentwise phase at the level of FRAMES.  The conjuncts below re-run
+ * that refutation at the level of an actual machine step, so that the
+ * obstruction is visible as a fact about the transition and not only as a fact
+ * about `paframe_rel`'s `PBindF` clause (31017):
+ *
+ *  1. `POp (PVar gwrid_x) parid_nested_id` and `POp (PVar gwrid_x) PVar` are
+ *     `parid`-related at `pabot` THROUGH THE CONGRUENCE ARM -- `parid_op`
+ *     (63432), whose two premises are `parid_var` on the bodies and 32.11's
+ *     conjunct 1 on the continuations;
+ *  2. one `pstep` on each side at the EMPTY stack is `gwfa_op_pushes_bind`, and
+ *     it leaves the stacks `[PBindF parid_nested_id]` and `[PBindF PVar]`;
+ *  3. those two stacks are NOT `pakrel`-related, by `lemma_pakrel_cons_inv`
+ *     (33699) against `parid_bind_frames_not_pafn_rel`'s third conjunct, cited
+ *     and not re-proved.
+ *
+ * **THE SCOPE.**  This refutes `pakrel` AT THIS PAIR, and it says nothing
+ * about any relation other than `pakrel`: 36.2 exhibits a stack relation that
+ * DOES relate these two successors.
+ *)
+let gwfa_congruence_step_breaks_pakrel
+      (lk: plookup_t fcl) (apply: papply_t fv fcl)
+      (sto: pstore fv fcl) (n0: nat)
+  : Lemma (parid #fv #fcl fcl_rel pabot
+             (POp (PVar gwrid_x) parid_nested_id)
+             (POp (PVar gwrid_x) (PVar #fv #fcl)) /\
+           pstep lk apply
+             ({ st = PStep (POp (PVar gwrid_x) parid_nested_id)
+                           ([] <: pstack fv fcl);
+                store = sto; next = n0 } <: pconf fv fcl)
+           == ({ st = PStep (PVar gwrid_x) [PBindF parid_nested_id];
+                 store = sto; next = n0 } <: pconf fv fcl) /\
+           pstep lk apply
+             ({ st = PStep (POp (PVar gwrid_x) (PVar #fv #fcl))
+                           ([] <: pstack fv fcl);
+                store = sto; next = n0 } <: pconf fv fcl)
+           == ({ st = PStep (PVar gwrid_x) [PBindF (PVar #fv #fcl)];
+                 store = sto; next = n0 } <: pconf fv fcl) /\
+           ~(pakrel #fv #fcl fcl_rel pabot
+               [PBindF parid_nested_id] [PBindF (PVar #fv #fcl)]))
+  = lemma_pabot_wf ();
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    parid_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    parid_bind_frames_not_pafn_rel ();
+    parid_op #fv #fcl fcl_rel pabot (PVar gwrid_x) (PVar gwrid_x)
+             parid_nested_id (PVar #fv #fcl);
+    gwfa_op_pushes_bind lk apply (PVar gwrid_x) parid_nested_id
+                        ([] <: pstack fv fcl) sto n0;
+    gwfa_op_pushes_bind lk apply (PVar gwrid_x) (PVar #fv #fcl)
+                        ([] <: pstack fv fcl) sto n0;
+    introduce pakrel #fv #fcl fcl_rel pabot
+                [PBindF parid_nested_id] [PBindF (PVar #fv #fcl)] ==> False
+    with begin
+      lemma_pakrel_cons_inv #fv #fcl fcl_rel pabot
+        (PBindF parid_nested_id) (PBindF (PVar #fv #fcl))
+        ([] <: pstack fv fcl) ([] <: pstack fv fcl);
+      assert (pafrel #fv #fcl fcl_rel pabot
+                (PBindF parid_nested_id) (PBindF (PVar #fv #fcl)))
+    end
+
+(* ---- 36.2 A STACK RELATION THAT CLOSES THE CONGRUENCE ARM -------- *)
+
+(**
+ * **`paframes_rel` WITH THE `PBindF` CLAUSE ASKING `parid_rel`.** A definition,
+ * not a theorem.  Every clause is `paframes_rel`'s (31067) except the one for
+ * two `PBindF` frames, where the `pacomp_rel` obligation `paframe_rel` carries
+ * at 31017 is replaced by `parid_rel` at the same index and under the same
+ * future quantifier.
+ *
+ * Two departures from `paframes_rel`'s shape, both deliberate.  The recursion
+ * is on the STACK rather than on `%[n; 3; length]`, because the index never
+ * moves.  And there is no `if n = 0` guard -- which does NOT leave index `0`
+ * trivial the way `paframes_rel`'s guard does.  The two APPROXIMANTS agree at
+ * index `0` on two stacks of EQUAL LENGTH: every clause reduces to `True`,
+ * because `parid_rel r 0` and `paframe_rel r 0` are both `True`.  They part at
+ * index `0` on two stacks of DIFFERENT LENGTH: `paframes_rel` is `True` at
+ * index `0` and enforces equal length only from index `1`, while
+ * `paridf_stack` reaches its final `| _, _ -> False` clause at index `0`
+ * exactly as at any other index, and so enforces equal length at EVERY index.
+ *
+ * **THAT IS A STATEMENT ABOUT INDEX `0` ONLY**, and at index `0` it is a
+ * difference at length-mismatched pairs only.  It is why 36.3's `paridk`
+ * refusal fires at index `0` while 36.3's `pakrel` refusal fires at index `1`.
+ * It is NOT a statement about `pakrel` against `paridk`: those are the
+ * INTERSECTIONS over all indices, they both refuse a length-mismatched pair,
+ * and they are separated instead at an EQUAL-LENGTH pair, by
+ * `gwfa_paridk_strictly_wider_than_pakrel` below.
+ *
+ * It is SHAPE-PRESERVING: the final clause is `False`, so related stacks have
+ * equal length.  36.3 is about what that costs.
+ *)
+let rec paridf_stack (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                     (k1 k2: pstack v cl) : GTot prop (decreases k1)
+  = match k1, k2 with
+    | [], [] -> True
+    | PBindF g1 :: t1, PBindF g2 :: t2 ->
+      (forall (s': pastate) (y1 y2: pval v).
+         paext s' s /\ pval_rel s'.aw y1 y2 ==>
+         parid_rel r n s' (g1 y1) (g2 y2))
+      /\ paridf_stack r n s t1 t2
+    | f1 :: t1, f2 :: t2 ->
+      paframe_rel r n s f1 f2 /\ paridf_stack r n s t1 t2
+    | _, _ -> False
+
+(** The intersection of the approximants, as `pakrel` (31118) is of
+    `paframes_rel`. *)
+let paridk (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate) (k1 k2: pstack v cl)
+  : GTot prop
+  = forall (n: nat). paridf_stack r n s k1 k2
+
+(** The two `squash`-to-`squash` casts, for the reason `pacrel_unfold` records:
+    an application of a `GTot prop` definition is an ATOM in hypothesis position
+    and the quantifiers inside it are otherwise invisible. *)
+let paridf_stack_unfold (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                        (k1 k2: pstack v cl)
+                        (h: squash (paridf_stack r n s k1 k2))
+  : squash (match k1, k2 with
+            | [], [] -> True
+            | PBindF g1 :: t1, PBindF g2 :: t2 ->
+              (forall (s': pastate) (y1 y2: pval v).
+                 paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                 parid_rel r n s' (g1 y1) (g2 y2))
+              /\ paridf_stack r n s t1 t2
+            | f1 :: t1, f2 :: t2 ->
+              paframe_rel r n s f1 f2 /\ paridf_stack r n s t1 t2
+            | _, _ -> False)
+  = h
+
+let paridk_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                  (k1 k2: pstack v cl) (h: squash (paridk r s k1 k2))
+  : squash (forall (n: nat). paridf_stack r n s k1 k2)
+  = h
+
+(** **PROVED**, at arbitrary `v`, `cl`, `r`, `s`, index, both continuations and
+    both tails: the `PBindF` clause comes from `pafn_rel_at` (31129) through
+    32.1's `parid_of_pacrel`, index by index.  Cut out of
+    `gwfa_paridf_of_pakrel` so that the weakening of `pacomp_rel` to
+    `parid_rel` is a lemma of its own. *)
+let gwfa_paridf_bind_head (#v #cl: Type) (r: pcl_rel_t cl) (n: nat) (s: pastate)
+                          (g1 g2: pval v -> pcomp v cl) (t1 t2: pstack v cl)
+  : Lemma (requires pafn_rel_at r s g1 g2 /\ paridf_stack r n s t1 t2)
+          (ensures paridf_stack r n s (PBindF g1 :: t1) (PBindF g2 :: t2))
+  = pafn_rel_at_unfold r s g1 g2 ();
+    introduce forall (s': pastate) (y1 y2: pval v).
+        (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+         parid_rel r n s' (g1 y1) (g2 y2))
+    with (introduce _ ==> _
+          with begin
+            parid_of_pacrel r s' (g1 y1) (g2 y2);
+            parid_unfold r s' (g1 y1) (g2 y2) ();
+            assert (parid_rel r n s' (g1 y1) (g2 y2))
+          end)
+
+(** **PROVED**, at arbitrary `v`, `cl`, `r`, `s`, index and both stacks, by
+    induction on the left stack: `pakrel` implies `paridf_stack` at every index.
+    The head dispatch is written out over `pframe`'s seven constructors because
+    the definition's clause order has to REDUCE and it reduces only at a known
+    head; the six non-`PBindF` heads land in the third clause, which is
+    `paframe_rel` on both sides, and a `PBindF` head against a head of any
+    other shape contradicts `paframe_rel r 1 s f1 f2`, which the context
+    carries. *)
+let rec gwfa_paridf_of_pakrel (#v #cl: Type) (r: pcl_rel_t cl) (n: nat)
+                              (s: pastate) (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2)
+          (ensures paridf_stack r n s k1 k2)
+          (decreases k1)
+  = match k1, k2 with
+    | [], [] -> ()
+    | f1 :: t1, f2 :: t2 ->
+      lemma_pakrel_cons_inv r s f1 f2 t1 t2;
+      gwfa_paridf_of_pakrel r n s t1 t2;
+      assert (paframe_rel r 1 s f1 f2);
+      assert (paframe_rel r n s f1 f2);
+      (match f1 with
+       | PBindF g1 ->
+         (match f2 with
+          | PBindF g2 ->
+            lemma_pafrel_bind_inv r s g1 g2;
+            gwfa_paridf_bind_head r n s g1 g2 t1 t2
+          | PParamF _ _ -> ()
+          | PPromptF _ _ _ -> ()
+          | PBoundaryF -> ()
+          | PSiteF _ -> ()
+          | PModeF _ _ -> ()
+          | PScopeF -> ())
+       | PParamF _ _ -> ()
+       | PPromptF _ _ _ -> ()
+       | PBoundaryF -> ()
+       | PSiteF _ -> ()
+       | PModeF _ _ -> ()
+       | PScopeF -> ())
+    | _, _ -> lemma_pakrel_shape r s k1 k2
+
+(** **PROVED**, at arbitrary `v`, `cl`, `r`, `s` and both stacks: `pakrel`
+    implies `paridk`.  The converse is not stated here and not proved here;
+    `gwfa_paridk_strictly_wider_than_pakrel` below exhibits a pair at which it
+    fails. *)
+let gwfa_paridk_of_pakrel (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                          (k1 k2: pstack v cl)
+  : Lemma (requires pakrel r s k1 k2) (ensures paridk r s k1 k2)
+  = introduce forall (n: nat). paridf_stack r n s k1 k2
+    with gwfa_paridf_of_pakrel r n s k1 k2
+
+(**
+ * **PROVED, AND IT IS ONE `POp` STEP.**  At arbitrary `v`, `cl`, `lk`, `apply`,
+ * `r`, `s`, the four computation components, both stacks, both stores and both
+ * counters.
+ *
+ * The hypotheses are the CONGRUENCE ARM's two conjuncts at the intersection
+ * level -- `parid` on the bodies, and `parid` on the continuations over every
+ * accessible state and every related argument pair -- together with `paridk` on
+ * the two stacks.  The conclusion names the two successors by
+ * `gwfa_op_pushes_bind` and says that their computation components are
+ * `parid`-related and their stack components `paridk`-related.
+ *
+ * **WHAT THIS IS NOT.**  It is not a transition-compatibility theorem and it is
+ * not a run theorem.  It is ONE `pstep`, at a pair ASSUMED to satisfy the
+ * congruence arm's conjuncts: `parid` at a `POp`/`POp` pair is a DISJUNCTION
+ * and `parid_op_inv` (63453) returns only that disjunction, so nothing here
+ * derives these hypotheses from `parid` at the pair itself.  It covers one
+ * `pcomp` head and says nothing about the others, about the store component, or
+ * about any later step.
+ *)
+let gwfa_congruence_step_keeps_paridk
+      (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+      (r: pcl_rel_t cl) (s: pastate)
+      (a1 a2: pcomp v cl) (f1 f2: pval v -> pcomp v cl)
+      (k1 k2: pstack v cl) (sto1 sto2: pstore v cl) (m1 m2: nat)
+  : Lemma (requires parid r s a1 a2 /\
+                    (forall (s': pastate) (y1 y2: pval v).
+                       paext s' s /\ pval_rel s'.aw y1 y2 ==>
+                       parid r s' (f1 y1) (f2 y2)) /\
+                    paridk r s k1 k2)
+          (ensures
+             pstep lk apply
+               ({ st = PStep (POp a1 f1) k1; store = sto1; next = m1 }
+                <: pconf v cl)
+             == ({ st = PStep a1 (PBindF f1 :: k1); store = sto1; next = m1 }
+                 <: pconf v cl) /\
+             pstep lk apply
+               ({ st = PStep (POp a2 f2) k2; store = sto2; next = m2 }
+                <: pconf v cl)
+             == ({ st = PStep a2 (PBindF f2 :: k2); store = sto2; next = m2 }
+                 <: pconf v cl) /\
+             parid r s a1 a2 /\
+             paridk r s (PBindF f1 :: k1) (PBindF f2 :: k2))
+  = gwfa_op_pushes_bind lk apply a1 f1 k1 sto1 m1;
+    gwfa_op_pushes_bind lk apply a2 f2 k2 sto2 m2;
+    paridk_unfold r s k1 k2 ();
+    introduce forall (n: nat).
+        paridf_stack r n s (PBindF f1 :: k1) (PBindF f2 :: k2)
+    with begin
+      introduce forall (s': pastate) (y1 y2: pval v).
+          (paext s' s /\ pval_rel s'.aw y1 y2 ==>
+           parid_rel r n s' (f1 y1) (f2 y2))
+      with (introduce _ ==> _
+            with begin
+              parid_unfold r s' (f1 y1) (f2 y2) ();
+              assert (parid_rel r n s' (f1 y1) (f2 y2))
+            end);
+      assert (paridf_stack r n s k1 k2)
+    end
+
+(**
+ * **PROVED, AND IT IS ONE `PBindF` RETURN STEP.** At arbitrary `v`, `cl`, `lk`,
+ * `apply`, `r`, `s`, both continuations, both stacks, both values, both stores
+ * and both counters, under `pawf s`.
+ *
+ * `pawf s` is carried because `paridf_stack`'s `PBindF` clause quantifies over
+ * FUTURE states while the values arrive at `s` itself; `lemma_paext_refl_wf`
+ * (30885) supplies `paext s s` and it is the lemma that wants `pawf s`.  No
+ * hypothesis beyond `pawf s`, `paridk` and `pval_rel` is carried here, and no
+ * attempt is made here to drop `pawf s`.
+ *
+ * **WHAT THIS IS NOT.** As above: ONE `pstep`, at ONE head, with no claim about
+ * any other head, about the store component, or about any later step.
+ *)
+let gwfa_bind_return_keeps_paridk
+      (#v #cl: Type) (lk: plookup_t cl) (apply: papply_t v cl)
+      (r: pcl_rel_t cl) (s: pastate)
+      (f1 f2: pval v -> pcomp v cl) (k1 k2: pstack v cl) (x1 x2: pval v)
+      (sto1 sto2: pstore v cl) (m1 m2: nat)
+  : Lemma (requires pawf s /\
+                    paridk r s (PBindF f1 :: k1) (PBindF f2 :: k2) /\
+                    pval_rel s.aw x1 x2)
+          (ensures
+             pstep lk apply
+               ({ st = PStep (PVar x1) (PBindF f1 :: k1);
+                  store = sto1; next = m1 } <: pconf v cl)
+             == ({ st = PStep (f1 x1) k1; store = sto1; next = m1 }
+                 <: pconf v cl) /\
+             pstep lk apply
+               ({ st = PStep (PVar x2) (PBindF f2 :: k2);
+                  store = sto2; next = m2 } <: pconf v cl)
+             == ({ st = PStep (f2 x2) k2; store = sto2; next = m2 }
+                 <: pconf v cl) /\
+             parid r s (f1 x1) (f2 x2) /\
+             paridk r s k1 k2)
+  = gwfa_bind_returns lk apply x1 f1 k1 sto1 m1;
+    gwfa_bind_returns lk apply x2 f2 k2 sto2 m2;
+    lemma_paext_refl_wf s;
+    paridk_unfold r s (PBindF f1 :: k1) (PBindF f2 :: k2) ();
+    introduce forall (n: nat). parid_rel r n s (f1 x1) (f2 x2)
+    with begin
+      paridf_stack_unfold r n s (PBindF f1 :: k1) (PBindF f2 :: k2) ();
+      assert (parid_rel r n s (f1 x1) (f2 x2))
+    end;
+    introduce forall (n: nat). paridf_stack r n s k1 k2
+    with begin
+      paridf_stack_unfold r n s (PBindF f1 :: k1) (PBindF f2 :: k2) ();
+      assert (paridf_stack r n s k1 k2)
+    end
+
+(**
+ * **PROVED**, at `fcl_rel` and `pabot`: `paridk` RELATES the very pair 36.1
+ * shows `pakrel` refuses -- `[PBindF parid_nested_id]` against
+ * `[PBindF PVar]`, which are the two stacks the `POp` step of 36.1's
+ * congruence-arm pair leaves behind.
+ *
+ * **IT IS OBTAINED BY INSTANTIATING `gwfa_congruence_step_keeps_paridk`**, at
+ * `fv`, `fcl`, `pref_lookup` (1948), `fapply` (9320), `fcl_rel`, `pabot`, the
+ * two bodies `PVar gwrid_x`, the two continuations `parid_nested_id` and
+ * `PVar`, the two EMPTY stacks, the empty store twice and `0` twice.  So it
+ * carries a second fact beside its statement: THAT LEMMA'S THREE HYPOTHESES
+ * ARE MET AT A CONCRETE PAIR, and the positive half of this section is
+ * therefore not vacuous.  The three are discharged here by `parid_var` on the
+ * bodies, by 32.11's conjunct 1 -- `parid_bind_frames_not_pafn_rel`, cited and
+ * not re-proved -- on the continuations, and by `paridf_stack`'s `[], []`
+ * clause on the two stacks.
+ *
+ * That is ONE pair, at `fcl_rel` and at `pabot`.  It is not a claim that those
+ * three hypotheses are satisfiable in general.
+ *
+ * It is also what 36.2 is FOR: a replacement that refused this pair as well
+ * would leave 36.1's obstruction exactly where it was.
+ *)
+let gwfa_paridk_admits_the_broken_pair ()
+  : Lemma (paridk #fv #fcl fcl_rel pabot
+             [PBindF parid_nested_id] [PBindF (PVar #fv #fcl)])
+  = lemma_pabot_wf ();
+    assert (pval_rel #fv pabot.aw gwrid_x gwrid_x);
+    parid_var #fv #fcl fcl_rel pabot gwrid_x gwrid_x;
+    parid_bind_frames_not_pafn_rel ();
+    introduce forall (n: nat).
+        paridf_stack #fv #fcl fcl_rel n pabot
+          ([] <: pstack fv fcl) ([] <: pstack fv fcl)
+    with ();
+    assert (paridk #fv #fcl fcl_rel pabot
+              ([] <: pstack fv fcl) ([] <: pstack fv fcl));
+    gwfa_congruence_step_keeps_paridk #fv #fcl (pref_lookup #fcl) fapply
+      fcl_rel pabot (PVar gwrid_x) (PVar gwrid_x)
+      parid_nested_id (PVar #fv #fcl)
+      ([] <: pstack fv fcl) ([] <: pstack fv fcl)
+      ([] <: pstore fv fcl) ([] <: pstore fv fcl) 0 0
+
+(**
+ * **PROVED, AND THE STRICTNESS IS AT THAT PAIR.**  At `fcl_rel` and `pabot`:
+ * `paridk` relates `[PBindF parid_nested_id]` to `[PBindF PVar]` and `pakrel`
+ * does not.  The first conjunct is `gwfa_paridk_admits_the_broken_pair`; the
+ * second is `gwfa_congruence_step_breaks_pakrel`'s fourth conjunct, cited and
+ * not re-proved.  That lemma is stated at arbitrary `lk`, `apply`, store and
+ * counter and its fourth conjunct mentions none of them, so it is instantiated
+ * here at `pref_lookup`, `fapply`, the empty store and `0`.
+ *
+ * Together with `gwfa_paridk_of_pakrel` this makes the containment PROPER AT
+ * THIS PAIR, AT `fcl_rel` AND AT `pabot`, and that is the whole of the claim.
+ * The two relations are not compared at an arbitrary `r` and `s` anywhere in
+ * this section; `paridk` is not claimed to be a minimal weakening of `pakrel`;
+ * and it is not claimed to be the repair the first arrow needs.
+ *)
+let gwfa_paridk_strictly_wider_than_pakrel ()
+  : Lemma (paridk #fv #fcl fcl_rel pabot
+             [PBindF parid_nested_id] [PBindF (PVar #fv #fcl)] /\
+           ~(pakrel #fv #fcl fcl_rel pabot
+               [PBindF parid_nested_id] [PBindF (PVar #fv #fcl)]))
+  = gwfa_paridk_admits_the_broken_pair ();
+    gwfa_congruence_step_breaks_pakrel (pref_lookup #fcl) fapply
+      ([] <: pstore fv fcl) 0
+
+(* ---- 36.3 THE ABSORBING ARM AND A SHAPE-PRESERVING STACK --------- *)
+
+(**
+ * **REFUTED FOR `pakrel` AND FOR `paridk`, AT THE PAIR NAMED HERE**; the other
+ * two conjuncts are PROVED.  At `fcl_rel` and `pabot`.
+ *
+ * `parid`'s ABSORBING arm relates `POp a1 f1` to a `c2` whose head need not be
+ * `POp`. `parid_not_symmetric` (63879) supplies such a pair: `gwrid_cl` (59877)
+ * is `POp (PVar gwrid_x) PVar` and `gwrid_cr` (59878) is `PVar gwrid_x`.  Put
+ * both at the EMPTY stack. One `pstep` on the left is `gwfa_op_pushes_bind` and
+ * leaves the stack `[PBindF PVar]`, of length one; the right-hand
+ * configuration's stack is `[]`, of length zero.  Those two stacks are related
+ * by neither of the two stack relations this section has in hand:
+ *
+ *   - not by `pakrel`, and the refusal fires at index `1`: `lemma_pakrel_shape`
+ *     (33708) reads `paframes_rel r 1 s` and gets `Nil? k1 == Nil? k2`;
+ *   - not by `paridk`, and the refusal fires at EVERY index, index `0`
+ *     included, because `paridf_stack` carries no `if n = 0` guard and a cons
+ *     against a nil reaches its final `| _, _ -> False` clause outright.
+ *
+ * **THE SCOPE, EXACTLY.** This is a refutation about TWO NAMED RELATIONS at ONE
+ * NAMED PAIR.  It is not the claim that `parid`'s absorbing arm is impossible,
+ * and it is not a claim about stack relations in general: a relation with a
+ * surplus frame on the left is not refuted here, and 36.4 looks at one such
+ * relation that is already in this file.
+ *)
+let gwfa_absorbing_step_leaves_the_shape
+      (lk: plookup_t fcl) (apply: papply_t fv fcl)
+      (sto: pstore fv fcl) (n0: nat)
+  : Lemma (parid #fv #fcl fcl_rel pabot gwrid_cl gwrid_cr /\
+           pstep lk apply
+             ({ st = PStep gwrid_cl ([] <: pstack fv fcl);
+                store = sto; next = n0 } <: pconf fv fcl)
+           == ({ st = PStep (PVar gwrid_x) [PBindF (PVar #fv #fcl)];
+                 store = sto; next = n0 } <: pconf fv fcl) /\
+           ~(pakrel #fv #fcl fcl_rel pabot
+               [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl)) /\
+           ~(paridk #fv #fcl fcl_rel pabot
+               [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl)))
+  = parid_not_symmetric ();
+    gwfa_op_pushes_bind lk apply (PVar gwrid_x) (PVar #fv #fcl)
+                        ([] <: pstack fv fcl) sto n0;
+    introduce pakrel #fv #fcl fcl_rel pabot
+                [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl) ==> False
+    with lemma_pakrel_shape #fv #fcl fcl_rel pabot
+           [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl);
+    introduce paridk #fv #fcl fcl_rel pabot
+                [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl) ==> False
+    with begin
+      paridk_unfold #fv #fcl fcl_rel pabot
+        [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl) ();
+      assert (paridf_stack #fv #fcl fcl_rel 0 pabot
+                [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl))
+    end
+
+(* ---- 36.4 THE SURPLUS RELATION: RIGHT SHAPE, WRONG WIDTH --------- *)
+
+(** The `squash`-to-`squash` cast for `padx_k` (41526), in the style of
+    `padx_ktop_unfold` (41500). *)
+let gwfa_padx_k_unfold (#v #cl: Type) (r: pcl_rel_t cl) (s: pastate)
+                       (k1 k2: pstack v cl) (h: squash (padx_k r s k1 k2))
+  : squash (forall (n: nat). padx_stack r n s k1 k2)
+  = h
+
+(**
+ * **PROVED**, at `fcl_rel` and `pabot`.  `padx_stack` (41511) is NOT
+ * shape-preserving, and its deletion arm accepts exactly the stack 36.3's left
+ * successor is: one `PBindF` frame with the LITERAL `PVar`, against the empty
+ * stack.  So the length mismatch on which 36.3 refutes `pakrel` and `paridk` is
+ * not, by itself, what a surplus-frame relation objects to.
+ *)
+let gwfa_padx_covers_literal_identity ()
+  : Lemma (padx_k #fv #fcl fcl_rel pabot
+             [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl))
+  = introduce forall (n: nat).
+        padx_stack #fv #fcl fcl_rel n pabot
+          [PBindF (PVar #fv #fcl)] ([] <: pstack fv fcl)
+    with ()
+
+(**
+ * **REFUTED FOR `padx_k`, AT THE STACK NAMED HERE**; the first conjunct is
+ * PROVED.  At `fcl_rel` and `pabot`.
+ *
+ * `padx_stack`'s deletion arm asks `f == PVar #v #cl` LITERALLY.  The first
+ * conjunct is 32.11's conjunct 1, cited and not re-proved: `parid_nested_id`
+ * (63598) and `PVar` ARE `parid`-related at every accessible state and every
+ * related argument pair. The second conjunct says `padx_k` nevertheless refuses
+ * the stack `[PBindF parid_nested_id]` against the empty stack, and the refusal
+ * is a FUNCTION DISEQUALITY and nothing deeper: the deletion arm forces
+ * `parid_nested_id == PVar`, hence `parid_nested_id gwrid_x == PVar gwrid_x`,
+ * and the left side is a `POp` while the right side is a `PVar`.  The other arm
+ * is `padx_stack`'s `| [] -> False` against a nil right-hand stack.
+ *
+ * **THE NAMED GAP.**  A stack relation whose deletion arm asked for
+ * `parid`-to-`PVar` instead of literal equality is NEITHER BUILT NOR REFUTED in
+ * this section.  Nothing in this section rules one out and nothing in this
+ * section supplies one.
+ *)
+let gwfa_padx_misses_parid_identity ()
+  : Lemma ((forall (s': pastate) (y1 y2: pval fv).
+              paext s' pabot /\ pval_rel s'.aw y1 y2 ==>
+              parid #fv #fcl fcl_rel s' (parid_nested_id y1)
+                                        (PVar #fv #fcl y2)) /\
+           ~(padx_k #fv #fcl fcl_rel pabot
+               [PBindF parid_nested_id] ([] <: pstack fv fcl)))
+  = parid_bind_frames_not_pafn_rel ();
+    introduce padx_k #fv #fcl fcl_rel pabot
+                [PBindF parid_nested_id] ([] <: pstack fv fcl) ==> False
+    with begin
+      gwfa_padx_k_unfold #fv #fcl fcl_rel pabot
+        [PBindF parid_nested_id] ([] <: pstack fv fcl) ();
+      assert (padx_stack #fv #fcl fcl_rel 1 pabot
+                [PBindF parid_nested_id] ([] <: pstack fv fcl));
+      assert (parid_nested_id == PVar #fv #fcl);
+      assert (parid_nested_id gwrid_x == (PVar #fv #fcl) gwrid_x)
+    end
+
+(* ================================================================== *)
+(*  36.5 SECTION 36 LEDGER                                             *)
+(* ================================================================== *)
+
+(**
+ * **PROVED HERE.**
+ *
+ *  1. `gwfa_op_pushes_bind`, `gwfa_bind_returns`: the two transitions this
+ *     section is about, stated on `pstep` alone at arbitrary `lk`, `apply`,
+ *     components, store and counter, and mentioning no relation.
+ *
+ *  2. `paridf_stack` / `paridk`: a stack relation, with the two
+ *     `squash`-to-`squash` casts.  It is `paframes_rel` / `pakrel` with the
+ *     `PBindF`/`PBindF` clause asking `parid_rel` where `paframe_rel` asks
+ *     `pacomp_rel`, and it is SHAPE-PRESERVING.
+ *
+ *  3. `gwfa_paridf_bind_head`, `gwfa_paridf_of_pakrel` and
+ *     `gwfa_paridk_of_pakrel`: `pakrel` implies `paridk`, at arbitrary
+ *     types, `r`, `s` and both stacks, through 32.1's `parid_of_pacrel`.
+ *     `gwfa_paridk_admits_the_broken_pair` and
+ *     `gwfa_paridk_strictly_wider_than_pakrel`: at `fcl_rel` and `pabot`,
+ *     `paridk` RELATES `[PBindF parid_nested_id]` to `[PBindF PVar]`, which
+ *     is the pair item 7 shows `pakrel` refuses, so with the implication just
+ *     stated the containment is PROPER AT THAT PAIR, at `fcl_rel` and at
+ *     `pabot`.  That is the whole of the comparison: the two relations are not
+ *     compared at an arbitrary `r` and `s`, `paridk` is not claimed to be a
+ *     minimal weakening, and it is not claimed to be the repair.
+ *
+ *  4. `gwfa_congruence_step_keeps_paridk`: ONE `pstep` at a `POp`/`POp` pair.
+ *     Given the congruence arm's two conjuncts AS HYPOTHESES, and `paridk` on
+ *     the two stacks, the two successors have `parid`-related computations and
+ *     `paridk`-related stacks.  ITS THREE HYPOTHESES ARE MET AT A CONCRETE
+ *     PAIR: `gwfa_paridk_admits_the_broken_pair` instantiates it at `fcl_rel`,
+ *     `pabot`, the bodies `PVar gwrid_x`, the continuations `parid_nested_id`
+ *     and `PVar`, and the two EMPTY stacks, so the positive half of this
+ *     section is not vacuous.  That is ONE pair at `fcl_rel` and `pabot`, and
+ *     not a claim that the hypotheses are generally satisfiable.
+ *
+ *  5. `gwfa_bind_return_keeps_paridk`: ONE `pstep` at a `PVar` head over two
+ *     `PBindF` frames, under `pawf s`.  The popped continuations applied to the
+ *     two related values are `parid`-related and the two tails are
+ *     `paridk`-related.
+ *
+ *  6. `gwfa_padx_covers_literal_identity`: `padx_k fcl_rel pabot` accepts
+ *     `[PBindF PVar]` against `[]`.
+ *
+ * **REFUTED HERE.**  Each refutation is about a NAMED relation at a NAMED pair,
+ * and none of them is a claim about relations in general.
+ *
+ *  7. `gwfa_congruence_step_breaks_pakrel`: `pakrel fcl_rel pabot` REFUSES
+ *     `[PBindF parid_nested_id]` against `[PBindF PVar]` -- the two stacks the
+ *     `POp` step of 36.1's congruence-arm pair produces.  About `pakrel`, at
+ *     that pair.  The frame half is `parid_bind_frames_not_pafn_rel` (63851),
+ *     cited.
+ *
+ *  8. `gwfa_absorbing_step_leaves_the_shape`: `pakrel fcl_rel pabot` and
+ *     `paridk fcl_rel pabot` both REFUSE `[PBindF PVar]` against `[]` -- the
+ *     left successor's stack and the right configuration's stack, for
+ *     `parid_not_symmetric`'s absorbing-arm pair placed at the empty stack.
+ *     About those two relations, at that pair.
+ *
+ *  9. `gwfa_padx_misses_parid_identity`: `padx_k fcl_rel pabot` REFUSES
+ *     `[PBindF parid_nested_id]` against `[]`, although those two continuations
+ *     ARE `parid`-related.  About `padx_k`, at that stack; the refusal is
+ *     `padx_stack`'s literal `f == PVar`.
+ *
+ * **NEITHER PROVED NOR REFUTED HERE.**
+ *
+ * 10. Whether the congruence arm's two conjuncts can be DERIVED from `parid` at
+ *     a `POp`/`POp` pair.  Item 4 assumes them; `parid_op_inv` (63453) returns
+ *     only the disjunction, and no lemma in this section chooses a disjunct.
+ *
+ * 11. Every `pcomp` head other than `POp`, and every value rule other than the
+ *     `PBindF` one.  Items 4 and 5 step those two and no lemma in this section
+ *     steps another.
+ *
+ * 12. A stack relation admitting a surplus frame whose deletion arm asks
+ *     `parid`-to-`PVar` rather than literal equality.  Item 9 names the gap; no
+ *     lemma in this section builds such a relation and no lemma in this section
+ *     refutes one.
+ *
+ * 13. A transition-compatibility theorem, a run theorem, a configuration
+ *     relation at `parid`, the store component, and the `PDone` inversion. None
+ *     of these is stated in this section and none is refuted in this section.
+ *     34.8's list of what a `parid`-indexed first arrow would have to
+ *     re-establish is reduced by items 4 and 5 only to the extent that ONE step
+ *     at ONE head reduces it, which is not to the extent of any theorem on that
+ *     list.
+ *
+ * **THE JUDGEMENT THIS SECTION WAS ASKED FOR.**  Past the FIRST `POp` push:
+ *
+ *   - the CONGRUENCE arm DOES get past it under a changed stack relation, and
+ *     the change is not cosmetic: `paridk` is PROVED PROPERLY WIDER than
+ *     `pakrel` at the obstructing pair, at `fcl_rel` and at `pabot` (item 3
+ *     with item 7), so it admits the pair that broke the direct componentwise
+ *     construction.  Items 4 and 5 then hold at arbitrary types, `r` and
+ *     components -- item 5 under `pawf s`, item 4 at an arbitrary `s` -- but
+ *     they are one `POp` step and one `PBindF` return step at a pair whose
+ *     congruence conjuncts are ASSUMED, and that is the whole
+ *     extent of the positive answer;
+ *   - the NAMED ABSORBING-ARM PAIR does NOT get past the first push under
+ *     either of the two stack relations tested here.  Item 8 refutes `pakrel`
+ *     and `paridk` at the pair it names, and the reason is that the left steps
+ *     while the right does not and both relations are shape-preserving.
+ *     Whether that pair gets past under a relation that is not
+ *     shape-preserving is item 12, and item 12 is open; nothing here is a
+ *     statement about the absorbing arm at a pair other than the one named.
+ *
+ * Nothing in this section is discharged by an escape hatch: no unproved
+ * obligation is left standing, no hypothesis is postulated, no bodiless
+ * `val` is declared, no expected-failure marker is used, and no
+ * resource-limit or option pragma is issued.  Every proof in this section
+ * runs at the file's default settings.
+ *)
